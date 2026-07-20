@@ -135,6 +135,8 @@ export const ROUTES = {
   RIA_SETTINGS: "/ria/settings",
   RIA_PROFILE: "/ria/profile",
   KAI_HOME: buildKaiMarketRoute("market"),
+  /** Finite Market workspace. This is not a fourth Finance tab. */
+  KAI_NEWS: "/one/kai/news",
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
@@ -223,6 +225,16 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   ria: ROUTES.ONE_SETUP_RIA,
   "connected-systems": ROUTES.ONE_SETUP_CONNECTED_SYSTEMS,
 };
+
+/**
+ * Setup-owned routes that configure the root private agent but are not agent
+ * capabilities. Keep these out of `SETUP_CAPABILITY_ROUTES`: they must be
+ * admitted by the root journey without inventing capability completion or a
+ * generated voice action.
+ */
+export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  ROUTES.ONE_SETUP_CONNECTIONS,
+];
 
 /** Normal (post-setup) destinations; never use these to admit unresolved setup. */
 export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
@@ -501,6 +513,12 @@ export function isOneSetupCapabilityRoute(pathname: string): boolean {
   );
 }
 
+export function isOneSetupNavigationRoute(pathname: string): boolean {
+  return SETUP_NAVIGATION_ROUTES.includes(
+    normalizeStaticExportPathname(pathname),
+  );
+}
+
 /**
  * The investor-preferences wizard routes at `/one/setup/finance` and its
  * source-selection child. The legacy `/one/setup/kai` route is compatibility-only.
@@ -528,6 +546,7 @@ export function isOneSetupWizardRoute(pathname: string): boolean {
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
   return (
     isOneSetupRoute(pathname) ||
+    isOneSetupNavigationRoute(pathname) ||
     isOneSetupCapabilityRoute(pathname) ||
     isOneSetupWizardRoute(pathname)
   );

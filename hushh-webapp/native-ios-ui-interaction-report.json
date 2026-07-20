@@ -1,10 +1,26 @@
 {
-  "generated_at": "2026-07-17T06:42:15.755Z",
-  "destination": "platform=iOS Simulator,id=17D0825B-9BA4-42A1-AB40-4117F6CEBEE3",
+  "generated_at": "2026-07-20T04:13:39.245Z",
+  "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
+  "plan": {
+    "version": 1,
+    "digest": "a33ec8644bbef57b6d7c685c9dd902561f2a5a4e8e9e9aa8a61942922e79ba4f",
+    "flow_count": 14
+  },
   "flow_count": 14,
-  "passed_flows": 4,
-  "failed_flows": 1,
-  "ok": false,
+  "passed_flows": 7,
+  "failed_flows": 0,
+  "skipped_optional_flows": [
+    "marketplace-workspace-card"
+  ],
+  "skipped_conditional_ria_workspace_flows": [
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel"
+  ],
+  "ok": true,
   "flows": [
     "shell-investor-kai-analysis",
     "native-investor-kai-debate-preview-start",
@@ -16,71 +32,78 @@
     "shell-marketplace",
     "shell-profile",
     "shell-consents",
-    "ria-picks-source-category-tabs",
+    "ria-workspace-admission",
     "ria-workspace-account-detail",
     "ria-workspace-access-panel",
     "marketplace-workspace-card"
   ],
   "report": {
-    "errorClass": "other",
-    "completedAt": "2026-07-17T06:42:15.333Z",
+    "completedAt": "2026-07-20T04:13:38.344Z",
     "flows": [
       {
-        "id": "shell-investor-kai-analysis",
         "description": "Investor shell: Market -> Analysis",
-        "ok": true,
-        "optional": false,
         "results": [
           {
-            "ok": true,
             "type": "ensure_persona",
+            "ok": true,
             "step": 0
           },
           {
+            "step": 1,
             "ok": true,
-            "type": "click_bottom_nav",
-            "step": 1
+            "type": "click_top_tab"
           },
           {
-            "step": 2,
             "ok": true,
-            "type": "click_bottom_nav"
+            "type": "assert_url_includes",
+            "step": 2
           },
           {
+            "ok": true,
             "type": "wait_beacon",
-            "ok": true,
             "step": 3
           },
           {
             "step": 4,
-            "type": "assert_visible_testid",
+            "type": "assert_viewport_visible_testid",
             "ok": true
+          },
+          {
+            "type": "assert_visible_testid",
+            "ok": true,
+            "step": 5
           }
         ],
-        "route": "/one/kai/analysis",
-        "failedStep": null
+        "failedStep": null,
+        "skipped": false,
+        "conditionalRiaWorkspace": false,
+        "ok": true,
+        "id": "shell-investor-kai-analysis",
+        "route": "/one/kai",
+        "skipClass": null,
+        "optional": false
       },
       {
         "results": [
           {
-            "step": 0,
             "type": "ensure_persona",
+            "step": 0,
             "ok": true
           },
           {
+            "step": 1,
             "ok": true,
-            "type": "navigate_route",
-            "step": 1
+            "type": "navigate_route"
           },
           {
-            "step": 2,
             "type": "wait_beacon",
-            "ok": true
+            "ok": true,
+            "step": 2
           },
           {
             "type": "wait_button",
-            "ok": true,
-            "step": 3
+            "step": 3,
+            "ok": true
           },
           {
             "ok": true,
@@ -93,80 +116,52 @@
             "step": 5
           }
         ],
-        "failedStep": null,
+        "route": "/one/kai",
+        "skipped": false,
         "ok": true,
+        "description": "Investor analysis preview: select list source and start debate without active-run loop",
         "id": "native-investor-kai-debate-preview-start",
         "optional": false,
-        "description": "Investor analysis preview: select list source and start debate without active-run loop",
-        "route": "/one/kai/analysis"
-      },
-      {
-        "description": "Investor shell: Portfolio tab",
-        "ok": true,
-        "id": "shell-investor-kai-portfolio",
-        "optional": false,
-        "route": "/one/kai/portfolio",
+        "conditionalRiaWorkspace": false,
         "failedStep": null,
-        "results": [
-          {
-            "step": 0,
-            "type": "ensure_persona",
-            "ok": true
-          },
-          {
-            "step": 1,
-            "ok": true,
-            "type": "click_bottom_nav"
-          },
-          {
-            "type": "wait_beacon",
-            "ok": true,
-            "step": 2
-          }
-        ]
+        "skipClass": null
       },
       {
-        "description": "Investor shell: Portfolio -> import route",
-        "route": "/one/kai/import",
+        "skipped": false,
+        "conditionalRiaWorkspace": false,
+        "id": "shell-investor-kai-portfolio",
         "results": [
           {
-            "type": "ensure_persona",
-            "step": 0,
-            "ok": true
-          },
-          {
             "ok": true,
+            "step": 0,
+            "type": "ensure_persona"
+          },
+          {
+            "type": "click_top_tab",
             "step": 1,
-            "type": "click_bottom_nav"
+            "ok": true
           },
           {
-            "type": "wait_beacon",
             "step": 2,
-            "ok": true
-          },
-          {
-            "type": "navigate_route",
-            "step": 3,
-            "ok": true
+            "ok": true,
+            "type": "assert_url_includes"
           },
           {
             "type": "wait_beacon",
-            "step": 4,
-            "ok": true
+            "ok": true,
+            "step": 3
           }
         ],
         "failedStep": null,
-        "id": "shell-investor-kai-import",
+        "route": "/one/kai",
+        "description": "Investor shell: Portfolio tab",
         "ok": true,
-        "optional": false
+        "optional": false,
+        "skipClass": null
       },
       {
-        "failedStep": {
-          "testId": "ria-action-bar",
-          "type": "assert_visible_testid"
-        },
-        "route": "/ria",
-        "id": "shell-ria-home",
+        "failedStep": null,
+        "route": "/one/kai/import",
         "results": [
           {
             "type": "ensure_persona",
@@ -175,31 +170,276 @@
           },
           {
             "step": 1,
-            "type": "click_bottom_nav",
+            "ok": true,
+            "type": "click_top_tab"
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
             "ok": true
           },
           {
-            "type": "wait_beacon",
             "ok": true,
-            "step": 2
+            "step": 3,
+            "type": "wait_beacon"
           },
           {
-            "ok": false,
+            "ok": true,
+            "type": "navigate_route",
+            "step": 4
+          },
+          {
+            "step": 5,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "id": "shell-investor-kai-import",
+        "skipClass": null,
+        "optional": false,
+        "skipped": false,
+        "description": "Investor shell: Portfolio -> import route",
+        "conditionalRiaWorkspace": false,
+        "ok": true
+      },
+      {
+        "ok": true,
+        "results": [
+          {
+            "skipped": true,
+            "ok": true,
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "skipClass": "onboarding_admission"
+          }
+        ],
+        "skipped": true,
+        "description": "RIA shell: Home tab",
+        "optional": false,
+        "conditionalRiaWorkspace": true,
+        "skipClass": "onboarding_admission",
+        "route": "/ria",
+        "id": "shell-ria-home",
+        "failedStep": null
+      },
+      {
+        "optional": false,
+        "skipClass": "onboarding_admission",
+        "description": "RIA shell: Clients tab",
+        "ok": true,
+        "id": "shell-ria-clients",
+        "conditionalRiaWorkspace": true,
+        "route": "/ria/clients",
+        "skipped": true,
+        "failedStep": null,
+        "results": [
+          {
+            "skipped": true,
+            "ok": true,
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "skipped": true,
+        "description": "RIA shell: Picks tab",
+        "conditionalRiaWorkspace": true,
+        "optional": false,
+        "failedStep": null,
+        "id": "shell-ria-picks",
+        "ok": true,
+        "results": [
+          {
+            "skipped": true,
+            "step": 0,
+            "skipClass": "onboarding_admission",
+            "type": "ensure_ria_workspace",
+            "ok": true
+          }
+        ],
+        "route": "/ria/picks",
+        "skipClass": "onboarding_admission"
+      },
+      {
+        "results": [
+          {
+            "ok": true,
+            "type": "ensure_ria_workspace",
+            "skipClass": "onboarding_admission",
+            "skipped": true,
+            "step": 0
+          }
+        ],
+        "skipClass": "onboarding_admission",
+        "skipped": true,
+        "description": "RIA shell: Connect / marketplace",
+        "failedStep": null,
+        "optional": false,
+        "route": "/marketplace",
+        "ok": true,
+        "conditionalRiaWorkspace": true,
+        "id": "shell-marketplace"
+      },
+      {
+        "failedStep": null,
+        "route": "/one/profile",
+        "description": "Profile tab from shell",
+        "conditionalRiaWorkspace": false,
+        "skipClass": null,
+        "ok": true,
+        "id": "shell-profile",
+        "results": [
+          {
+            "type": "ensure_persona",
+            "ok": true,
+            "step": 0
+          },
+          {
+            "step": 1,
+            "type": "click_shell_action",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
             "type": "assert_visible_testid",
-            "errorClass": "other",
+            "ok": true
+          }
+        ],
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "ok": true,
+        "failedStep": null,
+        "route": "/one/consent",
+        "optional": false,
+        "description": "One shell: Consent tab",
+        "skipClass": null,
+        "results": [
+          {
+            "ok": true,
+            "step": 0,
+            "type": "ensure_persona"
+          },
+          {
+            "type": "navigate_route",
+            "ok": true,
+            "step": 1
+          },
+          {
+            "step": 2,
+            "ok": true,
+            "type": "wait_beacon"
+          },
+          {
+            "type": "assert_visible_testid",
+            "ok": true,
             "step": 3
           }
         ],
-        "ok": false,
-        "description": "RIA shell: Home tab",
-        "optional": false
+        "id": "shell-consents",
+        "skipped": false,
+        "conditionalRiaWorkspace": false
+      },
+      {
+        "skipClass": null,
+        "route": "/ria",
+        "conditionalRiaWorkspace": false,
+        "description": "RIA workspace resolves to fixed tabs or the verified onboarding admission state",
+        "results": [
+          {
+            "step": 0,
+            "ok": true,
+            "type": "ensure_persona"
+          },
+          {
+            "ok": true,
+            "type": "assert_ria_workspace_admission",
+            "step": 1
+          }
+        ],
+        "ok": true,
+        "optional": false,
+        "failedStep": null,
+        "id": "ria-workspace-admission",
+        "skipped": false
+      },
+      {
+        "conditionalRiaWorkspace": true,
+        "failedStep": null,
+        "id": "ria-workspace-account-detail",
+        "optional": false,
+        "route": "/ria/clients/[userId]/accounts/[accountId]",
+        "skipClass": "onboarding_admission",
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "ok": true,
+            "skipClass": "onboarding_admission",
+            "type": "ensure_ria_workspace",
+            "skipped": true
+          }
+        ],
+        "ok": true,
+        "description": "RIA workspace -> taxable brokerage account"
+      },
+      {
+        "skipped": true,
+        "failedStep": null,
+        "id": "ria-workspace-access-panel",
+        "route": "/ria/clients/[userId]",
+        "conditionalRiaWorkspace": true,
+        "ok": true,
+        "skipClass": "onboarding_admission",
+        "optional": false,
+        "description": "RIA workspace sharing/access panel",
+        "results": [
+          {
+            "type": "ensure_ria_workspace",
+            "skipped": true,
+            "ok": true,
+            "step": 0,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "skipClass": "onboarding_admission",
+            "skipped": true,
+            "ok": true
+          }
+        ],
+        "failedStep": null,
+        "skipClass": "onboarding_admission",
+        "optional": true,
+        "skipped": true,
+        "ok": true,
+        "conditionalRiaWorkspace": true,
+        "description": "Marketplace open workspace card when present",
+        "route": "/marketplace",
+        "id": "marketplace-workspace-card"
       }
     ],
-    "startedAt": "2026-07-17T06:41:37.304Z",
-    "ok": false
+    "ok": true,
+    "auditPlanVersion": 1,
+    "startedAt": "2026-07-20T04:13:22.447Z",
+    "auditPlanDigest": "a33ec8644bbef57b6d7c685c9dd902561f2a5a4e8e9e9aa8a61942922e79ba4f",
+    "auditRunId": "ios-mrspky9y"
   },
   "errorClass": null,
-  "failure_screenshot": "<external-test-artifact>",
+  "failure_screenshot": null,
   "last_status": {
     "route": "/ria/onboarding",
     "ready": "1",
@@ -215,7 +455,7 @@
     "uirunner": "1",
     "runui": "1",
     "uistarted": "1",
-    "uifailed": "1",
+    "uifailed": "0",
     "uiboot": "0",
     "persona": "ria",
     "primary_persona": "ria",
@@ -260,11 +500,14 @@
     "long_wait": "0",
     "visible404": "0",
     "ui_complete": "1",
-    "ui_ok": "0",
-    "ui_flow": "shell-ria-home",
-    "ui_step": "3",
-    "ui_step_type": "assert_visible_testid",
-    "ui_error_class": "other",
+    "ui_ok": "1",
+    "ui_run": "ios-mrspky9y",
+    "ui_plan": "a33ec8644bbef57b6d7c685c9dd902561f2a5a4e8e9e9aa8a61942922e79ba4f",
+    "ui_flow": "marketplace-workspace-card",
+    "ui_step": "0",
+    "ui_step_type": "ensure_ria_workspace",
+    "ui_layout": "",
+    "ui_error_class": "",
     "error_class": ""
   }
 }

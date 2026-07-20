@@ -55,7 +55,7 @@ are prompt posture only; generated actions and their guards remain execution aut
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
-- `/developers`
+- `/welcome?tab=<research|blog|developers>`
 - `/login`
 - `/register-phone`
 - `/logout`
@@ -102,6 +102,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/ria/requests`
 - `/ria/settings`
 - `/one/kai?tab=market`
+- `/one/kai/news`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`
 - `/one/kai/alpaca/oauth/return`
@@ -121,7 +122,15 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 
 Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
+`/developers`, `/research`, and `/blog` are also compatibility redirects. Their
+canonical public-workspace destinations are `/welcome?tab=developers`,
+`/welcome?tab=research`, and `/welcome?tab=blog`. Query-backed workspace tabs
+are semantic routes: they are individually indexed by the runtime topology
+maintenance contract even when Next.js mounts one physical page file.
+
 Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases remain redirect-only.
+
+`/one/kai/news` is a finite Market workspace, not a fourth Finance tab. The Market preview's **All news** control opens it, and its shared top-shell back control returns to Market. Its opaque server cursor addresses one cached market-news snapshot: requesting another page must slice that snapshot rather than initiate another provider fetch.
 
 Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only.
 They redirect into the canonical `/one/profile/<panel>` family, which is owned
@@ -192,11 +201,18 @@ The practical contract is split across:
 - mobile parity docs for platform-specific expectations and exceptions
 - `hushh-webapp/frontend-native-surface-map.generated.json` for the
   route-to-API/native/plugin/voice scaffold used by Codex agents and parity audits
+- `contracts/architecture/runtime-topology-index.v1.json` for the generated
+  physical-route, semantic-route, compatibility, agent, and database-family
+  maintenance projection
 
 Connections-owned runtime configuration is intentionally a non-agent route pair:
 `/one/setup/connections` is the setup preface and `/one/connect/settings` is its
 management re-entry point. They publish no voice action contract because a
 provider-secret mutation must remain a direct, vault-gated UI action.
+The setup preface is admitted as a non-capability root-setup navigation route.
+An explicit managed/BYOK choice writes a bounded non-secret marker to the
+existing pre-vault setup-state set; the root setup cannot Skip or Finish until
+that marker is freshly verified.
 
 ## Relationship To Other Docs
 

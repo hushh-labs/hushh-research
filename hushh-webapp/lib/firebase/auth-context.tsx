@@ -47,6 +47,7 @@ import {
   removeLocalItem,
   removeSessionItem,
 } from "@/lib/utils/session-storage";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -269,36 +270,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Initialize on Mount - CRITICAL: Do not depend on `user` to avoid render loops
   useEffect(() => {
     let mounted = true;
+    let removeLifecycleListener: (() => void) | null = null;
 
     const init = async () => {
-      // App State Listener (Background clear)
-      if (typeof window !== "undefined" && IS_NATIVE) {
-        try {
-          const { App } = await import("@capacitor/app");
+      if (IS_NATIVE) {
+        removeLifecycleListener = appInteractionCoordinator.subscribeLifecycle(() => {
+          const lifecycle = appInteractionCoordinator.getLifecycleSnapshot();
+          if (lifecycle.state === "background") {
+            // Defensive cleanup for an obsolete storage key only. VaultProvider
+            // owns the actual in-memory vault and does not lock on background.
+            removeLocalItem("vault_key");
+            removeSessionItem("vault_key");
+            return;
+          }
 
-          await App.addListener("appStateChange", ({ isActive }) => {
-            if (!isActive) {
-              console.log(
-                "🔒 [AuthProvider] App backgrounded - clearing sensitive data"
-              );
-              // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
-              // Vault key should be managed by VaultContext (memory-only)
-              removeLocalItem("vault_key");
-              removeSessionItem("vault_key");
-
-              // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
-              // No need to force reload, which causes loops on some Android devices
-              return;
-            }
-
-            if (!userRef.current) {
-              console.log("🍎 [AuthProvider] App active with no in-memory user - rechecking native auth");
-              void checkAuth();
-            }
-          });
-        } catch (error) {
-          console.warn("⚠️ [AuthProvider] Failed to install native app-state listener", error);
-        }
+          if (!userRef.current) {
+            void checkAuth();
+          }
+        });
       }
 
       await checkAuth();
@@ -334,6 +323,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => {
       mounted = false;
+      removeLifecycleListener?.();
       unsubscribe();
     };
   }, [applyAuthUser, checkAuth]); // Do not depend on `user`; that would re-run auth init on every user state update.

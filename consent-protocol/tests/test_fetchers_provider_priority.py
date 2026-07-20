@@ -196,7 +196,40 @@ async def test_market_news_falls_back_from_finnhub_to_pmp(monkeypatch):
     rows = await fetchers.fetch_market_news("AAPL", "user_1", "vault_token")
     assert len(rows) == 1
     assert rows[0]["provider"] == "pmp_fmp"
-    assert called[:2] == ["finnhub_news", "pmp_news"]
+    assert called == ["finnhub_news", "pmp_news"]
+
+
+@pytest.mark.asyncio
+async def test_market_news_stops_after_the_first_useful_provider(monkeypatch):
+    monkeypatch.setattr(fetchers, "validate_token", _valid_token)
+    monkeypatch.setenv("FINNHUB_API_KEY", "fh")
+
+    called: list[str] = []
+
+    async def _finnhub_ok(_ticker: str, _days_back: int):
+        called.append("finnhub_news")
+        return [
+            {
+                "title": "Apple reports results",
+                "url": "https://example.com/apple-results",
+                "publishedAt": "2026-07-19T00:00:00Z",
+                "source": {"name": "Finnhub"},
+                "provider": "finnhub",
+            }
+        ]
+
+    async def _unexpected(*_args, **_kwargs):
+        called.append("unexpected")
+        raise AssertionError("fallback provider must not run after a usable result")
+
+    monkeypatch.setattr(fetchers, "_fetch_finnhub_company_news", _finnhub_ok)
+    monkeypatch.setattr(fetchers, "_fetch_pmp_news", _unexpected)
+    monkeypatch.setattr(fetchers, "_fetch_newsapi_articles", _unexpected)
+    monkeypatch.setattr(fetchers, "_fetch_google_news_rss", _unexpected)
+
+    rows = await fetchers.fetch_market_news("AAPL", "user_1", "vault_token")
+    assert len(rows) == 1
+    assert called == ["finnhub_news"]
 
 
 @pytest.mark.asyncio

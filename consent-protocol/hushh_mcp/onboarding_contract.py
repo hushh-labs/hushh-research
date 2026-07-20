@@ -19,6 +19,12 @@ SETUP_CAPABILITY_ORDER = (
 )
 SETUP_CAPABILITY_IDS = frozenset(SETUP_CAPABILITY_ORDER)
 
+# Root setup facts that use the same durable marker set without becoming
+# product-agent capabilities or generated actions.
+SETUP_PREREQUISITE_ORDER = ("connections",)
+SETUP_STATE_ORDER = SETUP_PREREQUISITE_ORDER + SETUP_CAPABILITY_ORDER
+SETUP_STATE_IDS = frozenset(SETUP_STATE_ORDER)
+
 
 def normalize_setup_capability_id(value: Any) -> str | None:
     """Return a current setup capability ID or ``None`` for stale input."""
@@ -29,12 +35,12 @@ def normalize_setup_capability_id(value: Any) -> str | None:
 
 
 def normalize_setup_capability_ids(values: Any) -> list[str]:
-    """Return current completed capabilities in canonical product order."""
+    """Return current setup markers in canonical root-setup order."""
     if not isinstance(values, list):
         return []
     admitted = {
-        capability
+        setup_id
         for value in values
-        if (capability := normalize_setup_capability_id(value)) is not None
+        if isinstance(value, str) and (setup_id := value.strip()) in SETUP_STATE_IDS
     }
-    return [capability for capability in SETUP_CAPABILITY_ORDER if capability in admitted]
+    return [setup_id for setup_id in SETUP_STATE_ORDER if setup_id in admitted]

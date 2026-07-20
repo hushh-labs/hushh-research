@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Building2 } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -42,10 +41,8 @@ export function ConnectedSystemsOnboardingSetupClient() {
     <AppPageShell as="main" width="standard" className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One / Setup"
-          title="Link your record to external systems"
-          description="Choose an available CRM, find your existing record, or create one where profile creation is supported."
-          icon={Building2}
+          title="CRM"
+          description="Find your existing CRM record or approve creating one from your verified identity."
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -58,6 +55,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
           systemId={systemId}
           setupRouteBase={ROUTES.ONE_SETUP_CONNECTED_SYSTEMS}
           onSetupReadinessChange={setReady}
+          presentation="setup"
         />
       </AppPageContentRegion>
       <SetupCapabilityTerminalFooter
@@ -71,7 +69,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Set up your private vault"
-          description="Set up or open your private vault to inspect CRM records and approve Connected Systems actions."
+          description="Set up or open your private vault to inspect CRM records and approve CRM actions."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

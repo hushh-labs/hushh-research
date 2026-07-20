@@ -12,6 +12,9 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 vi.mock("@/lib/kai/kai-market-home-resource", () => ({
   KaiMarketHomeResourceService: { invalidateUser: vi.fn() },
 }));
+vi.mock("@/lib/kai/kai-market-news-resource", () => ({
+  KaiMarketNewsResourceService: { invalidateUser: vi.fn() },
+}));
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
   UnlockWarmOrchestrator: { invalidateForUser: vi.fn() },
 }));

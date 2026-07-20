@@ -38,8 +38,8 @@ enum NativeTestArtifactSanitizer {
     ]
     private static let allowedErrorClasses: Set<String> = [
         "authentication", "identity", "network", "not_found", "other",
-        "permission", "rate_limit", "reference_error", "syntax_error",
-        "timeout", "type_error", "vault",
+            "permission", "rate_limit", "reference_error", "syntax_error",
+            "stalled", "timeout", "type_error", "vault",
     ]
 
     static func errorClass(_ rawValue: Any?) -> String {
@@ -54,6 +54,7 @@ enum NativeTestArtifactSanitizer {
         }
         if value.contains("404") || value.contains("not found") { return "not_found" }
         if value.contains("timeout") || value.contains("timed out") { return "timeout" }
+        if value.contains("stalled") || value.contains("no progress") { return "stalled" }
         if value.contains("network") || value.contains("connection") || value.contains("fetch") {
             return "network"
         }
@@ -168,13 +169,31 @@ struct NativeTestConfiguration {
           var config = \(json);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
           var initialRouteKey = "__hushh_native_test_initial_route_applied__";
-          var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+          function hasIncompleteUiFlowSession(runId) {
+            try {
+              var normalizedRunId = String(runId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+              var storageKey = "__hushh_native_ui_flow_state_v1" +
+                (normalizedRunId ? ":" + normalizedRunId : "");
+              var raw = window.sessionStorage.getItem(storageKey);
+              if (!raw) return false;
+              var state = JSON.parse(raw);
+              return state && state.started === true && state.complete !== true;
+            } catch (_) {
+              return false;
+            }
+          }
+          var uiFlowsOwnRouting =
+            (bridge.runUiFlows === true || config.runUiFlows === true) &&
+            (bridge._uiFlowsStarted === true ||
+              bridge._uiFlowsRoutingOwned === true ||
+              hasIncompleteUiFlowSession(config.uiFlowRunId));
           bridge.enabled = config.enabled === true;
           bridge.autoReviewerLogin = config.autoReviewerLogin === true;
           bridge.vaultPassphrase = config.vaultPassphrase || "";
           bridge.expectedUserId = config.expectedUserId || "";
           bridge.runUiFlows = bridge.runUiFlows === true || config.runUiFlows === true;
           bridge.uiFlowRunId = config.uiFlowRunId || "";
+          bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting;
           if (!uiFlowsOwnRouting) {
             bridge.initialRoute = config.initialRoute || null;
             bridge.expectedMarker = config.expectedMarker || null;
@@ -335,6 +354,8 @@ struct NativeTestConfiguration {
               uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
               uiFlowStepType: bridge.uiFlowStepType || "",
               uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+              uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
+              uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
               uiFlowLayout: bridge.uiFlowLayout || "",
               uiFlowErrorClass: classifyError(bridge.uiFlowErrorClass || bridge.uiFlowError || ""),
               uiFlowsComplete: bridge.uiFlowsComplete === true,
@@ -475,7 +496,25 @@ struct NativeTestConfiguration {
           var autoReviewerLogin = \(autoReviewerLogin);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
           var previousInitialRoute = bridge.initialRoute || "";
-          var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+          function hasIncompleteUiFlowSession(runId) {
+            try {
+              var normalizedRunId = String(runId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+              var storageKey = "__hushh_native_ui_flow_state_v1" +
+                (normalizedRunId ? ":" + normalizedRunId : "");
+              var raw = window.sessionStorage.getItem(storageKey);
+              if (!raw) return false;
+              var state = JSON.parse(raw);
+              return state && state.started === true && state.complete !== true;
+            } catch (_) {
+              return false;
+            }
+          }
+          var uiFlowsOwnRouting =
+            bridge.runUiFlows === true &&
+            (bridge._uiFlowsStarted === true ||
+              bridge._uiFlowsRoutingOwned === true ||
+              hasIncompleteUiFlowSession(bridge.uiFlowRunId));
+          bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting;
           if (!uiFlowsOwnRouting) {
             bridge.expectedMarker = marker;
             bridge.expectedRoute = expectedRoute;
@@ -552,6 +591,8 @@ struct NativeTestConfiguration {
             uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
             uiFlowStepType: bridge.uiFlowStepType || "",
             uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+            uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
+            uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
             uiFlowLayout: bridge.uiFlowLayout || "",
             uiFlowErrorClass: bridge.uiFlowErrorClass || "",
             uiFlowsComplete: bridge.uiFlowsComplete === true,

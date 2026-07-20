@@ -23,7 +23,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   useKaiBottomChromeElementTranslation(
     shellRef,
-    model.ambientEnabled && !model.navigationHidden,
+    !model.navigationHidden,
   );
 
   useLayoutEffect(() => {
@@ -68,9 +68,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
         }
         data-ambient-chrome-ignore
         onPointerDownCapture={
-          model.ambientEnabled && !model.navigationHidden
-            ? snapKaiBottomChromeVisible
-            : undefined
+          model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
         className="fixed inset-x-0 bottom-0 z-[118] flex flex-col items-center gap-1.5 px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))] transform-gpu"
       >

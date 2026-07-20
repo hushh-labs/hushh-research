@@ -1366,16 +1366,12 @@ export function ConsentCenterView({
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow={actor === "ria" ? "Consent Workspace" : "Consent Center"}
-          title={
-            actor === "ria"
-              ? "Outgoing requests, invites, and live advisor access"
-              : "Pending, active, and previous Kai access"
-          }
+          eyebrow="Access & sharing"
+          title="Consent Center"
           description={
             actor === "ria"
-              ? "Use the shared consent workspace to send request bundles, track investor decisions, and open ready workspaces without leaving the main shell."
-              : "One place to review pending approvals, active grants, and the full consent log for the current persona."
+              ? "Review outgoing requests, invitations, and active access."
+              : "Review pending requests, active access, and history."
           }
           icon={ClipboardList}
           accent="consent"

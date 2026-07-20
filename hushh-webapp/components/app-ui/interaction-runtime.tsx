@@ -16,9 +16,9 @@ export function InteractionRuntime(): null {
     let cancelled = false;
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        appInteractionCoordinator.handleLifecycle("background");
-      }
+      appInteractionCoordinator.handleLifecycle(
+        document.visibilityState === "hidden" ? "background" : "active",
+      );
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);

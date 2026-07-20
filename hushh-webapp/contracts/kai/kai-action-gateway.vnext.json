@@ -191,7 +191,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_setup_connected_systems",
-      "surface_title": "Linked Systems Setup",
+      "surface_title": "CRM Setup",
       "docs_references": [],
       "contract_file": "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
       "defaults": {
@@ -1283,7 +1283,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1306,11 +1306,7 @@
             "type": "action",
             "action_id": "auth.sign_in_google",
             "label": "Continue with Google",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -1386,7 +1382,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1409,11 +1405,7 @@
             "type": "action",
             "action_id": "auth.sign_in_apple",
             "label": "Continue with Apple",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -1488,7 +1480,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1511,11 +1503,7 @@
             "type": "action",
             "action_id": "auth.open_terms",
             "label": "Terms",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -1590,7 +1578,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1613,11 +1601,7 @@
             "type": "action",
             "action_id": "auth.open_privacy",
             "label": "Privacy Policy",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -1693,7 +1677,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1716,11 +1700,7 @@
             "type": "action",
             "action_id": "auth.close_legal",
             "label": "Close legal document",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -1798,7 +1778,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /login"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -1821,11 +1801,7 @@
             "type": "action",
             "action_id": "onboarding.back_to_intro",
             "label": "Back to welcome",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/login",
-              "screen": "login"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2018,11 +1994,7 @@
             "type": "action",
             "action_id": "route.analysis_history",
             "label": "Open Analysis History",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2258,11 +2230,7 @@
             "type": "action",
             "action_id": "analysis.resume_active",
             "label": "Resume Active Analysis Run",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2364,11 +2332,7 @@
             "type": "action",
             "action_id": "analysis.cancel_active",
             "label": "Cancel Active Analysis Run",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2586,11 +2550,7 @@
             "type": "action",
             "action_id": "kyc.aliases.manage",
             "label": "Manage verified addresses",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2693,11 +2653,7 @@
             "type": "action",
             "action_id": "kyc.workflow.sync_status",
             "label": "Sync request status",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2800,11 +2756,7 @@
             "type": "action",
             "action_id": "kyc.draft.review",
             "label": "Review response draft",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -2908,11 +2860,7 @@
             "type": "action",
             "action_id": "kyc.draft.request_redraft",
             "label": "Request response revision",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -3017,11 +2965,7 @@
             "type": "action",
             "action_id": "kyc.draft.approve_send",
             "label": "Approve response",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -3124,11 +3068,7 @@
             "type": "action",
             "action_id": "kyc.draft.reject",
             "label": "Reject response draft",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -3540,11 +3480,7 @@
             "type": "action",
             "action_id": "route.profile",
             "label": "Open Profile",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile",
-              "screen": "profile_account"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -3739,7 +3675,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/regulatory"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -3762,11 +3698,7 @@
             "type": "action",
             "action_id": "ria.profile.edit_services",
             "label": "Edit RIA services and fees",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile/regulatory",
-              "screen": "profile_regulatory"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4283,11 +4215,7 @@
             "type": "action",
             "action_id": "profile.support.submit_message",
             "label": "Submit Support Message",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile/support",
-              "screen": "profile_support_panel"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4384,11 +4312,7 @@
             "type": "action",
             "action_id": "profile.marketplace_visibility.toggle",
             "label": "Toggle Marketplace Visibility",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile/access",
-              "screen": "profile_privacy"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4485,11 +4409,7 @@
             "type": "action",
             "action_id": "profile.sign_out",
             "label": "Sign Out",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile",
-              "screen": "profile_account"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4588,11 +4508,7 @@
             "type": "action",
             "action_id": "profile.delete_account",
             "label": "Delete Account",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/profile",
-              "screen": "profile_account"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4618,16 +4534,16 @@
     {
       "action_id": "setup.finish_connected_systems",
       "surface_id": "one_setup_connected_systems",
-      "label": "Finish linking setup",
+      "label": "Finish CRM setup",
       "aliases": [
-        "finish linked systems setup",
-        "finish linking",
-        "finish tools setup"
+        "finish CRM setup",
+        "finish CRM",
+        "finish linking"
       ],
       "search_keywords": [
         "finish",
-        "link",
-        "systems"
+        "crm",
+        "link"
       ],
       "meaning": "Records an active CRM record binding and returns to setup.",
       "speaker_persona": "one",
@@ -4674,7 +4590,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/connected-systems"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -4696,7 +4612,7 @@
           {
             "type": "action",
             "action_id": "setup.finish_connected_systems",
-            "label": "Finish linking setup",
+            "label": "Finish CRM setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",
@@ -4727,18 +4643,18 @@
     {
       "action_id": "setup.skip_connected_systems",
       "surface_id": "one_setup_connected_systems",
-      "label": "Skip linking setup",
+      "label": "Skip CRM setup",
       "aliases": [
-        "skip linked systems setup",
-        "skip linking",
+        "skip CRM setup",
+        "skip CRM",
         "not now"
       ],
       "search_keywords": [
         "skip",
-        "link",
-        "systems"
+        "crm",
+        "link"
       ],
-      "meaning": "Returns to the setup hub without recording linked systems as complete.",
+      "meaning": "Returns to the setup hub without recording CRM setup as complete.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4780,7 +4696,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/connected-systems"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -4802,7 +4718,7 @@
           {
             "type": "action",
             "action_id": "setup.skip_connected_systems",
-            "label": "Skip linking setup",
+            "label": "Skip CRM setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",
@@ -4844,7 +4760,7 @@
         "kyc",
         "email"
       ],
-      "meaning": "Records KYC readiness and an initialized client connector, then returns to setup.",
+      "meaning": "Records the chosen automatic response-preparation setting and returns to setup.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4856,7 +4772,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "KYC readiness and the client connector are ready."
+          "The automatic response-preparation preference has loaded."
         ],
         "active_personas": [
           "investor",
@@ -4879,8 +4795,7 @@
         "one-setup-email-terminal"
       ],
       "state_exposure": [
-        "KYC readiness",
-        "connector readiness",
+        "automatic response-preparation setting",
         "active setup capability"
       ],
       "docs_references": [
@@ -4890,7 +4805,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/email"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -4996,7 +4911,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/email"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -5102,7 +5017,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance/import"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -5208,7 +5123,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -5315,7 +5230,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -5350,11 +5265,7 @@
             "type": "action",
             "action_id": "kai.setup.answer_horizon",
             "label": "Answer Investment Horizon",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -5436,7 +5347,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -5471,11 +5382,7 @@
             "type": "action",
             "action_id": "kai.setup.answer_drawdown",
             "label": "Answer Drawdown Response",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -5557,7 +5464,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -5592,11 +5499,7 @@
             "type": "action",
             "action_id": "kai.setup.answer_volatility",
             "label": "Answer Volatility Preference",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -5680,7 +5583,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/finance"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -5703,11 +5606,7 @@
             "type": "action",
             "action_id": "kai.setup.launch_dashboard",
             "label": "Save Finance Preferences",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -5787,7 +5686,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/location"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -5892,7 +5791,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/location"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -5999,7 +5898,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/ria"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -6103,7 +6002,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/ria"
+          "current route becomes /one/setup"
         ],
         "backend_effects": []
       },
@@ -6211,7 +6110,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /"
+          "current route becomes /login"
         ],
         "backend_effects": []
       },
@@ -6228,17 +6127,36 @@
         "goal_id": "goal.onboarding.claim_one",
         "required_inputs": [],
         "input_resolvers": [],
-        "slot_schema": {},
+        "slot_schema": {
+          "deferred_action_id": {
+            "type": "string",
+            "enum": [
+              "auth.sign_in_google",
+              "auth.sign_in_apple"
+            ]
+          }
+        },
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "onboarding.claim_one",
             "label": "Claim your One",
             "failure_behavior": "stop",
+            "action_id": "onboarding.claim_one",
             "settlement_target": {
-              "route": "/",
-              "screen": "one_intro"
+              "route": "/login",
+              "screen": "login"
             }
+          },
+          {
+            "type": "choice",
+            "label": "Choose a sign-in provider",
+            "failure_behavior": "stop",
+            "action_ids": [
+              "auth.sign_in_google",
+              "auth.sign_in_apple"
+            ],
+            "carry_explicit_choice": true,
+            "requires_fresh_context": true
           }
         ],
         "progress_contract": {
@@ -6322,7 +6240,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /register-phone"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -6352,11 +6270,7 @@
             "type": "action",
             "action_id": "phone_mandate.select_country",
             "label": "Choose Country Code",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/register-phone",
-              "screen": "phone_mandate"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -6438,7 +6352,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /register-phone"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -6461,11 +6375,7 @@
             "type": "action",
             "action_id": "phone_mandate.close_country_picker",
             "label": "Close Country Picker",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/register-phone",
-              "screen": "phone_mandate"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -6549,7 +6459,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /register-phone"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -6579,11 +6489,7 @@
             "type": "action",
             "action_id": "phone_mandate.submit_number",
             "label": "Submit Phone Number",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/register-phone",
-              "screen": "phone_mandate"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -6670,7 +6576,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /register-phone"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -6700,11 +6606,7 @@
             "type": "action",
             "action_id": "phone_mandate.submit_code",
             "label": "Submit Verification Code",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/register-phone",
-              "screen": "phone_mandate"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -6781,7 +6683,8 @@
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/clients/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+        "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
+        "hushh-webapp/lib/navigation/top-shell-tabs.ts"
       ],
       "workflow": null,
       "external_callback": null,
@@ -6922,11 +6825,7 @@
             "type": "action",
             "action_id": "ria.clients.open_client_workspace",
             "label": "Open Client Workspace",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients",
-              "screen": "ria_clients"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -7177,11 +7076,7 @@
             "type": "action",
             "action_id": "ria.onboarding.verify_name",
             "label": "Verify Advisor Name",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/onboarding",
-              "screen": "ria_onboarding"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -7294,11 +7189,7 @@
             "type": "action",
             "action_id": "ria.onboarding.submit_verification",
             "label": "Submit RIA Verification",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/onboarding",
-              "screen": "ria_onboarding"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -7409,11 +7300,7 @@
             "type": "action",
             "action_id": "ria.onboarding.dev_bypass_verification",
             "label": "Bypass RIA Verification In Dev",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/onboarding",
-              "screen": "ria_onboarding"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -7661,11 +7548,7 @@
             "type": "action",
             "action_id": "ria.home.open_priority_item",
             "label": "Open Priority Queue Item",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria",
-              "screen": "ria_home"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -7740,7 +7623,8 @@
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+        "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
+        "hushh-webapp/lib/navigation/top-shell-tabs.ts"
       ],
       "workflow": null,
       "external_callback": null,
@@ -8408,11 +8292,7 @@
             "type": "action",
             "action_id": "ria.picks.start_edit_package",
             "label": "Edit Advisor Package",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8523,11 +8403,7 @@
             "type": "action",
             "action_id": "ria.picks.save_package",
             "label": "Save Advisor Package",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8639,11 +8515,7 @@
             "type": "action",
             "action_id": "ria.picks.upload_csv_replace_top_picks",
             "label": "Upload Top Picks CSV",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8753,11 +8625,7 @@
             "type": "action",
             "action_id": "ria.picks.copy_from_kai",
             "label": "Copy Kai Package Into My List",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8863,11 +8731,7 @@
             "type": "action",
             "action_id": "ria.picks.discard_package_changes",
             "label": "Discard Advisor Package Changes",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8986,11 +8850,7 @@
             "type": "action",
             "action_id": "ria.picks.edit_rows_manual",
             "label": "Edit Picks Rows Manually",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks",
-              "screen": "ria_picks"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10250,11 +10110,7 @@
             "type": "action",
             "action_id": "route.consents",
             "label": "Open Consent Center",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/consent",
-              "screen": "consents"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10328,7 +10184,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai?tab=analysis"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -10351,11 +10207,7 @@
             "type": "action",
             "action_id": "analysis.back_to_history",
             "label": "Back to Analysis History",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10429,7 +10281,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai?tab=analysis"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -10452,11 +10304,7 @@
             "type": "action",
             "action_id": "analysis.open_debate_tab",
             "label": "Open Debate Tab",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10530,7 +10378,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai?tab=analysis"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -10553,11 +10401,7 @@
             "type": "action",
             "action_id": "analysis.open_summary_tab",
             "label": "Open Summary Tab",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10631,7 +10475,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai?tab=analysis"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -10654,11 +10498,7 @@
             "type": "action",
             "action_id": "analysis.open_detailed_tab",
             "label": "Open Detailed Analysis",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10736,7 +10576,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai?tab=analysis"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -10759,11 +10599,7 @@
             "type": "action",
             "action_id": "analysis.confirm_preview",
             "label": "Start Debate from Preview",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -10864,11 +10700,7 @@
             "type": "action",
             "action_id": "route.back",
             "label": "Go Back",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=market",
-              "screen": "kai_market"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -11065,11 +10897,7 @@
             "type": "action",
             "action_id": "route.kai_import",
             "label": "Open Portfolio Import",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai/import",
-              "screen": "kai_portfolio_dashboard"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -11832,7 +11660,7 @@
     {
       "action_id": "setup.open_connected_systems",
       "surface_id": "one_setup_hub",
-      "label": "Link your record to external systems",
+      "label": "CRM",
       "aliases": [
         "link my record to external systems",
         "link my record",
@@ -11848,7 +11676,7 @@
         "profile",
         "setup"
       ],
-      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
+      "meaning": "Opens CRM setup so the person can find an existing record or review creating one.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11912,7 +11740,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "Link your record to external systems",
+            "label": "CRM",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",
@@ -12003,7 +11831,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -12026,11 +11854,7 @@
             "type": "action",
             "action_id": "setup.hub_master_ack",
             "label": "Skip or finish setup",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup",
-              "screen": "one_setup_hub"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -12141,11 +11965,7 @@
             "type": "action",
             "action_id": "route.ria_client_account_detail",
             "label": "Open RIA Client Account Detail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients/[userId]/accounts/[accountId]",
-              "screen": "ria_client_account_detail"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -12374,11 +12194,7 @@
             "type": "action",
             "action_id": "route.ria_client_request_detail",
             "label": "Open RIA Client Request Detail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients/[userId]/requests/[requestId]",
-              "screen": "ria_client_request_detail"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -13204,11 +13020,7 @@
             "type": "action",
             "action_id": "ria.client_workspace.open_account_detail",
             "label": "Open Client Account Detail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients/[userId]",
-              "screen": "ria_client_workspace"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -13449,11 +13261,7 @@
             "type": "action",
             "action_id": "ria.client_workspace.request_access",
             "label": "Send Client Access Request",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients/[userId]?tab=access",
-              "screen": "ria_client_workspace_access"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -13572,11 +13380,7 @@
             "type": "action",
             "action_id": "ria.client_workspace.disconnect_relationship",
             "label": "Disconnect Client Relationship",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/clients/[userId]",
-              "screen": "ria_client_workspace"
-            }
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {

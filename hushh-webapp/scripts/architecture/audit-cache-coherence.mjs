@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -161,6 +162,7 @@ function cachePolicyFor(route, screenClass, flags) {
   if (route === "/kai/portfolio" || route === "/kai/analysis")
     return "secure-resource";
   if (route === "/one/kai") return "device-resource";
+  if (route === "/one/kai/news") return "device-resource";
   if (screenClass === "PKM-secure") return "secure-resource";
   if (screenClass === "realtime/SSE")
     return flags.secure_cache
@@ -197,6 +199,7 @@ function routeCacheKeys(route) {
       "KAI_MARKET_HOME_BASELINE",
       "KAI_DASHBOARD_PROFILE_PICKS",
     ];
+  if (route === "/one/kai/news") return ["KAI_MARKET_NEWS"];
   if (route === "/kai/portfolio")
     return ["KAI_FINANCIAL_RESOURCE", "PKM_METADATA", "DOMAIN_DATA(financial)"];
   if (route === "/kai/analysis")
@@ -236,6 +239,7 @@ function resourceClassesFor(route, screenClass) {
   if (route === "/kai/portfolio" || route === "/kai/analysis") {
     return ["financial_resource", "pkm_metadata"];
   }
+  if (route === "/one/kai/news") return ["market_data"];
   if (route.startsWith("/one/kai"))
     return ["market_data", "financial_resource"];
   if (route.startsWith("/ria")) return ["ria_workspace", "consent_list"];
@@ -299,7 +303,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
   ];
 
   if (
-    route.startsWith("/one/kai") ||
+    (route.startsWith("/one/kai") && route !== "/one/kai/news") ||
     route === "/one/profile" ||
     route === "/one/kyc" ||
     isConsentCenterRoute(route)
@@ -331,6 +335,9 @@ function ttlClassFor(route, screenClass) {
 function warmSourceFor(route, screenClass) {
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
+  if (route === "/one/kai/news") {
+    return "route resource loader with memory/device stale cache; personalized symbols are added only after vault unlock";
+  }
   if (route.startsWith("/one/kai"))
     return "UnlockWarmOrchestrator plus route resource loader";
   if (route.startsWith("/ria") || route.startsWith("/marketplace"))
@@ -516,7 +523,6 @@ function buildManifest() {
 
   return {
     schema_version: "hushh.cache_coherence_screen_manifest.v1",
-    generated_at: "2026-05-21",
     purpose:
       "Screen-level cache posture manifest used to keep warm-cache UX, TTL, route inventory, and reviewer verification aligned.",
     sources: {
@@ -556,6 +562,15 @@ function buildManifest() {
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function withContentDigest(value) {
+  return {
+    ...value,
+    content_sha256: createHash("sha256")
+      .update(JSON.stringify(value))
+      .digest("hex"),
+  };
 }
 
 /**
@@ -622,7 +637,7 @@ function linkageInvariants() {
 }
 
 const check = process.argv.includes("--check");
-const next = stableJson(buildManifest());
+const next = stableJson(withContentDigest(buildManifest()));
 
 if (check) {
   const current = fs.existsSync(outputPath) ? read(outputPath) : "";

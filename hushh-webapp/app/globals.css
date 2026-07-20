@@ -537,8 +537,8 @@ textarea {
    * gentler than overlays so navigation feels graceful, not abrupt. The exit
    * eases out softly and the enter glides in with a long decelerate. Keep the
    * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 500ms;
-  --motion-route-enter-duration: 600ms;
+  --motion-route-exit-duration: 300ms;
+  --motion-route-enter-duration: 360ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -824,8 +824,7 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    dialog and shift its center up by half the keyboard height so it stays in the
    band above the keyboard. Only active while kb-open, so desktop is untouched
    (kb-open is never set there). See mobile-bug-log B21. */
-html.kb-open
-  [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
+html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
   max-height: calc(100dvh - 2rem - var(--kb-height, 0px));
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
@@ -948,7 +947,11 @@ html.kb-open
  * keeps the active route's Foundation background visible through the shared
  * modal blur in both themes. */
 .activity-inbox-sheet-overlay {
-  background-color: color-mix(in oklab, var(--background) 86%, transparent) !important;
+  background-color: color-mix(
+    in oklab,
+    var(--background) 86%,
+    transparent
+  ) !important;
 }
 
 /* Anchor clearance: hash-targeted elements must clear the fixed top shell */
@@ -2699,8 +2702,6 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-top-fg: #1d1d1f;
   --ambient-chrome-bottom-bg: #ffffff;
   --ambient-chrome-bottom-fg: #1d1d1f;
-  --ambient-chrome-bottom-base-bg: #ffffff;
-  --ambient-chrome-bottom-base-fg: #1d1d1f;
 }
 
 .dark {
@@ -2708,8 +2709,6 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-top-fg: #f5f5f7;
   --ambient-chrome-bottom-bg: var(--background);
   --ambient-chrome-bottom-fg: #f5f5f7;
-  --ambient-chrome-bottom-base-bg: var(--background);
-  --ambient-chrome-bottom-base-fg: #f5f5f7;
 }
 
 .ambient-chrome-mask {
@@ -2742,14 +2741,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0%,
     #000 var(--ambient-chrome-ramp-hold),
-    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha)) var(--ambient-chrome-ramp-mid),
+    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha))
+      var(--ambient-chrome-ramp-mid),
     transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
     #000 0%,
     #000 var(--ambient-chrome-ramp-hold),
-    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha)) var(--ambient-chrome-ramp-mid),
+    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha))
+      var(--ambient-chrome-ramp-mid),
     transparent 100%
   );
 }
@@ -2786,7 +2787,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .ambient-chrome-mask--bottom {
-  --ambient-chrome-bg: var(--ambient-chrome-bottom-base-bg, #f5f5f7);
+  --ambient-chrome-bg: var(--ambient-chrome-bottom-bg, #f5f5f7);
   /* Match the Search Console dock: the bottom edge dissolves content into its
      live sampled tint rather than placing a second frosted slab over cards. */
   background-color: transparent;
@@ -3043,27 +3044,30 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    subtle highlight so the current route stays readable. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
-  color: var(--ambient-chrome-bottom-base-fg, #1d1d1f);
-  border: 1px solid color-mix(in srgb, var(--ambient-chrome-bottom-base-fg, #1d1d1f) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--ambient-chrome-bottom-base-bg, #f5f5f7) 74%, transparent) !important;
+  color: var(--ambient-chrome-bottom-fg, #1d1d1f);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--ambient-chrome-bottom-fg, #1d1d1f) 10%,
+      transparent
+    ) !important;
+  background: color-mix(
+    in srgb,
+    var(--ambient-chrome-bottom-bg, #f5f5f7) 74%,
+    transparent
+  ) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: blur(12px) saturate(130%);
   backdrop-filter: blur(12px) saturate(130%);
 }
 
-.dark .bottom-chrome-surface,
-.dark .kai-bottom-nav-pill {
-  color: var(--ambient-chrome-bottom-base-fg, #f5f5f7);
-}
-
 .kai-bottom-nav-pill [data-segment-indicator] {
-  background: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 8%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--ambient-chrome-bottom-fg, #1d1d1f) 8%,
+    transparent
+  ) !important;
   border: 0;
-  box-shadow: none !important;
-}
-
-.dark .kai-bottom-nav-pill [data-segment-indicator] {
-  background: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #f5f5f7) 10%, transparent) !important;
   box-shadow: none !important;
 }
 
@@ -3111,15 +3115,15 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 70%, transparent) !important;
+  color: color-mix(
+    in srgb,
+    var(--ambient-chrome-bottom-fg, #1d1d1f) 70%,
+    transparent
+  ) !important;
   min-height: 48px;
   gap: 0.2rem !important;
   padding: 0.4rem 0.2rem 0.42rem !important;
   letter-spacing: 0;
-}
-
-.dark .kai-bottom-nav-pill [role="radio"] {
-  color: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #f5f5f7) 82%, transparent) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
@@ -3127,15 +3131,11 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   font-weight: 600;
 }
 
-.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--app-accent) !important;
-}
-
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 18.5px;
-  height: 18.5px;
+  width: 21px;
+  height: 21px;
   opacity: 0.9;
-  stroke-width: 1.62;
+  stroke-width: 1.9;
   transform: translateY(0);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -3143,7 +3143,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 1.95;
+  stroke-width: 2.2;
   filter: drop-shadow(
     0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent)
   );
@@ -3166,11 +3166,11 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-search-action {
-  color: var(--ambient-chrome-bottom-base-fg, #1d1d1f) !important;
+  color: var(--ambient-chrome-bottom-fg, #1d1d1f) !important;
   border: 0 !important;
   background: color-mix(
     in srgb,
-    var(--ambient-chrome-bottom-base-fg, #1d1d1f) 6%,
+    var(--ambient-chrome-bottom-fg, #1d1d1f) 6%,
     transparent
   ) !important;
   box-shadow: none !important;
@@ -3178,15 +3178,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   backdrop-filter: none;
 }
 
-.dark .kai-bottom-search-action {
-  color: var(--ambient-chrome-bottom-base-fg, #f5f5f7) !important;
-  border: 0 !important;
-  background: color-mix(
-    in srgb,
-    var(--ambient-chrome-bottom-base-fg, #f5f5f7) 7%,
-    transparent
-  ) !important;
-  box-shadow: none !important;
+[data-app-bottom-shell]
+  .bottom-chrome-surface
+  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground),
+[data-app-bottom-shell]
+  .kai-bottom-nav-pill
+  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground) {
+  color: currentColor !important;
+}
+
+[data-app-bottom-shell] :is(.bottom-chrome-surface, .kai-bottom-nav-pill) svg {
+  color: currentColor;
+  stroke: currentColor;
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
@@ -3391,22 +3394,38 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-image:
     radial-gradient(
       circle at 4% 4%,
-      color-mix(in oklab, var(--app-accent) var(--foundation-ambient-primary), transparent),
+      color-mix(
+        in oklab,
+        var(--app-accent) var(--foundation-ambient-primary),
+        transparent
+      ),
       transparent 31%
     ),
     radial-gradient(
       circle at 100% 0%,
-      color-mix(in oklab, var(--app-accent-bright) var(--foundation-ambient-secondary), transparent),
+      color-mix(
+        in oklab,
+        var(--app-accent-bright) var(--foundation-ambient-secondary),
+        transparent
+      ),
       transparent 33%
     ),
     radial-gradient(
       circle at 0% 100%,
-      color-mix(in oklab, var(--app-accent) var(--foundation-ambient-tertiary), transparent),
+      color-mix(
+        in oklab,
+        var(--app-accent) var(--foundation-ambient-tertiary),
+        transparent
+      ),
       transparent 33%
     ),
     radial-gradient(
       circle at 100% 100%,
-      color-mix(in oklab, var(--app-accent-bright) var(--foundation-ambient-quaternary), transparent),
+      color-mix(
+        in oklab,
+        var(--app-accent-bright) var(--foundation-ambient-quaternary),
+        transparent
+      ),
       transparent 31%
     );
 }

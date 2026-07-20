@@ -84,7 +84,10 @@
     "103_demo_crm_response_contracts.sql",
     "104_crm_schema_mapping_cache.sql",
     "105_agentforce_mcp_compatibility.sql",
-    "106_agentforce_uat_profile.sql"
+    "106_agentforce_uat_profile.sql",
+    "107_canonical_mcp_credentials.sql",
+    "108_oauth_client_credentials_consent_execution.sql",
+    "109_one_email_kyc_preferences.sql"
   ],
   "groups": {
     "iam": [
@@ -131,7 +134,8 @@
       "101_backfill_crm_operation_endpoints.sql",
       "102_crm_operation_response_contract.sql",
       "103_demo_crm_response_contracts.sql",
-      "104_crm_schema_mapping_cache.sql"
+      "104_crm_schema_mapping_cache.sql",
+      "109_one_email_kyc_preferences.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -162,7 +166,9 @@
       "091_public_profile_projection_cutover.sql",
       "099_developer_oauth_pkce.sql",
       "105_agentforce_mcp_compatibility.sql",
-      "106_agentforce_uat_profile.sql"
+      "106_agentforce_uat_profile.sql",
+      "107_canonical_mcp_credentials.sql",
+      "108_oauth_client_credentials_consent_execution.sql"
     ]
   }
 }

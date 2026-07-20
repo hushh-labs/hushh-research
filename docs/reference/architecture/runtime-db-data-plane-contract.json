@@ -348,7 +348,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table (dropped in migration 080).",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -441,10 +441,11 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_email_mailbox_state",
+        "one_email_kyc_preferences",
         "one_kyc_workflows",
         "one_kyc_client_connectors"
       ],
-      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
+      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
       "retention_policy": "Active workflow metadata retained while open; legacy dev/UAT draft_body rows are redacted by migration and terminal metadata is compacted by retention jobs.",
       "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
       "trust_boundary": "Metadata only plus public connector metadata and send/writeback hashes; no raw full email threads, connector private keys, consent export plaintext, vault contents, broad decrypted PKM, or review draft plaintext. Approved outgoing email body may be handled transiently only for Gmail send and must not be logged or persisted.",

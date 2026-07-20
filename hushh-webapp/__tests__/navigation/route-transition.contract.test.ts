@@ -12,6 +12,8 @@ describe("shared route transition contract", () => {
     const providers = readFileSync(join(process.cwd(), "app/providers.tsx"), "utf8");
 
     expect(providers).toContain("useRouteTransition();");
+    expect(providers).not.toContain("usePageEnterAnimation");
+    expect(providers).not.toContain("ensureMorphyGsapReady");
     expect(driver).toContain("window.history.pushState = wrap");
     expect(driver).toContain("window.history.replaceState = wrap");
     expect(driver).toContain("if (resolved.pathname === window.location.pathname)");

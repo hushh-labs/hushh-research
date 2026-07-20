@@ -26,6 +26,16 @@ describe("top shell contextual tabs", () => {
     expect(resolveTopShellTabSet("/one/kai?tab=analysis")).toMatchObject({
       activeValue: "analysis",
     });
+    expect(resolveTopShellTabSet("/one/kai/?tab=portfolio")).toMatchObject({
+      id: "finance",
+      activeValue: "portfolio",
+    });
+    expect(
+      resolveTopShellRouteProfile("/one/kai/?tab=analysis").model,
+    ).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "finance", activeValue: "analysis" },
+    });
   });
 
   it("moves Consent Center state into the shared top shell", () => {
@@ -46,6 +56,30 @@ describe("top shell contextual tabs", () => {
     ).toMatchObject({
       mode: "bar-with-tabs",
       tabs: { id: "consent", activeValue: "connections" },
+    });
+    expect(resolveTopShellTabSet("/one/consent/?tab=active")).toMatchObject({
+      id: "consent",
+      activeValue: "active",
+    });
+  });
+
+  it("renders RIA workspace tabs through the same fixed top shell", () => {
+    expect(resolveTopShellTabSet("/ria")).toMatchObject({
+      id: "ria",
+      label: "RIA workspace",
+      activeValue: "home",
+    });
+    expect(resolveTopShellTabSet("/ria/clients")).toMatchObject({
+      id: "ria",
+      activeValue: "clients",
+    });
+    expect(resolveTopShellTabSet("/ria/picks")).toMatchObject({
+      id: "ria",
+      activeValue: "picks",
+    });
+    expect(resolveTopShellRouteProfile("/ria/clients").model).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "ria", activeValue: "clients" },
     });
   });
 
@@ -102,6 +136,23 @@ describe("top shell contextual tabs", () => {
       mode: "bar-with-tabs",
       tabs: { id: "public", activeValue: "developers" },
     });
+    expect(resolveTopShellTabSet("/research/")).toMatchObject({
+      id: "public",
+      activeValue: "research",
+    });
+  });
+
+  it("keeps static-export Location tabs in the shared top shell", () => {
+    expect(resolveTopShellTabSet("/one/location/?view=links")).toMatchObject({
+      id: "location",
+      activeValue: "links",
+    });
+    expect(
+      resolveTopShellRouteProfile("/one/location/?view=inbox").model,
+    ).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "location", activeValue: "inbox" },
+    });
   });
 
   it.each([
@@ -111,6 +162,7 @@ describe("top shell contextual tabs", () => {
     ["/one/location?view=people", "bar-with-tabs"],
     ["/one/kai?tab=analysis", "bar-with-tabs"],
     ["/one/consent?tab=history", "bar-with-tabs"],
+    ["/ria/picks", "bar-with-tabs"],
   ] as const)("resolves %s as %s", (routeKey, expectedMode) => {
     const profile = resolveTopShellRouteProfile(routeKey);
     expect(profile.model.mode).toBe(expectedMode);
@@ -118,8 +170,12 @@ describe("top shell contextual tabs", () => {
     expect(profile.metrics.shellVisible).toBe(expectedMode !== "hidden");
   });
 
-  it("limits the One brand to the One home route", () => {
+  it("keeps the One brand visible for the canonical native and web One home routes", () => {
     expect(resolveTopShellRouteProfile("/one").model).toMatchObject({
+      mode: "bar",
+      brand: "one",
+    });
+    expect(resolveTopShellRouteProfile("/one/").model).toMatchObject({
       mode: "bar",
       brand: "one",
     });

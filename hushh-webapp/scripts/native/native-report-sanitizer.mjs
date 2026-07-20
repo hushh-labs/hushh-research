@@ -26,6 +26,7 @@ const SAFE_ERROR_CLASSES = new Set([
   "rate_limit",
   "reference_error",
   "syntax_error",
+  "stalled",
   "timeout",
   "type_error",
   "vault",
@@ -65,6 +66,7 @@ export function errorClass(value) {
   if (/401|403|auth|sign in/.test(text)) return "authentication";
   if (/404|not found/.test(text)) return "not_found";
   if (/timeout|timed out/.test(text)) return "timeout";
+  if (/stalled|no progress/.test(text)) return "stalled";
   if (/network|connection|fetch/.test(text)) return "network";
   if (/vault|decrypt|crypto/.test(text)) return "vault";
   if (/permission|denied/.test(text)) return "permission";

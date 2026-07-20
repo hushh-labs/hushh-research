@@ -15,6 +15,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private let nativeTestConfig = NativeTestConfiguration()
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
+    private var nativeTestPollInFlight = false
+
+    deinit {
+        nativeTestPollTimer?.invalidate()
+        nativeTestPollInFlight = false
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "hushhNativeTest")
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -154,7 +161,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
         let refresh: () -> Void = { [weak self, weak webView] in
             guard let self = self, let webView = webView else { return }
+            guard !self.nativeTestPollInFlight else { return }
+            self.nativeTestPollInFlight = true
             webView.evaluateJavaScript(self.nativeTestConfig.statusJavaScript) { result, _ in
+                self.nativeTestPollInFlight = false
                 guard
                     let raw = result as? String,
                     let data = raw.data(using: .utf8),
@@ -186,7 +196,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             if components.path.count > 1 && components.path.hasSuffix("/") {
                 components.path = String(components.path.dropLast())
             }
-            return components.path.isEmpty ? "/" : components.path
+            let pathname = components.path.isEmpty ? "/" : components.path
+            let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+            return "\(pathname)\(query)"
         }
 
         let route = (payload["route"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -253,6 +265,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let uiFlowCurrent = (payload["uiFlowCurrent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let uiFlowStepIndex = (payload["uiFlowStepIndex"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let uiFlowStepType = (payload["uiFlowStepType"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowAuditRunId = (payload["uiFlowAuditRunId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowAuditPlanDigest = (payload["uiFlowAuditPlanDigest"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let uiFlowLayout = safeNativeTestLayoutToken(payload["uiFlowLayout"])
         let uiFlowErrorClass = NativeTestArtifactSanitizer.errorClass(payload["uiFlowErrorClass"])
         let routeReady = expectedRoute.isEmpty ? true : normalizeRoute(route) == normalizeRoute(expectedRoute)
@@ -261,7 +275,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let ready = routeReady && documentReady && markerFound
 
         let safeRoute = normalizeRoute(route)
-        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
+        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_run=\(uiFlowAuditRunId);ui_plan=\(uiFlowAuditPlanDigest);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }

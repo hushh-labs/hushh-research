@@ -33,7 +33,8 @@ interface SwipeViewsProps {
   options: readonly { label: string; value: string }[];
   tabSetId: string;
   activeValue: string;
-  onChildSwiped?: (value: string) => void;
+  /** Emits immediately when Embla selects a pane; route state remains authoritative. */
+  onSelectionChange?: (value: string) => void;
 }
 
 export function SwipeViews({
@@ -41,7 +42,7 @@ export function SwipeViews({
   options,
   tabSetId,
   activeValue,
-  onChildSwiped,
+  onSelectionChange,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
     (_emblaApi: unknown, event: Event) =>
@@ -52,6 +53,11 @@ export function SwipeViews({
     loop: false,
     dragFree: false,
     containScroll: "trimSnaps",
+    // Query-backed panes must feel like a direct workspace selection rather
+    // than a second route transition. Embla's duration is its spring-like
+    // snap parameter (not milliseconds); 20 is deliberately quicker than
+    // the default while retaining enough motion for the live tab underline.
+    duration: 20,
     watchDrag,
   });
   const panels = useMemo(() => React.Children.toArray(children), [children]);
@@ -61,6 +67,7 @@ export function SwipeViews({
   );
   const isDraggingRef = useRef(false);
   const hasMovedSincePointerDownRef = useRef(false);
+  const lastReportedValueRef = useRef(activeValue);
 
   const syncTabIndicator = useCallback(
     (isDragging?: boolean) => {
@@ -88,12 +95,24 @@ export function SwipeViews({
     if (targetIdx !== -1 && targetIdx !== emblaApi.selectedScrollSnap()) {
       emblaApi.scrollTo(targetIdx);
     }
+    lastReportedValueRef.current = activeValue;
     setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
   }, [emblaApi, activeValue, options, tabSetId]);
 
-  // Commit the route only after Embla has settled. Selecting a snap happens
-  // while the rail is still moving; committing there mounted a heavy Finance
-  // panel (and its data/effects) in the same frame as the gesture.
+  // Publish selection at Embla's `select` point. Waiting for `settle` made
+  // query-backed tabs look stale on iOS and delayed the visible panel state.
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    const currentIdx = emblaApi.selectedScrollSnap();
+    const newValue = options[currentIdx]?.value;
+    if (newValue && newValue !== activeValue) {
+      lastReportedValueRef.current = newValue;
+      onSelectionChange?.(newValue);
+    }
+  }, [activeValue, emblaApi, onSelectionChange, options]);
+
+  // A settle can only reconcile a snap that changed after selection (for
+  // example a cancelled drag); it never owns the first route update.
   const onSettle = useCallback(() => {
     if (!emblaApi) return;
     const currentIdx = emblaApi.selectedScrollSnap();
@@ -104,19 +123,22 @@ export function SwipeViews({
     hasMovedSincePointerDownRef.current = false;
     setTopShellTabSwipeState(tabSetId, currentIdx, false);
     const newValue = options[currentIdx]?.value;
-    if (newValue && newValue !== activeValue) {
-      onChildSwiped?.(newValue);
+    if (newValue && newValue !== lastReportedValueRef.current) {
+      lastReportedValueRef.current = newValue;
+      onSelectionChange?.(newValue);
     }
-  }, [emblaApi, options, activeValue, onChildSwiped, tabSetId]);
+  }, [emblaApi, options, onSelectionChange, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
+    emblaApi.on("select", onSelect);
     emblaApi.on("settle", onSettle);
 
     return () => {
+      emblaApi.off("select", onSelect);
       emblaApi.off("settle", onSettle);
     };
-  }, [emblaApi, onSettle]);
+  }, [emblaApi, onSelect, onSettle]);
 
   useEffect(() => {
     if (!emblaApi) return;

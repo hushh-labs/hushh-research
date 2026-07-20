@@ -319,6 +319,22 @@ This closes the live chain as:
 
 `One plan → governed directive → browser guard/execution → correlated settlement → grounded next turn`.
 
+### Settled cross-screen journeys
+
+An explicitly authored settled journey extends that chain without creating a
+second planner:
+
+`current visible action → browser execution → destination context acknowledged → correlated settlement → eligible next step`.
+
+The action contract must name the destination route and screen. The client
+publishes a redacted destination snapshot with an opaque context ID and waits
+for the relay acknowledgement before reporting `action_settled` with that ID.
+The relay rejects a journey whose accepted route, screen, inventory, or
+context ID disagrees with the authored target. Only then may One call
+`continue_app_goal`; any deferred choice is a generated action ID held in the
+live session only. The browser still revalidates the choice, and a
+confirmation-required provider action still needs its exact trusted tap.
+
 ### Public action progress
 
 The browser also publishes one bounded `ActionRun` presentation state for a

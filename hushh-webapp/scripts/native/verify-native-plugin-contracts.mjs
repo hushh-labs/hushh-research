@@ -16,6 +16,8 @@ const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
 const androidPluginsDir = path.join(appRoot, "android/app/src/main/java/com/hushh/app/plugins");
 const iosControllerPath = path.join(appRoot, "ios/App/App/MyViewController.swift");
 const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hushh/app/MainActivity.kt");
+const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
+const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
 
 const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 const ignoredTsMethodsByPlugin = new Map([
@@ -184,11 +186,30 @@ function compareMethods(pluginName, tsMethods, nativeMethods, platform) {
   }
 }
 
+function verifyIosVaultAuthenticationConfiguration(iosContracts) {
+  const keychain = iosContracts.get("HushhKeychain");
+  const vault = iosContracts.get("HushhVault");
+  if (!keychain || !vault) return;
+
+  const infoPlist = read(iosInfoPlistPath);
+  const entitlements = read(iosEntitlementsPath);
+
+  if (!/<key>NSFaceIDUsageDescription<\/key>\s*<string>[^<]+<\/string>/.test(infoPlist)) {
+    fail("iOS vault biometric unlock requires a non-empty NSFaceIDUsageDescription in Info.plist.");
+  }
+
+  if (!entitlements.includes("webcredentials:one.hushh.ai")) {
+    fail("iOS native passkey unlock requires the canonical webcredentials:one.hushh.ai association.");
+  }
+}
+
 const tsContracts = parseTsContracts();
 const iosContracts = parseIosContracts();
 const androidContracts = parseAndroidContracts();
 const iosRegistrations = parseIosRegistrations();
 const androidRegistrations = parseAndroidRegistrations();
+
+verifyIosVaultAuthenticationConfiguration(iosContracts);
 
 for (const pluginName of sorted(tsContracts.keys())) {
   if (webOnlyPlugins.has(pluginName)) continue;

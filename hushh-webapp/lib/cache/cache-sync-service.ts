@@ -283,6 +283,11 @@ export class CacheSyncService {
         });
       })
       .catch(() => undefined);
+    void import("@/lib/kai/kai-market-news-resource")
+      .then(({ KaiMarketNewsResourceService }) => {
+        KaiMarketNewsResourceService.invalidateUser(userId);
+      })
+      .catch(() => undefined);
     void import("@/lib/services/unlock-warm-orchestrator")
       .then(({ UnlockWarmOrchestrator }) => {
         UnlockWarmOrchestrator.invalidateForUser(userId);

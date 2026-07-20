@@ -178,7 +178,7 @@ python3 .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py 
 ```
 
 15. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
-16. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+16. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation. Runtime topology maintenance uses the generated metadata-only index and profile-selected existing evidence lanes; it does not add a runtime maintenance agent.
 17. Repo custom agents inherit the Principal Craft Kernel from `AGENTS.md`; TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
 
 ### Subagent close freeze RCA

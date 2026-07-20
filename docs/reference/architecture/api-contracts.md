@@ -106,6 +106,12 @@ Client surfaces
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
 
+### One Runtime Configuration
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before a user confirms encrypted BYOK storage; distinguishes invalid credentials, exhausted quota/rate limits, billing blocks, unsupported model access, and temporary provider failure without logging or storing the key |
+
 ### One Email KYC
 
 One mailbox intake is One-led and approval-gated. KYC workspace routes require
@@ -133,11 +139,22 @@ request for a copied user. Apple private relay addresses are not inferred to
 original emails; original addresses must be verified as aliases before they can
 resolve intake.
 
+Mailbox automation is explicit opt-in. The account-scoped backend preference is
+the authority for clients and asynchronous intake; missing state is disabled.
+The Pub/Sub `emailAddress` and the fetched message recipient headers must match
+the configured canonical `one@hushh.ai` mailbox before the sender can be
+resolved or a workflow can be created. Workflow insertion atomically rechecks
+that opt-in remains enabled after classification. Webhook `accepted: true`
+acknowledges Pub/Sub delivery; `handled: true` is returned only when at least
+one eligible request actually creates or advances work.
+
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
 | POST | `/api/one/email/watch/renew` | `X-Hushh-Maintenance-Token` | Renew the Gmail watch for the delegated One mailbox |
 | POST | `/api/one/email/sync/recent` | VAULT_OWNER Bearer | Bounded catch-up scan of recent One mailbox messages, used by Email refresh when Pub/Sub delivery or history state lags |
+| GET | `/api/one/kyc/preferences/automatic-response-preparation?user_id={user_id}` | VAULT_OWNER Bearer | Read the server-authoritative account preference; a missing row returns disabled |
+| PATCH | `/api/one/kyc/preferences/automatic-response-preparation` | VAULT_OWNER Bearer | Explicitly enable or disable automatic processing of canonical One mailbox requests for the authenticated vault owner |
 | GET | `/api/one/kyc/client-connector?user_id={user_id}` | VAULT_OWNER Bearer | Read registered public client connector metadata |
 | POST | `/api/one/kyc/client-connector` | VAULT_OWNER Bearer | Register public client connector metadata after vault unlock; private key remains client/vault-only |
 | GET | `/api/one/kyc/workflows?user_id={user_id}` | VAULT_OWNER Bearer | List One KYC workflows for the vault owner |
@@ -514,6 +531,18 @@ Backward-compatible sections remain present while migration is active:
 - `market_overview`
 - `spotlights`
 - `themes`
+
+### Kai Market News Feed (Cursor Snapshot)
+
+`GET /api/kai/market/news/baseline/{user_id}` serves the authenticated public baseline feed. `GET /api/kai/market/news/{user_id}` serves a vault-owner-scoped feed for up to three validated symbols. Both return the same bounded envelope:
+
+- `items`: normalized provider headlines only (`symbol`, `title`, optional `summary`, `url`, `published_at`, `source_name`, `provider`)
+- `next_cursor` and `has_more`: opaque cursor pagination over one server-side snapshot
+- `snapshot_id`: must match the snapshot encoded in `next_cursor`; a changed snapshot returns `409`, so a client restarts at page one instead of mixing editions
+- `cache`: bounded cache tier/age/hit metadata and `stale`
+- `provider_status`: provider health metadata only
+
+The server resolves at most three symbols with bounded fanout, caches the normalized bundle for ten minutes fresh and thirty minutes stale, and slices later pages from that cached bundle. Paging must not trigger a second provider fanout. Provider resolution is strict priority fallback (Finnhub, then PMP/FMP, NewsAPI, Google News RSS); PMP/FMP news calls share the FMP request budget and honor provider cooldowns.
 
 ### Ticker Enrichment Fields (`/api/tickers/search`, `/api/tickers/all`)
 

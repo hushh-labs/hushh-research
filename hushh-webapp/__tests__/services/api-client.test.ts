@@ -10,7 +10,12 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-import { ApiError, apiJson, MAX_RESPONSE_BYTES } from "@/lib/services/api-client";
+import {
+  ApiError,
+  apiErrorCode,
+  apiJson,
+  MAX_RESPONSE_BYTES,
+} from "@/lib/services/api-client";
 import { ApiService } from "@/lib/services/api-service";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -121,6 +126,16 @@ describe("apiJson", () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).payload).toEqual(payload);
+  });
+
+  it.each([
+    { detail: { code: "STALE_ONBOARDING_JOURNEY" } },
+    { error: { code: "STALE_ONBOARDING_JOURNEY" } },
+    { code: "STALE_ONBOARDING_JOURNEY" },
+  ])("extracts stable error codes across native and proxy envelopes", (payload) => {
+    expect(apiErrorCode(new ApiError("Conflict", 409, payload))).toBe(
+      "STALE_ONBOARDING_JOURNEY",
+    );
   });
 
   it("returns the parsed JSON body on a successful 200 response", async () => {

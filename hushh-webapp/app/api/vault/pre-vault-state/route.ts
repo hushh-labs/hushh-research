@@ -21,6 +21,9 @@ type PreVaultStatePayload = {
   onboardingActiveCapability?: string | null;
   onboardingResumeRoute?: "/one/setup";
   onboardingCallbackState?: string | null;
+  onboardingCallbackAttemptId?: string;
+  expectedOnboardingJourneyUpdatedAt?: number | null;
+  expectedOnboardingCallbackAttemptId?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -56,10 +59,19 @@ export async function POST(request: NextRequest) {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return NextResponse.json(
-        { error: payload?.error || payload?.detail || "Backend error" },
-        { status: response.status }
-      );
+      // Preserve the backend error envelope exactly. Native calls this backend
+      // route directly, so wrapping `detail` here made web and native classify
+      // the same onboarding conflict differently.
+      const errorPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? payload
+          : {
+              detail: {
+                error: "Backend error",
+                code: "UPSTREAM_ERROR",
+              },
+            };
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     return NextResponse.json(payload);

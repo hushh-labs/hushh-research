@@ -1,8 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SettingsGroup,
   SettingsRow,
@@ -14,8 +20,7 @@ import {
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
-import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
-import { ROUTES } from "@/lib/navigation/routes";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   loadEmailDraftingEnabled,
   saveEmailDraftingEnabled,
@@ -24,26 +29,44 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 
 export function EmailOnboardingSetupClient() {
   const { user } = useAuth();
-  const isPrivateRelay = isApplePrivateRelayEmail(user?.email);
-  const [enabled, setEnabled] = useState(true);
+  const { vaultOwnerToken } = useVault();
+  const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    if (isPrivateRelay) {
+    if (!user?.uid || !vaultOwnerToken) {
       setEnabled(false);
-      setLoaded(true);
+      setLoaded(false);
       return;
     }
-    loadEmailDraftingEnabled(user.uid).then((val) => {
-      setEnabled(val);
-      setLoaded(true);
-    });
-  }, [isPrivateRelay, user?.uid]);
+    let cancelled = false;
+    setLoaded(false);
+    void loadEmailDraftingEnabled({
+      userId: user.uid,
+      vaultOwnerToken,
+    })
+      .then((value) => {
+        if (!cancelled) setEnabled(value);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEnabled(false);
+          toast.error("KYC preference could not be loaded. Please try again.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, vaultOwnerToken]);
 
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "email",
     isOperationallyReady: loaded,
+    settlementBlocked: saving,
     finishActionId: "setup.finish_email",
     skipActionId: "setup.skip_email",
   });
@@ -57,63 +80,86 @@ export function EmailOnboardingSetupClient() {
           controls: [
             {
               id: "one-setup-email-drafting-toggle",
-              label: "Let One draft replies",
+              label: "Prepare KYC responses automatically",
               type: "toggle",
-              actionId: "setup.toggle_email_drafting",
-              purpose: "Enable or disable One's response drafting.",
+              state: enabled ? "enabled" : "disabled",
+              purpose: "Choose whether One may automatically prepare KYC responses for review.",
             },
           ],
-          availableActions: ["Let One draft replies"],
+          availableActions: [],
         }
       : null,
   );
 
   if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
 
-  const handleToggle = (checked: boolean) => {
-    if (isPrivateRelay) return;
+  const handleToggle = async (checked: boolean) => {
+    const previous = enabled;
     setEnabled(checked);
-    if (user?.uid) void saveEmailDraftingEnabled(user.uid, checked);
+    if (!user?.uid || !vaultOwnerToken) {
+      setEnabled(previous);
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = await saveEmailDraftingEnabled({
+        userId: user.uid,
+        vaultOwnerToken,
+        enabled: checked,
+      });
+      if (!saved) {
+        setEnabled(previous);
+        toast.error("KYC preference could not be saved. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
-      <SettingsGroup
-        eyebrow="KYC"
-        title="Prepare replies with One"
-        description={
-          isPrivateRelay
-            ? "We can't verify replies for a private relay address yet. We're working on support for private relay addresses."
-            : "One prepares replies you approve before anything sends. You stay in control."
-        }
-      >
-        <SettingsRow
-          title="Let One draft replies"
-          description={enabled ? "On" : "Off"}
-          trailing={
-            <Switch
-              checked={enabled}
-              onCheckedChange={handleToggle}
-              disabled={isPrivateRelay}
-              aria-label="Let One draft replies"
-              data-voice-control-id="one-setup-email-drafting-toggle"
-            />
-          }
+    <AppPageShell
+      as="main"
+      width="reading"
+      className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          title="KYC"
+          description="Choose whether One may prepare a response when you send a request to one@hushh.ai."
+          accent="neutral"
         />
-      </SettingsGroup>
-
-      <Link
-        href={ROUTES.ONE_KYC}
-        className="type-footnote block text-center text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70"
-      >
-        Open KYC
-      </Link>
-
+      </AppPageHeaderRegion>
+      <AppPageContentRegion>
+        <SettingsGroup
+          title="Response preparation"
+          description="This is off by default. When enabled, One recognizes requests sent from your verified email to one@hushh.ai. You still approve every response before it is sent."
+          separatorInset
+        >
+          <SettingsRow
+            title="Prepare automatically"
+            description={
+              enabled
+                ? "Enabled for one@hushh.ai"
+                : "No email requests will trigger One"
+            }
+            trailing={
+              <Switch
+                checked={enabled}
+                onCheckedChange={(checked) => void handleToggle(checked)}
+                disabled={saving}
+                aria-label="Prepare KYC responses automatically"
+                data-voice-control-id="one-setup-email-drafting-toggle"
+              />
+            }
+          />
+        </SettingsGroup>
+      </AppPageContentRegion>
       <SetupCapabilityTerminalFooter
         capabilityId="email"
         isOperationallyReady={loaded}
         coordinator={coordinator}
+        pending={saving}
       />
-    </div>
+    </AppPageShell>
   );
 }

@@ -1,0 +1,4017 @@
+{
+  "agents": [
+    {
+      "id": "agent_connected_systems",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": "ask_connected_systems_agent"
+      }
+    },
+    {
+      "id": "agent_connections",
+      "parent": "agent_nav",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": "ask_consent_agent"
+      }
+    },
+    {
+      "id": "agent_email",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": "ask_email_agent"
+      }
+    },
+    {
+      "id": "agent_financial_guard",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_gmail",
+      "parent": "agent_connections",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_kai",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": "AGENT_KAI_ANALYZE",
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_kyc",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": "AGENT_KYC_PROCESS",
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_location",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": true,
+        "one_specialist_tool": "ask_location_agent"
+      }
+    },
+    {
+      "id": "agent_memory_intent",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_memory_merge",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_memory_segmentation",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_nav",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": "AGENT_NAV_REVIEW",
+        "in_process_dispatch": true,
+        "one_specialist_tool": "ask_consent_agent"
+      }
+    },
+    {
+      "id": "agent_onboarding",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_ONBOARDING_GOALS_DISABLED",
+        "rollback": "Disable onboarding goals and retain the existing setup actions.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": "hushh_mcp.agents.onboarding.agent.build_onboarding_specialist",
+        "kind": "deterministic",
+        "transport": [
+          "in_process",
+          "voice",
+          "chat"
+        ]
+      },
+      "status": "active",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": true,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_one",
+      "parent": null,
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "active",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": "CAP_ONE_INVOKE",
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_personal_information",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": "CAP_PKM_MARKETPLACE_VIEW",
+        "in_process_dispatch": true,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_pkm_structure",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_portfolio_import",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_summary_reducer",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    }
+  ],
+  "compatibility_surfaces": [
+    {
+      "canonical_prefix": "/api/pkm",
+      "id": "api.world_model",
+      "lifecycle": "decision_required",
+      "owner": "backend",
+      "pathname_prefix": "/api/world-model",
+      "reason": "Compatibility proxies remain mounted after their declared sunset and need an explicit remove-or-extend decision.",
+      "sunset_at": "2026-06-30T00:00:00Z"
+    }
+  ],
+  "database_families": [
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "actor_profiles",
+        "actor_identity_cache",
+        "actor_verified_email_aliases",
+        "runtime_persona_state",
+        "user_push_tokens"
+      ],
+      "id": "actor_identity_state",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "agent_chat_conversations",
+        "agent_chat_messages"
+      ],
+      "id": "agent_chat_encrypted_memory",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "connected_system_audit_events"
+      ],
+      "id": "connected_system_audit",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "connected_system_intents",
+        "connected_system_record_bindings"
+      ],
+      "id": "connected_system_workflows",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "consent_audit",
+        "internal_access_events",
+        "consent_scope_templates"
+      ],
+      "id": "consent_authority_audit",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "consent issuance, revocation, notification, and internal access review"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "consent_exports",
+        "consent_export_refresh_jobs"
+      ],
+      "id": "consent_export_workflows",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "scoped export generation, connector key wrapping, and refresh jobs"
+    },
+    {
+      "data_class": "provider_cache",
+      "exact_tables": [
+        "crm_schema_mapping_cache"
+      ],
+      "id": "crm_schema_mapping_cache",
+      "lifecycle_status": "customer0",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "Connected Systems schema-mapper cache for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection."
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [],
+      "id": "developer_access",
+      "lifecycle_status": "current",
+      "owner": "mcp-developer-surface",
+      "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "domain_registry"
+      ],
+      "id": "domain_reference_registry",
+      "lifecycle_status": "transitional",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "legacy/domain reference compatibility during PKM scope migration"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "enterprise_crm_registry",
+        "crm_operation_endpoints"
+      ],
+      "id": "enterprise_crm_registry",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [],
+      "id": "funding_trading_audit",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "marketplace_recipient_keys",
+        "marketplace_delivery_envelopes"
+      ],
+      "id": "information_marketplace_delivery",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One Information Marketplace end-to-end slice delivery: a buyer publishes an ECDH recipient public key (private half stays on the buyer device); on owner approval the seller device seals the requested safe-summary slice against that key and posts a ciphertext envelope, which the buyer fetches and decrypts locally from the Received-data surface."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "marketplace_opportunity_signals"
+      ],
+      "id": "information_marketplace_opportunity_signals",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One Information Marketplace proactive opportunity nudges: the server derives dateless intent signals from the owner's publishable-slice metadata (and the client may post dated expiry signals), surfaced as flashcards on Agent One where the owner publishes, snoozes, or dismisses them; state is read and mutated server-side per owner."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "marketplace_access_requests"
+      ],
+      "id": "information_marketplace_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One Information Marketplace access-request inbox: a buyer files a request for owner-approved access to a published data-slice safe projection; the owner lists, approves, or denies server-side from the marketplace surface or via Agent One over A2A."
+    },
+    {
+      "data_class": "provider_cache",
+      "exact_tables": [],
+      "id": "kai_brokerage_provider_cache",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Plaid link, refresh, portfolio source preference, and portfolio-read services"
+    },
+    {
+      "data_class": "provider_cache",
+      "exact_tables": [
+        "kai_gmail_connections",
+        "kai_gmail_receipts",
+        "kai_gmail_sync_runs",
+        "kai_receipt_memory_artifacts"
+      ],
+      "id": "kai_gmail_receipts_provider_cache",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "pkm_data",
+        "pkm_embeddings",
+        "world_model_data",
+        "world_model_index",
+        "world_model_index_v2",
+        "world_model_attributes",
+        "world_model_embeddings",
+        "chat_conversations",
+        "chat_messages",
+        "vault_portfolios"
+      ],
+      "id": "legacy_memory_cutover",
+      "lifecycle_status": "legacy_migration",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [],
+      "id": "market_reference_and_cache",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "market/reference lookup, cache refresh, and Kai market insight services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_email_mailbox_state",
+        "one_kyc_workflows",
+        "one_kyc_client_connectors"
+      ],
+      "id": "one_email_kyc_workflow",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_location_access_requests",
+        "one_location_circle_invites",
+        "one_location_envelopes",
+        "one_location_events",
+        "one_location_network_connections",
+        "one_location_public_invite_submissions",
+        "one_location_public_invites",
+        "one_location_recipient_keys",
+        "one_location_referrals",
+        "one_location_share_grants"
+      ],
+      "id": "one_location_agent",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+    },
+    {
+      "data_class": "personal_projection",
+      "exact_tables": [
+        "pkm_default_available_projections"
+      ],
+      "id": "pkm_default_available_projection",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "vault-owner profile controls publish safe public-profile projections; authenticated developer connectors read them by opaque handle through the public-profile export endpoint"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "pkm_blobs",
+        "pkm_domain_revisions",
+        "pkm_domain_revision_segments"
+      ],
+      "id": "pkm_encrypted_memory",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_index",
+        "pkm_manifests",
+        "pkm_manifest_paths",
+        "pkm_scope_registry",
+        "pkm_events"
+      ],
+      "id": "pkm_metadata_and_scope",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_migration_state",
+        "pkm_upgrade_runs",
+        "pkm_upgrade_steps",
+        "pkm_domain_commits",
+        "pkm_upgrade_claims"
+      ],
+      "id": "pkm_upgrade_workflows",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "investor_profiles",
+        "marketplace_investor_replenisher_runs"
+      ],
+      "id": "public_investor_reference",
+      "lifecycle_status": "current",
+      "owner": "backend-api-contracts",
+      "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "relay_ticket_nonces"
+      ],
+      "id": "relay_ticket_replay_guard",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Cross-instance one-time nonce registry for signed One voice relay tickets (migration 084). consume_relay_ticket_shared() in api/routes/one/relay_auth.py enforces single use globally via INSERT .. ON CONFLICT DO NOTHING; a conflicting insert means replay. Expired rows are pruned opportunistically by expiry scan. Scale-plane doctrine: Postgres now, Redis SETNX-with-TTL later behind the same seam."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [],
+      "id": "ria_marketplace_relationships",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "trusted_connections"
+      ],
+      "id": "trusted_connections_graph",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "connection_requests",
+        "connections"
+      ],
+      "id": "two_way_connection_graph",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester\u2192addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "vault_keys",
+        "vault_key_wrappers"
+      ],
+      "id": "vault_key_material",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+    }
+  ],
+  "database_retirements": [
+    {
+      "lifecycle": "pending_destructive_preflight",
+      "owner": "iam-consent-governance",
+      "reason": "Migration 079 copied the active graph, but no forward migration has dropped the legacy table.",
+      "required_preflight": [
+        "Verify there are no runtime service reads or writes.",
+        "Record an environment-specific row count and confirm retention requirements.",
+        "Verify a recoverable backup before the forward-only drop migration.",
+        "Update dev and UAT schema contracts in the same change as the drop migration."
+      ],
+      "superseded_by": "trusted_connections",
+      "table": "one_location_network_connections"
+    }
+  ],
+  "findings": [
+    {
+      "id": "compatibility.api.world_model.expired_sunset",
+      "message": "The mounted /api/world-model compatibility surface has passed its declared sunset. Remove it with consumer evidence or explicitly extend the contract.",
+      "severity": "decision_required"
+    },
+    {
+      "id": "database.one_location_network_connections.retirement_pending",
+      "message": "A legacy table remains in schema contracts. A forward-only drop requires live row-count, retention, and backup preflight before migration authoring.",
+      "severity": "decision_required"
+    }
+  ],
+  "maintenance_profiles": [
+    {
+      "agent_ids": [
+        "agent_kai",
+        "agent_financial_guard",
+        "agent_portfolio_import"
+      ],
+      "evidence_lanes": [
+        "frontend_architect",
+        "backend_architect",
+        "data_model_architect",
+        "voice_systems_architect"
+      ],
+      "id": "finance",
+      "personas": [
+        "Kai",
+        "Investor",
+        "RIA"
+      ],
+      "route_prefixes": [
+        "/one/kai",
+        "/ria",
+        "/marketplace"
+      ],
+      "table_family_ids": [
+        "kai_brokerage_provider_cache",
+        "funding_trading_audit",
+        "ria_marketplace_relationships"
+      ]
+    },
+    {
+      "agent_ids": [
+        "agent_kyc",
+        "agent_email",
+        "agent_connected_systems",
+        "agent_personal_information"
+      ],
+      "evidence_lanes": [
+        "backend_architect",
+        "data_model_architect",
+        "security_consent_auditor",
+        "product_docs_architect"
+      ],
+      "id": "information_identity",
+      "personas": [
+        "KYC",
+        "Email",
+        "Connected Systems",
+        "Personal Information"
+      ],
+      "route_prefixes": [
+        "/one/kyc",
+        "/one/connected-systems",
+        "/one/profile",
+        "/one/gmail"
+      ],
+      "table_family_ids": [
+        "one_email_kyc_workflow",
+        "enterprise_crm_registry",
+        "connected_system_workflows",
+        "information_marketplace_requests"
+      ]
+    },
+    {
+      "agent_ids": [
+        "agent_one",
+        "agent_onboarding"
+      ],
+      "evidence_lanes": [
+        "frontend_architect",
+        "backend_architect",
+        "voice_systems_architect",
+        "reviewer"
+      ],
+      "id": "one_core",
+      "personas": [
+        "One",
+        "Onboarding"
+      ],
+      "route_prefixes": [
+        "/",
+        "/one",
+        "/login",
+        "/one/setup"
+      ],
+      "table_family_ids": [
+        "actor_identity_state",
+        "agent_chat_encrypted_memory",
+        "relay_ticket_replay_guard"
+      ]
+    },
+    {
+      "agent_ids": [
+        "agent_nav",
+        "agent_location",
+        "agent_connections"
+      ],
+      "evidence_lanes": [
+        "backend_architect",
+        "data_model_architect",
+        "security_consent_auditor",
+        "frontend_architect"
+      ],
+      "id": "privacy_connections",
+      "personas": [
+        "Nav",
+        "Location",
+        "Connections"
+      ],
+      "route_prefixes": [
+        "/one/consent",
+        "/one/location",
+        "/one/connect"
+      ],
+      "table_family_ids": [
+        "consent_authority_audit",
+        "trusted_connections_graph",
+        "two_way_connection_graph",
+        "one_location_agent"
+      ]
+    }
+  ],
+  "purpose": "Generated, metadata-only maintenance index joining route, cache, native, action, agent, database-family, and compatibility contracts. It is not executable authority.",
+  "routes": [
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "public_static"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-home",
+      "page_file": "app/page.tsx",
+      "pathname": "/",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "onboarding.claim_one"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.intro"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only+sse-background",
+        "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
+        "resource_classes": [
+          "realtime_stream"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-agent",
+      "page_file": "app/agent/page.tsx",
+      "pathname": "/agent",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.agent"
+      }
+    },
+    {
+      "alias": {
+        "canonical_url": "/welcome?tab=blog",
+        "owner": "public_knowledge_workspace",
+        "pathname": "/blog",
+        "reason": "Preserves editorial links while the unified public workspace is canonical.",
+        "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+      },
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "alias",
+      "native_surface_id": null,
+      "page_file": "app/blog/page.tsx",
+      "pathname": "/blog",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.blog"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/blog/[slug]/page.tsx",
+      "pathname": "/blog/[slug]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.blog.slug"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/connected-systems/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/connected-systems/{path*}",
+          "nextjs_proxy_file": "app/api/connected-systems/[...path]/route.ts",
+          "service_file": "lib/services/connected-systems-service.ts",
+          "service_methods": [
+            "listSystems",
+            "getSchema",
+            "readRecord",
+            "createRecordIntent",
+            "updateRecordIntent",
+            "approveIntent",
+            "rejectIntent"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-connected-systems",
+      "page_file": "app/connected-systems/page.tsx",
+      "pathname": "/connected-systems",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.connected.systems"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/connected-systems/[systemId]/page.tsx",
+      "pathname": "/connected-systems/[systemId]",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.connected.systems.systemid"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-consents",
+      "page_file": "app/consents/page.tsx",
+      "pathname": "/consents",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.consents.legacy"
+      }
+    },
+    {
+      "alias": {
+        "canonical_url": "/welcome?tab=developers",
+        "owner": "public_knowledge_workspace",
+        "pathname": "/developers",
+        "reason": "Preserves published developer links while the unified public workspace is canonical.",
+        "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+      },
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "alias",
+      "native_surface_id": null,
+      "page_file": "app/developers/page.tsx",
+      "pathname": "/developers",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.developers"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-getting-started",
+      "page_file": "app/getting-started/page.tsx",
+      "pathname": "/getting-started",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "auth.sign_in_open",
+          "onboarding.continue",
+          "route.getting_started",
+          "vault.setup_open"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.getting.started"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/profile/gmail/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/profile/gmail/{path*}",
+          "nextjs_proxy_file": "app/api/profile/gmail/[...path]/route.ts",
+          "service_file": "lib/services/gmail-receipts-service.ts",
+          "service_methods": [
+            "getStatus",
+            "syncNow",
+            "listReceipts"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "service_file": "lib/services/personal-knowledge-model-service.ts",
+          "service_methods": [
+            "getMetadata",
+            "getDomainData",
+            "storeDomainData"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-gmail",
+      "page_file": "app/gmail/page.tsx",
+      "pathname": "/gmail",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.gmail"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-home",
+      "page_file": "app/kai/page.tsx",
+      "pathname": "/kai",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-alpaca-return",
+      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
+      "pathname": "/kai/alpaca/oauth/return",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.alpaca.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "financial_resource",
+          "pkm_metadata"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-analysis",
+      "page_file": "app/kai/analysis/page.tsx",
+      "pathname": "/kai/analysis",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.analysis"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio",
+      "page_file": "app/kai/dashboard/page.tsx",
+      "pathname": "/kai/dashboard",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.dashboard"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-analysis",
+      "page_file": "app/kai/dashboard/analysis/page.tsx",
+      "pathname": "/kai/dashboard/analysis",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.dashboard.analysis"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-funding-trade",
+      "page_file": "app/kai/funding-trade/page.tsx",
+      "pathname": "/kai/funding-trade",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.funding.trade"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-import",
+      "page_file": "app/kai/import/page.tsx",
+      "pathname": "/kai/import",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.import"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-investments",
+      "page_file": "app/kai/investments/page.tsx",
+      "pathname": "/kai/investments",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.investments"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-kai",
+      "page_file": "app/kai/onboarding/page.tsx",
+      "pathname": "/kai/onboarding",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.onboarding"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-optimize",
+      "page_file": "app/kai/optimize/page.tsx",
+      "pathname": "/kai/optimize",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.optimize"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-plaid-return",
+      "page_file": "app/kai/plaid/oauth/return/page.tsx",
+      "pathname": "/kai/plaid/oauth/return",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.plaid.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "financial_resource",
+          "pkm_metadata"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio",
+      "page_file": "app/kai/portfolio/page.tsx",
+      "pathname": "/kai/portfolio",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.kai.portfolio"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-login",
+      "page_file": "app/login/page.tsx",
+      "pathname": "/login",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "auth.close_legal",
+          "auth.open_privacy",
+          "auth.open_terms",
+          "auth.sign_in_apple",
+          "auth.sign_in_google",
+          "onboarding.back_to_intro"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.login"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-home",
+      "page_file": "app/logout/page.tsx",
+      "pathname": "/logout",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.logout"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-marketplace",
+      "page_file": "app/marketplace/page.tsx",
+      "pathname": "/marketplace",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.marketplace"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-consents",
+      "page_file": "app/marketplace/connections/page.tsx",
+      "pathname": "/marketplace/connections",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.marketplace.connections"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-clients",
+      "page_file": "app/marketplace/connections/portfolio/page.tsx",
+      "pathname": "/marketplace/connections/portfolio",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.marketplace.connections.portfolio"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-marketplace-ria",
+      "page_file": "app/marketplace/ria/page.tsx",
+      "pathname": "/marketplace/ria",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.marketplace.ria"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/oauth/authorize/page.tsx",
+      "pathname": "/oauth/authorize",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.oauth.authorize"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-home",
+      "page_file": "app/one/page.tsx",
+      "pathname": "/one",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "consent.chat.turn",
+          "location.chat.turn",
+          "route.one_agents",
+          "route.one_location",
+          "route.one_pkm"
+        ],
+        "delegate_agent_ids": [
+          "agent_connected_systems",
+          "agent_connections",
+          "agent_email",
+          "agent_location",
+          "agent_nav"
+        ],
+        "playbook_id": "route.one.home"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-connect",
+      "page_file": "app/one/connect/page.tsx",
+      "pathname": "/one/connect",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.connect"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-connect-settings",
+      "page_file": "app/one/connect/settings/page.tsx",
+      "pathname": "/one/connect/settings",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.connect.settings"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-connected-systems",
+      "page_file": "app/one/connected-systems/page.tsx",
+      "pathname": "/one/connected-systems",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_connected_systems"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.connected.systems"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/connected-systems/[systemId]/page.tsx",
+      "pathname": "/one/connected-systems/[systemId]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.connected.systems.systemid"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-consents",
+      "page_file": "app/one/consent/page.tsx",
+      "pathname": "/one/consent",
+      "route_mode": "standard",
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/consent?tab=active",
+          "id": "consent.active",
+          "lifecycle": "canonical",
+          "pathname": "/one/consent",
+          "query": {
+            "tab": "active"
+          },
+          "tab_set": "consent"
+        },
+        {
+          "canonical_url": "/one/consent?tab=connections",
+          "id": "consent.connections",
+          "lifecycle": "canonical",
+          "pathname": "/one/consent",
+          "query": {
+            "tab": "connections"
+          },
+          "tab_set": "consent"
+        },
+        {
+          "canonical_url": "/one/consent?tab=history",
+          "id": "consent.history",
+          "lifecycle": "canonical",
+          "pathname": "/one/consent",
+          "query": {
+            "tab": "history"
+          },
+          "tab_set": "consent"
+        },
+        {
+          "canonical_url": "/one/consent?tab=requests",
+          "id": "consent.requests",
+          "lifecycle": "canonical",
+          "pathname": "/one/consent",
+          "query": {
+            "tab": "requests"
+          },
+          "tab_set": "consent"
+        }
+      ],
+      "voice": {
+        "action_ids": [
+          "consent.chat.turn",
+          "route.consents",
+          "route.ria_requests_compat"
+        ],
+        "delegate_agent_ids": [
+          "agent_connections",
+          "agent_nav"
+        ],
+        "playbook_id": "route.consents"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-gmail",
+      "page_file": "app/one/gmail/page.tsx",
+      "pathname": "/one/gmail",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.gmail"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-home",
+      "page_file": "app/one/kai/page.tsx",
+      "pathname": "/one/kai",
+      "route_mode": "standard",
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/kai?tab=analysis",
+          "id": "finance.analysis",
+          "lifecycle": "canonical",
+          "pathname": "/one/kai",
+          "query": {
+            "tab": "analysis"
+          },
+          "tab_set": "finance"
+        },
+        {
+          "canonical_url": "/one/kai?tab=market",
+          "id": "finance.market",
+          "lifecycle": "canonical",
+          "pathname": "/one/kai",
+          "query": {
+            "tab": "market"
+          },
+          "tab_set": "finance"
+        },
+        {
+          "canonical_url": "/one/kai?tab=portfolio",
+          "id": "finance.portfolio",
+          "lifecycle": "canonical",
+          "pathname": "/one/kai",
+          "query": {
+            "tab": "portfolio"
+          },
+          "tab_set": "finance"
+        }
+      ],
+      "voice": {
+        "action_ids": [
+          "analysis.back_to_history",
+          "analysis.cancel_active",
+          "analysis.confirm_preview",
+          "analysis.open_debate_tab",
+          "analysis.open_detailed_tab",
+          "analysis.open_summary_tab",
+          "analysis.resume_active",
+          "route.back",
+          "route.kai_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-alpaca-return",
+      "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
+      "pathname": "/one/kai/alpaca/oauth/return",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.alpaca.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": {
+        "canonical_url": "/one/kai?tab=analysis",
+        "kind": "redirect_with_shared_feature_module",
+        "pathname": "/one/kai/analysis",
+        "reason": "The compatibility page redirects by default while the canonical Finance tab mounts its named feature export.",
+        "shared_feature_export": "KaiAnalysisPageContent"
+      },
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-analysis",
+      "page_file": "app/one/kai/analysis/page.tsx",
+      "pathname": "/one/kai/analysis",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.analysis"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-funding-trade",
+      "page_file": "app/one/kai/funding-trade/page.tsx",
+      "pathname": "/one/kai/funding-trade",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.funding.trade"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-import",
+      "page_file": "app/one/kai/import/page.tsx",
+      "pathname": "/one/kai/import",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.kai_import"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.import"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-investments",
+      "page_file": "app/one/kai/investments/page.tsx",
+      "pathname": "/one/kai/investments",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.kai_investments"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.investments"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-home",
+      "page_file": "app/one/kai/market/page.tsx",
+      "pathname": "/one/kai/market",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.market"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-kai",
+      "page_file": "app/one/kai/onboarding/page.tsx",
+      "pathname": "/one/kai/onboarding",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.onboarding"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-optimize",
+      "page_file": "app/one/kai/optimize/page.tsx",
+      "pathname": "/one/kai/optimize",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.kai_optimize"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.optimize"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-plaid-return",
+      "page_file": "app/one/kai/plaid/oauth/return/page.tsx",
+      "pathname": "/one/kai/plaid/oauth/return",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.plaid.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio",
+      "page_file": "app/one/kai/portfolio/page.tsx",
+      "pathname": "/one/kai/portfolio",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/one/kyc/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/one-kyc-service.ts",
+          "service_methods": [
+            "listWorkflows",
+            "refreshWorkflow",
+            "selectScopes",
+            "getWorkflowConsentExports",
+            "sendApprovedReply",
+            "rejectDraft",
+            "redraft",
+            "writebackComplete",
+            "getClientConnector",
+            "registerClientConnector"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/account/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/account/{path*}",
+          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
+          "service_file": "lib/services/account-service.ts",
+          "service_methods": [
+            "listEmailAliases",
+            "startEmailAliasVerification",
+            "confirmEmailAliasVerification"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "service_file": "lib/services/kyc-pkm-write-service.ts",
+          "service_methods": [
+            "writeWorkflowArtifact"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "pathname": "/one/kyc",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_kyc"
+        ],
+        "delegate_agent_ids": [
+          "agent_kyc"
+        ],
+        "playbook_id": "route.one.kyc"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-location",
+      "page_file": "app/one/location/page.tsx",
+      "pathname": "/one/location",
+      "route_mode": "standard",
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/location?view=inbox",
+          "id": "location.inbox",
+          "lifecycle": "canonical",
+          "pathname": "/one/location",
+          "query": {
+            "view": "inbox"
+          },
+          "tab_set": "location"
+        },
+        {
+          "canonical_url": "/one/location?view=links",
+          "id": "location.links",
+          "lifecycle": "canonical",
+          "pathname": "/one/location",
+          "query": {
+            "view": "links"
+          },
+          "tab_set": "location"
+        },
+        {
+          "canonical_url": "/one/location?view=now",
+          "id": "location.now",
+          "lifecycle": "canonical",
+          "pathname": "/one/location",
+          "query": {
+            "view": "now"
+          },
+          "tab_set": "location"
+        },
+        {
+          "canonical_url": "/one/location?view=people",
+          "id": "location.people",
+          "lifecycle": "canonical",
+          "pathname": "/one/location",
+          "query": {
+            "view": "people"
+          },
+          "tab_set": "location"
+        }
+      ],
+      "voice": {
+        "action_ids": [
+          "location.chat.turn",
+          "route.one_location"
+        ],
+        "delegate_agent_ids": [
+          "agent_location"
+        ],
+        "playbook_id": "route.one.location"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/invite/[token]/page.tsx",
+      "pathname": "/one/location/invite/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.invite.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/request/[token]/page.tsx",
+      "pathname": "/one/location/request/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.request.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-marketplace",
+      "page_file": "app/one/marketplace/page.tsx",
+      "pathname": "/one/marketplace",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.marketplace.standalone"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm",
+      "page_file": "app/one/pkm/page.tsx",
+      "pathname": "/one/pkm",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm",
+          "route.profile_pkm_agent_lab"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "vault_metadata",
+          "pkm_metadata"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/page.tsx",
+      "pathname": "/one/profile",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.profile.edit_services",
+          "route.back",
+          "route.profile",
+          "route.profile_connected_systems",
+          "route.profile_pkm_agent_lab",
+          "route.profile_regulatory",
+          "route.profile_security_panel",
+          "route.profile_support_panel",
+          "route.ria_settings_compat"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/access/page.tsx",
+      "pathname": "/one/profile/access",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.access"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/access/connection/page.tsx",
+      "pathname": "/one/profile/access/connection",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.access.connection"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/account/page.tsx",
+      "pathname": "/one/profile/account",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.account"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/account/phone/page.tsx",
+      "pathname": "/one/profile/account/phone",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.account.phone"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/connected-systems/page.tsx",
+      "pathname": "/one/profile/connected-systems",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.connected.systems"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/gmail/page.tsx",
+      "pathname": "/one/profile/gmail",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.gmail"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/gmail/actions/page.tsx",
+      "pathname": "/one/profile/gmail/actions",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.gmail.actions"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/gmail/connection/page.tsx",
+      "pathname": "/one/profile/gmail/connection",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.gmail.connection"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-gmail-return",
+      "page_file": "app/one/profile/gmail/oauth/return/page.tsx",
+      "pathname": "/one/profile/gmail/oauth/return",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.gmail.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/my-data/page.tsx",
+      "pathname": "/one/profile/my-data",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.my.data"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/my-data/domain/page.tsx",
+      "pathname": "/one/profile/my-data/domain",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.my.data.domain"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm",
+      "page_file": "app/one/profile/pkm/page.tsx",
+      "pathname": "/one/profile/pkm",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": {
+        "canonical_url": "/one/pkm",
+        "kind": "development_only_feature_with_production_redirect",
+        "pathname": "/one/profile/pkm-agent-lab",
+        "reason": "The local PKM agent lab is available only in development; production redirects to the canonical PKM workspace."
+      },
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/pkm-agent-lab/page.tsx",
+      "pathname": "/one/profile/pkm-agent-lab",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.pkm.agent.lab"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/preferences/page.tsx",
+      "pathname": "/one/profile/preferences",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/preferences/device/page.tsx",
+      "pathname": "/one/profile/preferences/device",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.device"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/preferences/kai/page.tsx",
+      "pathname": "/one/profile/preferences/kai",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.kai"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-gmail",
+      "page_file": "app/one/profile/receipts/page.tsx",
+      "pathname": "/one/profile/receipts",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.receipts"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/regulatory/page.tsx",
+      "pathname": "/one/profile/regulatory",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.profile.edit_services",
+          "route.profile_regulatory"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.regulatory"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/security/page.tsx",
+      "pathname": "/one/profile/security",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_security_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.security"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/security/session/page.tsx",
+      "pathname": "/one/profile/security/session",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.security.session"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/security/vault/page.tsx",
+      "pathname": "/one/profile/security/vault",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.security.vault"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/support/page.tsx",
+      "pathname": "/one/profile/support",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_support_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/support/compose/page.tsx",
+      "pathname": "/one/profile/support/compose",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support.compose"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/support/routing/page.tsx",
+      "pathname": "/one/profile/support/routing",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support.routing"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup",
+      "page_file": "app/one/setup/page.tsx",
+      "pathname": "/one/setup",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.hub_master_ack",
+          "setup.open_connected_systems",
+          "setup.open_email",
+          "setup.open_finance",
+          "setup.open_location",
+          "setup.open_ria"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/setup/[capability]/page.tsx",
+      "pathname": "/one/setup/[capability]",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.capability"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-connected-systems",
+      "page_file": "app/one/setup/connected-systems/page.tsx",
+      "pathname": "/one/setup/connected-systems",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_connected_systems",
+          "setup.skip_connected_systems"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.connected.systems"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-connections",
+      "page_file": "app/one/setup/connections/page.tsx",
+      "pathname": "/one/setup/connections",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.connections"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-kyc",
+      "page_file": "app/one/setup/email/page.tsx",
+      "pathname": "/one/setup/email",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_email",
+          "setup.skip_email"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.email"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-kai",
+      "page_file": "app/one/setup/finance/page.tsx",
+      "pathname": "/one/setup/finance",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "kai.setup.answer_drawdown",
+          "kai.setup.answer_horizon",
+          "kai.setup.answer_volatility",
+          "kai.setup.launch_dashboard",
+          "setup.skip_finance"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.finance"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-kai",
+      "page_file": "app/one/setup/finance/import/page.tsx",
+      "pathname": "/one/setup/finance/import",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_finance",
+          "setup.skip_finance"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.finance.import"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-gmail",
+      "page_file": "app/one/setup/gmail/page.tsx",
+      "pathname": "/one/setup/gmail",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.gmail"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-kai",
+      "page_file": "app/one/setup/kai/page.tsx",
+      "pathname": "/one/setup/kai",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.kai"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-location",
+      "page_file": "app/one/setup/location/page.tsx",
+      "pathname": "/one/setup/location",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_location",
+          "setup.skip_location"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.location"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-onboarding",
+      "page_file": "app/one/setup/ria/page.tsx",
+      "pathname": "/one/setup/ria",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_ria",
+          "setup.skip_ria"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.ria"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "service_file": "lib/services/personal-knowledge-model-service.ts",
+          "service_methods": [
+            "getMetadata",
+            "getDomainData",
+            "getDomainManifest",
+            "storeDomainData"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "service_file": "lib/services/pkm-upgrade-service.ts",
+          "service_methods": [
+            "getStatus",
+            "startOrResume"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "pkm_metadata",
+          "pkm_projection"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm",
+      "page_file": "app/pkm/page.tsx",
+      "pathname": "/pkm",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "public_static"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-portfolio-shared",
+      "page_file": "app/portfolio/shared/page.tsx",
+      "pathname": "/portfolio/shared",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.portfolio.shared"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "auth_state"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-home",
+      "page_file": "app/register-phone/page.tsx",
+      "pathname": "/register-phone",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "phone_mandate.close_country_picker",
+          "phone_mandate.select_country",
+          "phone_mandate.submit_code",
+          "phone_mandate.submit_number"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.register.phone"
+      }
+    },
+    {
+      "alias": {
+        "canonical_url": "/welcome?tab=research",
+        "owner": "public_knowledge_workspace",
+        "pathname": "/research",
+        "reason": "Preserves research links while the unified public workspace is canonical.",
+        "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+      },
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "alias",
+      "native_surface_id": null,
+      "page_file": "app/research/page.tsx",
+      "pathname": "/research",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.research"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/research/protocol/page.tsx",
+      "pathname": "/research/protocol",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.research.protocol"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-home",
+      "page_file": "app/ria/page.tsx",
+      "pathname": "/ria",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.ria_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-clients",
+      "page_file": "app/ria/clients/page.tsx",
+      "pathname": "/ria/clients",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.ria_clients"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.clients"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/ria/clients/[userId]/page.tsx",
+      "pathname": "/ria/clients/[userId]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.client_workspace.open_access_manager",
+          "ria.client_workspace.open_access_tab",
+          "ria.client_workspace.open_explorer_tab",
+          "ria.client_workspace.open_overview_tab",
+          "ria.client_workspace.open_portfolio_tab",
+          "route.ria_client_workspace"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.clients.userid"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/ria/clients/[userId]/accounts/[accountId]/page.tsx",
+      "pathname": "/ria/clients/[userId]/accounts/[accountId]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.client_account.open_workspace_fallback"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.clients.userid.accounts.accountid"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/ria/clients/[userId]/requests/[requestId]/page.tsx",
+      "pathname": "/ria/clients/[userId]/requests/[requestId]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.client_request.open_access_fallback"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.clients.userid.requests.requestid"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-onboarding",
+      "page_file": "app/ria/onboarding/page.tsx",
+      "pathname": "/ria/onboarding",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.ria_onboarding"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.onboarding"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-picks",
+      "page_file": "app/ria/picks/page.tsx",
+      "pathname": "/ria/picks",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "ria.picks.download_template",
+          "ria.picks.open_category_avoid",
+          "ria.picks.open_category_screening",
+          "ria.picks.open_category_top_picks",
+          "ria.picks.open_source_kai",
+          "ria.picks.open_source_my",
+          "route.ria_picks"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.picks"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/ria/profile/page.tsx",
+      "pathname": "/ria/profile",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.profile"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-consents",
+      "page_file": "app/ria/requests/page.tsx",
+      "pathname": "/ria/requests",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.requests"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/ria/settings/page.tsx",
+      "pathname": "/ria/settings",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.settings"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-clients",
+      "page_file": "app/ria/workspace/page.tsx",
+      "pathname": "/ria/workspace",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.workspace"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/welcome/page.tsx",
+      "pathname": "/welcome",
+      "route_mode": "standard",
+      "semantic_routes": [
+        {
+          "canonical_url": "/welcome?tab=blog",
+          "id": "public.blog",
+          "lifecycle": "canonical",
+          "pathname": "/welcome",
+          "query": {
+            "tab": "blog"
+          },
+          "tab_set": "public"
+        },
+        {
+          "canonical_url": "/welcome?tab=developers",
+          "id": "public.developers",
+          "lifecycle": "canonical",
+          "pathname": "/welcome",
+          "query": {
+            "tab": "developers"
+          },
+          "tab_set": "public"
+        },
+        {
+          "canonical_url": "/welcome?tab=research",
+          "id": "public.research",
+          "lifecycle": "canonical",
+          "pathname": "/welcome",
+          "query": {
+            "tab": "research"
+          },
+          "tab_set": "public"
+        }
+      ],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.welcome"
+      }
+    }
+  ],
+  "schema_version": "hushh.runtime_topology_index.v1",
+  "source_sha256": {
+    "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
+    "action_gateway": "a1574bf94973740d3bde3ce6f6920a3be9e74fc82b21abd1462d05592747be13",
+    "agent_registry": "22484910826ab19edb90b6808f2d4f7f2cf734d8844ff5115d79ceb0e8d80c2c",
+    "cache_manifest": "de30c5f1c5ef2ea5707704a118337ec83b7f299f42187188124f699bb4cf72fd",
+    "data_plane": "33f424aa9c927d2b49a37b3e05c1154f77abe2a0e13acbe186ef2d39cb503030",
+    "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
+    "one_specialist_tools": "2963a5b42addb3798def02a9b8c71f38e6013a0f01bf0e388eb9bc9e0149fc71",
+    "route_index": "ad6e78ab00e749e7d68a14ae33d4c5a70b629df2fb9590544c440b2fb0d4ce35",
+    "route_layout": "8552a83a10ab14a362d67bce56c7f90f7dc997a455971d94723ee3594227fc68",
+    "surface_map": "570d80cbc3f196672cd05cd5b10dbca32712e252f5f47bebcd975d1a9b5358f4",
+    "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
+    "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
+  },
+  "summary": {
+    "a2a_scope_gated_agents": 5,
+    "actions": 115,
+    "agents": 18,
+    "aliases": 3,
+    "decision_required": 2,
+    "in_process_specialists": 3,
+    "one_specialist_tools": 5,
+    "physical_routes": 106,
+    "semantic_routes": 14,
+    "table_families": 30
+  }
+}

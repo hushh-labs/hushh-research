@@ -99,10 +99,10 @@
     {
       "route_pattern": "/blog",
       "page_file": "app/blog/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.blog",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.blog",
         "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -316,10 +316,10 @@
     {
       "route_pattern": "/developers",
       "page_file": "app/developers/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.developers",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.developers",
         "purpose": "Help the person understand and use the developers screen through its generated controls.",
@@ -1925,6 +1925,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/one/kai/news",
+      "page_file": "app/one/kai/news/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.kai.news",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai.news",
+        "purpose": "Help the person read current market headlines through the visible Market News workspace.",
+        "screen": "kai_market_news",
+        "entry_cue": "Your latest market headlines are ready to read.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Headlines are read only from the current Market News page; external articles open through their visible links.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_market_news",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-news"
     },
     {
       "route_pattern": "/one/kai/onboarding",
@@ -3826,7 +3869,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "native-route-one-setup-kai"
+      "native_surface_id": "native-route-one-setup-finance-import"
     },
     {
       "route_pattern": "/one/setup/gmail",
@@ -3869,7 +3912,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-gmail"
+      "native_surface_id": "native-route-one-setup"
     },
     {
       "route_pattern": "/one/setup/kai",
@@ -4159,10 +4202,10 @@
     {
       "route_pattern": "/research",
       "page_file": "app/research/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.research",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.research",
         "purpose": "Help the person understand and use the research screen through its generated controls.",

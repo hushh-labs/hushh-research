@@ -17,7 +17,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupRoute,
+  KAI_MARKET_PATH,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -83,15 +87,10 @@ export function PhoneMandatePageContent() {
       }
 
       const identity = await AccountIdentityService.syncCurrentUser(activeUser);
-      const idToken = await activeUser.getIdToken().catch(() => undefined);
-      const nextPath = await PostAuthRouteService.resolveAfterLogin({
-        userId: activeUser.uid,
-        redirectPath,
-        idToken,
-        phoneNumber: activeUser.phoneNumber,
-        phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
-        hostname: window.location.hostname,
-      });
+      // Phone verification is an onboarding boundary, not a generic post-auth
+      // redirect. Refresh the authoritative root state before resolving a
+      // destination: a stale cached bootstrap result must never let a newly
+      // verified account skip One setup and land in Profile/Home.
       const setupResolved = await PreVaultUserStateService.bootstrapState(
         activeUser.uid,
         {
@@ -106,6 +105,17 @@ export function PhoneMandatePageContent() {
           );
           return false;
         });
+      const idToken = await activeUser.getIdToken().catch(() => undefined);
+      const nextPath = setupResolved
+        ? await PostAuthRouteService.resolveAfterLogin({
+            userId: activeUser.uid,
+            redirectPath,
+            idToken,
+            phoneNumber: activeUser.phoneNumber,
+            phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
+            hostname: window.location.hostname,
+          })
+        : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: activeUser.uid,
         // A destination is never proof that root onboarding resolved. Only the
@@ -306,36 +316,33 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        {/* Keep the identity mark in the same quiet, upper-viewport position
-            as the vault credential flow. The OTP panel stays compact enough
-            to remain above the native keyboard without page scrolling. */}
-        <div className="flex flex-1 flex-col items-center justify-start px-6 pb-2 pt-7 text-center">
-          <span
-            aria-hidden="true"
-            className="select-none text-[40px] leading-none"
-          >
-            🤫
-          </span>
+        {/* Verification is a focused task, not a hero. Keep the heading tight
+            so the active field row can clear the native keyboard. */}
+        <div className="px-6 pb-3 pt-7 text-center">
           <h1
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-4 font-[family-name:var(--font-app-display)] text-[32px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+            className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
-          <p className="mt-2 max-w-[20rem] text-[15px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
+          <p className="mx-auto mt-1.5 max-w-[20rem] text-[15px] leading-[1.4] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
             Add your phone number to continue.
           </p>
         </div>
 
-        {/* The phone form may scroll only on compact screens; the concise OTP
-            step stays fixed above the native keyboard like the vault input. */}
+        {/* The active field group owns the keyboard clearance. The keyboard
+            plugin leaves the WebView frame stable, so padding—not a `dvh`
+            resize—keeps both the number and OTP fields visibly above iOS and
+            Android keyboards. Tiny screens may scroll this one form region. */}
         <div
-          className={`relative px-6 pb-5 ${
-            verificationStep === "phone" ? "overflow-y-auto" : "overflow-hidden"
-          }`}
-          style={{ maxHeight: "calc(100dvh - 4rem - var(--kb-height, 0px))" }}
+          data-phone-mandate-input-region="true"
+          className="relative mt-auto max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain px-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{
+            paddingBottom:
+              "max(calc(1rem + var(--app-safe-area-bottom-effective, 0px)), calc(1rem + var(--kb-height, 0px)))",
+          }}
         >
           <PhoneVerificationFlow
             mode="link"

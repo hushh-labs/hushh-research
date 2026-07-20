@@ -1,8 +1,9 @@
-"""Flat MCP capability projection for constrained, authenticated hosts.
+"""Canonical public MCP contract with shallow, host-safe schemas.
 
-The standard public contract remains the v0.3 source of truth. This module
-intentionally contains only shallow primitive schemas, so hosts with limited
-JSON Schema planners can register the same consent lifecycle safely.
+The five tools in this module are the one public Hussh Consent MCP surface.
+Every hosted client receives the same semantic tools and field shapes; the
+server only changes transport delivery where a trusted local stdio process can
+decrypt an export on the connector machine.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 FLAT_PROFILE = "flat"
+LOCAL_INFORMATION_JSON_MAX_CHARS = 120_000
 _CORE_TOOL_NAMES = (
     "search_user_scopes",
+    "prepare_campaign_context",
     "request_consent",
     "check_consent_status",
     "get_encrypted_scoped_export",
@@ -22,6 +25,8 @@ _CORE_TOOL_NAMES = (
 _FIELD_TITLES = {
     "approval_timeout_at": "Approval timeout time",
     "approval_timeout_minutes": "Approval timeout minutes",
+    "approval_required": "Approval required",
+    "campaign_goal": "Offer goal",
     "ciphertext": "Encrypted ciphertext",
     "connector_key_id": "Connector key identifier",
     "connector_public_key": "Connector public key",
@@ -36,14 +41,19 @@ _FIELD_TITLES = {
     "expires_at": "Expiry time",
     "export_envelope_json": "Encrypted export envelope JSON",
     "export_revision": "Export revision",
+    "export_metadata_ready": "Export metadata ready",
+    "fetch_export_metadata": "Fetch export metadata",
     "grant_ref": "Consent grant reference",
     "granted_scope": "Granted scope",
     "has_more": "More results available",
+    "information_json": "Locally decrypted information JSON",
     "limit": "Result limit",
     "next_cursor": "Next-page cursor",
     "payload_iv": "Payload initialization vector",
     "payload_tag": "Payload authentication tag",
     "poll_after_seconds": "Polling delay seconds",
+    "poll_seconds": "Offer polling window seconds",
+    "preferred_context": "Preferred context",
     "purpose": "Consent purpose",
     "query": "Scope search text",
     "refresh_policy": "Grant refresh policy",
@@ -51,12 +61,20 @@ _FIELD_TITLES = {
     "scope": "Consent scope",
     "scope_values": "Available consent scopes",
     "sender_public_key": "Sender public key",
+    "selected_scope": "Selected consent scope",
+    "selected_scope_label": "Selected scope label",
+    "settlement_ref": "Settlement reference",
     "status": "Lifecycle status",
+    "surface": "Experience surface",
     "user_identifier": "User identifier",
     "wrapped_export_key": "Wrapped export key",
     "wrapped_key_iv": "Wrapped-key initialization vector",
     "wrapped_key_tag": "Wrapped-key authentication tag",
     "wrapping_alg": "Key wrapping algorithm",
+    "offer_amount": "Offer amount",
+    "offer_currency": "Offer currency",
+    "offer_summary": "Offer summary",
+    "offer_status": "Offer status",
 }
 
 
@@ -88,9 +106,10 @@ _IDENTIFIER_INPUT = _field(
 )
 _SCOPE_INPUT = _field(
     "string",
-    "Least-privilege scope returned by search_user_scopes. Preserve the value exactly when requesting consent.",
+    "Least-privilege scope returned by search-user-scopes. Preserve the value exactly when requesting consent.",
     minLength=3,
     maxLength=200,
+    pattern=r"^attr(?:\.[a-z][a-z0-9_]{0,63})+\.\*$",
 )
 _PURPOSE_INPUT = _field(
     "string",
@@ -118,14 +137,14 @@ _CONNECTOR_ALGORITHM_INPUT = _field(
 
 
 def get_flat_contract() -> dict[str, Any]:
-    """Return the four core tools without unsupported schema constructs."""
+    """Return the canonical five-tool public contract."""
 
     return {
         "tools": [
             {
                 "name": "search_user_scopes",
                 "title": "Search user scopes",
-                "description": "Finds consent scopes available for one registered user. Use this before request_consent to choose the narrowest scope. Returns only scope strings and pagination state.",
+                "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns only scope strings and pagination state.",
                 "inputSchema": _object(
                     {
                         "user_identifier": _IDENTIFIER_INPUT,
@@ -141,7 +160,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "cursor": _field(
                             "string",
-                            "Optional cursor returned by the previous search_user_scopes call.",
+                            "Optional cursor returned by the previous search-user-scopes call.",
                             maxLength=64,
                         ),
                         "limit": _field(
@@ -172,7 +191,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "scope_values": _field(
                             "array",
-                            "Available scope strings. Use one unchanged in request_consent.",
+                            "Available scope strings. Use one unchanged in request-consent.",
                             items=_field(
                                 "string", "One least-privilege scope value.", maxLength=200
                             ),
@@ -191,9 +210,189 @@ def get_flat_contract() -> dict[str, Any]:
                 ),
             },
             {
+                "name": "prepare_campaign_context",
+                "title": "Prepare consent-backed offer context",
+                "description": "Prepares a least-privilege consent-backed offer or experience context for one user. It selects an available scope, creates or reuses consent, and returns safe lifecycle state for an agent or frontend.",
+                "inputSchema": _object(
+                    {
+                        "user_identifier": _IDENTIFIER_INPUT,
+                        "campaign_goal": _field(
+                            "string",
+                            "Plain-language goal for the offer or experience.",
+                            minLength=8,
+                            maxLength=500,
+                        ),
+                        "purpose": _PURPOSE_INPUT,
+                        "surface": _field(
+                            "string",
+                            "Optional experience surface using this context.",
+                            maxLength=80,
+                        ),
+                        "preferred_context": _field(
+                            "string",
+                            "Optional scope preference. Use auto to let Hussh select the least-privilege match.",
+                            maxLength=256,
+                        ),
+                        "expiry_hours": _field(
+                            "integer",
+                            "How long an approved grant remains valid, from 24 through 2160 hours.",
+                            minimum=24,
+                            maximum=2160,
+                        ),
+                        "approval_timeout_minutes": _field(
+                            "integer",
+                            "How long Hussh waits for approval, from 5 through 1440 minutes.",
+                            minimum=5,
+                            maximum=1440,
+                        ),
+                        "refresh_policy": _field(
+                            "string",
+                            "Use snapshot for one export or continuous_until_expiry for approved refreshes.",
+                            enum=["snapshot", "continuous_until_expiry"],
+                        ),
+                        "poll_seconds": _field(
+                            "integer",
+                            "Optional bounded in-call wait for lifecycle state, from 0 through 90 seconds.",
+                            minimum=0,
+                            maximum=90,
+                        ),
+                        "fetch_export_metadata": _field(
+                            "boolean",
+                            "Whether to report encrypted-export readiness after an already granted request.",
+                        ),
+                        "offer_amount": _field(
+                            "number",
+                            "Optional amount offered for the approved consent. This records an offer; it does not settle payment.",
+                            exclusiveMinimum=0,
+                            maximum=1000000,
+                        ),
+                        "offer_currency": _field(
+                            "string",
+                            "Optional ISO 4217 offer currency such as USD.",
+                            minLength=3,
+                            maxLength=3,
+                        ),
+                        "offer_summary": _field(
+                            "string", "Optional user-facing summary of the offer.", maxLength=500
+                        ),
+                        "settlement_ref": _field(
+                            "string",
+                            "Optional opaque settlement reference owned by the caller.",
+                            maxLength=128,
+                        ),
+                        "country_iso2": _field(
+                            "string",
+                            "Optional two-letter ISO country code used for phone resolution.",
+                            minLength=2,
+                            maxLength=2,
+                        ),
+                        "country": _field(
+                            "string",
+                            "Optional country name used for phone resolution when country_iso2 is absent.",
+                            minLength=2,
+                            maxLength=64,
+                        ),
+                    },
+                    ["user_identifier"],
+                ),
+                "outputSchema": _object(
+                    {
+                        "status": _field("string", "Consent lifecycle state."),
+                        "selected_scope": _field(
+                            "string",
+                            "Least-privilege scope selected for this offer or context.",
+                            maxLength=200,
+                        ),
+                        "selected_scope_label": _field(
+                            "string", "User-facing label for the selected scope.", maxLength=120
+                        ),
+                        "request_ref": _field(
+                            "string",
+                            "Opaque pending-request reference, or an empty string after approval.",
+                            maxLength=64,
+                        ),
+                        "grant_ref": _field(
+                            "string",
+                            "Opaque approved-grant reference, or an empty string while pending.",
+                            maxLength=64,
+                        ),
+                        "approval_required": _field(
+                            "boolean", "True when the person must still review the consent request."
+                        ),
+                        "poll_after_seconds": _field(
+                            "integer",
+                            "Minimum delay before another status check, or zero when terminal.",
+                            minimum=0,
+                        ),
+                        "expires_at": _field(
+                            "integer",
+                            "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
+                            minimum=0,
+                        ),
+                        "approval_timeout_at": _field(
+                            "integer",
+                            "Unix epoch milliseconds when approval polling should stop, or zero when unavailable.",
+                            minimum=0,
+                        ),
+                        "export_metadata_ready": _field(
+                            "boolean",
+                            "True when an approved encrypted export is ready for connector-side retrieval.",
+                        ),
+                        "export_revision": _field(
+                            "integer",
+                            "Encrypted export revision, or zero when not ready.",
+                            minimum=0,
+                        ),
+                        "offer_amount": _field(
+                            "number",
+                            "Recorded offer amount, or zero when no offer was supplied.",
+                            minimum=0,
+                        ),
+                        "offer_currency": _field(
+                            "string",
+                            "Recorded offer currency, or an empty string when no offer was supplied.",
+                            maxLength=3,
+                        ),
+                        "offer_summary": _field(
+                            "string",
+                            "Recorded offer summary, or an empty string when no offer was supplied.",
+                            maxLength=500,
+                        ),
+                        "settlement_ref": _field(
+                            "string",
+                            "Caller settlement reference, or an empty string when none was supplied.",
+                            maxLength=128,
+                        ),
+                        "offer_status": _field(
+                            "string",
+                            "Offer state. An approved consent remains pending user clearance for settlement.",
+                            maxLength=64,
+                        ),
+                    },
+                    [
+                        "status",
+                        "selected_scope",
+                        "selected_scope_label",
+                        "request_ref",
+                        "grant_ref",
+                        "approval_required",
+                        "poll_after_seconds",
+                        "expires_at",
+                        "approval_timeout_at",
+                        "export_metadata_ready",
+                        "export_revision",
+                        "offer_amount",
+                        "offer_currency",
+                        "offer_summary",
+                        "settlement_ref",
+                        "offer_status",
+                    ],
+                ),
+            },
+            {
                 "name": "request_consent",
                 "title": "Request consent",
-                "description": "Creates or reuses a least-privilege consent request for one user. Use after search_user_scopes. The user must approve before encrypted retrieval is available.",
+                "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before encrypted retrieval is available.",
                 "inputSchema": _object(
                     {
                         "user_identifier": _IDENTIFIER_INPUT,
@@ -219,6 +418,26 @@ def get_flat_contract() -> dict[str, Any]:
                         "connector_public_key": _CONNECTOR_KEY_INPUT,
                         "connector_key_id": _CONNECTOR_KEY_ID_INPUT,
                         "connector_wrapping_alg": _CONNECTOR_ALGORITHM_INPUT,
+                        "offer_amount": _field(
+                            "number",
+                            "Optional amount offered for the approved consent. This records an offer; it does not settle payment.",
+                            exclusiveMinimum=0,
+                            maximum=1000000,
+                        ),
+                        "offer_currency": _field(
+                            "string",
+                            "Optional ISO 4217 offer currency such as USD.",
+                            minLength=3,
+                            maxLength=3,
+                        ),
+                        "offer_summary": _field(
+                            "string", "Optional user-facing summary of the offer.", maxLength=500
+                        ),
+                        "settlement_ref": _field(
+                            "string",
+                            "Optional opaque settlement reference owned by the caller.",
+                            maxLength=128,
+                        ),
                         "country_iso2": _field(
                             "string",
                             "Optional two-letter ISO country code used for phone resolution.",
@@ -259,7 +478,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "poll_after_seconds": _field(
                             "integer",
-                            "Minimum delay before polling check_consent_status, or zero when terminal.",
+                            "Minimum delay before polling check-consent-status, or zero when terminal.",
                             minimum=0,
                         ),
                         "approval_timeout_at": _field(
@@ -272,6 +491,31 @@ def get_flat_contract() -> dict[str, Any]:
                             "Coverage relationship between requested and granted scope, or an empty string when pending.",
                             maxLength=64,
                         ),
+                        "offer_amount": _field(
+                            "number",
+                            "Recorded offer amount, or zero when no offer was supplied.",
+                            minimum=0,
+                        ),
+                        "offer_currency": _field(
+                            "string",
+                            "Recorded offer currency, or an empty string when no offer was supplied.",
+                            maxLength=3,
+                        ),
+                        "offer_summary": _field(
+                            "string",
+                            "Recorded offer summary, or an empty string when no offer was supplied.",
+                            maxLength=500,
+                        ),
+                        "settlement_ref": _field(
+                            "string",
+                            "Caller settlement reference, or an empty string when none was supplied.",
+                            maxLength=128,
+                        ),
+                        "offer_status": _field(
+                            "string",
+                            "Offer state, or an empty string when no offer was supplied.",
+                            maxLength=64,
+                        ),
                     },
                     [
                         "status",
@@ -282,18 +526,23 @@ def get_flat_contract() -> dict[str, Any]:
                         "poll_after_seconds",
                         "approval_timeout_at",
                         "coverage_kind",
+                        "offer_amount",
+                        "offer_currency",
+                        "offer_summary",
+                        "settlement_ref",
+                        "offer_status",
                     ],
                 ),
             },
             {
                 "name": "check_consent_status",
                 "title": "Check consent status",
-                "description": "Checks one consent request previously returned by request_consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
+                "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
                 "inputSchema": _object(
                     {
                         "request_ref": _field(
                             "string",
-                            "Opaque request reference returned by request_consent.",
+                            "Opaque request reference returned by request-consent.",
                             minLength=1,
                             maxLength=64,
                         )
@@ -336,12 +585,12 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "get_encrypted_scoped_export",
                 "title": "Get encrypted scoped export",
-                "description": "Retrieves ciphertext for an approved grant. Use only after check_consent_status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
+                "description": "Retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
                 "inputSchema": _object(
                     {
                         "grant_ref": _field(
                             "string",
-                            "Opaque approved-grant reference returned by request_consent or check_consent_status.",
+                            "Opaque approved-grant reference returned by request-consent or check-consent-status.",
                             minLength=1,
                             maxLength=64,
                         ),
@@ -356,7 +605,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "delivery": _field(
                             "string",
-                            "Delivery mode. Flat-profile exports are always encrypted_inline.",
+                            "Delivery mode. Hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local.",
                         ),
                         "expected_scope": _field(
                             "string", "Scope requested for this export.", maxLength=200
@@ -379,48 +628,40 @@ def get_flat_contract() -> dict[str, Any]:
                         "ciphertext": _field(
                             "string",
                             "Base64 ciphertext. Never treat it as plaintext or model context.",
-                            minLength=1,
                         ),
                         "payload_iv": _field(
                             "string",
                             "Base64 initialization vector for the ciphertext payload.",
-                            minLength=1,
                             maxLength=512,
                         ),
                         "payload_tag": _field(
                             "string",
                             "Base64 authentication tag for the ciphertext payload.",
-                            minLength=1,
                             maxLength=512,
                         ),
                         "wrapped_export_key": _field(
                             "string",
                             "Base64 wrapped symmetric export key.",
-                            minLength=1,
                             maxLength=2048,
                         ),
                         "wrapped_key_iv": _field(
                             "string",
                             "Base64 initialization vector for wrapped_export_key.",
-                            minLength=1,
                             maxLength=512,
                         ),
                         "wrapped_key_tag": _field(
                             "string",
                             "Base64 authentication tag for wrapped_export_key.",
-                            minLength=1,
                             maxLength=512,
                         ),
                         "sender_public_key": _field(
                             "string",
                             "Base64 ephemeral X25519 public key used for key agreement.",
-                            minLength=1,
                             maxLength=512,
                         ),
                         "connector_key_id": _field(
                             "string",
                             "Registered partner key identifier that must select the matching private key.",
-                            minLength=1,
                             maxLength=128,
                         ),
                         "wrapping_alg": _field(
@@ -431,8 +672,12 @@ def get_flat_contract() -> dict[str, Any]:
                         "export_envelope_json": _field(
                             "string",
                             "Canonical JSON envelope for partner-side integrity validation and decryption.",
-                            minLength=2,
                             maxLength=20000,
+                        ),
+                        "information_json": _field(
+                            "string",
+                            "Locally decrypted information JSON. Present only for a trusted local stdio connector; hosted responses return an empty string.",
+                            maxLength=LOCAL_INFORMATION_JSON_MAX_CHARS,
                         ),
                     },
                     [
@@ -452,6 +697,7 @@ def get_flat_contract() -> dict[str, Any]:
                         "connector_key_id",
                         "wrapping_alg",
                         "export_envelope_json",
+                        "information_json",
                     ],
                 ),
             },

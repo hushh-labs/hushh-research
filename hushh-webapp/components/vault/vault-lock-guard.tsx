@@ -78,6 +78,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
   const nativeReplayAttemptedRef = useRef(false);
+  const showedVaultCheckLoaderRef = useRef(false);
   const PROGRESS_SCOPE = "vault-lock-guard";
 
   useEffect(() => {
@@ -287,11 +288,20 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }
 
   if (hasVault === null) {
+    showedVaultCheckLoaderRef.current = true;
     return <HushhLoader label="Checking vault..." />;
   }
 
   if (hasVault === false) {
-    return <>{children}</>;
+    const animateResolvedSurface = showedVaultCheckLoaderRef.current;
+    showedVaultCheckLoaderRef.current = false;
+    return animateResolvedSurface ? (
+      <div className="motion-step-enter" data-vault-guard-resolved="true">
+        {children}
+      </div>
+    ) : (
+      <>{children}</>
+    );
   }
 
   if (nativeTestBootstrapManaged) {

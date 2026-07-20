@@ -11,11 +11,11 @@ import pytest
 from mcp.shared.version import LATEST_PROTOCOL_VERSION
 
 EXPECTED_TOOLS = [
-    "search_user_scopes",
-    "prepare_campaign_context",
-    "request_consent",
-    "check_consent_status",
-    "get_encrypted_scoped_export",
+    "search-user-scopes",
+    "prepare-campaign-context",
+    "request-consent",
+    "check-consent-status",
+    "get-encrypted-scoped-export",
 ]
 
 
@@ -77,7 +77,7 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
         process.stdin.flush()
         initialized = _read_json_line(process)
         assert initialized["result"]["protocolVersion"] == protocol_version
-        assert initialized["result"]["serverInfo"]["version"] == "0.3.0"
+        assert initialized["result"]["serverInfo"]["version"] == "0.4.0"
 
         process.stdin.write(
             json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"

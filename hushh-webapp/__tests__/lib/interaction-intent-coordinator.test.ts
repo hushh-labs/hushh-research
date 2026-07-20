@@ -3,6 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import { InteractionIntentCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 describe("InteractionIntentCoordinator", () => {
+  it("retains the route key and contextual mode for immediate tab selection", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const cancel = vi.fn();
+
+    const intent = coordinator.requestNavigation({
+      target: "/one/kai?tab=portfolio",
+      source: "tap",
+      transitionMode: "contextual",
+      start: () => cancel,
+    });
+
+    expect(intent).toMatchObject({
+      target: "/one/kai?tab=portfolio",
+      transitionMode: "contextual",
+      status: "accepted",
+    });
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it("keeps only the latest pending navigation and preserves a same-target intent", () => {
     const coordinator = new InteractionIntentCoordinator();
     const cancelA = vi.fn();
@@ -173,5 +192,29 @@ describe("InteractionIntentCoordinator", () => {
       phase: "cancelled",
       message: "Action cancelled because the app was backgrounded",
     });
+  });
+
+  it("publishes one ordered lifecycle stream and ignores duplicate native/browser events", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const revisions: Array<{ state: string; revision: number }> = [];
+    const unsubscribe = coordinator.subscribeLifecycle(() => {
+      const snapshot = coordinator.getLifecycleSnapshot();
+      revisions.push({ state: snapshot.state, revision: snapshot.revision });
+    });
+
+    coordinator.handleLifecycle("background");
+    coordinator.handleLifecycle("background");
+    coordinator.handleLifecycle("active");
+
+    expect(revisions).toEqual([
+      { state: "background", revision: 1 },
+      { state: "active", revision: 2 },
+    ]);
+    expect(coordinator.getLifecycleSnapshot()).toMatchObject({
+      state: "active",
+      revision: 2,
+    });
+
+    unsubscribe();
   });
 });

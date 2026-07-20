@@ -59,7 +59,8 @@
       "state_exposure": [],
       "docs_references": [
         "hushh-webapp/app/ria/picks/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+        "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
+        "hushh-webapp/lib/navigation/top-shell-tabs.ts"
       ],
       "speaker_persona": "one"
     },

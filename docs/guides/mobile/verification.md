@@ -4,13 +4,21 @@
 
 Canonical visual owner: [Mobile Guide](../mobile.md).
 
-## Primary Gate
+## Verification Lanes
+
+Non-destructive contract gate:
 
 ```bash
-cd hushh-webapp && npm run verify:capacitor:audit
+cd hushh-webapp && npm run verify:capacitor:static
 ```
 
-This gate includes:
+Intentional cold-start route audit:
+
+```bash
+cd hushh-webapp && npm run verify:capacitor:cold:audit
+```
+
+The cold audit resets the app and uses a governed reviewer fixture. It includes:
 
 - frontend/native surface-map verification
 - native microphone permission metadata verification
@@ -22,6 +30,26 @@ This gate includes:
 - iOS simulator route audit
 - Android emulator route audit
 - native report freshness against the current route inventory
+
+It does not prove an active user's route or memory-only vault survives background/resume. Use `npm run ios:continuity:local` or `npm run android:continuity:local` against an already-installed, normally unlocked app for that evidence; these commands only launch and monitor the current session.
+
+## Test Execution Safety
+
+Start with static and host-native verification. These do not launch a test-mode
+app:
+
+```bash
+cd hushh-webapp && npm run verify:capacitor:static
+cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon
+cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C' -derivedDataPath ios/App/build/DerivedData build-for-testing
+```
+
+Cold audit launch is intentionally explicit. It resets only the test
+installation and always terminates that test process after capture. The
+in-page UI runner also terminalizes a bootstrap that does not become ready in
+45 seconds; it records a sanitized timeout instead of retaining an interval.
+Never use a cold audit after an interrupted continuity rehearsal to diagnose a
+valid in-memory vault—first inspect the active app/process state.
 
 ## Smoke Checklist
 

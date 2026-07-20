@@ -67,7 +67,9 @@ type OneLocationOnboardingFlowProps = {
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
   onRequestNotifications: () => Promise<void>;
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
+  onSkip?: () => void | Promise<void>;
+  requireLocationToComplete?: boolean;
 };
 
 const FEATURE_SCREENS: OnboardingScreen[] = ["arrival", "checkin", "sos"];
@@ -984,6 +986,8 @@ function PermissionsScreen({
   onRequestLocation,
   onRequestNotifications,
   onComplete,
+  onSkip,
+  requireLocationToComplete,
 }: {
   canGoBack: boolean;
   locationPermission: HushhLocationPermissionState | null;
@@ -993,7 +997,9 @@ function PermissionsScreen({
   onBack: () => void;
   onRequestLocation: () => Promise<void>;
   onRequestNotifications: () => Promise<void>;
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
+  onSkip: () => void | Promise<void>;
+  requireLocationToComplete: boolean;
 }) {
   const locationGranted =
     locationPermission?.state === "granted" &&
@@ -1026,7 +1032,10 @@ function PermissionsScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <TopNavigation onBack={canGoBack ? onBack : undefined} onSkip={onComplete} />
+      <TopNavigation
+        onBack={canGoBack ? onBack : undefined}
+        onSkip={() => void onSkip()}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <h1 className="mt-3 max-w-[390px] text-[38px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
           A few permissions.<br />Nothing more.
@@ -1056,7 +1065,12 @@ function PermissionsScreen({
           <LockKeyhole className="h-4 w-4 shrink-0" />
           Your location is never sold. Sharing always requires your approval.
         </p>
-        <PrimaryButton onClick={onComplete}>Continue</PrimaryButton>
+        <PrimaryButton
+          onClick={() => void onComplete()}
+          disabled={requireLocationToComplete && !locationGranted}
+        >
+          Continue
+        </PrimaryButton>
       </footer>
     </div>
   );
@@ -1080,6 +1094,8 @@ export function OneLocationOnboardingFlow({
   onRequestLocation,
   onRequestNotifications,
   onComplete,
+  onSkip = onComplete,
+  requireLocationToComplete = false,
 }: OneLocationOnboardingFlowProps) {
   const [screen, setScreen] = useState<OnboardingScreen>(startAt);
   const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
@@ -1275,6 +1291,8 @@ export function OneLocationOnboardingFlow({
             onRequestLocation={onRequestLocation}
             onRequestNotifications={onRequestNotifications}
             onComplete={onComplete}
+            onSkip={onSkip}
+            requireLocationToComplete={requireLocationToComplete}
           />
         ) : null}
       </section>

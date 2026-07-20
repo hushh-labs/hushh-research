@@ -115,7 +115,7 @@ try {
   );
   const responseOptions = (label) => ({ child, stderr: () => stderr, label });
   const initialized = await nextJsonLine(lines, responseOptions("initialization"));
-  if (initialized?.result?.serverInfo?.version !== "0.3.0") {
+  if (initialized?.result?.serverInfo?.version !== "0.4.0") {
     throw new Error(`Packed MCP initialization mismatch: ${JSON.stringify(initialized)}`);
   }
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
@@ -125,11 +125,11 @@ try {
   const listed = await nextJsonLine(lines, responseOptions("tool-list"));
   const names = listed?.result?.tools?.map((tool) => tool.name);
   const expected = [
-    "search_user_scopes",
-    "prepare_campaign_context",
-    "request_consent",
-    "check_consent_status",
-    "get_encrypted_scoped_export",
+    "search-user-scopes",
+    "prepare-campaign-context",
+    "request-consent",
+    "check-consent-status",
+    "get-encrypted-scoped-export",
   ];
   if (JSON.stringify(names) !== JSON.stringify(expected)) {
     throw new Error(`Packed MCP tool mismatch: ${JSON.stringify(names)} stderr=${stderr.slice(0, 500)}`);

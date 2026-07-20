@@ -21,7 +21,7 @@ describe("route transition intent ownership", () => {
     vi.advanceTimersByTime(120);
     beginRouteTransition("/one/profile", third, "tap");
 
-    vi.advanceTimersByTime(499);
+    vi.advanceTimersByTime(299);
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
     expect(third).not.toHaveBeenCalled();
@@ -38,8 +38,23 @@ describe("route transition intent ownership", () => {
 
     beginRouteTransition("/one/kai", navigate, "tap");
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(300);
 
     expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("commits contextual query selections immediately without a crossfade", () => {
+    vi.useFakeTimers();
+    const navigate = vi.fn();
+
+    beginRouteTransition(
+      "/one/kai?tab=portfolio",
+      navigate,
+      "tap",
+      "contextual",
+    );
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
 });

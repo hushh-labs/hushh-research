@@ -108,6 +108,7 @@ import {
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
+import { loadEmailDraftingEnabled } from "@/lib/onboarding/email-drafting-preference";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -412,6 +413,8 @@ export function OneKycWorkspace({
   >({});
   const [confirmSelection, setConfirmSelection] = useState<string[]>([]);
   const [connectorReady, setConnectorReady] = useState(false);
+  const [automaticResponsePreparationEnabled, setAutomaticResponsePreparationEnabled] =
+    useState<boolean | null>(null);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
   const [aliasCode, setAliasCode] = useState("");
@@ -500,6 +503,24 @@ export function OneKycWorkspace({
     // client connector are the operational boundary for first-run setup.
     onSetupReadinessChange?.(connectorReady && verifiedAliases.length > 0);
   }, [connectorReady, onSetupReadinessChange, verifiedAliases.length]);
+  useEffect(() => {
+    const userId = auth.userId;
+    if (!userId || !vaultOwnerToken) {
+      setAutomaticResponsePreparationEnabled(null);
+      return;
+    }
+    let cancelled = false;
+    void loadEmailDraftingEnabled({ userId, vaultOwnerToken })
+      .then((enabled) => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, vaultOwnerToken]);
   const pendingAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "pending"),
@@ -599,11 +620,14 @@ export function OneKycWorkspace({
         selected_workflow_status: selected?.status || null,
         vault_unlocked: Boolean(isVaultUnlocked && vaultKey && vaultOwnerToken),
         connector_ready: connectorReady,
+        automatic_response_preparation_enabled:
+          automaticResponsePreparationEnabled,
         loading,
       },
     }),
     [
       aliasPanelOpen,
+      automaticResponsePreparationEnabled,
       connectorReady,
       isVaultUnlocked,
       loading,
@@ -809,6 +833,7 @@ export function OneKycWorkspace({
     let cancelled = false;
 
     async function prepareClientDraft() {
+      if (automaticResponsePreparationEnabled !== true) return;
       if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
       const userId = auth.userId;
       if (
@@ -946,6 +971,7 @@ export function OneKycWorkspace({
     };
   }, [
     auth.userId,
+    automaticResponsePreparationEnabled,
     clearLocalWorkflowState,
     draftFailedAttemptKeys,
     draftRecoveryAttempts,

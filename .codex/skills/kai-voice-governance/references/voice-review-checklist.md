@@ -17,6 +17,8 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 
 - If the action needs prerequisites, is the workflow explicitly authored?
 - Does each workflow step have a clear settlement target or an intentional reason not to?
+- For a cross-screen journey, does its source action name an explicit destination route/screen, and do destination choices name only generated IDs valid after fresh context acknowledgement?
+- Is any carried choice an ephemeral generated ID only, cleared on timeout, cancellation, back navigation, route mismatch, sign-out, and session end?
 - Are persona, workspace, vault, auth, consent, and onboarding constraints modeled centrally?
 - Is speaker persona treated as copy/prompt ownership rather than authority?
 - Does an earned-but-inactive workspace require ask-before-switch?

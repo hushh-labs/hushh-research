@@ -130,10 +130,18 @@ function isLocalNativeHost(host: string | null): boolean {
 
 function normalizeNativeBackendUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/$/, "");
-  if (Capacitor.getPlatform() !== "android") {
+  const platform = Capacitor.getPlatform();
+  const backendHost = hostFromUrl(trimmed);
+  // The iOS simulator prefers IPv6 for `localhost`. Our local FastAPI runtime
+  // intentionally binds IPv4 loopback, so direct WebView/Capacitor requests
+  // otherwise fail before setup can fetch its progress. Keep hosted and
+  // physical-device builds untouched; only the local loopback spelling changes.
+  if (platform === "ios" && backendHost === "localhost") {
+    return trimmed.replace("localhost", "127.0.0.1");
+  }
+  if (platform !== "android") {
     return trimmed;
   }
-  const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
   }
@@ -256,6 +264,15 @@ export class MarketInsightsEmptyError extends Error {
   constructor() {
     super("Market insights are not ready yet.");
     this.name = "MarketInsightsEmptyError";
+  }
+}
+
+export class MarketNewsSnapshotChangedError extends Error {
+  readonly status = 409;
+
+  constructor() {
+    super("Market news refreshed. Start again to see the latest headlines.");
+    this.name = "MarketNewsSnapshotChangedError";
   }
 }
 
@@ -920,12 +937,28 @@ export interface KaiHomeSectorItem {
 export interface KaiHomeNewsItem {
   symbol: string;
   title: string;
+  summary?: string | null;
   url: string;
   published_at: string;
   source_name: string;
   provider: string;
   sentiment_hint?: string | null;
   degraded: boolean;
+}
+
+export interface KaiMarketNewsPage {
+  items: KaiHomeNewsItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+  snapshot_id: string;
+  generated_at: string;
+  stale: boolean;
+  cache: {
+    tier: "memory" | "postgres" | "live";
+    age_seconds: number;
+    hit: boolean;
+  };
+  provider_status: Record<string, string>;
 }
 
 export interface KaiHomeSignal {
@@ -2684,7 +2717,10 @@ export class ApiService {
     return response.json();
   }
 
-  /** Validate a Gemini Developer API key before encrypted vault storage. */
+  /**
+   * Prove a Gemini key can complete a bounded generation before encrypted
+   * vault storage. The key is request-bounded and never persisted by this API.
+   */
   static async validateGeminiRuntimeCredential(input: {
     credential: string;
     transport: "developer_api" | "vertex_api_key";
@@ -2715,8 +2751,17 @@ export class ApiService {
       if (status === "invalid_key") {
         throw new Error("Gemini could not accept that API key.");
       }
-      if (status === "quota_or_billing") {
-        throw new Error("This Gemini key needs an available quota or billing setup.");
+      if (status === "quota_exhausted") {
+        throw new Error("This Gemini key has no available quota or is currently rate limited.");
+      }
+      if (status === "billing_required") {
+        throw new Error("This Gemini key needs an active billing setup.");
+      }
+      if (status === "invalid_vertex_configuration") {
+        throw new Error("Check the Google Cloud project ID and Vertex location.");
+      }
+      if (status === "unsupported_model") {
+        throw new Error("This Gemini key cannot access the model One uses.");
       }
       throw new Error("Gemini could not be reached to validate this key.");
     }
@@ -3533,6 +3578,72 @@ export class ApiService {
       throw new Error(`Failed to load market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;
+  }
+
+  /**
+   * Read one page from the shared, public baseline market-news snapshot.
+   * The backend performs cursor slicing after the cached provider bundle is
+   * resolved, so paging cannot multiply provider requests.
+   */
+  static async getKaiMarketNewsBaseline(data: {
+    userId: string;
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      throw new Error("Missing Firebase ID token for market news");
+    }
+    const query = new URLSearchParams();
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number") query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(
+      `/api/kai/market/news/baseline/${data.userId}${suffix}`,
+      {
+        method: "GET",
+        signal: data.signal,
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
+  }
+
+  /** Read one vault-owner-scoped page from the selected market-news snapshot. */
+  static async getKaiMarketNews(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    symbols?: string[];
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const query = new URLSearchParams();
+    if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+      query.set("symbols", data.symbols.join(","));
+    }
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number") query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(`/api/kai/market/news/${data.userId}${suffix}`, {
+      method: "GET",
+      signal: data.signal,
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+    });
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
   }
 
   static async getKaiStockPreview(data: {

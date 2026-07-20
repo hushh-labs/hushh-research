@@ -6,24 +6,6 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repoContract = path.resolve(
-  packageDir,
-  "..",
-  "..",
-  "consent-protocol",
-  "mcp_modules",
-  "tools",
-  "public_contract.json",
-);
-const vendoredContract = path.join(
-  packageDir,
-  "vendor",
-  "consent-protocol",
-  "mcp_modules",
-  "tools",
-  "public_contract.json",
-);
-const contractPath = fs.existsSync(repoContract) ? repoContract : vendoredContract;
 const outputPath = path.join(packageDir, "gateway", "hushh-mcp-gateway.json");
 const repoRuntimeRoot = path.resolve(packageDir, "..", "..", "consent-protocol");
 const vendoredRuntimeRoot = path.join(packageDir, "vendor", "consent-protocol");
@@ -36,11 +18,27 @@ const agentforceOutputPath = path.join(
   "hushh-agentforce-mcp-manifest.json",
 );
 
-if (!fs.existsSync(contractPath)) {
-  throw new Error("Canonical MCP contract is unavailable");
+function loadCanonicalContract() {
+  const python = process.env.HUSHH_MCP_PYTHON || "python3";
+  const result = spawnSync(
+    python,
+    ["-c", "import json; from mcp_modules.public_contract import get_public_contract; print(json.dumps(get_public_contract(), separators=(',', ':')))"],
+    {
+      cwd: runtimeRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PYTHONPATH: [runtimeRoot, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+      },
+    },
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(`Could not generate canonical MCP contract: ${result.stderr || result.error?.message || "unknown error"}`);
+  }
+  return JSON.parse(result.stdout);
 }
 
-const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
+const contract = loadCanonicalContract();
 const manifest = {
   protocolVersion: "2025-11-25",
   transport: {
@@ -100,7 +98,7 @@ const agentforceProjection = loadAgentforceContract();
 const agentforceContract = agentforceProjection.contract;
 const agentforceManifest = {
   profile: "agentforce-uat",
-  supportStatus: "schema-compatible-uat-only",
+  supportStatus: "agentforce-catalog-compatible",
   protocolVersion: manifest.protocolVersion,
   transport: manifest.transport,
   capabilities: {

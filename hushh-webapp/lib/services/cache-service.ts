@@ -199,6 +199,7 @@ class CacheService {
         key.startsWith(`domain_blob_${userId}_`) ||
         key.startsWith(`stock_context_${userId}_`) ||
         key.startsWith(`kai_market_home_${userId}_`) ||
+        key.startsWith(`kai_market_news_${userId}_`) ||
         key.startsWith(`consent_center_${userId}_`) ||
         key.startsWith(`consent_center_summary_${userId}_`) ||
         key.startsWith(`consent_center_preview_${userId}_`) ||
@@ -282,6 +283,14 @@ export const CACHE_KEYS = {
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
     `kai_market_home_${userId}_baseline_${daysBack}`,
+  KAI_MARKET_NEWS: (
+    userId: string,
+    scope: string,
+    cursor: string | null,
+    limit: number,
+    daysBack: number,
+  ) =>
+    `kai_market_news_${userId}_${scope}_${daysBack}_${cursor || "first"}_${limit}`,
   PKM_DOMAIN_RESOURCE: (userId: string, domain: string, segmentSignature: string) =>
     `pkm_domain_resource_${userId}_${domain}_${segmentSignature}`,
   DOMAIN_DATA: (userId: string, domain: string) => `domain_data_${userId}_${domain}`,

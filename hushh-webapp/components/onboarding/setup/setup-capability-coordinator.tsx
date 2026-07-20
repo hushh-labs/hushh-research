@@ -8,6 +8,7 @@ import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   buildOneSetupCapabilityRoute,
   resolveCapabilityHandoffTarget,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/navigation/routes";
 import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -55,6 +57,8 @@ type UseSetupCapabilityCoordinatorParams = {
   resumeReadinessFromCallback?: boolean;
   /** Legacy compatibility surfaces keep their own route policy. */
   enabled?: boolean;
+  /** Blocks tap and voice settlement while feature-owned state is mutating. */
+  settlementBlocked?: boolean;
   /** A capability may have more than one physical setup workspace. */
   screenId?: string;
   /** Allow a resolved root setup to re-enter this capability's own workspace. */
@@ -74,8 +78,16 @@ const SETUP_CAPABILITY_SCREEN: Record<OneSetupCapabilityId, string> = {
 
 function setupCapabilityLabel(capabilityId: OneSetupCapabilityId): string {
   if (capabilityId === "email") return "KYC";
-  if (capabilityId === "connected-systems") return "Connected Systems";
+  if (capabilityId === "connected-systems") return "CRM";
   return `${capabilityId.charAt(0).toUpperCase()}${capabilityId.slice(1)}`;
+}
+
+function isOnboardingJourneyConflict(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    apiErrorCode(error) === "STALE_ONBOARDING_JOURNEY"
+  );
 }
 
 /**
@@ -93,6 +105,7 @@ export function useSetupCapabilityCoordinator({
   skipActionId,
   resumeReadinessFromCallback = false,
   enabled = true,
+  settlementBlocked = false,
   screenId,
   allowResolvedRootReentry = false,
   terminalControlId,
@@ -122,11 +135,25 @@ export function useSetupCapabilityCoordinator({
     [capabilityId],
   );
 
+  const replaceRoute = useCallback(
+    (href: string) => {
+      const requested = requestInternalAppNavigation({
+        href,
+        replace: true,
+        scroll: false,
+        source: "programmatic",
+        transitionMode: "full",
+      });
+      if (!requested) router.replace(href);
+    },
+    [router],
+  );
+
   useEffect(() => {
     if (!enabled) return;
     if (authLoading) return;
     if (!user?.uid) {
-      router.replace(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(canonicalRoute)}`);
+      replaceRoute(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(canonicalRoute)}`);
       return;
     }
 
@@ -134,61 +161,68 @@ export function useSetupCapabilityCoordinator({
     setCallbackReadiness(false);
     void (async () => {
       try {
-        const journey =
+        const initialJourney =
           cachedJourney ??
           (await PreVaultUserStateService.bootstrapState(user.uid));
-        if (cancelled) return;
+        const prepare = async (
+          journey: typeof initialJourney,
+          retryConflict: boolean,
+        ): Promise<void> => {
+          if (cancelled) return;
+          const canResumeCallbackReadiness =
+            resumeReadinessFromCallback &&
+            journey.onboardingActiveCapability === capabilityId &&
+            journey.onboardingCallbackState === "succeeded";
 
-        const canResumeCallbackReadiness =
-          resumeReadinessFromCallback &&
-          journey.onboardingActiveCapability === capabilityId &&
-          journey.onboardingCallbackState === "succeeded";
-
-        if (PreVaultUserStateService.isSetupResolved(journey)) {
-          if (!allowResolvedRootReentry) {
-            router.replace(resolveCapabilityHandoffTarget(capabilityId));
+          if (PreVaultUserStateService.isSetupResolved(journey)) {
+            if (!allowResolvedRootReentry) {
+              replaceRoute(resolveCapabilityHandoffTarget(capabilityId));
+              return;
+            }
+            if (canResumeCallbackReadiness) setCallbackReadiness(true);
+            setIsReady(true);
             return;
           }
-          // A root-level skip never resolves an active capability. Preserve a
-          // completed external source on a refresh so its terminal Finish is
-          // still available instead of silently sending the person to Kai.
-          if (canResumeCallbackReadiness && !cancelled) {
-            setCallbackReadiness(true);
-          }
-          if (!cancelled) setIsReady(true);
-          return;
-        }
 
-        if (canResumeCallbackReadiness) {
-          if (!cancelled) {
+          if (canResumeCallbackReadiness) {
             setCallbackReadiness(true);
             setIsReady(true);
+            return;
           }
-          return;
-        }
 
-        // A person may deliberately switch tasks from the hub. This replaces
-        // the active goal; it never fabricates completion for the old task.
-        // Avoid a redundant write on a same-route refresh.
-        const alreadyActive =
-          journey.onboardingPhase === "capability_setup" &&
-          journey.onboardingActiveCapability === capabilityId &&
-          journey.onboardingCallbackState === "none";
-        if (!alreadyActive) {
-          await PreVaultUserStateService.syncOnboardingJourney({
-            userId: user.uid,
-            phase: "capability_setup",
-            activeCapability: capabilityId,
-            callbackState: "none",
-            expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-          });
-        }
-        if (!cancelled) setIsReady(true);
+          const alreadyActive =
+            journey.onboardingPhase === "capability_setup" &&
+            journey.onboardingActiveCapability === capabilityId &&
+            journey.onboardingCallbackState === "none";
+          if (alreadyActive) {
+            setIsReady(true);
+            return;
+          }
+
+          try {
+            await PreVaultUserStateService.syncOnboardingJourney({
+              userId: user.uid,
+              phase: "capability_setup",
+              activeCapability: capabilityId,
+              callbackState: "none",
+              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+            });
+            if (!cancelled) setIsReady(true);
+          } catch (error) {
+            if (!retryConflict || !isOnboardingJourneyConflict(error)) throw error;
+            const fresh = await PreVaultUserStateService.bootstrapState(user.uid, {
+              force: true,
+            });
+            await prepare(fresh, false);
+          }
+        };
+
+        await prepare(initialJourney, true);
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to prepare setup:", error);
         if (!cancelled) {
           toast.error("This setup could not be prepared. Please try again.");
-          router.replace(ROUTES.ONE_SETUP);
+          replaceRoute(ROUTES.ONE_SETUP);
         }
       }
     })();
@@ -204,7 +238,7 @@ export function useSetupCapabilityCoordinator({
     enabled,
     allowResolvedRootReentry,
     resumeReadinessFromCallback,
-    router,
+    replaceRoute,
     user?.uid,
   ]);
 
@@ -215,6 +249,12 @@ export function useSetupCapabilityCoordinator({
       }
       if (isSettling) {
         return { status: "blocked", summary: "This setup is already being settled." };
+      }
+      if (settlementBlocked) {
+        return {
+          status: "blocked",
+          summary: "This setup is still saving. Wait for it to finish.",
+        };
       }
       if (kind === "finish" && !operationallyReady) {
         return {
@@ -229,7 +269,7 @@ export function useSetupCapabilityCoordinator({
           force: true,
         });
         if (journey.onboardingActiveCapability !== capabilityId) {
-          router.replace(ROUTES.ONE_SETUP);
+          replaceRoute(ROUTES.ONE_SETUP);
           return {
             status: "blocked",
             summary: "A different setup is active. Returning to setup.",
@@ -273,7 +313,7 @@ export function useSetupCapabilityCoordinator({
             ? ROUTES.ONE_SETUP
             : resolveCapabilityHandoffTarget(capabilityId);
 
-        router.replace(targetRoute);
+        replaceRoute(targetRoute);
         return {
           status: "succeeded",
           summary:
@@ -285,7 +325,12 @@ export function useSetupCapabilityCoordinator({
         };
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to settle setup:", error);
-        const stale = error instanceof Error && /stale onboarding journey/i.test(error.message);
+        const stale = isOnboardingJourneyConflict(error);
+        toast.error(
+          stale
+            ? "Setup changed in another session. Please try again."
+            : "Setup could not be saved. Please try again.",
+        );
         return {
           status: stale ? "blocked" : "failed",
           summary: stale
@@ -297,13 +342,24 @@ export function useSetupCapabilityCoordinator({
         setIsSettling(false);
       }
     },
-    [capabilityId, isSettling, operationallyReady, router, user?.uid],
+    [
+      capabilityId,
+      isSettling,
+      operationallyReady,
+      replaceRoute,
+      settlementBlocked,
+      user?.uid,
+    ],
   );
 
   const finish = useCallback(() => settle("finish"), [settle]);
   const skip = useCallback(() => settle("skip"), [settle]);
-  useLocalOnboardingActionHandler(finishActionId, finish, { enabled });
-  useLocalOnboardingActionHandler(skipActionId, skip, { enabled });
+  useLocalOnboardingActionHandler(finishActionId, finish, {
+    enabled: enabled && !settlementBlocked,
+  });
+  useLocalOnboardingActionHandler(skipActionId, skip, {
+    enabled: enabled && !settlementBlocked,
+  });
 
   const visibleActionId = operationallyReady ? finishActionId : skipActionId;
   const visibleLabel = operationallyReady
@@ -317,7 +373,7 @@ export function useSetupCapabilityCoordinator({
             screenId: screenId || SETUP_CAPABILITY_SCREEN[capabilityId],
             title: `${setupCapabilityLabel(capabilityId)} setup`,
             purpose: "Complete this bounded setup or return safely to setup.",
-            actions: [
+            actions: settlementBlocked ? [] : [
               {
                 id: visibleActionId,
                 actionId: visibleActionId,
@@ -327,7 +383,7 @@ export function useSetupCapabilityCoordinator({
                   : "Leave this capability pending and return to setup.",
               },
             ],
-            controls: [
+            controls: settlementBlocked ? [] : [
               {
                 id:
                   terminalControlId?.(operationallyReady) ||
@@ -340,13 +396,14 @@ export function useSetupCapabilityCoordinator({
                   : "Skip setup for now.",
               },
             ],
-            availableActions: [visibleLabel],
+            availableActions: settlementBlocked ? [] : [visibleLabel],
           },
     [
       capabilityId,
       enabled,
       routeReady,
       operationallyReady,
+      settlementBlocked,
       screenId,
       terminalControlId,
       visibleActionId,
@@ -364,6 +421,7 @@ type SetupCapabilityTerminalFooterProps = {
   capabilityId: OneSetupCapabilityId;
   isOperationallyReady: boolean;
   coordinator: SetupCapabilityCoordinator;
+  pending?: boolean;
   skipLabel?: string;
   finishLabel?: string;
 };
@@ -373,6 +431,7 @@ export function SetupCapabilityTerminalFooter({
   capabilityId,
   isOperationallyReady,
   coordinator,
+  pending = false,
   skipLabel,
   finishLabel,
 }: SetupCapabilityTerminalFooterProps) {
@@ -390,9 +449,11 @@ export function SetupCapabilityTerminalFooter({
     <SetupCompletionFooter
       label={label}
       onComplete={() => {
+        if (pending) return;
         void (operationallyReady ? coordinator.finish() : coordinator.skip());
       }}
-      busy={coordinator.isSettling}
+      busy={coordinator.isSettling || pending}
+      disabled={pending}
       controlId={`one-setup-${capabilityId}-terminal`}
       actionId={actionId}
       purpose={

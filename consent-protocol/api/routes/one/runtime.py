@@ -7,6 +7,7 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from google.genai import types as genai_types
 from pydantic import BaseModel, Field, SecretStr
 
 from api.middleware import require_firebase_auth
@@ -29,17 +30,29 @@ class GeminiCredentialValidationRequest(BaseModel):
 
 
 class GeminiCredentialValidationResponse(BaseModel):
-    status: str
+    status: Literal["ready"]
 
 
 def _safe_failure_code(exc: Exception) -> str:
     # Classify without logging or reflecting provider text: it can contain
     # request metadata and must never be associated with a user's secret.
     message = str(exc).lower()
+    if any(
+        token in message
+        for token in (
+            "quota",
+            "rate limit",
+            "resource exhausted",
+            "resource_exhausted",
+            "too many requests",
+            "429",
+        )
+    ):
+        return "quota_exhausted"
+    if "billing" in message:
+        return "billing_required"
     if any(token in message for token in ("invalid", "api key", "unauth", "permission")):
         return "invalid_key"
-    if any(token in message for token in ("quota", "billing", "rate limit", "resource exhausted")):
-        return "quota_or_billing"
     if "model" in message and any(
         token in message for token in ("not found", "unsupported", "unavailable")
     ):
@@ -83,8 +96,24 @@ async def validate_gemini_credential(
             vertex_project=project or None,
             vertex_location=location or None,
         )
+        # Model discovery alone does not prove that the credential has usable
+        # generation quota. Run one bounded, deterministic request so the user
+        # cannot confirm a key that is valid syntactically but exhausted,
+        # billing-blocked, or unable to serve One. The response content is
+        # deliberately ignored and the credential is never persisted here.
         await asyncio.wait_for(
-            asyncio.to_thread(client.models.get, model=_GEMINI_PROBE_MODEL),
+            client.aio.models.generate_content(
+                model=_GEMINI_PROBE_MODEL,
+                contents="Reply OK.",
+                config=genai_types.GenerateContentConfig(
+                    temperature=0,
+                    max_output_tokens=4,
+                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                ),
+            ),
             timeout=_PROBE_TIMEOUT_SECONDS,
         )
     except Exception as exc:  # noqa: BLE001 - preserve a safe public taxonomy

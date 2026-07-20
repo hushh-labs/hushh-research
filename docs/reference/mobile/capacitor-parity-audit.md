@@ -30,17 +30,21 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 - Docs/runtime verification: `bash scripts/ci/docs-parity-check.sh`
 - Full CI lane: `bash scripts/ci/orchestrate.sh all`
 
-## Required Local Command
+## Required Local Commands
+
+Non-destructive contract check:
 
 ```bash
-cd hushh-webapp && npm run verify:capacitor:audit
+cd hushh-webapp && npm run verify:capacitor:static
 ```
 
-The native audit must pass as one lane, not as a hand-waved collection of partial checks. The broader repo CI lane remains:
+Intentional destructive cold-start audit:
 
 ```bash
-bash scripts/ci/orchestrate.sh all
+cd hushh-webapp && npm run verify:capacitor:cold:audit
 ```
+
+The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a visible, non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device.
 
 ## Route Classification Policy
 
@@ -95,6 +99,11 @@ added for a Gemini API key. The shared One voice client sends provider mode and,
 only for BYOK, a one-time first authenticated relay bootstrap frame; native code
 does not log, persist, or replay the credential. iOS and Android therefore use
 the same lock, background, reconnect, and managed-mode fallback behavior as web.
+During first-run setup, the explicit provider choice is a required root-setup
+prerequisite. Its non-secret completion marker is written through the same
+authenticated pre-vault API on web and the native direct-backend mapping; no
+platform plugin owns a second copy. The setup gate revalidates the marker before
+Skip/Finish can settle, while BYOK credentials remain vault-only.
 
 ## Accepted Exceptions
 
@@ -111,12 +120,12 @@ Parity is not complete until both projects still load structurally:
 - iOS: `xcodebuild -list -project ios/App/App.xcodeproj`
 - Android: `./gradlew tasks --all`
 
-Parity is also not complete until the native reports are fresh against the current inventory:
+Cold route parity is not complete until the native reports are fresh against the current inventory:
 
-- `cd hushh-webapp && npm run ios:test`
-- `cd hushh-webapp && npm run android:test`
-- `cd hushh-webapp && npm run ios:voice:test`
-- `cd hushh-webapp && npm run android:voice:test`
+- `cd hushh-webapp && npm run ios:cold:audit`
+- `cd hushh-webapp && npm run android:cold:audit`
+- `cd hushh-webapp && HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:voice:test`
+- `cd hushh-webapp && HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:voice:test`
 - `cd hushh-webapp && npm run verify:capacitor:reports`
 
 `verify:capacitor:reports` fails when either platform audits fewer native-required routes than the current inventory, or when an `ok: true` result lacks `ready=1`, `found=1`, the expected marker, route match, auth match, or allowed data state.
@@ -128,6 +137,39 @@ realtime voice surface, waits for a recognized voice state or simulator-safe
 permission/provider fallback, and ends the active session when possible. These
 tests verify control wiring and recovery; live microphone quality, latency, and
 provider ranking still require device/provider benchmark artifacts.
+
+## Continuity Evidence
+
+Before treating a native change as safe for an active user, run the matching non-destructive continuity lane against a normal app session. Confirm rapid tab taps settle to the final destination, background/resume retains the valid vault and route, and a second voice start does not acquire a competing session. Do not use test-mode launches, injected credentials, an uninstall, a clear-data operation, or a cold route report as continuity evidence.
+
+## Native Test Runtime Safety
+
+Cold audits are a controlled test runtime, not a resident app mode. The host
+must require explicit destructive authority before it resolves reviewer state;
+it must stop the test package on normal completion, exception, `SIGINT`, and
+`SIGTERM`. The page runner independently has a 45-second bootstrap deadline,
+which writes a sanitized terminal `timeout` report and clears the bootstrap
+interval. This dual termination is intentional: a stopped host can never leave
+the simulator repeatedly routing in test mode.
+
+iOS and Android use the same checkpoint model: each UI cold run receives a
+unique metadata-only flow-run ID, so a partial session checkpoint cannot be
+reused by another launch. Android accepts native-test extras only when the
+installed app is debuggable; release builds do not install the bridge. The
+obsolete Android `resetAppState` extra has no meaning and must not be added
+back—cold scripts own explicit uninstall/clear behavior.
+
+Run source and generated-runner consistency as part of static verification.
+Then compile the host-native tests before considering device execution:
+
+```bash
+cd hushh-webapp && npm run verify:capacitor:static
+cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon
+cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C' -derivedDataPath ios/App/build/DerivedData build-for-testing
+```
+
+Only then, and only with explicit authority, run the destructive audit. Do not
+run a cold audit merely to inspect a normally unlocked session.
 
 ## Authentication Provider Parity
 

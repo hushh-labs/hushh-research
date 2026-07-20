@@ -1,4 +1,4 @@
-"""Identifier-free informational resources for Hussh Consent MCP v0.3."""
+"""Identifier-free informational resources for Hussh Consent MCP v0.4."""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ from mcp.types import Resource
 
 from mcp_modules.agentforce_contract import AGENTFORCE_PROFILE
 from mcp_modules.config import SERVER_INFO
-from mcp_modules.developer_context import get_current_schema_profile
-from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_tool_names
+from mcp_modules.developer_context import (
+    get_current_developer_principal,
+    get_current_schema_profile,
+)
 from mcp_modules.public_contract import get_public_contract
 
 logger = logging.getLogger("hushh-mcp-server")
@@ -26,7 +28,7 @@ _RESOURCE_METADATA = {
     ),
     "hushh://info/connector": (
         "Connector contract",
-        "The four core lifecycle tools, campaign compatibility tool, and crypto behavior.",
+        "The five-tool consent lifecycle and encrypted export behavior.",
     ),
     "hushh://info/developer-api": (
         "Developer API contract",
@@ -40,7 +42,10 @@ _RESOURCE_METADATA = {
 
 
 async def list_resources() -> list[Resource]:
-    if get_current_schema_profile() == AGENTFORCE_PROFILE:
+    principal = get_current_developer_principal()
+    if (
+        principal and principal.mcp_execution_mode == "catalog_only"
+    ) or get_current_schema_profile() == AGENTFORCE_PROFILE:
         # Agentforce supports server tools, not MCP resources.
         return []
     contract = get_public_contract()
@@ -59,24 +64,24 @@ async def read_resource(uri: str) -> str:
     uri_str = str(uri).strip().rstrip("/")
     contract = get_public_contract()
     schema_profile = get_current_schema_profile()
-    if schema_profile == AGENTFORCE_PROFILE:
+    principal = get_current_developer_principal()
+    if (
+        principal and principal.mcp_execution_mode == "catalog_only"
+    ) or schema_profile == AGENTFORCE_PROFILE:
         return json.dumps(
             {
                 "error_code": "AGENTFORCE_RESOURCES_UNSUPPORTED",
                 "message": "This Agentforce UAT profile exposes server tools only.",
             }
         )
-    is_flat = schema_profile == FLAT_PROFILE
-    tool_names = (
-        list(get_flat_tool_names()) if is_flat else [tool["name"] for tool in contract["tools"]]
-    )
+    tool_names = [tool["name"] for tool in contract["tools"]]
 
     if uri_str == "hushh://info/server":
         payload = {
             "name": contract["server"]["name"],
             "version": contract["server"]["version"],
             "tools": tool_names,
-            "schema_profile": "flat" if is_flat else "standard",
+            "catalog_version": "v0.4",
             "connector_capabilities": SERVER_INFO["connector_capabilities"],
         }
     elif uri_str == "hushh://info/protocol":
@@ -94,16 +99,8 @@ async def read_resource(uri: str) -> str:
         payload: dict[str, object] = {
             "tools": tool_names,
             "flow": contract["server"]["instructions"]["consent_flow"],
-            "stdio": (
-                "The flat profile never auto-decrypts; it uses the registered app key and returns ciphertext."
-                if is_flat
-                else "The local connector manages its X25519 keypair and returns bounded approved information."
-            ),
-            "hosted": (
-                "The connector receives ciphertext and flat envelope primitives over MCP, validates envelope v2, and decrypts outside model context."
-                if is_flat
-                else "The connector supplies its public key, receives the encrypted envelope directly over MCP, validates envelope v2, and decrypts outside model context."
-            ),
+            "stdio": "The local connector manages its X25519 keypair and returns bounded approved information.",
+            "hosted": "The connector receives ciphertext and flat envelope primitives over MCP, validates envelope v2, and decrypts outside model context.",
             "never_disclose": [
                 "caller or internal user identifiers",
                 "developer or consent tokens",
@@ -112,15 +109,13 @@ async def read_resource(uri: str) -> str:
                 "exception details",
             ],
         }
-        if not is_flat:
-            payload["compatibility_tool"] = "prepare_campaign_context"
     elif uri_str == "hushh://info/developer-api":
         payload = {
             "base_path": "/api/v1",
             "authentication": "Authorization: Bearer <developer-token> or an OAuth access token.",
             "query_token_authentication": False,
             "remote_mcp_endpoint": "/mcp/",
-            "schema_profile": "flat" if is_flat else "standard",
+            "catalog_version": "v0.4",
             "raw_http_compatibility": "Existing /api/v1 request, status, and scoped-export contracts remain available for non-MCP clients.",
             "mcp_internal_endpoints": [
                 "/api/v1/mcp/search-scopes",
@@ -133,19 +128,19 @@ async def read_resource(uri: str) -> str:
         payload = {
             "steps": [
                 {
-                    "tool": "search_user_scopes",
+                    "tool": "search-user-scopes",
                     "rule": "Select the narrowest returned scope that satisfies the declared purpose.",
                 },
                 {
-                    "tool": "request_consent",
+                    "tool": "request-consent",
                     "rule": "Create or reuse one app-bound request; retain only request_ref or grant_ref.",
                 },
                 {
-                    "tool": "check_consent_status",
+                    "tool": "check-consent-status",
                     "rule": "Poll at the returned interval and stop at a terminal state or timeout.",
                 },
                 {
-                    "tool": "get_encrypted_scoped_export",
+                    "tool": "get-encrypted-scoped-export",
                     "rule": "Fetch only after grant; require expected_scope and never request plaintext fallback.",
                 },
             ],

@@ -18,8 +18,6 @@ import {
   Check,
   Copy,
   Download,
-  Shield,
-  ArrowRight,
   Fingerprint,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -66,7 +64,6 @@ import {
 
 type VaultStep =
   | "checking"
-  | "intro"
   | "create"
   | "unlock"
   | "recovery"
@@ -265,7 +262,11 @@ export function VaultFlow({
           setVaultMode("passphrase");
           setUnlockWithPassphraseFallback(false);
           setUnlockHint(null);
-          setStep("intro");
+          // Fresh vault creation is part of the same canonical credential
+          // surface as unlock. Do not insert a second education screen here:
+          // it adds height above the native keyboard and makes callers such as
+          // Connections look like a different vault implementation.
+          setStep("create");
           return;
         }
 
@@ -856,140 +857,99 @@ export function VaultFlow({
     <>
       <div
         data-vault-flow-content
+        data-vault-flow-step={step}
         className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[max(calc(1.25rem+env(safe-area-inset-bottom,0px)),calc(1.25rem+var(--kb-height,0px)))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden"
       >
-          {/* Intro / Education Step */}
-          {step === "intro" && (
-            <div className="motion-step-enter mx-auto max-w-[21rem] space-y-4 text-center">
-              <div className="flex justify-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-primary/10 ring-1 ring-primary/10">
-                  <Icon icon={Shield} size={26} className="text-primary" />
-                </div>
-              </div>
-               
-              <div className="space-y-2">
-                <div
-                  role="heading"
-                  aria-level={2}
-                  className="text-[25px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[27px]"
-                >
-                  Secure Your Digital Vault
-                </div>
-                <p className="mx-auto max-w-[18rem] text-balance text-[14.5px] leading-[1.45] text-muted-foreground sm:text-[15px]">
-                  Hussh uses end-to-end encryption to protect your personal information.
-                  Create your passphrase first, then optionally enable faster sign-in.
-                </p>
-              </div>
-
-              <div className="space-y-3 rounded-[20px] border border-border/45 bg-muted/35 p-4 text-left text-[14px] leading-[1.42] shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                <div className="flex gap-3">
-                  <div className="mt-0.5 min-w-[1.25rem] text-primary">
-                    <Icon icon={Check} size="sm" />
-                  </div>
-                  <p>
-                    <span className="block font-medium text-foreground">You hold the only key</span>
-                    <span className="text-muted-foreground">We cannot see your information or reset your password.</span>
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="mt-0.5 min-w-[1.25rem] text-primary">
-                    <Icon icon={Check} size="sm" />
-                  </div>
-                  <p>
-                    <span className="block font-medium text-foreground">Protected by default</span>
-                    <span className="text-muted-foreground">Your knowledge and information stay private and secure.</span>
-                  </p>
-                </div>
-              </div>
-
-              <Button 
-                  variant="gradient" 
-                  size={ACTION_BUTTON_SIZE}
-                  fullWidth
-                  className="group h-12 whitespace-normal rounded-full px-4 text-center text-[16px] font-medium leading-snug"
-                  onClick={() => {
-                    setError(null);
-                    setStep("create");
-                  }}
-                >
-                  Continue to Vault Setup
-                  <Icon
-                    icon={ArrowRight}
-                    size="md"
-                    className="ml-2 transition-transform group-hover:translate-x-1"
-                  />
-                </Button>
-            </div>
-          )}
-
           {/* Create Passphrase */}
           {step === "create" && (
             <form
-              className="mx-auto max-w-[21rem] space-y-4"
+              className="mx-auto max-w-[21rem] space-y-3"
               onSubmit={handleCreatePassphraseSubmit}
             >
               <div className="text-center">
-                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-[17px] bg-primary/10 ring-1 ring-primary/10">
-                  <Icon icon={Lock} size={22} className="text-primary" />
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)]">
+                  <Icon
+                    icon={Lock}
+                    size={24}
+                    className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
+                  />
                 </div>
                 <div
                   role="heading"
                   aria-level={2}
-                  className="text-[25px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[27px]"
+                  className="text-[26px] font-extrabold leading-tight tracking-[-0.6px] text-foreground"
                 >
-                  Create Your Vault Passphrase
+                  Create Your Vault
                 </div>
-                <p className="mx-auto mt-2 max-w-[18rem] text-[14.5px] leading-[1.45] text-muted-foreground">
-                  This passphrase protects your Vault. Keep it private.
+                <p className="mt-1 type-subhead text-muted-foreground">
+                  Choose a vault key only you know
                 </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="passphrase" className="text-[14px] font-medium">Passphrase</Label>
-                <Input
-                  id="passphrase"
-                  type="password"
-                  placeholder="Enter your passphrase"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  autoFocus
-                  className="h-11 rounded-[17px] px-4 text-[15px] shadow-sm"
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
+                  Vault Key
+                </Label>
+                <div
+                  className={cn(
+                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
+                    "focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                    passphrase
+                      ? "border-[color:var(--app-accent)]"
+                      : "border-black/10 dark:border-white/15",
+                  )}
+                >
+                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                  <input
+                    id="passphrase"
+                    type="password"
+                    placeholder="Create vault key"
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.target.value)}
+                    autoFocus
+                    autoComplete="new-password"
+                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm" className="text-[14px] font-medium">Confirm Passphrase</Label>
-                <Input
-                  id="confirm"
-                  type="password"
-                  placeholder="Confirm your passphrase"
-                  value={confirmPassphrase}
-                  onChange={(e) => setConfirmPassphrase(e.target.value)}
-                  enterKeyHint="done"
-                  autoComplete="new-password"
-                  className="h-11 rounded-[17px] px-4 text-[15px] shadow-sm"
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm" className="type-footnote font-medium text-muted-foreground">
+                  Confirm Vault Key
+                </Label>
+                <div
+                  className={cn(
+                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
+                    "focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                    confirmPassphrase
+                      ? "border-[color:var(--app-accent)]"
+                      : "border-black/10 dark:border-white/15",
+                  )}
+                >
+                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                  <input
+                    id="confirm"
+                    type="password"
+                    placeholder="Confirm vault key"
+                    value={confirmPassphrase}
+                    onChange={(e) => setConfirmPassphrase(e.target.value)}
+                    autoComplete="new-password"
+                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
+                  />
+                </div>
                 {createPassphraseHelperText && (
                   <p className="text-xs font-medium text-destructive" role="status">
                     {createPassphraseHelperText}
                   </p>
                 )}
               </div>
-              <div className="rounded-[18px] border border-border/45 bg-muted/30 p-4 text-[13.5px] leading-[1.45] text-muted-foreground">
-                <p className="font-medium text-foreground">Passphrase requirements</p>
-                <ul className="mt-2 list-disc space-y-1 pl-4">
-                  <li>Minimum 8 characters</li>
-                  <li>Use a memorable phrase unique to you</li>
-                  <li>Avoid reused passwords from other apps</li>
-                </ul>
-                <p className="mt-3 text-[13px] leading-[1.4] text-muted-foreground">
-                  You can enable passkey or device unlock later from Profile.
-                </p>
-              </div>
+              <p className="text-center type-footnote leading-snug text-muted-foreground">
+                Use at least 8 characters. Hussh cannot see or reset this key.
+              </p>
               <Button
-                variant="gradient"
-                effect="glass"
+                variant="none"
+                effect="fill"
                 size="default"
                 fullWidth
-                className="mt-1 h-12 rounded-full text-[16px] font-medium"
+                className="mt-1 h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 type="submit"
                 disabled={!canCreatePassphrase}
               >

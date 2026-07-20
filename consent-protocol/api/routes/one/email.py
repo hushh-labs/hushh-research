@@ -78,6 +78,10 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
 
+class AutomaticResponsePreparationPreferenceRequest(WorkflowUserRequest):
+    enabled: bool
+
+
 class ExtractDraftRequest(WorkflowUserRequest):
     domain: str = Field(default="", max_length=120)
     domain_data: dict = Field(default_factory=dict)
@@ -289,6 +293,35 @@ async def one_email_sync_recent(
     except Exception as exc:
         logger.exception("one.email.sync_recent_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc, operation="sync_recent") from exc
+
+
+@router.get("/kyc/preferences/automatic-response-preparation")
+async def one_kyc_get_automatic_response_preparation_preference(
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, user_id)
+    try:
+        return await _service().get_automatic_response_preparation_preference(user_id=user_id)
+    except Exception as exc:
+        logger.exception("one.kyc.preference_get_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="preference_get") from exc
+
+
+@router.patch("/kyc/preferences/automatic-response-preparation")
+async def one_kyc_set_automatic_response_preparation_preference(
+    payload: AutomaticResponsePreparationPreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().set_automatic_response_preparation_preference(
+            user_id=payload.user_id,
+            enabled=payload.enabled,
+        )
+    except Exception as exc:
+        logger.exception("one.kyc.preference_set_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="preference_set") from exc
 
 
 @router.get("/kyc/workflows")

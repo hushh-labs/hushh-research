@@ -367,6 +367,12 @@ export default function RiaOnboardingPage({
         setStatus(nextStatus);
         setDraft({ ...resolvedDraft, currentStepId });
         setShouldPersistDraft(true);
+        if (setupMode && nextStatus?.exists === true) {
+          const effectiveStatus = String(
+            nextStatus.advisory_status || nextStatus.verification_status || "pending",
+          ).toLowerCase();
+          onSetupReadinessChange?.(effectiveStatus !== "rejected");
+        }
       } catch (loadError) {
         if (!cancelled) {
           if (isIAMSchemaNotReadyError(loadError)) {
@@ -391,7 +397,7 @@ export default function RiaOnboardingPage({
     return () => {
       cancelled = true;
     };
-  }, [phoneNumber, user]);
+  }, [onSetupReadinessChange, phoneNumber, setupMode, user]);
 
   // Already-established advisors (riaCapability "switch" = RIA persona provisioned
   // / profile built) don't belong in the onboarding wizard — route them to their
@@ -403,11 +409,12 @@ export default function RiaOnboardingPage({
     if (personaLoading || personaRefreshing) return;
     if (onboardingEntryHandledRef.current) return;
     onboardingEntryHandledRef.current = true;
+    if (setupMode) return;
     if (hasEditIntent) return;
     if (riaCapability === "switch") {
       router.replace(buildProfileRoute({ panel: "regulatory" }));
     }
-  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
+  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router, setupMode]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;

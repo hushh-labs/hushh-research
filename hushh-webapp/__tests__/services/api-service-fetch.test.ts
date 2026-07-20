@@ -309,6 +309,34 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
+  it("uses IPv4 loopback for local iOS simulator backend requests", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { ok: true },
+      url: "http://127.0.0.1:8000/health",
+    });
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
+
+    try {
+      const response = await ApiService.apiFetch("/health");
+
+      expect(response.status).toBe(200);
+      expect(capacitorMocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "http://127.0.0.1:8000/health" }),
+      );
+    } finally {
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
   it("fetches baseline market insights with Firebase auth", async () => {
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce("firebase-id-token");
     mockFetch.mockResolvedValueOnce(

@@ -129,12 +129,11 @@ async def _run_079_db_test() -> None:
     await tr.start()
     try:
         # ── 0. Recreate the legacy table inside our rolled-back transaction ───
-        # Migration 080 drops one_location_network_connections, so once the live
-        # DB has advanced past 080 the table no longer exists.  Migration 079 is
-        # about migrating *out of* that table, so we recreate it here (matching
-        # the 068 DDL) to keep this test self-contained regardless of the live
-        # schema version.  IF NOT EXISTS keeps it a no-op when the table is still
-        # present.
+        # The legacy table remains in current schema contracts pending a separate
+        # forward-only retirement migration. Migration 079 is about migrating
+        # *out of* that table, so recreating its historical DDL keeps this test
+        # self-contained if the test is ever run against a post-retirement
+        # environment. IF NOT EXISTS is a no-op against today's schema.
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS one_location_network_connections (

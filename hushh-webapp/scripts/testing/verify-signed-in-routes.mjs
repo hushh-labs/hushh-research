@@ -66,8 +66,8 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/one/gmail",
   "/one/pkm",
   "/one/connected-systems",
-  "/profile",
-  "/profile/pkm-agent-lab",
+  "/one/profile",
+  "/one/profile/pkm-agent-lab",
   "/one/kyc",
   "/ria",
   "/ria/clients",
@@ -82,7 +82,7 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/one/kai/analysis",
 ]);
 const PROFILE_DIRECT_ENTRY_ROUTES = new Set([
-  "/profile/gmail/oauth/return",
+  "/one/profile/gmail/oauth/return",
 ]);
 
 const TERMINAL_DATA_STATES = new Set([
@@ -285,17 +285,17 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/ria/settings": {
     path: "/ria/settings",
-    expectedPathname: "/profile",
-    allowedRouteIds: ["/profile"],
+    expectedPathname: "/one/profile",
+    allowedRouteIds: ["/one/profile"],
   },
-  "/profile/pkm": {
-    path: "/profile/pkm",
+  "/one/profile/pkm": {
+    path: "/one/profile/pkm",
     expectedPathname: "/one/pkm",
     allowedRouteIds: ["/one/pkm"],
     requiresColdEntry: true,
   },
-  "/profile/receipts": {
-    path: "/profile/receipts",
+  "/one/profile/receipts": {
+    path: "/one/profile/receipts",
     expectedPathname: "/one/gmail",
     allowedRouteIds: ["/one/gmail"],
     requiresColdEntry: true,
@@ -362,7 +362,7 @@ function splitRoutesByVerificationLane(routes) {
 function isSameSessionShellRoute(route) {
   if (SAME_SESSION_SHELL_ROUTES.has(route)) return true;
   if (PROFILE_DIRECT_ENTRY_ROUTES.has(route)) return false;
-  return route === "/profile" || route.startsWith("/profile/");
+  return route === "/one/profile" || route.startsWith("/one/profile/");
 }
 
 function isSetupGatedOneRoute(route) {
@@ -442,9 +442,23 @@ function startDevServerIfNeeded() {
         return null;
       }
 
+      const origin = new URL(appOrigin);
+      const isLocalOrigin =
+        origin.hostname === "localhost" || origin.hostname === "127.0.0.1";
+      if (!isLocalOrigin) {
+        throw new Error(
+          `Cannot start a local route verifier server for non-local origin ${origin.origin}.`,
+        );
+      }
+      // The test must launch the web server at the origin it subsequently
+      // probes. In a full local stack the backend owns 8000, so inheriting a
+      // shell-level PORT made Next listen there while this verifier waited for
+      // localhost:3000 forever.
+      const port = origin.port || "3000";
+
       child = spawn("npm", ["run", "dev"], {
         cwd: webDir,
-        env: { ...process.env },
+        env: { ...process.env, PORT: port },
         stdio: "pipe",
       });
 
@@ -756,7 +770,7 @@ async function ensurePersona(page, persona) {
       return;
     }
     await clickBottomNav(page, "Profile");
-    await waitForRouteBeacon(page, ["/profile"]);
+    await waitForRouteBeacon(page, ["/one/profile"]);
   }
 
   const stayInRiaWorkspace = page.getByRole("button", {
@@ -816,12 +830,12 @@ async function ensurePersona(page, persona) {
     }
     if (!titleTrigger) {
       await clickBottomNav(page, "Profile");
-      await waitForRouteBeacon(page, ["/profile"]);
+      await waitForRouteBeacon(page, ["/one/profile"]);
       titleTrigger = await visibleTopAppBarTitle(page);
     }
     if (!titleTrigger) {
       throw new Error(
-        `Cannot align reviewer persona to ${persona}: top app bar persona trigger is not visible on ${pathname} or /profile`
+        `Cannot align reviewer persona to ${persona}: top app bar persona trigger is not visible on ${pathname} or /one/profile`
       );
     }
   }
@@ -1012,8 +1026,8 @@ async function navigateViaShell(page, spec) {
     case "/marketplace":
       await requestNativeTestRoute(page, "/marketplace", ["/marketplace"]);
       return true;
-    case "/profile":
-      await requestAppNavigation(page, "/profile");
+    case "/one/profile":
+      await requestAppNavigation(page, "/one/profile");
       return true;
     case "/one/gmail":
       await requestAppNavigation(page, "/one/gmail");
@@ -1024,8 +1038,8 @@ async function navigateViaShell(page, spec) {
     case "/one/connected-systems":
       await requestAppNavigation(page, "/one/connected-systems");
       return true;
-    case "/profile/pkm-agent-lab":
-      await requestAppNavigation(page, "/profile/pkm-agent-lab");
+    case "/one/profile/pkm-agent-lab":
+      await requestAppNavigation(page, "/one/profile/pkm-agent-lab");
       return true;
     case "/one/kyc":
       await requestAppNavigation(page, "/one/kyc");
@@ -1055,7 +1069,7 @@ async function navigateViaShell(page, spec) {
       return true;
     default:
       if (
-        spec.route.startsWith("/profile/") &&
+        spec.route.startsWith("/one/profile/") &&
         !PROFILE_DIRECT_ENTRY_ROUTES.has(spec.route)
       ) {
         await requestAppNavigation(page, spec.path);

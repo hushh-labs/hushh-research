@@ -113,12 +113,12 @@ vi.mock("@/components/app-ui/swipe-views", () => ({
     children,
     options,
     activeValue,
-    onChildSwiped,
+    onSelectionChange,
   }: {
     children: ReactNode;
     options: readonly { label: string; value: string }[];
     activeValue: string;
-    onChildSwiped?: (value: string) => void;
+    onSelectionChange?: (value: string) => void;
   }) => {
     const activeIndex = options.findIndex(({ value }) => value === activeValue);
     const activeChild = Children.toArray(children)[activeIndex];
@@ -130,7 +130,7 @@ vi.mock("@/components/app-ui/swipe-views", () => ({
             key={value}
             type="button"
             aria-pressed={value === activeValue}
-            onClick={() => onChildSwiped?.(value)}
+            onClick={() => onSelectionChange?.(value)}
           >
             {label}
           </button>
@@ -726,6 +726,28 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith(
       expect.objectContaining({ uid: "user_a" }),
     );
+  });
+
+  it("always runs the canonical Location journey in setup mode and settles Skip separately", async () => {
+    const onSetupComplete = vi.fn();
+    const onSetupSkip = vi.fn();
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+
+    render(
+      <OneLocationAgentPage
+        mode="setup"
+        onSetupComplete={onSetupComplete}
+        onSetupSkip={onSetupSkip}
+      />,
+    );
+
+    await openLocationPermissionsStep();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onSetupSkip).toHaveBeenCalledTimes(1);
+    expect(onSetupComplete).not.toHaveBeenCalled();
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
+    ).toBe("1");
   });
 
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {

@@ -1,0 +1,75 @@
+{
+  "id": "runtime-topology-maintenance",
+  "title": "Runtime Topology Maintenance",
+  "goal": "Keep Hussh's metadata-only route, agent, database-family, compatibility, and documentation indexes current without creating a second runtime router or autonomous mutation path.",
+  "owner_skill": "agent-orchestration-governance",
+  "default_spoke": null,
+  "task_type": "runtime-topology-maintenance",
+  "affected_surfaces": [
+    "config/runtime-topology-maintenance.json",
+    "scripts/ops/generate_runtime_topology_index.py",
+    "contracts/architecture/runtime-topology-index.v1.json",
+    "hushh-webapp/lib/navigation",
+    "consent-protocol/hushh_mcp/agents",
+    "docs/reference/architecture/runtime-db-data-plane-contract.json"
+  ],
+  "required_reads": [
+    "AGENTS.md",
+    "docs/project_context_map.md",
+    "docs/reference/architecture/runtime-topology-maintenance.md",
+    "docs/reference/one/one-agent-hierarchy.md",
+    "docs/reference/architecture/route-contracts.md",
+    "docs/reference/architecture/runtime-db-data-plane-contract.json"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task runtime-topology-maintenance",
+    "python3 scripts/ops/generate_runtime_topology_index.py --check",
+    "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
+    "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+    "./bin/hushh codex data-model-audit"
+  ],
+  "verification_bundle": {
+    "id": "runtime-topology-maintenance",
+    "commands": [
+      "python3 scripts/ops/generate_runtime_topology_index.py --check",
+      "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
+      "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py",
+      "./bin/hushh codex data-model-audit",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "python3 scripts/ops/generate_runtime_topology_index.py --check",
+      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py",
+      "./bin/hushh codex data-model-audit"
+    ]
+  },
+  "deliverables": [
+    "current generated runtime topology index",
+    "profile-selected read-only evidence plan",
+    "explicit route alias and semantic-route metadata",
+    "declared compatibility and destructive-retirement decisions",
+    "current generated product-agent registry"
+  ],
+  "impact_fields": [
+    "Route, semantic tab, cache, native, and voice/action coverage",
+    "Product-agent hierarchy and runtime-admission references",
+    "Database family ownership and retirement posture",
+    "Compatibility deadlines and documentation status",
+    "Evidence-lane selection"
+  ],
+  "handoff_chain": [
+    "agent-orchestration-governance",
+    "repo-context",
+    "frontend-native-surface-mapper",
+    "backend-runtime-governance",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "creating a runtime maintenance agent or second action router",
+    "treating generated index metadata as executable authority",
+    "deleting compatibility routes or tables without usage, retention, and recovery evidence",
+    "hiding an expired compatibility deadline instead of recording an explicit decision",
+    "letting a generated registry or topology projection go stale"
+  ]
+}

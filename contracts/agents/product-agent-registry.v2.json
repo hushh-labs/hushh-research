@@ -151,7 +151,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Two-way connection graph specialist under Nav's Consent Center \u2014 send, list, find, accept, reject, and remove connections, with confirm-before-write on every mutation.",
+      "description": "Two-way connection graph specialist under Nav's Consent Center. Connections also owns the private runtime-configuration surface, but this agent never receives, reads, or stores provider credentials.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -213,7 +213,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "7e5f77945063e4257ad87b2e05597e37c45d742b754e2511e78514cbdc07c15b",
+      "system_instruction_sha256": "97c25497f0500599bea1619b46c4152926eed7158aa67042d84e791004e3d372",
       "telemetry_namespace": "agent.connections",
       "tools": [],
       "ui_type": "chat",
@@ -408,7 +408,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Read-only receipt-sync and purchase-memory specialist under One.",
+      "description": "Disabled read-only receipt-sync and purchase-memory child of Connections.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -427,7 +427,7 @@
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
-      "parent": "agent_one",
+      "parent": "agent_connections",
       "performance": {
         "latency_p95_ms": 30000,
         "max_output_tokens": 4096
@@ -468,7 +468,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "82ec6930679ce038959b4c0be5b3121545c227bc0423fe8a5f1f50ea41f7bbc2",
+      "system_instruction_sha256": "44cc1dc4e3faa5e248377287e84696c837efe318a14be010885066cdc06b2714",
       "telemetry_namespace": "agent.gmail",
       "tools": [],
       "ui_type": "chat",

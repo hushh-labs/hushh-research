@@ -16,8 +16,7 @@ from hushh_mcp.consent.export_envelope import ConsentExportEnvelopeSubmissionV2
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
 from mcp_modules.config import FASTAPI_URL
-from mcp_modules.developer_context import get_current_schema_profile, get_developer_api_headers
-from mcp_modules.flat_contract import FLAT_PROFILE
+from mcp_modules.developer_context import get_developer_api_headers
 from mcp_modules.transport_context import is_local_stdio_transport
 
 from .data_tools import _try_build_local_decrypted_response
@@ -52,6 +51,10 @@ _SAFE_BACKEND_CODES = {
 }
 
 INLINE_CIPHERTEXT_MAX_CHARS = 1_500_000
+# Keep the adapter below the 55-second partner-host settlement budget while
+# allowing for cold Cloud SQL / consent-service reads. Ten seconds proved too
+# short for otherwise successful consent requests in the local connector.
+BACKEND_REQUEST_TIMEOUT = httpx.Timeout(45.0, connect=5.0)
 
 
 def _correlation_ref() -> str:
@@ -254,7 +257,7 @@ async def handle_search_user_scopes(args: dict) -> ToolResult:
             next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
         )
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{FASTAPI_URL}/api/v1/mcp/search-scopes",
                 json={
@@ -316,32 +319,18 @@ async def handle_request_consent(args: dict) -> ToolResult:
         )
 
     scope = str(args.get("scope") or "").strip()
-    is_flat_profile = get_current_schema_profile() == FLAT_PROFILE
     connector_public_key = str(args.get("connector_public_key") or "").strip()
     connector_key_id = str(args.get("connector_key_id") or "").strip()
     connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
     if (
         scope.startswith("attr.")
         and is_local_stdio_transport()
-        and not is_flat_profile
         and not all((connector_public_key, connector_key_id, connector_wrapping_alg))
     ):
         keypair = get_or_create_local_connector_keypair()
         connector_public_key = keypair.public_key_b64
         connector_key_id = keypair.key_id
         connector_wrapping_alg = keypair.wrapping_alg
-    if (
-        scope.startswith("attr.")
-        and not is_flat_profile
-        and not all((connector_public_key, connector_key_id, connector_wrapping_alg))
-    ):
-        return _error(
-            "CONNECTOR_KEY_REQUIRED",
-            "Hosted encrypted grants require an X25519 connector public-key bundle.",
-            recoverable=True,
-            next_action="Supply the connector public key, key id, and X25519-AES256-GCM algorithm.",
-        )
-
     body = {
         "user_identifier": identifier,
         "scope": scope,
@@ -356,6 +345,19 @@ async def handle_request_consent(args: dict) -> ToolResult:
         ),
         **({"country": str(args.get("country")).strip()} if args.get("country") else {}),
     }
+    offer = args.get("offer")
+    if not isinstance(offer, dict) and any(
+        args.get(key) is not None
+        for key in ("offer_amount", "offer_currency", "offer_summary", "settlement_ref")
+    ):
+        offer = {
+            "bid_amount": args.get("offer_amount"),
+            "currency": args.get("offer_currency") or "USD",
+            "offer_summary": args.get("offer_summary"),
+            "settlement_ref": args.get("settlement_ref"),
+        }
+    if isinstance(offer, dict):
+        body["offer"] = offer
     if scope.startswith("attr.") and all(
         (connector_public_key, connector_key_id, connector_wrapping_alg)
     ):
@@ -367,7 +369,7 @@ async def handle_request_consent(args: dict) -> ToolResult:
             }
         )
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{FASTAPI_URL}/api/v1/mcp/request-consent",
                 headers=headers,
@@ -427,7 +429,7 @@ async def handle_check_consent_status(args: dict) -> ToolResult:
         )
     request_ref = str(args.get("request_ref") or "").strip()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
             response = await client.get(
                 f"{FASTAPI_URL}/api/v1/mcp/consent-status/{request_ref}",
                 headers=headers,
@@ -477,7 +479,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
         )
     expected_scope = str(args.get("expected_scope") or "").strip()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{FASTAPI_URL}/api/v1/mcp/scoped-export",
                 headers=headers,
@@ -505,7 +507,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
         "export_revision": max(1, int(data.get("export_revision") or 1)),
     }
 
-    if is_local_stdio_transport() and get_current_schema_profile() != FLAT_PROFILE:
+    if is_local_stdio_transport():
         decrypted, local_error = await _try_build_local_decrypted_response(
             {},
             export_payload=data,

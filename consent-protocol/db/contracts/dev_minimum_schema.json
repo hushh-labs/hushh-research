@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 99,
+  "expected_migration_version": 109,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -462,6 +462,12 @@
       "updated_at",
       "rotated_at",
       "revoked_at"
+    ],
+    "one_email_kyc_preferences": [
+      "user_id",
+      "automatic_response_preparation_enabled",
+      "created_at",
+      "updated_at"
     ],
     "one_kyc_workflows": [
       "workflow_id",

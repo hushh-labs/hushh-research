@@ -12,6 +12,7 @@ import {
   isCapabilityHandoffTarget,
   isOnboardingAdmissionExemptRoute,
   isOneSetupCapabilityRoute,
+  isOneSetupNavigationRoute,
   isOneSetupSurfaceRoute,
   isOneSetupWizardRoute,
   isOneSetupRoute,
@@ -234,6 +235,11 @@ describe("navigation routes", () => {
     expect(isOneSetupSurfaceRoute("/one/setup/kai")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/gmail")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/gmail/")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections/")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections/index.html")).toBe(
+      true,
+    );
     expect(isOneSetupSurfaceRoute("/one")).toBe(false);
     expect(isOneSetupSurfaceRoute("/one/kai")).toBe(false);
   });
@@ -253,6 +259,9 @@ describe("navigation routes", () => {
     expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(
       true,
     );
+    expect(isOneSetupCapabilityRoute("/one/setup/connections")).toBe(false);
+    expect(isOneSetupNavigationRoute("/one/setup/connections")).toBe(true);
+    expect(isOneSetupNavigationRoute("/one/setup/connections/")).toBe(true);
 
     // Retired setup-only ids remain ordinary product surfaces, not account
     // setup routes.

@@ -58,6 +58,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
     expect(resolveRouteId("/one/kai")).toBe("kai_home");
     expect(resolveRouteId("/one/kai/market")).toBe("kai_home");
+    expect(resolveRouteId("/one/kai/news")).toBe("kai_market_news");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
@@ -107,6 +108,12 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/kai/market/insights/user_123")).toBe(
       "/api/kai/market/insights/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/market/news/baseline/user_123")).toBe(
+      "/api/kai/market/news/baseline/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/market/news/user_123")).toBe(
+      "/api/kai/market/news/{user_id}"
     );
     expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream")).toBe(
       "/api/kai/agent/chat/stream"

@@ -15,16 +15,17 @@ from hushh_mcp.services.developer_registry_service import (
     visible_tool_names_for_groups,
 )
 from mcp_modules import resources
+from mcp_modules.canonical_contract import published_tool_name
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.public_contract import get_public_contract, get_public_tool_names
 from mcp_modules.tools.definitions import get_tool_definitions
 
 EXPECTED_TOOLS = (
-    "search_user_scopes",
-    "prepare_campaign_context",
-    "request_consent",
-    "check_consent_status",
-    "get_encrypted_scoped_export",
+    "search-user-scopes",
+    "prepare-campaign-context",
+    "request-consent",
+    "check-consent-status",
+    "get-encrypted-scoped-export",
 )
 REMOVED_TOOLS = {
     "discover_user_domains",
@@ -45,9 +46,12 @@ def test_every_public_catalog_uses_core_plus_campaign_compatibility_contract() -
     assert get_public_tool_names() == EXPECTED_TOOLS
     assert tuple(tool.name for tool in get_tool_definitions()) == EXPECTED_TOOLS
     assert DEFAULT_PUBLIC_TOOL_GROUPS == (TOOL_GROUP_CORE_CONSENT,)
-    assert TOOL_GROUP_TOOL_NAMES[TOOL_GROUP_CORE_CONSENT] == EXPECTED_TOOLS
+    assert (
+        tuple(published_tool_name(name) for name in TOOL_GROUP_TOOL_NAMES[TOOL_GROUP_CORE_CONSENT])
+        == EXPECTED_TOOLS
+    )
     assert tuple(item["name"] for item in SERVER_INFO["tools"]) == EXPECTED_TOOLS
-    assert SERVER_INFO["version"] == "0.3.0"
+    assert SERVER_INFO["version"] == "0.4.0"
     assert SERVER_INFO["tools_count"] == 5
 
     catalog = DeveloperRegistryService().get_tool_catalog(principal=None)
@@ -72,7 +76,9 @@ def test_non_public_entitlement_groups_keep_definitions_and_handlers() -> None:
     for group in KNOWN_TOOL_GROUPS:
         entitled_names = visible_tool_names_for_groups([group])
         definitions = get_tool_definitions(allowed_tool_names=set(entitled_names))
-        assert tuple(tool.name for tool in definitions) == entitled_names
+        assert tuple(tool.name for tool in definitions) == tuple(
+            published_tool_name(name) or name for name in entitled_names
+        )
         assert set(entitled_names).issubset(mcp_server.HANDLERS)
 
 
@@ -87,11 +93,11 @@ def test_every_tool_schema_is_strict_bounded_and_structured() -> None:
         assert tool["description"]
 
     by_name = {tool["name"]: tool for tool in contract["tools"]}
-    assert by_name["get_encrypted_scoped_export"]["inputSchema"]["required"] == [
+    assert by_name["get-encrypted-scoped-export"]["inputSchema"]["required"] == [
         "grant_ref",
         "expected_scope",
     ]
-    assert by_name["check_consent_status"]["inputSchema"]["required"] == ["request_ref"]
+    assert by_name["check-consent-status"]["inputSchema"]["required"] == ["request_ref"]
 
 
 def test_export_output_schema_discriminates_hosted_and_local_delivery() -> None:
@@ -99,30 +105,38 @@ def test_export_output_schema_discriminates_hosted_and_local_delivery() -> None:
     schema = next(
         tool["outputSchema"]
         for tool in contract["tools"]
-        if tool["name"] == "get_encrypted_scoped_export"
+        if tool["name"] == "get-encrypted-scoped-export"
     )
     base = {
         "status": "success",
         "expected_scope": "attr.financial.portfolio.*",
         "granted_scope": "attr.financial.portfolio.*",
-        "expires_at": None,
+        "expires_at": 0,
         "export_revision": 1,
-        "resource": None,
-        "crypto": None,
-        "information": {"summary": "approved"},
+        "ciphertext": "",
+        "payload_iv": "",
+        "payload_tag": "",
+        "wrapped_export_key": "",
+        "wrapped_key_iv": "",
+        "wrapped_key_tag": "",
+        "sender_public_key": "",
+        "connector_key_id": "",
+        "wrapping_alg": "X25519-AES256-GCM",
+        "export_envelope_json": "",
+        "information_json": '{"summary":"approved"}',
     }
-    jsonschema.validate({**base, "delivery": "decrypted_local", "ciphertext": None}, schema)
+    jsonschema.validate({**base, "delivery": "decrypted_local"}, schema)
 
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(
-            {
-                **base,
-                "delivery": "encrypted_inline",
-                "ciphertext": "ZmFrZQ==",
-                "information": {"must": "not accompany a resource link"},
-            },
-            schema,
-        )
+    jsonschema.validate(
+        {
+            **base,
+            "delivery": "encrypted_inline",
+            "ciphertext": "ZmFrZQ==",
+            "information_json": "",
+        },
+        schema,
+    )
+    assert "oneOf" not in schema
 
 
 @pytest.mark.asyncio
@@ -131,12 +145,11 @@ async def test_resources_advertise_core_lifecycle_and_campaign_compatibility() -
     lifecycle = json.loads(await resources.read_resource("hushh://info/consent-lifecycle"))
     assert tuple(connector["tools"]) == EXPECTED_TOOLS
     assert tuple(step["tool"] for step in lifecycle["steps"]) == (
-        "search_user_scopes",
-        "request_consent",
-        "check_consent_status",
-        "get_encrypted_scoped_export",
+        "search-user-scopes",
+        "request-consent",
+        "check-consent-status",
+        "get-encrypted-scoped-export",
     )
-    assert connector["compatibility_tool"] == "prepare_campaign_context"
     serialized = json.dumps({"connector": connector, "lifecycle": lifecycle})
     assert all(name not in serialized for name in REMOVED_TOOLS)
 

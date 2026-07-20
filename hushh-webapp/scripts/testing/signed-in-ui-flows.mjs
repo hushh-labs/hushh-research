@@ -4,7 +4,10 @@
  *
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
- * - click_bottom_nav: { label: string }
+ * - ensure_ria_workspace: {}
+ * - click_bottom_nav: { label: "One" | "Connect" | "Search" }
+ * - click_top_tab: { label: string }
+ * - click_shell_action: { ariaLabel: string }
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
@@ -23,9 +26,14 @@
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
  * - assert_viewport_visible_testid: { testId: string }
- * - verify_ria_picks_admission: exercises the tabs for an activated advisor,
- *   or accepts the expected onboarding admission state for the shared reviewer.
+ * - assert_ria_workspace_admission: accepts either an activated RIA workspace
+ *   or the canonical reviewer’s RIA onboarding admission state.
  * - open_ria_workspace: {}
+ *
+ * `requiresRiaWorkspace` flows are not executable for the canonical shared
+ * reviewer while its RIA application is pending. The native runner records an
+ * explicit `onboarding_admission` conditional skip in that case; it never
+ * treats an onboarding screen as a successful workspace interaction.
  */
 
 export const TERMINAL_DATA_STATES = [
@@ -47,8 +55,8 @@ export const UI_FLOWS = [
     description: "Investor shell: Market -> Analysis",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Market" },
-      { type: "click_bottom_nav", label: "Analysis" },
+      { type: "click_top_tab", label: "Analysis" },
+      { type: "assert_url_includes", value: "tab=analysis" },
       { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
       { type: "assert_viewport_visible_testid", testId: "top-app-bar-tabs" },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
@@ -87,7 +95,8 @@ export const UI_FLOWS = [
     description: "Investor shell: Portfolio tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Portfolio" },
+      { type: "click_top_tab", label: "Portfolio" },
+      { type: "assert_url_includes", value: "tab=portfolio" },
       { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     ],
   },
@@ -97,7 +106,8 @@ export const UI_FLOWS = [
     description: "Investor shell: Portfolio -> import route",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Portfolio" },
+      { type: "click_top_tab", label: "Portfolio" },
+      { type: "assert_url_includes", value: "tab=portfolio" },
       { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
       { type: "navigate_route", route: "/one/kai/import" },
       { type: "wait_beacon", routeIds: ["/one/kai/import"] },
@@ -107,9 +117,10 @@ export const UI_FLOWS = [
     id: "shell-ria-home",
     route: "/ria",
     description: "RIA shell: Home tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Home" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Home" },
       { type: "wait_beacon", routeIds: ["/ria"] },
       { type: "assert_visible_testid", testId: "ria-home-primary" },
     ],
@@ -118,9 +129,10 @@ export const UI_FLOWS = [
     id: "shell-ria-clients",
     route: "/ria/clients",
     description: "RIA shell: Clients tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Clients" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Clients" },
       { type: "wait_beacon", routeIds: ["/ria/clients"] },
     ],
   },
@@ -128,9 +140,10 @@ export const UI_FLOWS = [
     id: "shell-ria-picks",
     route: "/ria/picks",
     description: "RIA shell: Picks tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Picks" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
     ],
   },
@@ -138,19 +151,21 @@ export const UI_FLOWS = [
     id: "shell-marketplace",
     route: "/marketplace",
     description: "RIA shell: Connect / marketplace",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
+      { type: "ensure_ria_workspace" },
       { type: "click_bottom_nav", label: "Connect" },
       { type: "wait_beacon", routeIds: ["/marketplace"] },
     ],
   },
   {
     id: "shell-profile",
-    route: "/profile",
+    route: "/one/profile",
     description: "Profile tab from shell",
     steps: [
-      { type: "click_bottom_nav", label: "Profile" },
-      { type: "wait_beacon", routeIds: ["/profile"] },
+      { type: "ensure_persona", persona: "investor" },
+      { type: "click_shell_action", ariaLabel: "Open Profile" },
+      { type: "wait_beacon", routeIds: ["/one/profile"] },
       { type: "assert_visible_testid", testId: "profile-primary" },
     ],
   },
@@ -166,21 +181,21 @@ export const UI_FLOWS = [
     ],
   },
   {
-    id: "ria-picks-source-category-tabs",
-    route: "/ria/picks",
-    description: "RIA picks admission and source + category controls when entitled",
+    id: "ria-workspace-admission",
+    route: "/ria",
+    description: "RIA workspace resolves to fixed tabs or the verified onboarding admission state",
     steps: [
       { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Picks" },
-      { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "verify_ria_picks_admission" },
+      { type: "assert_ria_workspace_admission" },
     ],
   },
   {
     id: "ria-workspace-account-detail",
     route: "/ria/clients/[userId]/accounts/[accountId]",
     description: "RIA workspace -> taxable brokerage account",
+    requiresRiaWorkspace: true,
     steps: [
+      { type: "ensure_ria_workspace" },
       { type: "open_ria_workspace", timeoutMs: 120000 },
       {
         type: "wait_button",
@@ -199,7 +214,9 @@ export const UI_FLOWS = [
     id: "ria-workspace-access-panel",
     route: "/ria/clients/[userId]",
     description: "RIA workspace sharing/access panel",
+    requiresRiaWorkspace: true,
     steps: [
+      { type: "ensure_ria_workspace" },
       { type: "open_ria_workspace", timeoutMs: 120000 },
       { type: "click_button", name: "^(sharing|access)$", regex: true },
       { type: "assert_visible_testid", testId: "ria-client-workspace-access" },
@@ -210,8 +227,9 @@ export const UI_FLOWS = [
     route: "/marketplace",
     description: "Marketplace open workspace card when present",
     optional: true,
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
+      { type: "ensure_ria_workspace" },
       { type: "click_bottom_nav", label: "Connect" },
       { type: "wait_beacon", routeIds: ["/marketplace"] },
       {
@@ -242,7 +260,8 @@ export const KAI_IMPORT_E2E_FLOW = {
   steps: [
     { type: "ensure_persona", persona: "investor" },
     { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
-    { type: "click_bottom_nav", label: "Portfolio" },
+    { type: "click_top_tab", label: "Portfolio" },
+    { type: "assert_url_includes", value: "tab=portfolio" },
     { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     {
       type: "click_button",

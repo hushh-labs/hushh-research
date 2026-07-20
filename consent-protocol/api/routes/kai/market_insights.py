@@ -6,6 +6,9 @@ Provides cached, provider-backed market overview data with graceful degradation.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import json
 import logging
 import os
 import secrets
@@ -67,6 +70,10 @@ QUOTE_SYMBOL_ALIASES: dict[str, str] = {
 WATCHLIST_MAX = 8
 NEWS_SYMBOL_MAX = 3
 NEWS_ROWS_MAX = 12
+NEWS_FEED_ROWS_MAX = 75
+NEWS_FEED_PAGE_DEFAULT = 12
+NEWS_FEED_PAGE_MAX = 20
+NEWS_FEED_CURSOR_MAX_LENGTH = 512
 QUOTE_FANOUT_CONCURRENCY = 4
 RECOMMENDATION_FANOUT_CONCURRENCY = 4
 NEWS_FANOUT_CONCURRENCY = 2
@@ -185,6 +192,7 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
     "news:",
+    "news_feed:",
     "recommendation:",
     "financial_summary:",
 )
@@ -700,6 +708,208 @@ def _normalize_symbols(raw: str | None) -> list[str]:
         if len(out) >= WATCHLIST_MAX:
             break
     return out or DEFAULT_SYMBOLS
+
+
+def _select_news_symbols(raw_symbols: str | None) -> list[str]:
+    """Return the bounded, provider-safe symbol set for a public news bundle."""
+    symbol_master = get_symbol_master_service()
+    selected: list[str] = []
+    for raw_symbol in _normalize_symbols(raw_symbols):
+        classification = symbol_master.classify(raw_symbol)
+        if not classification.tradable:
+            continue
+        symbol = str(classification.symbol or "").strip().upper()
+        if symbol and symbol not in selected:
+            selected.append(symbol)
+        if len(selected) >= NEWS_SYMBOL_MAX:
+            break
+    return selected or DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX]
+
+
+def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
+    canonical_symbols = ",".join(sorted(set(symbols)))
+    return f"news_feed:v1:{canonical_symbols}:{days_back}"
+
+
+def _market_news_snapshot_id(rows: list[dict[str, Any]]) -> str:
+    encoded = json.dumps(
+        rows,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:24]
+
+
+def _encode_market_news_cursor(snapshot_id: str, offset: int) -> str:
+    payload = json.dumps(
+        {"v": 1, "s": snapshot_id, "o": max(0, int(offset))},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_market_news_cursor(cursor: str | None) -> tuple[str, int] | None:
+    value = str(cursor or "").strip()
+    if not value:
+        return None
+    if len(value) > NEWS_FEED_CURSOR_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        )
+    try:
+        padded = value + ("=" * (-len(value) % 4))
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        ) from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("v") != 1
+        or not isinstance(payload.get("s"), str)
+        or not isinstance(payload.get("o"), int)
+        or int(payload["o"]) < 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        )
+    return str(payload["s"]), int(payload["o"])
+
+
+def _normalize_market_news_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbol: str,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for article in rows:
+        if not isinstance(article, dict):
+            continue
+        title = str(article.get("title") or "").strip()
+        url = str(article.get("url") or "").strip()
+        if not title or not url:
+            continue
+        source = article.get("source")
+        source_name = str(source.get("name") or "").strip() if isinstance(source, dict) else ""
+        normalized.append(
+            {
+                "symbol": symbol,
+                "title": title,
+                "summary": str(article.get("description") or "").strip() or None,
+                "url": url,
+                "published_at": str(article.get("publishedAt") or _now_iso()),
+                "source_name": source_name or "Market news",
+                "provider": str(article.get("provider") or "unknown"),
+                "sentiment_hint": None,
+                "degraded": False,
+            }
+        )
+    return normalized
+
+
+async def _get_market_news_feed_page(
+    *,
+    user_id: str,
+    symbols: list[str],
+    days_back: int,
+    cursor: str | None,
+    limit: int,
+    consent_token: str | None,
+) -> dict[str, Any]:
+    """Slice one cached public-news snapshot. Provider work never happens per page."""
+    cache_key = _market_news_feed_cache_key(symbols, days_back)
+
+    async def fetch_news_bundle() -> dict[str, Any]:
+        statuses: dict[str, str] = {}
+        rows: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(NEWS_FANOUT_CONCURRENCY)
+
+        async def fetch_symbol_news(
+            symbol: str,
+        ) -> tuple[str, list[dict[str, Any]], str]:
+            async with semaphore:
+                try:
+                    articles = await fetch_market_news(
+                        symbol,
+                        user_id,
+                        consent_token,
+                        days_back=days_back,
+                    )
+                    return symbol, articles or [], ("ok" if articles else "partial")
+                except Exception as exc:
+                    logger.debug(
+                        "[Kai Market] paginated news failed for %s: %s",
+                        symbol,
+                        exc,
+                    )
+                    return symbol, [], _provider_status_from_exception(exc)
+
+        for symbol, articles, status_value in await asyncio.gather(
+            *(fetch_symbol_news(symbol) for symbol in symbols)
+        ):
+            statuses[f"news:{symbol}"] = status_value
+            rows.extend(_normalize_market_news_rows(articles, symbol=symbol))
+
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            key = f"{str(row.get('title') or '').lower()}::{row.get('url')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+        deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+        return {
+            "rows": deduped[:NEWS_FEED_ROWS_MAX],
+            "provider_status": statuses,
+            "generated_at": _now_iso(),
+        }
+
+    news_value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
+        key=cache_key,
+        fresh_ttl_seconds=NEWS_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=NEWS_STALE_TTL_SECONDS,
+        fetcher=fetch_news_bundle,
+        warm_source="request",
+    )
+    bundle = news_value if isinstance(news_value, dict) else {}
+    rows = bundle.get("rows") if isinstance(bundle.get("rows"), list) else []
+    snapshot_id = _market_news_snapshot_id(rows)
+    decoded_cursor = _decode_market_news_cursor(cursor)
+    offset = 0
+    if decoded_cursor:
+        cursor_snapshot_id, offset = decoded_cursor
+        if cursor_snapshot_id != snapshot_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Market news refreshed. Start again to see the latest headlines.",
+            )
+
+    page_limit = min(max(1, int(limit)), NEWS_FEED_PAGE_MAX)
+    items = rows[offset : offset + page_limit]
+    next_offset = offset + len(items)
+    has_more = next_offset < len(rows)
+    return {
+        "items": items,
+        "next_cursor": (_encode_market_news_cursor(snapshot_id, next_offset) if has_more else None),
+        "has_more": has_more,
+        "snapshot_id": snapshot_id,
+        "generated_at": str(bundle.get("generated_at") or _now_iso()),
+        "stale": bool(stale),
+        "cache": {
+            "tier": cache_tier,
+            "age_seconds": max(0, int(age_seconds)),
+            "hit": bool(cache_hit),
+        },
+        "provider_status": (
+            bundle.get("provider_status") if isinstance(bundle.get("provider_status"), dict) else {}
+        ),
+    }
 
 
 def _provider_status_from_exception(exc: Exception) -> str:
@@ -3018,6 +3228,75 @@ async def get_market_insights(
         consent_token=consent_token,
         personalized=True,
         exchange=resolved_exchange,
+    )
+
+
+@router.get("/market/news/baseline/{user_id}")
+async def get_market_news_baseline(
+    user_id: _UserId,
+    days_back: int = Query(default=7, ge=1, le=14),
+    cursor: str | None = Query(
+        default=None,
+        max_length=NEWS_FEED_CURSOR_MAX_LENGTH,
+    ),
+    limit: int = Query(
+        default=NEWS_FEED_PAGE_DEFAULT,
+        ge=1,
+        le=NEWS_FEED_PAGE_MAX,
+    ),
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Read one page from the shared baseline news snapshot without vault access."""
+    verify_user_id_match(firebase_uid, user_id)
+    return await _get_market_news_feed_page(
+        user_id=user_id,
+        symbols=DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX],
+        days_back=days_back,
+        cursor=cursor,
+        limit=limit,
+        consent_token=None,
+    )
+
+
+@router.get("/market/news/{user_id}")
+async def get_market_news(
+    user_id: _UserId,
+    symbols: str | None = Query(
+        default=None,
+        max_length=512,
+        description="CSV list of symbols used for the private market feed, max 3",
+    ),
+    days_back: int = Query(default=7, ge=1, le=14),
+    cursor: str | None = Query(
+        default=None,
+        max_length=NEWS_FEED_CURSOR_MAX_LENGTH,
+    ),
+    limit: int = Query(
+        default=NEWS_FEED_PAGE_DEFAULT,
+        ge=1,
+        le=NEWS_FEED_PAGE_MAX,
+    ),
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Read one cursor page from a vault-owner's bounded market-news snapshot."""
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    consent_token = _coerce_consent_token(token_data.get("token"))
+    if not consent_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid consent token",
+        )
+    return await _get_market_news_feed_page(
+        user_id=user_id,
+        symbols=_select_news_symbols(symbols),
+        days_back=days_back,
+        cursor=cursor,
+        limit=limit,
+        consent_token=consent_token,
     )
 
 

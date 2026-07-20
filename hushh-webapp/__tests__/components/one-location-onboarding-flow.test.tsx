@@ -160,6 +160,43 @@ describe("OneLocationOnboardingFlow", () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps setup Skip separate and requires real location readiness to finish", () => {
+    const onComplete = vi.fn();
+    const onSkip = vi.fn();
+    renderFlow({
+      startAt: "permissions",
+      requireLocationToComplete: true,
+      onComplete,
+      onSkip,
+    });
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("allows setup completion after foreground location is granted", () => {
+    const onComplete = vi.fn();
+    renderFlow({
+      startAt: "permissions",
+      requireLocationToComplete: true,
+      locationPermission: {
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      },
+      onComplete,
+    });
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).not.toBeDisabled();
+    fireEvent.click(continueButton);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("continues while recommended contacts are still loading", () => {
     const props = renderFlow({
       people: [],

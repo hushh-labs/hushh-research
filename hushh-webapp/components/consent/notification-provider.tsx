@@ -90,6 +90,7 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // ============================================================================
 // Helpers
@@ -1534,8 +1535,6 @@ export function ConsentNotificationProvider({
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !fcmInitStatus) return;
 
-    let cancelled = false;
-    let nativeAppListener: { remove: () => Promise<void> } | null = null;
     const reconcileWhenVisible = () => {
       if (
         typeof document !== "undefined" &&
@@ -1553,44 +1552,27 @@ export function ConsentNotificationProvider({
     window.addEventListener("online", reconcileWhenVisible);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    if (isNativePlatform) {
-      void import("@capacitor/app")
-        .then(async ({ App }) => {
-          const listener = await App.addListener(
-            "appStateChange",
-            ({ isActive }) => {
-              if (isActive) reconcileWhenVisible();
-            },
-          );
-          if (cancelled) {
-            await listener.remove();
-            return;
-          }
-          nativeAppListener = listener;
-        })
-        .catch((error) => {
-          console.warn(
-            "[NotificationProvider] Native resume listener unavailable:",
-            error,
-          );
-        });
-    }
+    const removeLifecycleListener = appInteractionCoordinator.subscribeLifecycle(
+      () => {
+        if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+          reconcileWhenVisible();
+        }
+      },
+    );
 
     const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
     const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);
 
     return () => {
-      cancelled = true;
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.clearInterval(intervalId);
-      if (nativeAppListener) void nativeAppListener.remove();
+      removeLifecycleListener();
     };
   }, [
     deliveryMode,
     fcmInitStatus,
-    isNativePlatform,
     isVaultUnlocked,
     reconcileOneLocationNotifications,
     user?.uid,

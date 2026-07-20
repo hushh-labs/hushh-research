@@ -12,10 +12,13 @@ const embla = vi.hoisted(() => ({
   scrollTo: vi.fn<(index: number) => void>(),
   listeners: new Map<string, () => void>(),
   ref: vi.fn(),
+  options: null as Record<string, unknown> | null,
 }));
 
 vi.mock("embla-carousel-react", () => ({
-  default: () => [
+  default: (options: Record<string, unknown>) => {
+    embla.options = options;
+    return [
     embla.ref,
     {
       selectedScrollSnap: () => embla.selectedIndex,
@@ -28,7 +31,8 @@ vi.mock("embla-carousel-react", () => ({
         embla.listeners.delete(event);
       },
     },
-  ],
+    ];
+  },
 }));
 
 const OPTIONS = [
@@ -42,6 +46,7 @@ describe("SwipeViews", () => {
     embla.scrollProgress = 0;
     embla.scrollTo.mockClear();
     embla.listeners.clear();
+    embla.options = null;
   });
 
   it("mounts only the route-selected panel and keeps semantic panel targets", () => {
@@ -105,15 +110,15 @@ describe("SwipeViews", () => {
     ).toBeNull();
   });
 
-  it("reports the destination after a horizontal pager swipe settles", () => {
-    const onChildSwiped = vi.fn();
+  it("reports the destination as soon as a horizontal pager selects it", () => {
+    const onSelectionChange = vi.fn();
 
     render(
       <SwipeViews
         tabSetId="demo"
         activeValue="first"
         options={OPTIONS}
-        onChildSwiped={onChildSwiped}
+        onSelectionChange={onSelectionChange}
       >
         <div>first panel content</div>
         <div>second panel content</div>
@@ -123,11 +128,12 @@ describe("SwipeViews", () => {
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
 
-    expect(onChildSwiped).not.toHaveBeenCalled();
+    expect(onSelectionChange).toHaveBeenCalledWith("second");
 
     embla.listeners.get("settle")?.();
 
-    expect(onChildSwiped).toHaveBeenCalledWith("second");
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(embla.options).toMatchObject({ duration: 20 });
   });
 
   it("keeps the shared tab progress attached to the pane through snap settle", () => {
