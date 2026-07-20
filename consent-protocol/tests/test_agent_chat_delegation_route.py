@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,6 +19,27 @@ from hushh_mcp.services.agent_chat_service import (
     PreparedAgentChatTurn,
     PreparedAgentRuntime,
 )
+
+
+class _FakeDirectiveStore:
+    async def issue(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(
+            directive_id="dir-test",
+            context_revision=kwargs["context_revision"],
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+
+    async def cancel_open_for_conversation(self, **kwargs):  # noqa: ANN003
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _directive_authority(monkeypatch):
+    monkeypatch.setattr(
+        agent_chat,
+        "get_action_directive_store",
+        lambda: _FakeDirectiveStore(),
+    )
 
 
 def _parse_sse(body: str) -> list[str]:
@@ -47,7 +71,7 @@ class _MinimalFakeService:
         return PreparedAgentRuntime(
             mode="hushh_managed_vertex",
             provider="gemini",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
             gemini_byok_transport="developer_api",
             vertex_project=None,
@@ -61,7 +85,7 @@ class _MinimalFakeService:
             conversation_id="conversation-gen",
             user_message_id="msg-gen-1",
             history=[],
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
         )
 
     async def plan_action_with_gemini(
@@ -189,6 +213,26 @@ def test_non_location_turn_uses_existing_path(monkeypatch):
     events = _parse_sse(resp.text)
     assert "specialist_directive" not in events
     assert events and events[0] == "start"
+
+
+def test_silent_model_turn_fails_explicitly_instead_of_completing_empty(monkeypatch):
+    service = _MinimalFakeService()
+    service.one_events = []
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "u1",
+            "message": "list down a summary of my memory",
+            "pkm_context": "Writing preference: concise summaries.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert _parse_sse(response.text) == ["start", "error"]
+    assert "AGENT_RUNTIME_EMPTY_RESPONSE" in response.text
+    assert "event: complete" not in response.text
 
 
 @pytest.mark.parametrize(

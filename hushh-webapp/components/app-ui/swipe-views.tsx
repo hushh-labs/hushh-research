@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 
 import { setTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { cn } from "@/lib/utils";
 
 /**
  * Marks an element whose horizontal drag must win over the workspace pager.
@@ -35,6 +36,8 @@ interface SwipeViewsProps {
   activeValue: string;
   /** Emits immediately when Embla selects a pane; route state remains authoritative. */
   onSelectionChange?: (value: string) => void;
+  /** Keeps route content and surface shadows inside the canonical page gutter. */
+  panelInset?: "none" | "page";
 }
 
 export function SwipeViews({
@@ -43,6 +46,7 @@ export function SwipeViews({
   tabSetId,
   activeValue,
   onSelectionChange,
+  panelInset = "none",
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
     (_emblaApi: unknown, event: Event) =>
@@ -205,7 +209,12 @@ export function SwipeViews({
               aria-labelledby={`top-shell-${tabSetId}-tab-${safeValue}`}
               aria-hidden={!isActive}
               tabIndex={isActive ? 0 : -1}
-              className="flex-[0_0_100%] min-h-0 min-w-0"
+              data-swipe-panel-inset={panelInset}
+              className={cn(
+                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                panelInset === "page" &&
+                  "px-[var(--page-inline-gutter-standard)]",
+              )}
               style={{ minHeight: "inherit" }}
             >
               {isActive ? panels[index] : null}

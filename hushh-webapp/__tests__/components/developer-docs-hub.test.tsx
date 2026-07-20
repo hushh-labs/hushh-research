@@ -87,15 +87,15 @@ describe("DeveloperDocsHub", () => {
     render(<DeveloperDocsHub initialOrigin="https://uat.one.hushh.ai" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Live contract available")).toBeTruthy();
+      expect(screen.getByText("One connection. One lifecycle.")).toBeTruthy();
     });
 
     expect(
       screen.getByRole("heading", {
-        name: "Consent MCP",
+        name: "Hussh Consent MCP",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Connect your MCP host")).toBeTruthy();
+    expect(screen.getByText("Connect in three steps")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Copy Remote MCP config" }),
     ).toBeTruthy();
@@ -104,6 +104,7 @@ describe("DeveloperDocsHub", () => {
     expect(
       screen.getAllByText(/https:\/\/api\.uat\.hushh\.ai\/mcp\//).length,
     ).toBeGreaterThan(0);
+    expect(screen.queryByText("http://localhost:8000/mcp/")).toBeNull();
     // The first read is intentionally only the Remote MCP setup. Reference
     // details remain available behind named sections, rather than expanding a
     // public landing into a wall of implementation detail.
@@ -117,5 +118,17 @@ describe("DeveloperDocsHub", () => {
     expect(
       screen.queryByText(/consent-protocol-uat-a1b2c3-uc\.a\.run\.app/),
     ).toBeNull();
+
+    await screen.getByText("Connect through streamable HTTP.").click();
+    for (const tool of [
+      "search-user-scopes",
+      "prepare-campaign-context",
+      "request-consent",
+      "check-consent-status",
+      "get-encrypted-scoped-export",
+    ]) {
+      expect(screen.getByText(tool)).toBeTruthy();
+    }
+    expect(screen.queryByText("search_user_scopes")).toBeNull();
   });
 });

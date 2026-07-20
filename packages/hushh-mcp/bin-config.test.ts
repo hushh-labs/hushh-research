@@ -139,6 +139,50 @@ describe("hushh-mcp CLI config output", () => {
     }
   });
 
+  it("prints the Exchange upload projection without host or authentication metadata", async () => {
+    const { stdout, stderr } = await execAsync(
+      `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-exchange-manifest`,
+      { cwd: process.cwd() },
+    );
+
+    expect(stderr).toBe("");
+    const manifest = JSON.parse(stdout);
+    expect(Object.keys(manifest).sort()).toEqual([
+      "capabilities",
+      "protocolVersion",
+      "tools",
+      "transport",
+    ]);
+    expect(manifest.protocolVersion).toBe("2025-06-18");
+    expect(manifest.transport).toEqual({ kind: "streamableHttp", path: "/mcp/" });
+    expect(manifest.capabilities).toEqual({
+      tools: true,
+      resources: false,
+      prompts: false,
+      logging: false,
+    });
+    expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "search-user-scopes",
+      "prepare-campaign-context",
+      "request-consent",
+      "check-consent-status",
+      "get-encrypted-scoped-export",
+    ]);
+    for (const tool of manifest.tools) {
+      expect(Object.keys(tool).sort()).toEqual([
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema",
+      ]);
+      expect(tool.outputSchema).toEqual({ type: "object" });
+    }
+    expect(stdout).not.toContain("authentication");
+    expect(stdout).not.toContain("endpoint");
+    expect(stdout).not.toContain("hostRegistration");
+    expect(stdout).not.toContain("client_secret");
+  });
+
   it("prints the non-secret MuleSoft to Agentforce handoff without widening the UAT boundary", async () => {
     const { stdout, stderr } = await execAsync(
       `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-agentforce-handoff`,

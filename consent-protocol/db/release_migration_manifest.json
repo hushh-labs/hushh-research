@@ -91,7 +91,8 @@
     "110_one_email_kyc_preferences.sql",
     "111_macys_crm_response_contracts.sql",
     "112_dynamic_crm_registry_cache.sql",
-    "113_kai_plaid_portfolio_tables.sql"
+    "113_kai_plaid_portfolio_tables.sql",
+    "114_one_action_directive_ledger.sql"
   ],
   "groups": {
     "iam": [
@@ -142,7 +143,8 @@
       "107_actor_identity_custom_photo.sql",
       "110_one_email_kyc_preferences.sql",
       "111_macys_crm_response_contracts.sql",
-      "112_dynamic_crm_registry_cache.sql"
+      "112_dynamic_crm_registry_cache.sql",
+      "114_one_action_directive_ledger.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

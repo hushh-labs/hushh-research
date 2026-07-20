@@ -164,7 +164,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/connections/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Connections Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -333,7 +333,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Financial Guard Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -478,8 +478,12 @@
       "action_ids": [],
       "authorities": {
         "actions": [],
-        "data": [],
-        "invocation": []
+        "data": [
+          "consented_financial_projection"
+        ],
+        "invocation": [
+          "agent.kai.analyze"
+        ]
       },
       "capabilities": {},
       "credential_policy": {
@@ -510,8 +514,8 @@
       "manifest_path": "consent-protocol/hushh_mcp/agents/kai/agent.yaml",
       "manifest_version": 2,
       "model": {
-        "credential_ref": "pkm:runtime_secrets.llm.gemini_api_key",
-        "mode": "byok",
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
         "name": "gemini-3.5-flash",
         "provider": "gemini"
       },
@@ -541,7 +545,9 @@
         "mutation_contract": null
       },
       "privacy": {
-        "context_allowlist": [],
+        "context_allowlist": [
+          "hussh:pkm_context"
+        ],
         "plaintext_telemetry": false
       },
       "prompt_reference": null,
@@ -554,16 +560,93 @@
         "strategy": "off"
       },
       "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_finance_agent",
         "kind": "adk",
         "transport": [
-          "in_process"
+          "in_process",
+          "chat",
+          "a2a"
         ]
       },
       "side_effects": [],
       "status": "experimental",
-      "subagents": [],
+      "subagents": [
+        {
+          "description": "Advisor-workspace subagent owned by Kai Finance.",
+          "id": "agent_ria",
+          "inputs": [],
+          "model": {
+            "credential_ref": null,
+            "mode": "hushh_managed_vertex",
+            "name": "gemini-3.5-flash",
+            "provider": "gemini"
+          },
+          "name": "RIA",
+          "outputs": [],
+          "performance": {
+            "latency_p95_ms": 4000,
+            "max_output_tokens": 2048
+          },
+          "privacy": {
+            "context_allowlist": [],
+            "plaintext_telemetry": false
+          },
+          "rollout": {
+            "kill_switch": "HUSHH_RIA_AGENT_DISABLED",
+            "rollback": "Disable RIA delegation and keep the Finance head active.",
+            "strategy": "canary"
+          },
+          "runtime": {
+            "adk_mode": "task",
+            "factory": null,
+            "kind": "adk",
+            "transport": [
+              "in_process"
+            ]
+          },
+          "system_instruction": "You are RIA, Kai Finance's advisor-workspace subagent. Handle advisor\nclient, pick, and request framing only from explicitly supplied context.\nNever read the account holder's personal portfolio projection unless the\nturn authority explicitly includes it, and never claim an action ran.\n",
+          "telemetry_namespace": "agent.kai.ria"
+        },
+        {
+          "description": "Personal portfolio-review subagent owned by Kai Finance.",
+          "id": "agent_investor",
+          "inputs": [],
+          "model": {
+            "credential_ref": null,
+            "mode": "hushh_managed_vertex",
+            "name": "gemini-3.5-flash",
+            "provider": "gemini"
+          },
+          "name": "Investor",
+          "outputs": [],
+          "performance": {
+            "latency_p95_ms": 4000,
+            "max_output_tokens": 2048
+          },
+          "privacy": {
+            "context_allowlist": [
+              "hussh:pkm_context"
+            ],
+            "plaintext_telemetry": false
+          },
+          "rollout": {
+            "kill_switch": "HUSHH_INVESTOR_AGENT_DISABLED",
+            "rollback": "Disable Investor delegation and keep the Finance head active.",
+            "strategy": "canary"
+          },
+          "runtime": {
+            "adk_mode": "task",
+            "factory": null,
+            "kind": "adk",
+            "transport": [
+              "in_process"
+            ]
+          },
+          "system_instruction": "You are Investor, Kai Finance's personal-investing subagent. Review only\nthe consented financial projection supplied for this turn. Never infer\nomitted holdings or claim an analysis run or trade executed.\n",
+          "telemetry_namespace": "agent.kai.investor"
+        }
+      ],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -575,7 +658,7 @@
         "web": false
       },
       "system_instruction_sha256": "aa6ccc1582cbb5bcce347c19513ad06a574ad4a3543259d891ee68f4be993ef6",
-      "telemetry_namespace": "agent.unclassified",
+      "telemetry_namespace": "agent.kai",
       "tools": [
         {
           "description": "Analyze business fundamentals (SEC filings, Moat, Resilience).",
@@ -617,6 +700,13 @@
           "strict_client_zk": true
         },
         "drafting_contract_owned_by_adk": true,
+        "managed_llm_drafting": {
+          "approved_plaintext_transient": true,
+          "export_revision_bound": true,
+          "plaintext_persistence_allowed": false,
+          "plaintext_telemetry_allowed": false,
+          "workflow_scope_bound": true
+        },
         "strict_client_zk_draft_rendering": true
       },
       "credential_policy": {
@@ -627,14 +717,21 @@
       },
       "description": "Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.",
       "evaluations": [],
-      "failure_states": [],
+      "failure_states": [
+        "auth_required",
+        "input_required",
+        "consent_required",
+        "confirmation_required",
+        "provider_unavailable",
+        "approved_context_stale"
+      ],
       "icon": null,
       "id": "agent_kyc",
       "inputs": [],
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/kyc/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Agent KYC",
       "native_requirements": [],
       "optional_scopes": [
@@ -650,11 +747,19 @@
         "max_output_tokens": 4096
       },
       "pkm": {
-        "behavior": "none",
-        "mutation_contract": null
+        "behavior": "propose_mutation",
+        "mutation_contract": "PkmMutationPlanV2"
       },
       "privacy": {
-        "context_allowlist": [],
+        "context_allowlist": [
+          "workflow.id",
+          "workflow.request.subject",
+          "workflow.request.snippet",
+          "workflow.approved_scopes",
+          "workflow.approved_exports",
+          "workflow.current_draft",
+          "workflow.redraft_instruction"
+        ],
         "plaintext_telemetry": false
       },
       "prompt_reference": null,
@@ -675,23 +780,23 @@
         ]
       },
       "side_effects": [],
-      "status": "experimental",
+      "status": "active",
       "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
-        "chat": false,
+        "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": null,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native execution are not currently shipped.",
         "voice": false,
-        "web": false
+        "web": true
       },
-      "system_instruction_sha256": "3744d9c5316ad67e17755760a97d185e92d13cad908d014e92aa7ed5876ab3d9",
-      "telemetry_namespace": "agent.unclassified",
+      "system_instruction_sha256": "38b92ca20a00d685fab8c5e65417dcf8c936c60c2380350c7ea27c1c6b1130a3",
+      "telemetry_namespace": "agent.kyc",
       "tools": [],
       "ui_type": "chat",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "action_ids": [],
@@ -716,7 +821,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/location/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Location Agent",
       "native_requirements": [],
       "optional_scopes": [
@@ -1321,7 +1426,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Consent Center Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1497,9 +1602,26 @@
       "authorities": {
         "actions": [],
         "data": [],
-        "invocation": []
+        "invocation": [
+          "cap.one.invoke"
+        ]
       },
-      "capabilities": {},
+      "capabilities": {
+        "heads": {
+          "live": "gemini-live-2.5-flash-native-audio",
+          "specialist_text": "gemini-3.5-flash",
+          "text": "gemini-3.5-flash"
+        },
+        "specialist_roster": [
+          "agent_kai",
+          "agent_nav",
+          "agent_kyc",
+          "agent_email",
+          "agent_location",
+          "agent_connected_systems",
+          "agent_consent"
+        ]
+      },
       "credential_policy": {
         "allowed": [
           "hushh_managed_vertex",
@@ -1509,7 +1631,10 @@
       },
       "description": "Top private agent that frames user intent and delegates specialist work.",
       "evaluations": [],
-      "failure_states": [],
+      "failure_states": [
+        "confirmation_authority_unavailable",
+        "managed_runtime_unavailable"
+      ],
       "icon": null,
       "id": "agent_one",
       "inputs": [],
@@ -1519,8 +1644,8 @@
       "manifest_path": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
       "manifest_version": 2,
       "model": {
-        "credential_ref": "pkm:runtime_secrets.llm.gemini_api_key",
-        "mode": "byok",
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
         "name": "gemini-3.5-flash",
         "provider": "gemini"
       },
@@ -1539,7 +1664,10 @@
         "mutation_contract": null
       },
       "privacy": {
-        "context_allowlist": [],
+        "context_allowlist": [
+          "hussh:voice_context",
+          "hussh:pkm_context"
+        ],
         "plaintext_telemetry": false
       },
       "prompt_reference": null,
@@ -1552,28 +1680,31 @@
         "strategy": "off"
       },
       "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
+        "adk_mode": "chat",
+        "factory": "hushh_mcp.one_adk.agent_tree.build_one_text_agent",
         "kind": "adk",
         "transport": [
-          "in_process"
+          "in_process",
+          "chat",
+          "voice",
+          "a2a"
         ]
       },
       "side_effects": [],
       "status": "active",
       "subagents": [],
       "surfaces": {
-        "a2a": false,
-        "android": false,
-        "chat": false,
-        "ios": false,
+        "a2a": true,
+        "android": true,
+        "chat": true,
+        "ios": true,
         "mcp": false,
         "not_applicable_reason": null,
-        "voice": false,
-        "web": false
+        "voice": true,
+        "web": true
       },
       "system_instruction_sha256": "7d0b2f3bdcd8fc656828bfabaf54f2dbd9f94a06458abc4b54ed56757a009982",
-      "telemetry_namespace": "agent.unclassified",
+      "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
       "version": "0.1.0"
@@ -1601,7 +1732,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/personal_information/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Information Marketplace",
       "native_requirements": [],
       "optional_scopes": [
@@ -1877,7 +2008,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "name": "Portfolio Import Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -2013,7 +2144,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/summary_reducer/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.1-flash-lite",
       "name": "PKM Summary Reducer",
       "native_requirements": [],
       "optional_scopes": [],

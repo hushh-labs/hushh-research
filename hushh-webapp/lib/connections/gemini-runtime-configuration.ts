@@ -23,8 +23,34 @@ type ResolveGeminiRuntimeConnectionInput = {
   vaultOwnerToken?: string | null;
 };
 
+type UnlockedGeminiRuntimeConnectionInput = {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+};
+
 const GEMINI_RUNTIME_CONFIGURATION_CHANGED =
   "hushh:gemini-runtime-configuration-changed";
+const RUNTIME_CONFIGURATION_TTL_MS = 5 * 60 * 1000;
+
+type RuntimeCacheEntry = {
+  value: GeminiRuntimeConnection;
+  expiresAt: number;
+};
+
+const runtimeCache = new Map<string, RuntimeCacheEntry>();
+const runtimeInFlight = new Map<string, Promise<GeminiRuntimeConnection>>();
+let runtimeCacheGeneration = 0;
+
+function managedRuntimeDefault(): GeminiRuntimeConnection {
+  return {
+    mode: "hushh_managed_vertex",
+    credential: null,
+    transport: "developer_api",
+    vertexProject: null,
+    vertexLocation: null,
+  };
+}
 
 /**
  * Resolve a turn-local runtime choice from the encrypted vault.
@@ -40,14 +66,47 @@ export async function resolveGeminiRuntimeConnection({
   vaultOwnerToken,
 }: ResolveGeminiRuntimeConnectionInput): Promise<GeminiRuntimeConnection> {
   if (!userId || !vaultKey || !vaultOwnerToken) {
-    return {
-      mode: "hushh_managed_vertex",
-      credential: null,
-      transport: "developer_api",
-      vertexProject: null,
-      vertexLocation: null,
-    };
+    return managedRuntimeDefault();
   }
+
+  const cacheKey = userId;
+  const cached = runtimeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) runtimeCache.delete(cacheKey);
+
+  const existing = runtimeInFlight.get(cacheKey);
+  if (existing) return existing;
+
+  const generation = runtimeCacheGeneration;
+  const promise = resolveUnlockedGeminiRuntimeConnection({
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  })
+    .then((value) => {
+      // A lock, identity change, or configuration mutation invalidates an
+      // in-flight vault read. Never let its credential repopulate memory.
+      if (generation !== runtimeCacheGeneration) return managedRuntimeDefault();
+      runtimeCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + RUNTIME_CONFIGURATION_TTL_MS,
+      });
+      return value;
+    })
+    .finally(() => {
+      if (runtimeInFlight.get(cacheKey) === promise) {
+        runtimeInFlight.delete(cacheKey);
+      }
+    });
+  runtimeInFlight.set(cacheKey, promise);
+  return promise;
+}
+
+async function resolveUnlockedGeminiRuntimeConnection({
+  userId,
+  vaultKey,
+  vaultOwnerToken,
+}: UnlockedGeminiRuntimeConnectionInput): Promise<GeminiRuntimeConnection> {
 
   let mode: string | null;
   try {
@@ -61,22 +120,10 @@ export async function resolveGeminiRuntimeConnection({
     // A mode that cannot be read is indistinguishable from no configuration.
     // Use the documented default instead of leaving a caller with an unhandled
     // vault-read failure.
-    return {
-      mode: "hushh_managed_vertex",
-      credential: null,
-      transport: "developer_api",
-      vertexProject: null,
-      vertexLocation: null,
-    };
+    return managedRuntimeDefault();
   }
   if (mode !== "byok") {
-    return {
-      mode: "hushh_managed_vertex",
-      credential: null,
-      transport: "developer_api",
-      vertexProject: null,
-      vertexLocation: null,
-    };
+    return managedRuntimeDefault();
   }
   let credential: string | null;
   let transport: string | null;
@@ -131,8 +178,28 @@ export async function resolveGeminiRuntimeConnection({
   };
 }
 
+/** Erase cached and in-flight runtime material synchronously. */
+export function clearGeminiRuntimeConnectionCache(userId?: string | null): void {
+  runtimeCacheGeneration += 1;
+  if (userId) {
+    runtimeCache.delete(userId);
+    runtimeInFlight.delete(userId);
+    return;
+  }
+  runtimeCache.clear();
+  runtimeInFlight.clear();
+}
+
+/** Best-effort single-flight warmup after unlock; never persists credentials. */
+export async function warmGeminiRuntimeConnection(
+  input: UnlockedGeminiRuntimeConnectionInput,
+): Promise<void> {
+  await resolveGeminiRuntimeConnection(input);
+}
+
 /** Notify in-memory voice clients that an active BYOK session must end. */
-export function notifyGeminiRuntimeConfigurationChanged(): void {
+export function notifyGeminiRuntimeConfigurationChanged(userId?: string | null): void {
+  clearGeminiRuntimeConnectionCache(userId);
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(GEMINI_RUNTIME_CONFIGURATION_CHANGED));
 }

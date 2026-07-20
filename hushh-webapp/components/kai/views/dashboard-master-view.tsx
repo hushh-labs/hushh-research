@@ -2648,7 +2648,7 @@ export function DashboardMasterView({
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
-      <div className="w-full pb-6">
+      <div className="w-full min-w-0 max-w-full pb-6">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2668,7 +2668,7 @@ export function DashboardMasterView({
 
   if (!displayedPortfolio) {
     return (
-      <div className="w-full pb-6">
+      <div className="w-full min-w-0 max-w-full pb-6">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2724,7 +2724,7 @@ export function DashboardMasterView({
   }
 
   return (
-    <div className="w-full pb-6">
+    <div className="w-full min-w-0 max-w-full pb-6">
       <KaiWorkspaceHeader
         workspace="portfolio"
         title="Portfolio"
@@ -2749,7 +2749,7 @@ export function DashboardMasterView({
           </MorphyButton>
         }
       />
-      <AppPageContentRegion className="space-y-4">
+      <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
         <PortfolioSourceSwitcher
         activeSource={activeSource}
         availableSources={availableSources}

@@ -2182,6 +2182,7 @@
       "canonical_screen": "one_kyc",
       "voice_contract_file": "app/one/kyc/page.voice-action-contract.json",
       "action_ids": [
+        "kyc.draft.request_redraft",
         "route.one_kyc"
       ],
       "action_coverage": "inherited",
@@ -2191,7 +2192,7 @@
           "agent_kyc"
         ]
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-one-kyc"
     },
     {

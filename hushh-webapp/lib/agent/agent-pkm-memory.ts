@@ -106,9 +106,9 @@ export type AgentPkmSaveResult = {
   }>;
 };
 
-// The Agent workspace may warm its private-memory working set after the owner
-// unlocks. This is process-memory-only and scoped to the current user; it is
-// deliberately not a device cache or a background vault-unlock prefetch.
+// The unlock orchestrator may warm this private-memory working set after the
+// owner unlocks. It stays process-memory-only, user-scoped, and coalesced with
+// any fallback warmup started by the Agent workspace.
 const agentPkmWarmups = new Map<string, Promise<void>>();
 
 function toRecord(value: unknown): Record<string, unknown> {

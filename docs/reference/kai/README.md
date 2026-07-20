@@ -55,7 +55,6 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [../one/one-voice-kai-compatibility-runtime.md](../one/one-voice-kai-compatibility-runtime.md): One-owned compatibility runtime reference for the Kai-era planner, composer, English-only STT/realtime/TTS policy, execution, settlement, and generated action-gateway consumption.
 - [../one/one-voice-runtime-architecture.md](../one/one-voice-runtime-architecture.md): current One Voice foundation: shared FSM, redacted context snapshot, provider-adapter seam, and `/api/one/voice/*` wrappers over the Kai-era compatibility runtime.
 - [../one/one-voice-action-coverage-audit.md](../one/one-voice-action-coverage-audit.md): current audit of what One Voice can actually trigger and where screen/button/action coverage is incomplete.
-- [../one/one-agent-chained-voice-architecture.md](../one/one-agent-chained-voice-architecture.md): One Agent popup voice chain using Gemini STT/TTS around the existing text Agent, including transient audio boundaries, app-wide voice state, settings, and kill switches.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.

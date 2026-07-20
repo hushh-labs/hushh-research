@@ -641,16 +641,11 @@ class PKMAgentLabService:
     def client(self):
         if self._client is not None:
             return self._client
-        developer_api_key = (
-            str(os.getenv("GEMINI_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_GENAI_API_KEY", "")).strip()
-        )
         try:
-            self._client = build_managed_runtime_client(
-                "gemini",
-                developer_api_key,
-            )
+            # Managed PKM intelligence is bound to the same workload ADC
+            # contract as every other hosted Gemini caller. Environment API
+            # keys must never become an implicit fallback.
+            self._client = build_managed_runtime_client("gemini")
         except Exception as exc:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
             self._client = None

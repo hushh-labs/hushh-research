@@ -2417,7 +2417,8 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "auth_required"
+        "auth_required",
+        "vault_unlocked"
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
@@ -2838,14 +2839,16 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "auth_required"
+        "auth_required",
+        "vault_unlocked"
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Requires selected workflow context and captured redraft instructions."
+        "status": "wired",
+        "path": "local_handler",
+        "target": "one_kyc_redraft"
       },
       "control_ids": [
         "one-kyc-redraft"
@@ -2863,7 +2866,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kyc"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -2878,7 +2881,14 @@
       },
       "goal": {
         "goal_id": "goal.kyc.draft.request_redraft",
-        "required_inputs": [],
+        "required_inputs": [
+          {
+            "name": "instruction",
+            "prompt": "How should I revise the current response draft?",
+            "required": true,
+            "slot": "instruction"
+          }
+        ],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [

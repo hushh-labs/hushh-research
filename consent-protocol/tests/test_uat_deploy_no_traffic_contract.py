@@ -31,6 +31,28 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
+def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
+    # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
+    # candidate-image readiness job must prove the same configuration.
+    assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
+    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
+    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
+    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
+    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
+    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
+
+
+def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert "gcloud services list --enabled" in backend_build
+    assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
+    assert "gcloud services describe" not in backend_build
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 

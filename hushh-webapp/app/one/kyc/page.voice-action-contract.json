@@ -33,7 +33,7 @@
       "reachability": {
         "hidden_navigable": false
       },
-      "guard_ids": ["auth_required"],
+      "guard_ids": ["auth_required", "vault_unlocked"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -103,15 +103,26 @@
       "meaning": "Requests a new response draft revision from typed or spoken user instructions.",
       "aliases": ["redraft email", "revise email draft"],
       "search_keywords": ["email", "redraft", "revise"],
-      "guard_ids": ["auth_required"],
+      "guard_ids": ["auth_required", "vault_unlocked"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Requires selected workflow context and captured redraft instructions."
+        "status": "wired",
+        "path": "local_handler",
+        "target": "one_kyc_redraft"
       },
       "control_ids": ["one-kyc-redraft"],
-      "state_exposure": ["approved draft body", "redraft instructions"]
+      "state_exposure": ["approved draft body", "redraft instructions"],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "instruction",
+            "slot": "instruction",
+            "prompt": "How should I revise the current response draft?",
+            "required": true
+          }
+        ]
+      }
     },
     {
       "action_id": "kyc.draft.approve_send",

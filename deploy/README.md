@@ -191,7 +191,7 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
    - `PLAID_SECRET`
    - `PLAID_ACCESS_TOKEN_KEY`
 
-   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`) with bounded same-model regional failover from `HUSHH_VERTEX_LOCATIONS`; do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
+   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`). Text starts at `global` so the approved Gemini 3.5 Flash and Gemini 3.1 Flash-Lite matrix is valid; One Live remains independently pinned to its supported US region. Do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
    Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
    `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
    UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
@@ -295,9 +295,10 @@ Manual dispatch now supports `scope`:
 
 **For seamless deployment:**
 
-1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT` and `GCP_SA_KEY_DEV`) with Cloud Build + Cloud Run + Secret Manager permissions.
-2. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
-3. **Environment policy:** keep only the canonical deploy environments in active use:
+1. **GitHub environment variables:** configure `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT` in each of `dev`, `uat`, and `production`. The deploy principal must use GitHub OIDC Workload Identity Federation, receive only the deploy permissions it needs, and have `roles/iam.serviceAccountUser` on that environment's exact runtime service account. Do not create or upload a JSON service-account key.
+2. **Backup variables:** configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_BACKUP_SERVICE_ACCOUNT` for the scheduled production backup posture check. The backup identity should be read-only for the governed backup bucket.
+3. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
+4. **Environment policy:** keep only the canonical deploy environments in active use:
    - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md))
    - `uat`
    - `production`

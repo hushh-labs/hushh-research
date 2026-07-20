@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 113,
+  "expected_migration_version": 114,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -239,6 +239,30 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "one_action_directive_ledger": [
+      "directive_id",
+      "schema_version",
+      "user_id",
+      "channel",
+      "conversation_id",
+      "session_id",
+      "action_id",
+      "context_revision",
+      "action_contract_digest",
+      "slots_hmac",
+      "resource_binding_hmac",
+      "requires_confirmation",
+      "trusted_activation_required",
+      "state",
+      "receipt_hash",
+      "settlement_status",
+      "settlement_reason_code",
+      "issued_at",
+      "expires_at",
+      "confirmed_at",
+      "consumed_at",
+      "settled_at"
     ],
     "pkm_upgrade_runs": [
       "run_id",

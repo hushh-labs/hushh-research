@@ -104,6 +104,10 @@ import {
   trackGrowthFunnelStepCompleted,
 } from "@/lib/observability/growth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import {
+  resolveInitialTopChromeProgress,
+  resolveTopChromeScrollProgress,
+} from "@/lib/navigation/top-chrome-scroll-progress";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -392,12 +396,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
   const [primaryHeaderOutOfView, setPrimaryHeaderOutOfView] = useState(false);
+  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] =
+    useState(false);
   // A route-owned tab row stays as the compact navigation anchor once the
-  // page's primary heading has left the app scroll root. Keep this as a
-  // structural shell state (not a competing scroll transform) so iOS has one
-  // stable hit-test surface while momentum scrolling is active.
+  // shared top row has fully collapsed. The page heading still independently
+  // owns title handoff, but it must not prevent an upward gesture from
+  // restoring back, activity, and profile actions while mid-page.
   const tabsOnlyChrome =
-    model.mode === "bar-with-tabs" && primaryHeaderOutOfView;
+    model.mode === "bar-with-tabs" && topChromeFullyCollapsed;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -412,28 +418,36 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let pageObserver: MutationObserver | null = null;
     let refreshFrame: number | null = null;
     let retryTimer = 0;
+    let lastScrollY: number | null = null;
+    let topChromeProgress = 0;
 
     const updateHeaderVisibility = () => {
-      const reservedHeight = readTopShellReservedHeight();
       const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
-      const progress = Math.max(
-        0,
-        Math.min(
-          1,
-          model.mode === "bar-with-tabs" && header
-            ? (reservedHeight - header.getBoundingClientRect().bottom + 64) / 64
-            : scrollY / 64,
-        ),
-      );
+      topChromeProgress =
+        lastScrollY === null
+          ? resolveInitialTopChromeProgress(scrollY)
+          : resolveTopChromeScrollProgress({
+              progress: topChromeProgress,
+              previousY: lastScrollY,
+              nextY: scrollY,
+            });
+      lastScrollY = scrollY;
       const rowHeight =
         document
           .querySelector<HTMLElement>('[data-testid="top-app-bar-row"]')
           ?.getBoundingClientRect().height ?? 0;
       const root = document.documentElement;
-      root.style.setProperty("--top-chrome-progress", String(progress));
+      root.style.setProperty(
+        "--top-chrome-progress",
+        String(topChromeProgress),
+      );
       root.style.setProperty(
         "--top-chrome-collapse-px",
-        `${Math.max(0, rowHeight * progress)}px`,
+        `${Math.max(0, rowHeight * topChromeProgress)}px`,
+      );
+      const fullyCollapsed = topChromeProgress >= 0.999;
+      setTopChromeFullyCollapsed((current) =>
+        current === fullyCollapsed ? current : fullyCollapsed,
       );
       const outOfView = isPrimaryHeaderOutOfView(header);
       setPrimaryHeaderOutOfView((current) =>
@@ -469,6 +483,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       scrollRoot = document.querySelector<HTMLElement>(
         '[data-app-scroll-root="true"]',
       );
+      lastScrollY = null;
       refreshHeader();
       attachedScrollRoot = scrollRoot;
       attachedScrollRoot?.addEventListener("scroll", updateHeaderVisibility, {

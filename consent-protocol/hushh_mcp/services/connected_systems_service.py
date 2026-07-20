@@ -2320,6 +2320,7 @@ class ConnectedSystemsService:
         *,
         action: str,
         require_required_fields: bool = False,
+        satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(values, dict) or not values:
             raise ConnectedSystemValidationError(f"recordFields is required for {action}.")
@@ -2351,6 +2352,7 @@ class ConnectedSystemsService:
             normalized[field["name"]] = value
         if require_required_fields:
             supplied = {str(key).lower() for key in normalized}
+            supplied.update(str(key).lower() for key in (satisfied_required_fields or set()))
             missing = [
                 field["label"]
                 for field in fields.values()
@@ -2376,6 +2378,7 @@ class ConnectedSystemsService:
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
         profile_field_mappings: dict[str, str] | None = None,
+        satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "create")
@@ -2385,7 +2388,11 @@ class ConnectedSystemsService:
         self._require_schema_action(schema, "create")
         fields = {str(field["key"]): field for field in schema["fields"]}
         normalized = self._validated_schema_fields(
-            fields, record_fields, action="create", require_required_fields=True
+            fields,
+            record_fields,
+            action="create",
+            require_required_fields=True,
+            satisfied_required_fields=satisfied_required_fields,
         )
         object_type_value = str(schema["objectType"])
         payload: dict[str, Any] = {
@@ -2473,7 +2480,25 @@ class ConnectedSystemsService:
         # Salesforce-style `Name` fields are frequently derived and cannot be
         # written alongside FirstName/LastName. Use a full-name field only for
         # schemas that do not expose the split name pair.
-        if not (mappings.get("firstName") and mappings.get("lastName")):
+        first_name_field = _clean_text(mappings.get("firstName"), max_length=80)
+        last_name_field = _clean_text(mappings.get("lastName"), max_length=80)
+        split_name_is_complete = bool(
+            first_name_field
+            and last_name_field
+            and first_name_field != last_name_field
+            and first_name_field in fields
+            and last_name_field in fields
+        )
+        satisfied_required_fields: set[str] = set()
+        if split_name_is_complete:
+            # Some CRM schemas expose a derived full-name field as required
+            # even though create accepts its mapped first/last components.
+            # The schema mapper owns this semantic equivalence; do not send the
+            # derived field back as a second, potentially read-only value.
+            full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
+            if full_name_field:
+                satisfied_required_fields.add(full_name_field)
+        else:
             full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
             full_name = _clean_text(profile.get("displayName"), max_length=160)
             if full_name_field and full_name:
@@ -2489,6 +2514,7 @@ class ConnectedSystemsService:
             object_type=object_type,
             record_fields=fields,
             profile_field_mappings=mappings,
+            satisfied_required_fields=satisfied_required_fields,
         )
 
     async def update_record_intent_from_fields(

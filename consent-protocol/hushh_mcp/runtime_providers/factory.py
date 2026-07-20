@@ -10,6 +10,8 @@ managed Gemini uses Vertex workload ADC and never falls back to a hosted key.
 from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from .registry import ProviderId, normalize_provider
@@ -29,6 +31,111 @@ _PROJECT_ENV_NAMES = (
     "VERTEX_PROJECT_ID",
 )
 GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
+
+
+class GeminiByokTransportUnsupportedError(ValueError):
+    """Raised when a BYOK transport is not supported by the pinned SDK contract."""
+
+
+@dataclass(frozen=True)
+class ManagedGeminiRuntimeBinding:
+    """Canonical managed Gemini/Vertex runtime resolved from one environment contract.
+
+    The binding contains endpoint metadata only. Credentials remain owned by ADC
+    and are acquired/refreshed by Google libraries from the attached Cloud Run
+    service identity. It is safe to construct once per process and must never be
+    serialized into a user session or browser payload.
+    """
+
+    project: str
+    locations: tuple[str, ...]
+    auth_mode: str
+
+    @classmethod
+    def from_environment(cls) -> "ManagedGeminiRuntimeBinding":
+        mode = _managed_genai_auth_mode()
+        if mode == DEVELOPER_API_KEY_AUTH_MODE:
+            # Local-only compatibility mode. It remains explicit and cannot be
+            # selected in a hosted environment.
+            return cls(project="", locations=(), auth_mode=mode)
+        return cls(
+            project=_vertex_project(),
+            locations=_vertex_locations(),
+            auth_mode=mode,
+        )
+
+    @property
+    def primary_location(self) -> str:
+        if not self.locations:
+            raise RuntimeError("Managed Vertex binding has no configured location")
+        return self.locations[0]
+
+    def validate_model(self, model: str, *, location: str | None = None) -> str:
+        clean_model = str(model or "").strip()
+        if not clean_model or not _MODEL_ID_RE.fullmatch(clean_model):
+            raise ValueError("Managed Gemini model identifier is invalid")
+        if location is not None and not _LOCATION_RE.fullmatch(str(location).strip()):
+            raise ValueError("Managed Vertex location is invalid")
+        return clean_model
+
+    def build_direct_client(self) -> Any:
+        from google import genai
+
+        if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
+            key = (
+                _clean_env("GEMINI_API_KEY")
+                or _clean_env("GOOGLE_API_KEY")
+                or _clean_env("GOOGLE_GENAI_API_KEY")
+            )
+            if not key:
+                raise RuntimeError("Developer Gemini API key is not configured")
+            return genai.Client(vertexai=False, api_key=key)
+
+        if len(self.locations) == 1:
+            return genai.Client(
+                vertexai=True,
+                project=self.project,
+                location=self.primary_location,
+            )
+        return VertexRegionalClient(
+            project=self.project,
+            locations=self.locations,
+            client_factory=genai.Client,
+            cooldown_seconds=_vertex_location_cooldown_seconds(),
+        )
+
+    def build_adk_model(self, model: str, *, location: str | None = None) -> Any:
+        from google.adk.models import Gemini
+
+        clean_location = str(location or "").strip() or (
+            self.primary_location if self.auth_mode == VERTEX_ADC_AUTH_MODE else ""
+        )
+        clean_model = self.validate_model(
+            model,
+            location=clean_location or None,
+        )
+        if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
+            key = (
+                _clean_env("GEMINI_API_KEY")
+                or _clean_env("GOOGLE_API_KEY")
+                or _clean_env("GOOGLE_GENAI_API_KEY")
+            )
+            if not key:
+                raise RuntimeError("Developer Gemini API key is not configured")
+            return Gemini(
+                model=clean_model,
+                client_kwargs={"vertexai": False, "api_key": key},
+            )
+        return Gemini(
+            model=clean_model,
+            client_kwargs={
+                "vertexai": True,
+                "project": self.project,
+                "location": clean_location,
+            },
+        )
 
 
 def _clean_env(name: str) -> str:
@@ -126,44 +233,15 @@ def _gemini_client(
     if not managed:
         # BYOK is deliberately isolated from backend ADC and environment keys.
         if byok_transport == "vertex_api_key":
-            project = (vertex_project or "").strip()
-            location = (vertex_location or "").strip()
-            if not project or not location:
-                raise ValueError("Vertex API-key BYOK requires project and location")
-            # This is a Google Cloud/Gemini Enterprise API key, not a Gemini
-            # Developer API key. Never infer the endpoint from key shape.
-            return genai.Client(
-                vertexai=True,
-                api_key=api_key,
-                project=project,
-                location=location,
+            raise GeminiByokTransportUnsupportedError(
+                "Vertex API-key BYOK is disabled until the pinned google-genai "
+                "SDK accepts and passes the endpoint rehearsal"
             )
         return genai.Client(vertexai=False, api_key=api_key)
 
-    mode = _managed_genai_auth_mode()
-    if mode == DEVELOPER_API_KEY_AUTH_MODE:
-        key = (
-            (api_key or "").strip()
-            or _clean_env("GEMINI_API_KEY")
-            or _clean_env("GOOGLE_API_KEY")
-            or _clean_env("GOOGLE_GENAI_API_KEY")
-        )
-        if not key:
-            raise RuntimeError("Developer Gemini API key is not configured")
-        return genai.Client(vertexai=False, api_key=key)
-
     # Hosted managed Gemini always uses the Cloud Run service identity through
     # ADC. Never pass or fall back to a long-lived API key in this mode.
-    project = _vertex_project()
-    locations = _vertex_locations()
-    if len(locations) == 1:
-        return genai.Client(vertexai=True, project=project, location=locations[0])
-    return VertexRegionalClient(
-        project=project,
-        locations=locations,
-        client_factory=genai.Client,
-        cooldown_seconds=_vertex_location_cooldown_seconds(),
-    )
+    return ManagedGeminiRuntimeBinding.from_environment().build_direct_client()
 
 
 def _build(
@@ -238,3 +316,56 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     if provider != "gemini" and not key:
         raise RuntimeError("Managed runtime API key is not configured")
     return _build(provider, key, managed=True)
+
+
+def build_managed_gemini_adk_model(
+    model: str,
+    *,
+    vertex_location: str | None = None,
+) -> Any:
+    """Build an ADK Gemini model from the canonical managed auth contract.
+
+    ADK accepts a bare model name, but doing so makes it rediscover credentials
+    and endpoint settings from ambient process state. Keep Agent Chat, One, and
+    its ADK specialists on the same explicit auth/project/location resolver as
+    every direct google-genai caller.
+
+    ADK owns its internal client, so regional retry remains a direct-client
+    capability. This function deliberately pins the configured primary region;
+    it does not pretend to provide ``VertexRegionalClient`` failover.
+    """
+
+    return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
+        model,
+        location=vertex_location,
+    )
+
+
+def build_gemini_byok_adk_model(
+    model: str,
+    api_key: str,
+    *,
+    transport: GeminiByokTransport = "developer_api",
+) -> Any:
+    """Build a turn-local ADK BYOK model with an explicit endpoint.
+
+    Developer API BYOK always pins ``vertexai=False`` so an ambient managed
+    Vertex environment cannot capture the user's key. Vertex API-key BYOK is
+    intentionally unavailable with the pinned SDK.
+    """
+    from google.adk.models import Gemini
+
+    clean_model = str(model or "").strip()
+    clean_key = str(api_key or "").strip()
+    if not clean_model or not _MODEL_ID_RE.fullmatch(clean_model):
+        raise ValueError("Gemini BYOK ADK model identifier is invalid")
+    if not clean_key:
+        raise ValueError("Gemini BYOK credential is required")
+    if transport == "vertex_api_key":
+        raise GeminiByokTransportUnsupportedError(
+            "Vertex API-key BYOK is disabled until the pinned ADK/genai SDK rehearsal passes"
+        )
+    return Gemini(
+        model=clean_model,
+        client_kwargs={"vertexai": False, "api_key": clean_key},
+    )

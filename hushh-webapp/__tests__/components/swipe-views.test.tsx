@@ -163,4 +163,27 @@ describe("SwipeViews", () => {
     );
     expect(view.container.querySelector(".will-change-transform")).toBeTruthy();
   });
+
+  it("keeps inset panel content and shadows inside the page gutter", () => {
+    const view = render(
+      <SwipeViews
+        tabSetId="inset"
+        activeValue="first"
+        options={OPTIONS}
+        panelInset="page"
+      >
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    const firstPanel = view.container.querySelector(
+      "#top-shell-inset-panel-first",
+    );
+    expect(firstPanel).toHaveAttribute("data-swipe-panel-inset", "page");
+    expect(firstPanel).toHaveClass(
+      "px-[var(--page-inline-gutter-standard)]",
+    );
+    expect(firstPanel).toHaveClass("min-w-0", "max-w-full");
+  });
 });

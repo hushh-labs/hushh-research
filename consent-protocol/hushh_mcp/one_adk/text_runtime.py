@@ -12,6 +12,7 @@ while avoiding process-local session loss as a second source of chat truth.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
@@ -19,7 +20,6 @@ from typing import Any, Literal
 
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event
-from google.adk.models import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.genai import types as genai_types
@@ -36,9 +36,17 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_intro_text_agent,
     build_one_text_agent,
 )
+from hushh_mcp.runtime_providers import (
+    ManagedGeminiRuntimeBinding,
+    build_gemini_byok_adk_model,
+    build_managed_gemini_adk_model,
+)
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 
-OneTextEventKind = Literal["token", "directive"]
+logger = logging.getLogger(__name__)
+
+OneTextEventKind = Literal["token", "directive", "boundary"]
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,10 @@ class OneTextStreamEvent:
     directive: OneTextDirective | None = None
 
 
+class OneTextEmptyResponseError(RuntimeError):
+    """Raised when the model turn produces neither user-visible text nor a directive."""
+
+
 def _runtime_model(
     *,
     runtime_model: str,
@@ -63,7 +75,8 @@ def _runtime_model(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
-) -> str | Gemini:
+    managed_location: str | None = None,
+) -> Any:
     """Build a turn-local ADK model without persisting a BYOK secret."""
     model = str(runtime_model or "").strip()
     if not model:
@@ -72,31 +85,16 @@ def _runtime_model(
     if runtime_mode == "byok" and not credential:
         raise ValueError("One text BYOK credential is missing")
     if runtime_mode == "byok":
-        if runtime_credential_transport == "vertex_api_key":
-            project = str(runtime_vertex_project or "").strip()
-            location = str(runtime_vertex_location or "").strip()
-            if not project or not location:
-                raise ValueError("One text Vertex BYOK requires project and location")
-            return Gemini(
-                model=model,
-                client_kwargs={
-                    "vertexai": True,
-                    "api_key": credential,
-                    "project": project,
-                    "location": location,
-                },
-            )
-        return Gemini(model=model, client_kwargs={"api_key": credential})
+        return build_gemini_byok_adk_model(
+            model,
+            credential,
+            transport=runtime_credential_transport,
+        )
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
-        return Gemini(
-            model=model,
-            client_kwargs={"vertexai": True, "api_key": credential},
-        )
-    # Compatibility for deployments where Vertex ADC is the configured
-    # managed credential source rather than an explicit platform key.
-    return model
+        raise ValueError("Managed Vertex cannot be constructed from an API key")
+    return build_managed_gemini_adk_model(model, vertex_location=managed_location)
 
 
 def _history_content(message: Any) -> genai_types.Content | None:
@@ -165,6 +163,21 @@ def _event_directives(event: Any) -> list[OneTextDirective]:
     return directives
 
 
+def _event_crosses_replay_boundary(event: Any) -> bool:
+    """Detect provider/tool events after which a regional replay is unsafe."""
+    actions = getattr(event, "actions", None)
+    state_delta = getattr(actions, "state_delta", None)
+    if isinstance(state_delta, dict) and state_delta:
+        return True
+    content = getattr(event, "content", None)
+    for part in getattr(content, "parts", None) or []:
+        if getattr(part, "function_call", None) is not None:
+            return True
+        if getattr(part, "function_response", None) is not None:
+            return True
+    return False
+
+
 def _directive_fingerprint(directive: OneTextDirective) -> str:
     return json.dumps(
         {
@@ -178,7 +191,7 @@ def _directive_fingerprint(directive: OneTextDirective) -> str:
     )
 
 
-async def stream_one_text_turn(
+async def _stream_one_text_turn_once(
     *,
     user_id: str,
     consent_token: str,
@@ -195,8 +208,9 @@ async def stream_one_text_turn(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    managed_location: str | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
-    """Run one typed turn through One and expose text/directive deltas."""
+    """Run one typed turn in one endpoint and expose replay boundaries."""
     if str(runtime_provider or "").strip().lower() != "gemini":
         raise ValueError("One text ADK currently requires the Gemini provider")
 
@@ -216,6 +230,7 @@ async def stream_one_text_turn(
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
+                managed_location=managed_location,
             )
         ),
         session_service=session_service,
@@ -255,17 +270,21 @@ async def stream_one_text_turn(
     )
     emitted_directives: set[str] = set()
     saw_partial_text = False
+    emitted_visible_output = False
     async for event in runner.run_async(
         user_id=clean_user_id,
         session_id=session.id,
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
     ):
+        if _event_crosses_replay_boundary(event):
+            yield OneTextStreamEvent(kind="boundary")
         for directive in _event_directives(event):
             fingerprint = _directive_fingerprint(directive)
             if fingerprint in emitted_directives:
                 continue
             emitted_directives.add(fingerprint)
+            emitted_visible_output = True
             yield OneTextStreamEvent(kind="directive", directive=directive)
 
         text = _event_text(event)
@@ -273,11 +292,83 @@ async def stream_one_text_turn(
             continue
         if bool(getattr(event, "partial", False)):
             saw_partial_text = True
+            emitted_visible_output = True
             yield OneTextStreamEvent(kind="token", text=text)
             continue
         is_final_response = getattr(event, "is_final_response", None)
         if not saw_partial_text and callable(is_final_response) and is_final_response():
+            emitted_visible_output = True
             yield OneTextStreamEvent(kind="token", text=text)
+
+    if not emitted_visible_output:
+        raise OneTextEmptyResponseError(
+            "One text runtime completed without visible text or a directive"
+        )
+
+
+async def stream_one_text_turn(
+    *,
+    user_id: str,
+    consent_token: str,
+    conversation_id: str,
+    message: str,
+    history: Sequence[Any],
+    timezone: str | None,
+    screen_context: dict[str, Any] | None,
+    pkm_context: str | None,
+    runtime_provider: str,
+    runtime_model: str,
+    runtime_mode: str,
+    runtime_credential: str | None,
+    runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
+    runtime_vertex_project: str | None = None,
+    runtime_vertex_location: str | None = None,
+) -> AsyncGenerator[OneTextStreamEvent, None]:
+    """Run One with same-model regional failover before any observable event."""
+    locations: tuple[str | None, ...] = (None,)
+    if runtime_mode == "hushh_managed_vertex":
+        locations = tuple(ManagedGeminiRuntimeBinding.from_environment().locations)
+
+    last_index = len(locations) - 1
+    for index, location in enumerate(locations):
+        replay_boundary_crossed = False
+        try:
+            async for event in _stream_one_text_turn_once(
+                user_id=user_id,
+                consent_token=consent_token,
+                conversation_id=conversation_id,
+                message=message,
+                history=history,
+                timezone=timezone,
+                screen_context=screen_context,
+                pkm_context=pkm_context,
+                runtime_provider=runtime_provider,
+                runtime_model=runtime_model,
+                runtime_mode=runtime_mode,
+                runtime_credential=runtime_credential,
+                runtime_credential_transport=runtime_credential_transport,
+                runtime_vertex_project=runtime_vertex_project,
+                runtime_vertex_location=runtime_vertex_location,
+                managed_location=location,
+            ):
+                if event.kind == "boundary":
+                    replay_boundary_crossed = True
+                    continue
+                replay_boundary_crossed = True
+                yield event
+            return
+        except Exception as error:  # noqa: BLE001 - provider boundary
+            if (
+                replay_boundary_crossed
+                or index == last_index
+                or not is_retryable_vertex_error(error)
+            ):
+                raise
+            logger.warning(
+                "one_text_vertex_failover from_location=%s error_type=%s",
+                location,
+                error.__class__.__name__,
+            )
 
 
 async def stream_one_intro_text_turn(

@@ -483,6 +483,7 @@ export interface EventPayloadMap {
     dashboard_picks_warmed: boolean;
     consents_warmed: boolean;
     vault_status_warmed: boolean;
+    agent_context_warmed: boolean;
   };
   one_location_foreground_retry: {
     route_id: RouteId;

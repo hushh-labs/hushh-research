@@ -1013,7 +1013,7 @@ export function KaiAnalysisPageContent() {
     <>
       {showWorkspace ? (
         <div
-          className="w-full"
+          className="w-full min-w-0 max-w-full"
           data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
         >
           <NativeTestBeacon
@@ -1043,9 +1043,9 @@ export function KaiAnalysisPageContent() {
                 </>
               }
           />
-          <AppPageContentRegion>
-            <div ref={workspaceTopRef}>
-              <SurfaceStack compact>
+          <AppPageContentRegion className="min-w-0 max-w-full">
+            <div ref={workspaceTopRef} className="min-w-0 max-w-full">
+              <SurfaceStack compact className="min-w-0 max-w-full">
             <SurfaceCard>
               <SurfaceCardContent className="px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1085,7 +1085,7 @@ export function KaiAnalysisPageContent() {
             <Tabs
               value={workspaceTab}
               onValueChange={handleWorkspaceTabChange}
-              className="w-full"
+              className="w-full min-w-0 max-w-full"
             >
               <div className="mx-auto flex justify-center w-full" style={APP_MEASURE_STYLES.reading}>
                 <SegmentedTabs
@@ -1099,7 +1099,7 @@ export function KaiAnalysisPageContent() {
                   className="mx-auto w-full"
                 />
               </div>
-              <TabsContent value="debate" className="mt-4 data-[state=inactive]:hidden" forceMount>
+              <TabsContent value="debate" className="mt-4 min-w-0 max-w-full data-[state=inactive]:hidden" forceMount>
                 {activeRunTask ? (
                   <DebateStreamView
                     runId={activeRunTask.runId}
@@ -1161,7 +1161,7 @@ export function KaiAnalysisPageContent() {
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="summary" className="mt-4">
+              <TabsContent value="summary" className="mt-4 min-w-0 max-w-full">
                 {activeEntry ? (
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
@@ -1198,7 +1198,7 @@ export function KaiAnalysisPageContent() {
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="detailed" className="mt-4">
+              <TabsContent value="detailed" className="mt-4 min-w-0 max-w-full">
                 {activeEntry ? (
                   <HistoryDetailView
                     entry={activeEntry}
@@ -1220,7 +1220,7 @@ export function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </div>
       ) : !resolvingEntry ? (
-        <div className="w-full" data-testid="kai-analysis-primary">
+        <div className="w-full min-w-0 max-w-full" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"
@@ -1241,8 +1241,8 @@ export function KaiAnalysisPageContent() {
               }
               description="Review saved debates and reopen a previous decision."
           />
-          <AppPageContentRegion>
-            <SurfaceStack compact>
+          <AppPageContentRegion className="min-w-0 max-w-full">
+            <SurfaceStack compact className="min-w-0 max-w-full">
           {analysisSuggestions.length > 0 ? (
             <SurfaceCard className="w-full">
               <SurfaceCardContent className="flex flex-wrap items-center gap-2 px-3 py-3">

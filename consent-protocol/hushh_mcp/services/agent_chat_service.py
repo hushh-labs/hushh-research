@@ -19,7 +19,11 @@ from google.genai import types as genai_types
 
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
-from hushh_mcp.one_adk.text_runtime import OneTextStreamEvent, stream_one_text_turn
+from hushh_mcp.one_adk.text_runtime import (
+    OneTextEmptyResponseError,
+    OneTextStreamEvent,
+    stream_one_text_turn,
+)
 from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
     build_runtime_client,
@@ -37,16 +41,17 @@ from hussh_sdk import (
 
 logger = logging.getLogger(__name__)
 
-AGENT_CHAT_MODEL_ENV = "AGENT_GEMINI_MODEL"
 DEFAULT_AGENT_CHAT_MODEL = "gemini-3.5-flash"
+GEMINI_BYOK_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key"
 KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
+ONE_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
 AGENT_SYSTEM_PROMPT = """You are One, the top private agent inside Hussh.
 
 You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance to Kai, privacy to Nav, identity/KYC to KYC). Until a specialist surface is engaged, answer directly within the capability boundary below.
 
 Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
-- Use the provided PKM context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
+- Use the provided PKM context when it is relevant, especially when the user asks what One knows about them or shares preferences.
 - The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
 - If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim One cannot access PKM.
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say One cannot save to PKM.
@@ -406,6 +411,7 @@ class KaiAgentCredentialPolicy:
 class KaiAgentRuntimeManifest:
     model: AgentModelConfig
     credential_policy: KaiAgentCredentialPolicy
+    system_instruction: str = ""
 
 
 class AgentRuntimeContractError(ValueError):
@@ -462,10 +468,15 @@ def _parse_gemini_byok_transport(value: str | None) -> GeminiByokTransport:
     )
 
 
-def _load_kai_agent_manifest_data() -> dict[str, Any]:
-    with KAI_AGENT_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+def _load_agent_manifest_data(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     return data if isinstance(data, dict) else {}
+
+
+def _load_kai_agent_manifest_data() -> dict[str, Any]:
+    """Compatibility loader for callers that explicitly inspect Kai."""
+    return _load_agent_manifest_data(KAI_AGENT_MANIFEST_PATH)
 
 
 def _credential_policy_from_manifest(data: dict[str, Any]) -> KaiAgentCredentialPolicy:
@@ -494,6 +505,19 @@ def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
     return KaiAgentRuntimeManifest(
         model=manifest.model_config_for_runtime(),
         credential_policy=_credential_policy_from_manifest(data),
+        system_instruction=manifest.system_instruction,
+    )
+
+
+@lru_cache(maxsize=1)
+def load_one_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
+    """Load One's authored runtime contract for the Agent Chat surface."""
+    data = _load_agent_manifest_data(ONE_AGENT_MANIFEST_PATH)
+    manifest = ManifestLoader.load_from_dict(data, source=str(ONE_AGENT_MANIFEST_PATH))
+    return KaiAgentRuntimeManifest(
+        model=manifest.model_config_for_runtime(),
+        credential_policy=_credential_policy_from_manifest(data),
+        system_instruction=manifest.system_instruction,
     )
 
 
@@ -575,7 +599,7 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "error_type": error.__class__.__name__,
     }
-    if error.__class__.__name__ == "DefaultCredentialsError":
+    if error.__class__.__name__ in {"DefaultCredentialsError", "RefreshError"}:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
         detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
         return detail
@@ -718,8 +742,8 @@ def _runtime_provider_user_message(error_code: str) -> str:
     if error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE":
         return "Hushh managed Gemini is not available in this environment."
     if error_code == "AGENT_RUNTIME_MODEL_UNAVAILABLE":
-        return "Kai's configured Gemini model is not available for this runtime."
-    return "Kai could not reach the configured Gemini runtime."
+        return "One's configured Gemini model is not available for this runtime."
+    return "One could not reach the configured Gemini runtime."
 
 
 def _runtime_provider_error_from_exception(
@@ -1007,7 +1031,7 @@ class AgentChatService:
         self._db = db
         self._client = None
         self._settings = None
-        self.runtime_manifest = load_kai_agent_runtime_manifest()
+        self.runtime_manifest = load_one_agent_runtime_manifest()
         self.model = (model or self.runtime_manifest.model.name or DEFAULT_AGENT_CHAT_MODEL).strip()
         self._vault_key_hex = vault_key_hex
 
@@ -1106,7 +1130,14 @@ class AgentChatService:
         model_config = self.runtime_manifest.model
         provider = model_config.provider.strip().lower()
         model_name = (model_config.name or self.model or DEFAULT_AGENT_CHAT_MODEL).strip()
-        credential_ref = model_config.credential_ref
+        # Managed manifests never point at a key. BYOK is a turn-local override
+        # whose encrypted PKM reference belongs to the runtime configuration,
+        # not to the authored agent identity.
+        credential_ref = (
+            model_config.credential_ref
+            if contract.mode == "hushh_managed_vertex"
+            else GEMINI_BYOK_CREDENTIAL_REF
+        )
 
         if contract.mode == "hushh_managed_vertex":
             evidence = {
@@ -1131,12 +1162,6 @@ class AgentChatService:
                 vertex_location=None,
                 client=self.client,
                 evidence=evidence,
-            )
-
-        if not credential_ref:
-            raise AgentRuntimeContractError(
-                error_code="AGENT_RUNTIME_CREDENTIAL_REF_MISSING",
-                message="Kai BYOK runtime is missing a PKM credential reference.",
             )
 
         runtime = runtime_config(
@@ -1345,20 +1370,126 @@ class AgentChatService:
         message: str,
         conversation_id: str | None = None,
     ) -> PreparedAgentChatTurn:
-        conversation = await self.get_or_create_conversation(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            first_message=message,
+        # One Postgres statement owns conversation lookup/create, the bounded
+        # history snapshot, current-message insert, and conversation counters.
+        # Data-modifying CTEs share the statement snapshot, so `recent_rows`
+        # deliberately excludes the newly inserted current message.
+        created_conversation_id = str(uuid4())
+        user_message_id = str(uuid4())
+        encrypted_title = self._encrypt_text(_trim_title(message))
+        encrypted_message = self._encrypt_text(message)
+        result = await self._execute_raw(
+            """
+            WITH requested AS MATERIALIZED (
+              SELECT *
+              FROM agent_chat_conversations
+              WHERE :requested_conversation_id IS NOT NULL
+                AND id = CAST(:requested_conversation_id AS UUID)
+                AND user_id = :user_id
+              LIMIT 1
+              FOR UPDATE
+            ),
+            created AS (
+              INSERT INTO agent_chat_conversations (
+                id, user_id, title_ciphertext, title_iv, title_tag,
+                title_algorithm, model, message_count, last_message_at
+              )
+              SELECT
+                CAST(:created_conversation_id AS UUID), :user_id,
+                :title_ciphertext, :title_iv, :title_tag,
+                :title_algorithm, :model, 1, now()
+              WHERE NOT EXISTS (SELECT 1 FROM requested)
+              RETURNING *
+            ),
+            selected AS MATERIALIZED (
+              SELECT requested.*, FALSE AS was_created FROM requested
+              UNION ALL
+              SELECT created.*, TRUE AS was_created FROM created
+              LIMIT 1
+            ),
+            recent_rows AS MATERIALIZED (
+              SELECT messages.*
+              FROM agent_chat_messages AS messages
+              JOIN selected ON selected.id = messages.conversation_id
+              WHERE messages.user_id = :user_id
+              ORDER BY messages.created_at DESC
+              LIMIT 20
+            ),
+            recent AS (
+              SELECT COALESCE(
+                jsonb_agg(to_jsonb(ordered_rows) ORDER BY ordered_rows.created_at ASC),
+                '[]'::jsonb
+              ) AS history
+              FROM (
+                SELECT * FROM recent_rows ORDER BY created_at ASC
+              ) AS ordered_rows
+            ),
+            inserted_message AS (
+              INSERT INTO agent_chat_messages (
+                id, conversation_id, user_id, role, status,
+                content_ciphertext, content_iv, content_tag, content_algorithm,
+                completed_at
+              )
+              SELECT
+                CAST(:user_message_id AS UUID), selected.id, :user_id,
+                'user', 'complete', :content_ciphertext, :content_iv,
+                :content_tag, :content_algorithm, now()
+              FROM selected
+              RETURNING *
+            ),
+            updated_existing AS (
+              UPDATE agent_chat_conversations AS conversations
+              SET updated_at = now(), last_message_at = now(),
+                  message_count = conversations.message_count + 1
+              FROM selected
+              WHERE conversations.id = selected.id
+                AND selected.was_created = FALSE
+              RETURNING conversations.id
+            )
+            SELECT
+              to_jsonb(selected) - 'was_created' AS conversation,
+              recent.history,
+              to_jsonb(inserted_message) AS user_message
+            FROM selected
+            CROSS JOIN recent
+            CROSS JOIN inserted_message
+            """,
+            {
+                "requested_conversation_id": conversation_id,
+                "created_conversation_id": created_conversation_id,
+                "user_message_id": user_message_id,
+                "user_id": user_id,
+                "title_ciphertext": encrypted_title.ciphertext,
+                "title_iv": encrypted_title.iv,
+                "title_tag": encrypted_title.tag,
+                "title_algorithm": encrypted_title.algorithm,
+                "model": self.model,
+                "content_ciphertext": encrypted_message.ciphertext,
+                "content_iv": encrypted_message.iv,
+                "content_tag": encrypted_message.tag,
+                "content_algorithm": encrypted_message.algorithm,
+            },
         )
-        history = await self.get_recent_messages(conversation.id, user_id=user_id, limit=20)
-        user_message = await self.add_message(
-            conversation_id=conversation.id,
-            user_id=user_id,
-            role="user",
-            content=message,
-            status="complete",
-            model=None,
-        )
+        rows = result.data or []
+        if not rows:
+            raise RuntimeError("Agent chat turn transaction returned no row")
+        row = rows[0]
+        conversation_row = row.get("conversation")
+        message_row = row.get("user_message")
+        history_rows = row.get("history") or []
+        if isinstance(history_rows, str):
+            history_rows = json.loads(history_rows)
+        if not isinstance(conversation_row, dict) or not isinstance(message_row, dict):
+            raise RuntimeError("Agent chat turn transaction returned an invalid shape")
+        if not isinstance(history_rows, list):
+            raise RuntimeError("Agent chat turn history returned an invalid shape")
+        conversation = self._conversation_from_row(conversation_row)
+        user_message = self._message_from_row(message_row)
+        history = [
+            self._message_from_row(history_row)
+            for history_row in history_rows
+            if isinstance(history_row, dict)
+        ]
         return PreparedAgentChatTurn(
             conversation_id=conversation.id,
             user_message_id=user_message.id,
@@ -1528,7 +1659,7 @@ class AgentChatService:
             pkm_context=pkm_context,
         )
         config = genai_types.GenerateContentConfig(
-            system_instruction=AGENT_SYSTEM_PROMPT,
+            system_instruction=self.runtime_manifest.system_instruction,
             temperature=0.7,
             max_output_tokens=4096,
         )
@@ -1605,6 +1736,12 @@ class AgentChatService:
                 runtime_vertex_location=runtime_vertex_location,
             ):
                 yield event
+        except OneTextEmptyResponseError as error:
+            raise AgentRuntimeProviderError(
+                error_code="AGENT_RUNTIME_EMPTY_RESPONSE",
+                message="One did not receive a response from the configured model. Please try again.",
+                detail={"phase": "text_stream"},
+            ) from error
         except genai_errors.APIError as error:
             raise _runtime_provider_error_from_exception(error) from error
         except Exception as error:

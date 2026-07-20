@@ -4,6 +4,7 @@ import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
   OneVoiceActionSettlement,
+  OneVoiceActionConfirmation,
   OneVoiceContextApplyResult,
 } from "@/lib/voice/one-voice-transport";
 import type {
@@ -28,7 +29,8 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
  *      and output amplitude + a coarse status so the UI waveform can react.
  *
  * This is the only realtime full-duplex voice transport; the chat
- * workspace's turn-based voice path (AgentVoiceClient) is separate.
+ * Agent Bar owns the only interactive audio path; Agent Chat delegates voice
+ * requests here and has no STT/TTS fallback transport.
  */
 
 const INPUT_SAMPLE_RATE = 16000;
@@ -245,6 +247,14 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private contextAckWaiters = new Map<
     string,
     (result: OneVoiceContextApplyResult) => void
+  >();
+  private actionConfirmationWaiters = new Map<
+    string,
+    {
+      resolve: (value: OneVoiceActionConfirmation) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
 
   constructor(handlers: GeminiLiveHandlers = {}) {
@@ -556,6 +566,32 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (resolve) {
         this.contextAckWaiters.delete(contextId);
         resolve({ status: "acknowledged", contextId });
+      }
+      return;
+    }
+
+    const confirmationAccepted = readRecord(message.actionConfirmationAccepted);
+    const acceptedDirectiveId = readString(confirmationAccepted?.directiveId);
+    if (acceptedDirectiveId) {
+      const waiter = this.actionConfirmationWaiters.get(acceptedDirectiveId);
+      const receipt = readString(confirmationAccepted?.receipt);
+      const expiresAt = readString(confirmationAccepted?.expiresAt);
+      if (waiter && receipt && expiresAt) {
+        clearTimeout(waiter.timer);
+        this.actionConfirmationWaiters.delete(acceptedDirectiveId);
+        waiter.resolve({ receipt, expiresAt });
+      }
+      return;
+    }
+
+    const confirmationRejected = readRecord(message.actionConfirmationRejected);
+    const rejectedDirectiveId = readString(confirmationRejected?.directiveId);
+    if (rejectedDirectiveId) {
+      const waiter = this.actionConfirmationWaiters.get(rejectedDirectiveId);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        this.actionConfirmationWaiters.delete(rejectedDirectiveId);
+        waiter.reject(new Error("This voice action is stale or was already confirmed."));
       }
       return;
     }
@@ -956,6 +992,36 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     return true;
   }
 
+  confirmActionDirective(input: {
+    directiveId: string;
+    actionId: string;
+    contextRevision: string;
+  }): Promise<OneVoiceActionConfirmation> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return Promise.reject(new Error("Voice confirmation is not connected."));
+    }
+    if (this.actionConfirmationWaiters.has(input.directiveId)) {
+      return Promise.reject(new Error("Voice confirmation is already pending."));
+    }
+    return new Promise<OneVoiceActionConfirmation>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.actionConfirmationWaiters.delete(input.directiveId);
+        reject(new Error("Voice confirmation timed out. Ask One to propose it again."));
+      }, 5000);
+      this.actionConfirmationWaiters.set(input.directiveId, { resolve, reject, timer });
+      this.ws?.send(
+        JSON.stringify({
+          type: "action_confirm",
+          actionConfirmation: {
+            directiveId: input.directiveId,
+            actionId: input.actionId,
+            contextRevision: input.contextRevision,
+          },
+        }),
+      );
+    });
+  }
+
   /**
    * Send an app_context frame. The governed consent token and timezone ride
    * here (post-connect, never in the URL) so One's specialist tools can act;
@@ -1100,6 +1166,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       resolve({ status: "closed", contextId });
     }
     this.contextAckWaiters.clear();
+    for (const waiter of this.actionConfirmationWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("Voice session closed before confirmation."));
+    }
+    this.actionConfirmationWaiters.clear();
     this.acknowledgedContextIds.clear();
     this.resolvePlaybackDrain();
 

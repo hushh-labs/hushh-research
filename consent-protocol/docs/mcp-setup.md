@@ -167,10 +167,36 @@ still follows the scoped consent lifecycle and encryption rules above.
 
 ### MuleSoft and Agentforce handoff
 
-The current partner handoff is generated at
-`packages/hushh-mcp/gateway/hushh-agentforce-mcp-manifest.json`; it is the
-replacement for the historical Downloads gateway/PDF artifacts. Give the
-MuleSoft team the generated `mulesoftAgentforceHandoff` object unchanged.
+MuleSoft Exchange cannot attach Hussh OAuth credentials while it fetches an
+MCP URL for publication. Use **Upload MCP file**, not Fetch MCP URL, and upload
+the generated registration projection:
+
+`packages/hushh-mcp/gateway/hushh-mulesoft-exchange-mcp-schema.json`
+
+It contains only the Exchange-supported MCP fields and the canonical five
+tools. It intentionally has no endpoint, authentication, client ID, client
+secret, host-registration metadata, annotations, or Hussh-specific manifest
+metadata. Its open output schemas let MuleSoft pass through both successful
+lifecycle state and safe terminal errors without validating an error as a
+success response.
+
+Generate or print the exact upload file with:
+
+```bash
+cd packages/hushh-mcp
+npm run gateway:generate
+npm run print-mulesoft-exchange-manifest
+```
+
+Configure the Hussh Technologies OAuth client ID and secret **separately** in
+MuleSoft's authenticated upstream connection to `https://api.uat.hushh.ai/mcp/`.
+MuleSoft then publishes the same five tools into Agentforce. Agentforce does
+not receive or store the Hussh secret; it authenticates to MuleSoft.
+
+The generated `hushh-agentforce-mcp-manifest.json` remains a diagnostic
+handoff/reference artifact, not the file to upload to Exchange. Give the
+MuleSoft team its `mulesoftAgentforceHandoff` object unchanged only when they
+need relay configuration guidance.
 
 - MuleSoft calls Hussh at `https://api.uat.hushh.ai/mcp/` over Streamable HTTP,
   using either the Hussh Technologies **bearer credential** or its explicitly

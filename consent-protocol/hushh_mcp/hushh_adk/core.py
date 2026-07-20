@@ -42,6 +42,8 @@ except ImportError:
 
 from hushh_mcp.consent.token import validate_token  # noqa: E402
 from hushh_mcp.hushh_adk.context import HushhContext  # noqa: E402
+from hushh_mcp.hushh_adk.manifest import AgentModelConfig  # noqa: E402
+from hushh_mcp.runtime_providers import build_managed_gemini_adk_model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +100,17 @@ class HushhAgent(LlmAgent):
             # original display identity. Manifest model entries may be an
             # AgentModelConfig object; ADK wants the model name string.
             adk_name = name if name.isidentifier() else _sanitize_agent_name(name)
-            adk_model = model if isinstance(model, str) else getattr(model, "name", str(model))
+            if isinstance(model, AgentModelConfig):
+                if model.provider != "gemini" or model.mode != "hushh_managed_vertex":
+                    raise ValueError(
+                        "Manifest-built HushhAgent requires managed Gemini; "
+                        "turn-local BYOK must use the runtime provider binding."
+                    )
+                adk_model = build_managed_gemini_adk_model(model.name)
+            elif isinstance(model, str):
+                adk_model = build_managed_gemini_adk_model(model)
+            else:
+                adk_model = model
             super().__init__(
                 name=adk_name,
                 model=adk_model,
