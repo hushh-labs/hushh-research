@@ -237,13 +237,6 @@ export function AuthStep({
     };
   }, [updateProviderAttemptPhase, user]);
 
-  const localReviewerCredentialsAvailable = useMemo(() => {
-    return Boolean(
-      resolveLocalReviewerCredentials(
-        typeof window !== "undefined" ? window.location.hostname : null,
-      ),
-    );
-  }, []);
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
     // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {

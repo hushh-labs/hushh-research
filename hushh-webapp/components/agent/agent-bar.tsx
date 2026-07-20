@@ -1046,7 +1046,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     runtime?.oneVoiceContextSnapshot,
     runtime?.tier,
     mirrorSessionId,
-    handleTransportEvent,
     scheduleVoiceIdleTimer,
     stopConversation,
     vaultOwnerToken,
