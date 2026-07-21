@@ -314,6 +314,10 @@ export const CACHE_KEYS = {
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
+  // Cached licence-verify result, keyed by normalized regulator:license so a
+  // reopen / stale-prefill repair returns instantly instead of re-scraping.
+  RIA_LICENSE_VERIFY: (userId: string, licenseKey: string) =>
+    `ria_license_verify_${userId}_${licenseKey}`,
   RIA_ROSTER_SUMMARY: (userId: string) => `ria_roster_summary_${userId}`,
   RIA_HOME: (userId: string) => `ria_home_${userId}`,
   RIA_CLIENTS: (userId: string, query: string, status: string, page: number, limit: number) =>

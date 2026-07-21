@@ -320,9 +320,18 @@ function routeForPersona(params: {
   lastRiaPath: string;
   riaEntryRoute: string;
 }) {
-  return params.persona === "ria"
-    ? params.lastRiaPath || params.riaEntryRoute
-    : params.lastKaiPath || ROUTES.KAI_HOME;
+  if (params.persona !== "ria") {
+    return params.lastKaiPath || ROUTES.KAI_HOME;
+  }
+  // Defensive: never re-enter the onboarding wizard from a stale lastRiaPath —
+  // let riaEntryRoute (switch → RIA_HOME, else onboarding) decide. Pairs with the
+  // navbar guard that stops recording /ria/onboarding as lastRiaPath.
+  const lastRiaPath =
+    params.lastRiaPath === ROUTES.RIA_ONBOARDING ||
+    params.lastRiaPath.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+      ? ""
+      : params.lastRiaPath;
+  return lastRiaPath || params.riaEntryRoute;
 }
 
 function readTopShellReservedHeight(): number {

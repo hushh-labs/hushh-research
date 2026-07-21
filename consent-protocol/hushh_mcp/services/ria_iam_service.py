@@ -284,6 +284,12 @@ def _positive_float_env(name: str, default: float) -> float:
     return value
 
 
+def _env_flag_truthy(name: str, fallback: str = "false") -> bool:
+    """Module-level env-flag reader (mirrors RIAIAMService._env_truthy) for the
+    module-level PDF-fallback helpers."""
+    return str(os.getenv(name, fallback)).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _broker_city(payload: dict[str, Any]) -> str | None:
     return _first_text_value(
         payload.get("city"),
@@ -632,12 +638,12 @@ async def _official_pdf_profile_for_crd(crd_number: str) -> dict[str, Any] | Non
         follow_redirects=True,
         headers=headers,
     ) as client:
-        for template in _OFFICIAL_LOCATION_REPORT_URLS:
-            source_url = template.format(crd=normalized)
+
+        async def _fetch_profile(source_url: str) -> dict[str, Any] | None:
             try:
                 response = await client.get(source_url)
                 response.raise_for_status()
-                profile = await asyncio.to_thread(
+                return await asyncio.to_thread(
                     _official_profile_from_pdf,
                     response.content,
                     source_url,
@@ -648,7 +654,22 @@ async def _official_pdf_profile_for_crd(crd_number: str) -> dict[str, Any] | Non
                     normalized,
                     exc_info=True,
                 )
-                continue
+                return None
+
+        urls = [template.format(crd=normalized) for template in _OFFICIAL_LOCATION_REPORT_URLS]
+
+        # RIA_VERIFY_PARALLEL_FALLBACKS: fetch the SEC + FINRA candidate PDFs
+        # concurrently, then pick the first successful in priority order. Default
+        # (flag off) keeps the sequential first-success loop unchanged.
+        if _env_flag_truthy("RIA_VERIFY_PARALLEL_FALLBACKS"):
+            results = await asyncio.gather(*[_fetch_profile(u) for u in urls])
+            for profile in results:
+                if profile:
+                    return profile
+            return None
+
+        for source_url in urls:
+            profile = await _fetch_profile(source_url)
             if profile:
                 return profile
     return None
@@ -2155,6 +2176,23 @@ class RIAIAMService:
         if response.get("status") != "found":
             return None
         if not self._has_usable_license_location(response):
+            # Default: treat a cached "found" without a usable location as a miss
+            # and re-scrape. When RIA_VERIFY_REUSE_PARTIAL_CACHE is enabled, serve
+            # the partial cache instead (skipping a full re-scrape) and tag it so
+            # the client can trigger a location-only background refresh.
+            if self._env_truthy("RIA_VERIFY_REUSE_PARTIAL_CACHE"):
+                logger.info(
+                    "ria.verify_license_cache_partial_served user_id=%s license_number=%s",
+                    user_id,
+                    license_number,
+                )
+                partial = self._add_license_cache_metadata(
+                    response,
+                    cache_hit=True,
+                    cached_at=row["created_at"] if "created_at" in row else None,
+                )
+                partial["location_refresh_recommended"] = True
+                return partial
             logger.info(
                 "ria.verify_license_cache_incomplete_location user_id=%s license_number=%s",
                 user_id,
