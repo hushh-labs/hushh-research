@@ -395,7 +395,10 @@ export function AuthStep({
         });
         setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
-        router.push(nextPath);
+        // Replace, not push: the login screen must not stay on the back stack,
+        // so an onboarded user pressing Back never lands back on /login or the
+        // setup hub it forwards to.
+        router.replace(nextPath);
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
       } catch (error) {
@@ -409,7 +412,7 @@ export function AuthStep({
             : fallbackPath;
         setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
-        router.push(safeFallbackPath);
+        router.replace(safeFallbackPath);
         lastResolvedNavigationPathRef.current = safeFallbackPath;
         return safeFallbackPath;
       }

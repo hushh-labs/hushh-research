@@ -76,6 +76,10 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
   OneSetupCompletionHintService: {
     isResolved: isPersistentSetupResolvedMock,
+    // Native-durable rehydration mirrors the positive latch: on web (test env)
+    // it resolves to the current latch value, so an unresolved user still falls
+    // through to the network bootstrap path these cases assert.
+    hydrateFromNative: vi.fn(async () => isPersistentSetupResolvedMock()),
   },
 }));
 

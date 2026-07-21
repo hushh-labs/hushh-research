@@ -143,7 +143,7 @@ export function OneSetupHub() {
       };
     }
     if (!user?.uid) {
-      router.push(completionTarget);
+      router.replace(completionTarget);
       return { status: "started" as const, summary: "Opening home." };
     }
     setDismissing(true);
@@ -155,7 +155,7 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
-      router.push(completionTarget);
+      router.replace(completionTarget);
       return {
         status: "succeeded" as const,
         summary: masterSkipped

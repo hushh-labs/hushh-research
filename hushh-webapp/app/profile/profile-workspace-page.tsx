@@ -32,6 +32,7 @@ import {
   SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   User,
   UserRound,
@@ -110,7 +111,7 @@ import {
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildProfileRoute,
@@ -206,6 +207,7 @@ const PROFILE_LABELS = {
   support: "Help & feedback",
   developerTools: "Developer tools",
   accountAccess: "Account access",
+  setup: "Set up One",
 } as const;
 
 function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
@@ -4022,6 +4024,16 @@ function ProfilePageContent() {
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
+              <SettingsRow
+                icon={Sparkles}
+                iconTone="accent"
+                title={PROFILE_LABELS.setup}
+                chevron
+                density="compact"
+                onClick={() =>
+                  router.push(buildOneSetupRoute({ returnTo: ROUTES.PROFILE }))
+                }
+              />
               {shouldShowRiaRegulatoryRow ? (
                 <SettingsRow
                   icon={ClipboardCheck}
