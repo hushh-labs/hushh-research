@@ -47,6 +47,19 @@ export function acknowledgeOneSetupExit(params: {
   vaultOwnerToken?: string | null;
 }): Promise<void> {
   const completedAt = Date.now();
+  // Prime the local resolved state FIRST (synchronously) so the onboarding
+  // guard admits /one immediately and the person always reaches home — even if
+  // the durable backend writes below are slow or fail. The device-local
+  // completion latch (backed by native Preferences on iOS) carries the
+  // "resolved" signal; the awaited backend writes then make it account-wide.
+  // A failed durable write stays recoverable: the person is already home and
+  // can finish later from Profile or the hub. This favours a reliable exit over
+  // trapping the person on the hub when the network is flaky.
+  primeOneSetupResolved({
+    userId: params.userId,
+    skipped: params.skipped,
+    completedAt,
+  });
   return (async () => {
     await PreVaultUserStateService.syncKaiSetupState({
       userId: params.userId,
@@ -60,12 +73,5 @@ export function acknowledgeOneSetupExit(params: {
     });
     // Root completion must not mutate the Finance profile. Finance has its own
     // terminal capability acknowledgement and setupCapabilityIds signal.
-    // Do not make local guards/cookies claim success before both durable writes
-    // settle. A failed write must leave the journey recoverable on this hub.
-    primeOneSetupResolved({
-      userId: params.userId,
-      skipped: params.skipped,
-      completedAt,
-    });
   })();
 }
