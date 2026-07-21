@@ -160,7 +160,14 @@ export function KaiCommandPalette({
   voiceHidden = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return window.sessionStorage.getItem("kai-command-palette-query") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
     getTickerUniverseSnapshot()
   );
@@ -168,6 +175,18 @@ export function KaiCommandPalette({
   const [remoteMatches, setRemoteMatches] = useState<TickerUniverseRow[]>([]);
   const [universeError, setUniverseError] = useState<string | null>(null);
   const [remoteSearchError, setRemoteSearchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      if (query) {
+        window.sessionStorage.setItem("kai-command-palette-query", query);
+      } else {
+        window.sessionStorage.removeItem("kai-command-palette-query");
+      }
+    } catch {
+      // Session storage can be unavailable in private or restricted contexts.
+    }
+  }, [query]);
 
   useEffect(() => {
     if (!open) {
