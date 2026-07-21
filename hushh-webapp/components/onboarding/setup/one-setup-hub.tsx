@@ -21,6 +21,7 @@ import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   resolveCompletedSetupCapabilityTarget,
   ROUTES,
@@ -82,10 +83,16 @@ export function OneSetupHub() {
     runtimeChoiceSnapshot.userId === (user?.uid ?? null)
       ? runtimeChoiceSnapshot.state
       : "loading";
-  const returnTo = useMemo(
-    () => normalizeInternalRouteHref(searchParams.get("return_to")),
-    [searchParams],
-  );
+  const returnTo = useMemo(() => {
+    const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
+    if (!raw) return null;
+    // Never send the master exit back onto a setup surface. A stray
+    // `?return_to=/one/setup` (e.g. from a capability/connector sub-flow that
+    // returns to the hub) would make Skip/Finish replace /one/setup with
+    // itself and look like a no-op. Fall through to home instead.
+    const path = raw.split(/[?#]/)[0] ?? raw;
+    return isOneSetupSurfaceRoute(path) ? null : raw;
+  }, [searchParams]);
   const completionTarget = returnTo || ROUTES.ONE_HOME;
 
   useEffect(() => {
@@ -202,12 +209,12 @@ export function OneSetupHub() {
 
   // Either way, resolving the master ack SATISFIES the root setup gate so the
   // hard gate on /one/* does not bounce the user back here. Per-capability
-  // tiles never touch this gate; they only record their own signal. We mark
-  // the server pre-vault gate (authoritative for the gate and
-  // PostAuthRouteService); when the vault is unlocked we also flip the vault
-  // profile so the unlocked path agrees. Both are awaited before navigating
-  // so the gate is consistent on the very next route resolve. Failures remain
-  // on the hub and preserve the unresolved journey.
+  // tiles never touch this gate; they only record their own signal.
+  // acknowledgeOneSetupExit primes the local completion latch synchronously
+  // (so the guard admits /one on the very next resolve) and then persists the
+  // account-wide gate in the background. Navigation happens right after the
+  // synchronous prime, so a slow or failing network never strands the person
+  // on the hub — Skip / Finish always reaches home.
   const handleMasterAck = async () => {
     if (dismissing) {
       return {
@@ -216,43 +223,67 @@ export function OneSetupHub() {
       };
     }
     if (!user?.uid) {
-      router.push(completionTarget);
+      router.replace(completionTarget);
       return { status: "started" as const, summary: "Opening home." };
     }
     setDismissing(true);
     try {
-      const currentState = await PreVaultUserStateService.bootstrapState(
-        user.uid,
-        { force: true },
-      );
-      if (!PreVaultUserStateService.hasOneRuntimeChoice(currentState)) {
-        setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+      // Connections gate: a runtime choice is mandatory before leaving the hub.
+      // When the client already knows the choice is made (the footer stays
+      // disabled until runtimeChoiceComplete) trust it and skip the network
+      // round-trip. Only re-verify against fresh server state when the client
+      // is unsure — and even then a failed probe must not trap the person, so
+      // fall back to the resolved client gate rather than stranding them.
+      let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      if (!runtimeChoiceConfirmed) {
+        try {
+          const currentState = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+            { force: true },
+          );
+          runtimeChoiceConfirmed =
+            PreVaultUserStateService.hasOneRuntimeChoice(currentState);
+          setRuntimeChoiceSnapshot({
+            userId: user.uid,
+            state: runtimeChoiceConfirmed ? "complete" : "required",
+          });
+        } catch (error) {
+          console.warn(
+            "[OneSetupHub] Could not verify the Connections choice:",
+            error,
+          );
+        }
+      }
+      if (!runtimeChoiceConfirmed) {
         return {
           status: "blocked" as const,
           summary: "Choose how One runs in Connections before continuing.",
         };
       }
-      await acknowledgeOneSetupExit({
+
+      // Resolve the master gate and go home immediately. acknowledgeOneSetupExit
+      // primes the local completion latch synchronously (so the guard admits
+      // /one right away); the durable backend writes settle in the background,
+      // so a slow or failing network can never strand the person on the hub.
+      void acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: masterSkipped,
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[OneSetupHub] Durable setup-exit write failed; the local completion latch keeps you on home:",
+          error,
+        );
       });
-      router.push(completionTarget);
+      router.replace(completionTarget);
       return {
         status: "succeeded" as const,
         summary: masterSkipped
-          ? "Skipped setup for now."
+          ? "Skipped setup for now. Opening home."
           : "Finished setup for now. Opening home.",
         routeAfter: completionTarget,
-      };
-    } catch (error) {
-      console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
-      return {
-        status: "failed" as const,
-        summary:
-          "Setup could not be finished yet. You are still on the setup hub.",
       };
     } finally {
       setDismissing(false);
@@ -284,12 +315,33 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
-          description={summary}
-          accent="neutral"
-          className={styles.setupHeader}
-        />
+        <div className="relative">
+          <PageHeader
+            title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
+            description={summary}
+            accent="neutral"
+            className={styles.setupHeader}
+          />
+          {/* Mobile surfaces the master Skip/Finish action top-right in the
+              header so it is always reachable and never hides behind the fixed
+              "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
+          {!hubStateLoading ? (
+            <button
+              type="button"
+              onClick={() => void handleMasterAck()}
+              disabled={dismissing || !runtimeChoiceComplete}
+              title={
+                !runtimeChoiceComplete
+                  ? "Choose a Connections option before continuing."
+                  : undefined
+              }
+              data-testid="one-setup-master-ack-mobile"
+              className="absolute right-0 top-1 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+            >
+              {masterActionLabel}
+            </button>
+          ) : null}
+        </div>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
@@ -392,29 +444,34 @@ export function OneSetupHub() {
             </SettingsGroup>
           ) : null}
         </div>
-        <SetupCompletionFooter
-          label={masterActionLabel}
-          onComplete={() => void handleMasterAck()}
-          busy={dismissing}
-          disabled={!runtimeChoiceComplete}
-          controlId="one-setup-master-ack"
-          actionId="setup.hub_master_ack"
-          testId="one-setup-master-ack"
-          purpose={
-            masterSkipped
-              ? "Skip the remaining setup for now and go home."
-              : "Finish setup for now and go home."
-          }
-          supportingText={
-            !runtimeChoiceComplete
-              ? "Choose a Connections option before continuing."
-              : masterSkipped
-              ? "You can set up these capabilities any time."
-              : "Your completed setup stays in place. You can add more any time."
-          }
-          variant={masterSkipped ? "none" : "blue-gradient"}
-          effect={masterSkipped ? "fade" : "fill"}
-        />
+        {/* Desktop keeps the calm in-flow terminal action; mobile uses the
+            top-right header action instead (the fixed agent bar would cover a
+            bottom footer on phones). */}
+        <div className="hidden sm:block">
+          <SetupCompletionFooter
+            label={masterActionLabel}
+            onComplete={() => void handleMasterAck()}
+            busy={dismissing}
+            disabled={!runtimeChoiceComplete}
+            controlId="one-setup-master-ack"
+            actionId="setup.hub_master_ack"
+            testId="one-setup-master-ack"
+            purpose={
+              masterSkipped
+                ? "Skip the remaining setup for now and go home."
+                : "Finish setup for now and go home."
+            }
+            supportingText={
+              !runtimeChoiceComplete
+                ? "Choose a Connections option before continuing."
+                : masterSkipped
+                ? "You can set up these capabilities any time."
+                : "Your completed setup stays in place. You can add more any time."
+            }
+            variant={masterSkipped ? "none" : "blue-gradient"}
+            effect={masterSkipped ? "fade" : "fill"}
+          />
+        </div>
           </>
         )}
       </AppPageContentRegion>
