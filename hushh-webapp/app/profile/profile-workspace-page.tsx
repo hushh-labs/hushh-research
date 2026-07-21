@@ -32,7 +32,6 @@ import {
   SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Trash2,
   User,
   UserRound,
@@ -3998,8 +3997,14 @@ function ProfilePageContent() {
           <div className="space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
-                icon={Sparkles}
-                iconTone="accent"
+                leading={
+                  <span
+                    aria-hidden
+                    className="inline-flex h-8 w-8 items-center justify-center self-center rounded-[10px] bg-accent/12 text-[18px] leading-none sm:h-10 sm:w-10 sm:rounded-[12px] sm:text-[20px]"
+                  >
+                    🤫
+                  </span>
+                }
                 title={PROFILE_LABELS.setup}
                 chevron
                 density="compact"
