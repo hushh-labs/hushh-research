@@ -1406,6 +1406,14 @@ class PKMAgentLabService:
 
         config = genai_types.GenerateContentConfig(
             temperature=0.0,
+            # These calls are deterministic schema workers inside a bounded,
+            # sequential PKM graph. Gemini's default thinking can consume the
+            # shared preview deadline before the final structure contract runs.
+            # Minimal thinking preserves Gemini 3.5 Flash semantics while
+            # keeping the user-facing chain within its existing latency budget.
+            thinking_config=genai_types.ThinkingConfig(
+                thinking_level=genai_types.ThinkingLevel.MINIMAL,
+            ),
             response_mime_type="application/json",
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             response_schema=response_schema,
