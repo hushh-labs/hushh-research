@@ -684,7 +684,7 @@ function LocationHubPanel({
           <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
         </span>
         <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
-          Privacy
+          Settings
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
       </button>

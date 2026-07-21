@@ -19,6 +19,8 @@ describe("One Location privacy entry placement", () => {
 
     expect(hubSource.match(/<LocationHubPanel /g)).toHaveLength(4);
     expect(hubSource).toContain('data-testid="one-location-privacy-entry"');
+    expect(hubSource).toMatch(/>\s*Settings\s*</);
+    expect(hubSource).not.toMatch(/>\s*Privacy\s*</);
   });
 
   it("does not render the privacy entry inside focused action flows", () => {
