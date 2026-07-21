@@ -202,12 +202,12 @@ export function OneSetupHub() {
 
   // Either way, resolving the master ack SATISFIES the root setup gate so the
   // hard gate on /one/* does not bounce the user back here. Per-capability
-  // tiles never touch this gate; they only record their own signal. We mark
-  // the server pre-vault gate (authoritative for the gate and
-  // PostAuthRouteService); when the vault is unlocked we also flip the vault
-  // profile so the unlocked path agrees. Both are awaited before navigating
-  // so the gate is consistent on the very next route resolve. Failures remain
-  // on the hub and preserve the unresolved journey.
+  // tiles never touch this gate; they only record their own signal.
+  // acknowledgeOneSetupExit primes the local completion latch synchronously
+  // (so the guard admits /one on the very next resolve) and then persists the
+  // account-wide gate in the background. Navigation happens right after the
+  // synchronous prime, so a slow or failing network never strands the person
+  // on the hub — Skip / Finish always reaches home.
   const handleMasterAck = async () => {
     if (dismissing) {
       return {
@@ -221,38 +221,62 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      const currentState = await PreVaultUserStateService.bootstrapState(
-        user.uid,
-        { force: true },
-      );
-      if (!PreVaultUserStateService.hasOneRuntimeChoice(currentState)) {
-        setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+      // Connections gate: a runtime choice is mandatory before leaving the hub.
+      // When the client already knows the choice is made (the footer stays
+      // disabled until runtimeChoiceComplete) trust it and skip the network
+      // round-trip. Only re-verify against fresh server state when the client
+      // is unsure — and even then a failed probe must not trap the person, so
+      // fall back to the resolved client gate rather than stranding them.
+      let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      if (!runtimeChoiceConfirmed) {
+        try {
+          const currentState = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+            { force: true },
+          );
+          runtimeChoiceConfirmed =
+            PreVaultUserStateService.hasOneRuntimeChoice(currentState);
+          setRuntimeChoiceSnapshot({
+            userId: user.uid,
+            state: runtimeChoiceConfirmed ? "complete" : "required",
+          });
+        } catch (error) {
+          console.warn(
+            "[OneSetupHub] Could not verify the Connections choice:",
+            error,
+          );
+        }
+      }
+      if (!runtimeChoiceConfirmed) {
         return {
           status: "blocked" as const,
           summary: "Choose how One runs in Connections before continuing.",
         };
       }
-      await acknowledgeOneSetupExit({
+
+      // Resolve the master gate and go home immediately. acknowledgeOneSetupExit
+      // primes the local completion latch synchronously (so the guard admits
+      // /one right away); the durable backend writes settle in the background,
+      // so a slow or failing network can never strand the person on the hub.
+      void acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: masterSkipped,
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[OneSetupHub] Durable setup-exit write failed; the local completion latch keeps you on home:",
+          error,
+        );
       });
       router.replace(completionTarget);
       return {
         status: "succeeded" as const,
         summary: masterSkipped
-          ? "Skipped setup for now."
+          ? "Skipped setup for now. Opening home."
           : "Finished setup for now. Opening home.",
         routeAfter: completionTarget,
-      };
-    } catch (error) {
-      console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
-      return {
-        status: "failed" as const,
-        summary:
-          "Setup could not be finished yet. You are still on the setup hub.",
       };
     } finally {
       setDismissing(false);
