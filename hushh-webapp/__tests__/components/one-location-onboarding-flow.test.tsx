@@ -72,6 +72,13 @@ function renderFlow(
 }
 
 describe("OneLocationOnboardingFlow", () => {
+  it("does not expose a back action on the blue welcome cover", () => {
+    renderFlow();
+
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+  });
+
   it("keeps real contact identities out of the static preview screens", () => {
     renderFlow();
 

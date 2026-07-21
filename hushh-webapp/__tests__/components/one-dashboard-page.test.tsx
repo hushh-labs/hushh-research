@@ -228,6 +228,23 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
   });
 
+  it("restores a saved list view without replaying a view-change animation", () => {
+    window.localStorage.setItem("hushh:one-agent-roster-view", "list");
+    const { container } = render(
+      <OneDashboardPage displayName="Kushal Trivedi" />,
+    );
+
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-view-content")).not.toHaveClass(
+      "motion-step-enter",
+    );
+
+    fireEvent.click(screen.getByLabelText("Show agent grid view"));
+    expect(screen.getByTestId("one-agents-view-content")).toHaveClass(
+      "motion-step-enter",
+    );
+  });
+
   it("filters the local agent roster without opening a second global search surface", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 

@@ -577,7 +577,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Location"
+        title="Location Agent"
         icon={MapPin}
         accent="neutral"
         actionsInlineMobile

@@ -152,11 +152,11 @@ function AppShellFrame({ children }: ProvidersProps) {
     () =>
       ({
         ...signedInShellContentOffset.style,
-        // A tab row is part of the fixed safe-area stack. Give the first body
-        // block an additional shared clearance so Finance/RIA content never
-        // crowds the contextual tabs on phone or desktop.
+        // The fixed tab row is already included in --top-shell-reserved-height.
+        // Do not add a second route-body spacer: it creates an obvious blank
+        // band between tabs and the primary header on every workspace.
         "--page-top-local-offset": topShellMetrics.hasTabs
-          ? `calc(${routeLayout.pageTopLocalOffset || "0px"} + 12px)`
+          ? routeLayout.pageTopLocalOffset || "0px"
           : routeLayout.pageTopLocalOffset || "0px",
         "--top-tabs-gap": "var(--kai-route-tabs-content-gap)",
         "--top-tabs-total": topShellMetrics.hasTabs

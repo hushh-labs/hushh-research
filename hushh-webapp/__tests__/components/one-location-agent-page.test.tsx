@@ -439,7 +439,7 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   if (options.expectMain !== false) {
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
   }
 }
@@ -695,7 +695,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(
@@ -943,7 +943,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     // Completing onboarding persists the one-time intro flag so the marketing
     // intro never shows again for this user.
@@ -977,7 +977,7 @@ describe("OneLocationAgentPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     // Completing onboarding persists the one-time intro flag.
@@ -1003,7 +1003,7 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
 
       expect(
-        await screen.findByRole("heading", { name: "Location" }),
+        await screen.findByRole("heading", { name: "Location Agent" }),
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
@@ -1586,7 +1586,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy(),
+      expect(screen.getByRole("heading", { name: "Location Agent" })).toBeTruthy(),
     );
   });
 

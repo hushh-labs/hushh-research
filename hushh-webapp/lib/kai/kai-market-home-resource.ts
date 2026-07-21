@@ -86,7 +86,10 @@ function readCachedPortfolioHoldings(userId: string): Array<Record<string, unkno
 }
 
 function toStoredBaselineRecordKey(daysBack: number): string {
-  return `kai_market_home:baseline:${daysBack}`;
+  // v2 excludes baseline records written before the backend corrected mover
+  // percentage normalization. A stale device record must not keep showing a
+  // dollar change as a percent on the One dashboard for up to its 24h TTL.
+  return `kai_market_home:baseline:v2:${daysBack}`;
 }
 
 function toStoredPersonalizedRecordKey(params: {

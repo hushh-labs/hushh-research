@@ -223,6 +223,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("new MutationObserver(scheduleHeaderRefresh)");
     expect(source).toContain("getScrolledRouteTitle(pathname)");
     expect(source).toContain('label: "Agents"');
+    expect(source).not.toContain('label: "Location", icon: MapPin');
     expect(source).toContain("const tabsOnlyChrome");
     expect(source).toContain("topChromeFullyCollapsed");
     expect(source).toContain("resolveTopChromeScrollProgress({");

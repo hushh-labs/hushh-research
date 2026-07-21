@@ -35,7 +35,6 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MapPin,
   MoreHorizontal,
   Shield,
   Trash2,
@@ -300,9 +299,6 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.ONE_KYC) {
     return { label: "KYC", icon: FileCheck2, interactive: false as const };
-  }
-  if (pathname === ROUTES.ONE_LOCATION) {
-    return { label: "Location", icon: MapPin, interactive: false as const };
   }
   if (pathname === ROUTES.KAI_ANALYSIS) {
     return {

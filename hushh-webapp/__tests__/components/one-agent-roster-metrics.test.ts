@@ -46,4 +46,46 @@ describe("One agent roster cache metrics", () => {
       "connected-systems": { value: "2", label: "connected systems" },
     });
   });
+
+  it("uses the shared market baseline instead of a newer symbol-scoped response", () => {
+    const userId = "roster-canonical-market";
+    const cache = CacheService.getInstance();
+    cache.invalidateUser(userId);
+
+    cache.set<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+      { movers: { gainers: [{ symbol: "AAPL", change_pct: 0.14 }] } } as KaiHomeInsightsV2,
+      CACHE_TTL.SHORT,
+    );
+    cache.set<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME(userId, "NVDA", 7),
+      { movers: { gainers: [{ symbol: "NVDA", change_pct: 82.5 }] } } as KaiHomeInsightsV2,
+      CACHE_TTL.SHORT,
+    );
+
+    expect(resolveCachedAgentMetrics(userId)).toMatchObject({
+      finance: { value: "AAPL", label: "+0.14%" },
+    });
+  });
+
+  it("does not turn malformed mover values into a positive Finance KPI", () => {
+    const userId = "roster-invalid-market";
+    const cache = CacheService.getInstance();
+    cache.invalidateUser(userId);
+
+    cache.set<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+      {
+        movers: {
+          gainers: [
+            { symbol: "BAD", change_pct: Number.NaN },
+            { symbol: "ALSO_BAD", change_pct: 14 } as any,
+          ],
+        },
+      } as KaiHomeInsightsV2,
+      CACHE_TTL.SHORT,
+    );
+
+    expect(resolveCachedAgentMetrics(userId).finance).toBeUndefined();
+  });
 });

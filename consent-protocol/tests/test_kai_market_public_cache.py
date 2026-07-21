@@ -200,7 +200,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
                 "live",
                 False,
             )
-        if key == "movers:us":
+        if key == "movers:v2:us":
             return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
         if key == "sectors:us":
             return ([], "partial"), False, 0, "live", False

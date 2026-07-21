@@ -28,6 +28,6 @@ describe("shared route transition contract", () => {
     const providers = readFileSync(join(process.cwd(), "app/providers.tsx"), "utf8");
 
     expect(providers).toContain('"--page-top-local-offset": topShellMetrics.hasTabs');
-    expect(providers).toContain('calc(${routeLayout.pageTopLocalOffset || "0px"} + 12px)');
+    expect(providers).not.toContain('calc(${routeLayout.pageTopLocalOffset || "0px"} + 12px)');
   });
 });
