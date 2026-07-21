@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Button } from "@/lib/morphy-ux/button";
@@ -94,10 +95,13 @@ export function OnboardingJourneyGuard({
   const cachedState = userId
     ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
     : null;
+  // Honor the durable positive latch even when a session cache exists. The
+  // latch is positive-only and is cleared in lockstep with any authoritative
+  // `setupCompleted === false` read, so it never contradicts a genuine
+  // incomplete state — but it DOES override a stale/transient cache value that
+  // would otherwise re-force setup on every navigation for the whole session.
   const persistentSetupResolved = Boolean(
-    userId &&
-      !cachedState &&
-      OneSetupCompletionHintService.isResolved(userId),
+    userId && OneSetupCompletionHintService.isResolved(userId),
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
     persistentSetupResolved ||
@@ -162,6 +166,24 @@ export function OnboardingJourneyGuard({
         setError(null);
         setChecking(false);
         return;
+      }
+
+      // Native WKWebView evicts localStorage across launches (iosScheme
+      // "App"), so the positive latch can be cold even for a resolved user on
+      // relaunch. Restore it from durable native storage before paying for a
+      // network bootstrap; this also prevents a transient cold-start read from
+      // re-trapping a resolved user on the setup hub. Native-only: web
+      // localStorage persists, so there is nothing to rehydrate there.
+      if (!cachedState && Capacitor.isNativePlatform()) {
+        const restored =
+          await OneSetupCompletionHintService.hydrateFromNative(userId);
+        if (cancelled) return;
+        if (restored) {
+          redirectTargetRef.current = null;
+          setError(null);
+          setChecking(false);
+          return;
+        }
       }
 
       setChecking(true);
