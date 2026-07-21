@@ -375,7 +375,7 @@ def test_message_routes_general_turn_to_one(monkeypatch):
     assert "One" in payload["response"]
 
 
-def test_message_requires_exact_authority_before_specialist_dispatch(monkeypatch):
+def test_message_preview_never_selects_a_specialist_without_the_canonical_runtime(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
 
@@ -391,15 +391,9 @@ def test_message_requires_exact_authority_before_specialist_dispatch(monkeypatch
     assert response.status_code == 200
     payload = response.json()
     assert payload["userId"] == "user-one"
-    assert payload["delegation"] == {
-        "delegated": True,
-        "status": "auth_required",
-        "errorCode": "EXACT_AUTHORITY_REQUIRED",
-        "message": (
-            "One may identify the next consent step, but cap.one.invoke does not "
-            "authorize specialist data access or actions."
-        ),
-    }
-    assert payload["isComplete"] is False
+    assert payload["delegation"] is None
+    assert payload["isComplete"] is True
+    assert "semantic_runtime_required" not in payload
+    assert "cannot select a specialist" in payload["response"]
     assert "target_agent" not in str(payload)
     assert "agent_kai" not in str(payload)

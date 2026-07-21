@@ -37,5 +37,9 @@ describe("private-agent action confirmation contract", () => {
     expect(source).toContain("const needsConfirmation = true;");
     expect(source).toContain("Authorized. Tap Run to execute.");
     expect(source).toContain("if (!pending.receipt)");
+    expect(source).toContain("confirmationTransport.confirmActionDirective({");
+    expect(source).not.toContain("void confirmDirective({");
+    expect(source).toContain("event.directive.delegateAgentId ?? null");
+    expect(source).toContain("kind: event.directive.kind,");
   });
 });

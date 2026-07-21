@@ -1,6 +1,12 @@
 "use client";
 
-import { Children, cloneElement, isValidElement } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useState,
+} from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronRight, X } from "lucide-react";
@@ -496,6 +502,21 @@ export function AdaptiveDetailSurface({
   desktopMaxWidth,
 }: AdaptiveDetailSurfaceProps) {
   const isMobile = useIsMobile();
+  // A query-backed selection can mount this surface before the mobile media
+  // query effect has resolved. Rendering the desktop Dialog for that one
+  // frame and then replacing it with the mobile Drawer leaves two portals
+  // briefly visible on iOS. Wait for the client presentation decision before
+  // mounting an open detail surface so every record opens through one owner.
+  const [presentationReady, setPresentationReady] = useState(false);
+
+  useEffect(() => {
+    setPresentationReady(true);
+  }, []);
+
+  if (open && !presentationReady) {
+    return null;
+  }
+
   const closeButton = (
     <button
       type="button"

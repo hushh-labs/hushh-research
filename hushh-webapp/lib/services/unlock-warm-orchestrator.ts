@@ -18,6 +18,7 @@ import { OneLocationStateResource } from "@/lib/one-location/one-location-state-
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
@@ -432,6 +433,12 @@ export class UnlockWarmOrchestrator {
         error,
       );
     });
+    const agentHistoryWarmPromise = warmAgentChatHistoryCache({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      console.warn("[UnlockWarmOrchestrator] Agent history warm-up failed:", error);
+    });
     let symbols: string[] = [];
     let prewarmedFinancialDomain: Record<string, unknown> | null = null;
     let financialHydrated = false;
@@ -689,6 +696,7 @@ export class UnlockWarmOrchestrator {
     [result.agentContextWarmed] = await Promise.all([
       agentContextWarmPromise,
       runtimeConfigurationWarmPromise.then(() => undefined),
+      agentHistoryWarmPromise.then(() => undefined),
     ]);
 
     const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));

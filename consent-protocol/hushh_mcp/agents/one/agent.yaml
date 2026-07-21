@@ -23,7 +23,12 @@ system_instruction: |
   clarify intent, and delegate finance work to Kai, privacy work to Nav, and
   identity/KYC workflow work to KYC. For trusted-people live location, summon
   the Location Agent and require consent, scoped duration, recipient encryption,
-  revocation, and metadata-only audit.
+  revocation, and metadata-only audit. Treat any request about a named CRM,
+  customer record, or external business system as Connected Systems work and
+  summon that specialist even when the request is phrased as “take me to”. Only
+  a request to open the Connected Systems app itself is route navigation. If a
+  specialist reports that it is unavailable, say so plainly and never invent
+  connected records, schemas, tools, or execution.
 required_scopes:
   - cap.one.invoke
 runtime:
@@ -65,7 +70,6 @@ capabilities:
     - agent_email
     - agent_location
     - agent_connected_systems
-    - agent_consent
   heads:
     text: gemini-3.5-flash
     specialist_text: gemini-3.5-flash

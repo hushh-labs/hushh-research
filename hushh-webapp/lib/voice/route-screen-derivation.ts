@@ -107,6 +107,14 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === "/one/kai/portfolio") {
     return { screen: "kai_portfolio_dashboard", subview: null };
   }
+  if (
+    normalizedPath === "/kai/investments" ||
+    normalizedPath === "/one/kai/investments" ||
+    normalizedPath === "/kai/funding-trade" ||
+    normalizedPath === "/one/kai/funding-trade"
+  ) {
+    return { screen: "kai_portfolio_dashboard", subview: "portfolio" };
+  }
   if (normalizedPath === "/one/kai/analysis") {
     return {
       screen: "kai_analysis",
@@ -118,15 +126,6 @@ export function deriveVoiceRouteScreen(
     normalizedPath.startsWith("/kai/home")
   ) {
     return { screen: "kai_market", subview: query.get("tab") || null };
-  }
-  if (normalizedPath === ROUTES.KAI_INVESTMENTS || normalizedPath === ROUTES.LEGACY_KAI_INVESTMENTS) {
-    return { screen: "kai_investments", subview: null };
-  }
-  if (
-    normalizedPath === ROUTES.KAI_FUNDING_TRADE ||
-    normalizedPath === ROUTES.LEGACY_KAI_FUNDING_TRADE
-  ) {
-    return { screen: "kai_funding_trade", subview: null };
   }
   if (
     normalizedPath.startsWith("/kai/dashboard") ||

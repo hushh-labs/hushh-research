@@ -750,6 +750,35 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
+  it("keeps Location setup inert while durable completion is settling", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    const onSetupComplete = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    render(
+      <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
+    );
+
+    await openLocationPermissionsStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const savingButton = screen.getByRole("button", { name: "Saving setup…" });
+    expect(savingButton).toBeDisabled();
+    expect(savingButton).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    fireEvent.click(savingButton);
+    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+
+    resolveCompletion?.();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+    );
+  });
+
   it("does not finish web Location setup while permission is denied", async () => {
     const onSetupComplete = vi.fn();
     mockGetPermissionState.mockResolvedValue({

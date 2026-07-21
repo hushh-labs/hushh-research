@@ -81,6 +81,19 @@ export function TopShellRouteSwipe({
     let ignored = false;
     let axis: "undecided" | "horizontal" | "vertical" = "undecided";
 
+    const beginTracking = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number,
+      timestamp: number,
+    ) => {
+      if (shouldIgnoreSwipeTarget(target)) return reset();
+      startX = clientX;
+      startY = clientY;
+      startTimestamp = timestamp || performance.now();
+      tracking = true;
+    };
+
     const reset = () => {
       startX = null;
       startY = null;
@@ -90,30 +103,16 @@ export function TopShellRouteSwipe({
       axis = "undecided";
     };
 
-    const onStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) return reset();
-      if (shouldIgnoreSwipeTarget(event.target)) return reset();
-      const touch = event.touches[0];
-      if (!touch) return reset();
-      startX = touch.clientX;
-      startY = touch.clientY;
-      startTimestamp = event.timeStamp || performance.now();
-      tracking = true;
-    };
-
-    const onMove = (event: TouchEvent) => {
+    const updateTracking = (clientX: number, clientY: number) => {
       if (
         !tracking ||
         ignored ||
-        event.touches.length !== 1 ||
         startX === null ||
         startY === null
       )
         return;
-      const touch = event.touches[0];
-      if (!touch) return;
-      const horizontal = Math.abs(touch.clientX - startX);
-      const vertical = Math.abs(touch.clientY - startY);
+      const horizontal = Math.abs(clientX - startX);
+      const vertical = Math.abs(clientY - startY);
       if (
         axis !== "undecided" ||
         (horizontal < AXIS_LOCK_THRESHOLD_PX &&
@@ -125,24 +124,25 @@ export function TopShellRouteSwipe({
       if (axis === "vertical") tracking = false;
     };
 
-    const onEnd = (event: TouchEvent) => {
+    const finishTracking = (
+      clientX: number,
+      clientY: number,
+      timestamp: number,
+    ) => {
       if (
         !tracking ||
         ignored ||
-        event.changedTouches.length !== 1 ||
         startX === null ||
         startY === null
       )
         return reset();
-      const touch = event.changedTouches[0];
-      if (!touch) return reset();
-      const deltaX = touch.clientX - startX;
-      const deltaY = touch.clientY - startY;
+      const deltaX = clientX - startX;
+      const deltaY = clientY - startY;
       const horizontal = Math.abs(deltaX);
       const vertical = Math.abs(deltaY);
       const durationMs = Math.max(
         1,
-        (event.timeStamp || performance.now()) - startTimestamp,
+        (timestamp || performance.now()) - startTimestamp,
       );
       const velocity = horizontal / durationMs;
       const finalAxis = axis;
@@ -174,11 +174,56 @@ export function TopShellRouteSwipe({
       );
     };
 
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return reset();
+      const touch = event.touches[0];
+      if (!touch) return reset();
+      beginTracking(event.target, touch.clientX, touch.clientY, event.timeStamp);
+    };
+
+    const onMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      if (touch) updateTracking(touch.clientX, touch.clientY);
+    };
+
+    const onEnd = (event: TouchEvent) => {
+      if (event.changedTouches.length !== 1) return reset();
+      const touch = event.changedTouches[0];
+      if (!touch) return reset();
+      finishTracking(touch.clientX, touch.clientY, event.timeStamp);
+    };
+
     const startListener: EventListener = (event) =>
       onStart(event as TouchEvent);
     const moveListener: EventListener = (event) => onMove(event as TouchEvent);
     const endListener: EventListener = (event) => onEnd(event as TouchEvent);
     const cancelListener: EventListener = () => reset();
+    // Embla-powered workspaces already receive Pointer Events. Consent uses
+    // route-backed tabs so it previously listened only for Touch Events,
+    // leaving desktop trackpads and pointer-capable WebViews with no gesture
+    // path at all. Touch continues through the native path below to avoid a
+    // duplicated navigation on browsers that emit both event families.
+    const pointerStartListener: EventListener = (event) => {
+      const pointer = event as PointerEvent;
+      if (!pointer.isPrimary || pointer.pointerType === "touch") return;
+      beginTracking(
+        pointer.target,
+        pointer.clientX,
+        pointer.clientY,
+        pointer.timeStamp,
+      );
+    };
+    const pointerMoveListener: EventListener = (event) => {
+      const pointer = event as PointerEvent;
+      if (!pointer.isPrimary || pointer.pointerType === "touch") return;
+      updateTracking(pointer.clientX, pointer.clientY);
+    };
+    const pointerEndListener: EventListener = (event) => {
+      const pointer = event as PointerEvent;
+      if (!pointer.isPrimary || pointer.pointerType === "touch") return;
+      finishTracking(pointer.clientX, pointer.clientY, pointer.timeStamp);
+    };
     swipeSurface.addEventListener("touchstart", startListener, {
       passive: true,
     });
@@ -187,11 +232,27 @@ export function TopShellRouteSwipe({
     swipeSurface.addEventListener("touchcancel", cancelListener, {
       passive: true,
     });
+    swipeSurface.addEventListener("pointerdown", pointerStartListener, {
+      passive: true,
+    });
+    swipeSurface.addEventListener("pointermove", pointerMoveListener, {
+      passive: true,
+    });
+    swipeSurface.addEventListener("pointerup", pointerEndListener, {
+      passive: true,
+    });
+    swipeSurface.addEventListener("pointercancel", cancelListener, {
+      passive: true,
+    });
     return () => {
       swipeSurface.removeEventListener("touchstart", startListener);
       swipeSurface.removeEventListener("touchmove", moveListener);
       swipeSurface.removeEventListener("touchend", endListener);
       swipeSurface.removeEventListener("touchcancel", cancelListener);
+      swipeSurface.removeEventListener("pointerdown", pointerStartListener);
+      swipeSurface.removeEventListener("pointermove", pointerMoveListener);
+      swipeSurface.removeEventListener("pointerup", pointerEndListener);
+      swipeSurface.removeEventListener("pointercancel", cancelListener);
     };
   }, [enabled, pathname, router, tabSet]);
 

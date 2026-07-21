@@ -69,8 +69,6 @@ export const ROUTE_ID_VALUES = [
   "kai_plaid_oauth_return",
   "kai_alpaca_oauth_return",
   "kai_dashboard",
-  "kai_investments",
-  "kai_funding_trade",
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
@@ -221,14 +219,13 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_dashboard";
   }
-  if (pathname === ROUTES.KAI_INVESTMENTS || pathname === ROUTES.LEGACY_KAI_INVESTMENTS) {
-    return "kai_investments";
-  }
   if (
-    pathname === ROUTES.KAI_FUNDING_TRADE ||
-    pathname === ROUTES.LEGACY_KAI_FUNDING_TRADE
+    pathname === "/kai/investments" ||
+    pathname === "/one/kai/investments" ||
+    pathname === "/kai/funding-trade" ||
+    pathname === "/one/kai/funding-trade"
   ) {
-    return "kai_funding_trade";
+    return "kai_dashboard_legacy_redirect";
   }
   if (
     pathname === ROUTES.KAI_ANALYSIS ||

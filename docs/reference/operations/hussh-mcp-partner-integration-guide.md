@@ -21,7 +21,7 @@ connector private keys, or raw backend payloads.
 | Transport | MCP Streamable HTTP; keep the trailing slash |
 | Protocol revision | `2025-11-25` |
 | Public catalog | Five tools, in lifecycle order |
-| Canonical result | `structuredContent`; `content[0].text` is its compatibility mirror |
+| Canonical successful result | `structuredContent`; `content[0].text` is its compatibility mirror |
 | Export delivery | Inline encrypted MCP result; no `ResourceLink` download |
 
 ## One canonical five-tool catalog
@@ -56,7 +56,7 @@ auditable.
 | --- | --- | --- |
 | Bearer credential | Hosted MCP clients and approved MuleSoft upstream calls | Supported according to the developer application's entitlements. |
 | OAuth 2.0 authorization code with PKCE and refresh | Claude and other user-authorized remote clients | Supported after the person completes the authorization flow. |
-| OAuth 2.0 client credentials | Operations-provisioned service clients, MuleSoft, and Agentforce registration | Executes the same consent lifecycle; user approval and a scoped grant still gate information delivery. |
+| OAuth 2.0 client credentials | Operations-provisioned service clients and MuleSoft upstream | Executes the lifecycle only for an explicit Hussh execute application; user approval and a scoped grant still gate information delivery. Agentforce's own profile remains catalog-only. |
 
 Never place credentials in URLs, query parameters, a manifest, screenshots, or
 support messages. Partner secrets are delivered once through the approved
@@ -96,49 +96,27 @@ grant_type=client_credentials
 The returned access token belongs in `Authorization: Bearer <access-token>`.
 No refresh token is issued for the client-credentials grant.
 
-## Agentforce-first registration through MuleSoft
+## Agentforce registration through MuleSoft
 
-Agentforce is a tools-only MCP host. MuleSoft should register exactly the five
-definitions from the canonical manifest into Salesforce API Catalog and keep
-the schemas shallow and unchanged. The integration boundary is:
+The generated Exchange file always registers the same five-tool Hussh catalog.
+It does not mean every tool is appropriate as an Agentforce action. Tool 5 is
+secure connector delivery: it remains available to MuleSoft's internal Hussh
+client after approval, but is not an Agentforce action and is blocked at the
+Agentforce-facing MuleSoft edge.
 
-```text
-Agentforce planner
-  -> MuleSoft MCP registration: OAuth 2.0 client credentials, tools only
-  -> Hussh MCP upstream: Streamable HTTP, registered partner credential
-  -> Hussh consent lifecycle: approval, grant, encrypted export
-  -> partner connector: decrypt outside the LLM
-```
+The two OAuth hops are separate: Agentforce authenticates to MuleSoft with a
+MuleSoft-owned client; MuleSoft authenticates to Hussh with an
+operations-provisioned Hussh execute application. Agentforce never receives a
+Hussh credential or connector private key.
 
-MuleSoft must preserve the published tool names, descriptions, input schemas,
-output schemas, and lifecycle order. Do not register resources or prompts,
-expand nested fields, or pass both result representations into the planner.
-Map `structuredContent` as the canonical action result. Treat
-`content[0].text` only as a fallback when structured content is unavailable.
-The upstream request timeout is 55 seconds; polling follows the
-`poll_after_seconds` returned by Hussh.
-
-Client credentials authenticate Hussh Technologies as the partner application;
-they do not authenticate the person identified in a tool request. The person
-must still review and approve the exact scope and purpose before a scoped grant
-can return encrypted information. A pending request is therefore a successful
-lifecycle state, not an authorization failure:
-
-```json
-{
-  "status": "pending",
-  "scope": "attr.financial.sources.*",
-  "request_ref": "req_example",
-  "grant_ref": "",
-  "poll_after_seconds": 5
-}
-```
-
-Salesforce still documents that Agentforce MCP lacks user-level authentication
-and does not support use cases requiring individualized responses. Hussh keeps
-the actor model explicit: application authentication starts the workflow;
-consent approval authorizes the scoped encrypted export. Partners must validate
-this Salesforce host boundary separately from the Hussh lifecycle.
+Salesforce documents that Agentforce MCP does not support user-level
+authentication or personalized responses. Hussh therefore keeps its direct
+Agentforce profile catalog-only; personal tool calls return the safe terminal
+state `REQUIRES_SECURE_CONSENT_FLOW`. A MuleSoft relay does not remove that
+Salesforce limitation. The exact required design, key custody, tool policy,
+crypto procedure, UAT checks, and production gate are in the canonical
+[MuleSoft and Agentforce secure relay](../../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md)
+guide.
 
 ## Consent lifecycle
 
@@ -207,10 +185,12 @@ local connector process. Neither mode requires a `ResourceLink`, secondary
 download URL, plaintext fallback, query-token authentication, or server-held
 connector private key.
 
-`structuredContent` is authoritative. Its JSON-string representation in
-`content[0].text` is a backwards-compatible mirror recommended for clients
-that do not surface structured content; it is not a second result and must not
-be independently sent to an agent planner.
+For success, `structuredContent` is authoritative. Its JSON-string
+representation in `content[0].text` is a backwards-compatible mirror and is
+not a second planner result. For an execution error, Hussh returns
+`isError: true` and safe JSON text only: it intentionally omits
+`structuredContent` because the error shape cannot satisfy that tool's strict
+success output schema.
 
 The protocol uses standard X25519 and AES-256-GCM:
 
@@ -267,11 +247,11 @@ person-specific tool call.
 | No tools found | Catalog response was rejected or transformed. | Inspect the raw `tools/list` result and validate all five schemas without MuleSoft field expansion. |
 | `Invalid method: initialize` | The client and endpoint are not completing the MCP handshake. | Use Streamable HTTP at `/mcp/`, include the trailing slash, and negotiate revision `2025-11-25`. |
 | HTTP 401 or 403 | Credential exchange, expiry, revocation, or app entitlement. | Re-run the approved OAuth exchange or rotate the bearer credential; never move the secret into a URL. |
-| Generic `Tool execution failed` after tools load | The host hid the MCP structured error or the lifecycle handler rejected the call. | Inspect `structuredContent`, the correlation reference, and backend metadata-only logs; do not infer failure from the host summary alone. |
+| Generic `Tool execution failed` after tools load | The host hid the safe MCP error or the lifecycle handler rejected the call. | Inspect `content[0].text` for the safe error code and correlation reference, then backend metadata-only logs; do not infer failure from the host summary alone. |
 | HTTP 200 followed by `INVALID_TOOL_RESULT` | The tool completed, but its result did not satisfy the published output schema. | Refresh the v0.4 manifest and compare the live result shape with its `outputSchema`; local decrypted `information_json` supports up to 120,000 characters. This is not a `ResourceLink` or download fallback. |
-| Planner sees duplicate information | Both MCP result representations were forwarded. | Send `structuredContent` once and ignore the text mirror unless structured content is absent. |
+| Planner sees duplicate information | Both success result representations were forwarded. | Send `structuredContent` once and ignore the text mirror unless structured content is absent. |
 | Consent remains pending | The person has not approved or the caller is polling incorrectly. | Respect `poll_after_seconds` and stop at the returned terminal state. |
 | Decryption authentication fails | Wrong private key, wrong canonical AAD, changed envelope, or mixed ciphertext/tag ordering. | Verify the registered key ID and fingerprint, then follow the reference algorithm exactly. |
 | Manifest and live tools differ | Package/deployment drift. | Treat the live `tools/list` response as runtime evidence and stop registration until the intended v0.4 deployment is confirmed. |
 
-> **Acceptance gate.** Approve the integration only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test the intended execution credential through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context.
+> **Acceptance gate.** Approve the MuleSoft-to-Hussh integration only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test the MuleSoft execute application through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context. Enable an Agentforce personalized experience only after Salesforce confirms that exact host boundary is supported.

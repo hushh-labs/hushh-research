@@ -17,8 +17,8 @@
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
-      "redirect/alias": 37,
-      "vault-backed": 38,
+      "redirect/alias": 39,
+      "vault-backed": 36,
       "hidden flow": 9,
       "auth/pre-vault": 6,
       "RIA/provider": 8,
@@ -694,7 +694,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Ffunding-trade",
+      "reviewer_fixture": "/kai/funding-trade",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -774,7 +774,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Finvestments",
+      "reviewer_fixture": "/kai/investments",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1747,9 +1747,9 @@
     {
       "route": "/one/kai/funding-trade",
       "page_file": "app/one/kai/funding-trade/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [
         "KAI_FINANCIAL_RESOURCE",
         "STOCK_CONTEXT",
@@ -1760,22 +1760,18 @@
         "financial_resource"
       ],
       "sensitivity_class": "encrypted-user-data",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "warmup_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Ffunding-trade",
+      "reviewer_fixture": "/one/kai/funding-trade",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1787,14 +1783,11 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": true,
+        "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source",
-        "loader detected; verify warm cache path avoids blocking loader"
-      ]
+      "findings": []
     },
     {
       "route": "/one/kai/import",
@@ -1850,9 +1843,9 @@
     {
       "route": "/one/kai/investments",
       "page_file": "app/one/kai/investments/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [
         "KAI_FINANCIAL_RESOURCE",
         "STOCK_CONTEXT",
@@ -1863,22 +1856,18 @@
         "financial_resource"
       ],
       "sensitivity_class": "encrypted-user-data",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "warmup_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Finvestments",
+      "reviewer_fixture": "/one/kai/investments",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1890,14 +1879,11 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": true,
+        "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source",
-        "loader detected; verify warm cache path avoids blocking loader"
-      ]
+      "findings": []
     },
     {
       "route": "/one/kai/market",
@@ -2492,7 +2478,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2535,7 +2521,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2578,7 +2564,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2621,7 +2607,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2664,7 +2650,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2711,7 +2697,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2917,7 +2903,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -2960,7 +2946,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3096,7 +3082,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3139,7 +3125,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3182,7 +3168,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3269,7 +3255,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3312,7 +3298,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3355,7 +3341,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3398,7 +3384,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3441,7 +3427,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3484,7 +3470,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -3527,7 +3513,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
@@ -4794,5 +4780,5 @@
       ]
     }
   ],
-  "content_sha256": "bac2a4f5d5142836618b2c2a160447301d2b277e1dceaa053c33113ac997ad4e"
+  "content_sha256": "7d8767624d8685d50ebcc7d2db38aea2ee560808e095aeed51ecfd6659a0afff"
 }

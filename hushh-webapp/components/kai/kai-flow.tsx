@@ -3368,7 +3368,6 @@ export function KaiFlow({
           portfolioData={
             (flowData.portfolioData ?? plaidPortfolioData ?? { holdings: [] }) as PortfolioData
           }
-          onAnalyzeStock={handleAnalyzeStock}
           onReupload={handleReimport}
         />
       )}

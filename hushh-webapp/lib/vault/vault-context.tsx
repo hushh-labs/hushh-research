@@ -32,6 +32,10 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import {
+  clearAgentChatHistoryCache,
+  warmAgentChatHistoryCache,
+} from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
@@ -136,6 +140,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
       clearAgentPkmContext(lockedUserId);
+      clearAgentChatHistoryCache(lockedUserId);
       clearGeminiRuntimeConnectionCache(lockedUserId);
       CacheService.getInstance().invalidate(
         CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId),
@@ -371,6 +376,16 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const prefetchDashboardData = useCallback(
     async (userId: string, token: string, key: string, routePath?: string) => {
       try {
+        // Agent history must not wait on Firebase token resolution. The Agent
+        // workspace joins this protected, memory-only single-flight cache, so
+        // starting it here lets the post-unlock work continue while optional
+        // Firebase-authenticated consent warming resolves below.
+        void warmAgentChatHistoryCache({
+          userId,
+          vaultOwnerToken: token,
+        }).catch((error) => {
+          console.warn("[VaultContext] Agent chat history warm-up failed:", error);
+        });
         void import("@/lib/services/connected-systems-resource-service")
           .then(({ ConnectedSystemsResourceService }) =>
             ConnectedSystemsResourceService.warmBindingStatuses({

@@ -156,16 +156,26 @@ Do:
   and pending-page cache in the background, regardless of the route that
   opened the vault. This preserves an immediate same-session render without
   persisting consent list entries.
-- After every successful vault unlock, `UnlockWarmOrchestrator` starts Agent
-  Chat's redacted PKM working-set warmup in the background. It never blocks the
-  unlock UI; the Agent workspace joins that in-flight work or starts a fallback
-  warmup when needed. The working set remains process-memory-only and is cleared
-  synchronously when the vault locks, the user changes, or PKM changes.
+- After every successful vault unlock, the vault runtime starts Agent Chat's
+  protected conversation-history warmup before optional Firebase-authenticated
+  work. `UnlockWarmOrchestrator` starts the redacted PKM working set and joins
+  the same single-flight history resource for route-level warming. Neither
+  warmup blocks the unlock UI; the Agent workspace joins in-flight work or
+  starts a fallback when needed. The working set remains process-memory-only
+  and is cleared synchronously when the vault locks, the user changes, or PKM
+  changes.
 - Agent Chat treats the working-set TTL as a revalidation age, not an eviction
   deadline. Once decrypted records are loaded in the current unlocked session,
   the prior bounded projection answers the next turn immediately while one
   user-scoped refresh checks metadata and reloads ciphertext only when its
   revision changed. No decrypted working set survives vault lock or process exit.
+- Agent Chat conversation metadata and message history use a separate
+  process-memory-only, user-scoped cache. Vault unlock single-flights a bounded
+  warm of the recent conversation list and latest thread; opening Agent Chat
+  renders the composer first, consumes that warm cache when present, and defers
+  a cold history request to an idle beat. Direct Ask One handoffs never wait for
+  or get overwritten by restoration. Selecting another thread loads only that
+  thread, and vault lock synchronously clears all cached chat text.
 - A loaded Connected Systems record follows the same protected L1 rule: show the
   current-session record immediately, then re-read it silently after binding and
   schema authority settle. Record values, binding IDs, and staged changes never

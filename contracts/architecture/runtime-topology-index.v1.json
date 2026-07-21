@@ -1545,7 +1545,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-funding-trade",
+      "native_surface_id": null,
       "page_file": "app/kai/funding-trade/page.tsx",
       "pathname": "/kai/funding-trade",
       "route_mode": "redirect",
@@ -1591,7 +1591,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-investments",
+      "native_surface_id": null,
       "page_file": "app/kai/investments/page.tsx",
       "pathname": "/kai/investments",
       "route_mode": "redirect",
@@ -1889,9 +1889,6 @@
           "route.one_pkm"
         ],
         "delegate_agent_ids": [
-          "agent_connected_systems",
-          "agent_connections",
-          "agent_email",
           "agent_location",
           "agent_nav"
         ],
@@ -2059,7 +2056,6 @@
           "route.ria_requests_compat"
         ],
         "delegate_agent_ids": [
-          "agent_connections",
           "agent_nav"
         ],
         "playbook_id": "route.consents"
@@ -2210,8 +2206,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "market_data",
           "financial_resource"
@@ -2219,10 +2215,10 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-funding-trade",
+      "native_surface_id": null,
       "page_file": "app/one/kai/funding-trade/page.tsx",
       "pathname": "/one/kai/funding-trade",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -2260,8 +2256,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "market_data",
           "financial_resource"
@@ -2269,15 +2265,13 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-investments",
+      "native_surface_id": null,
       "page_file": "app/one/kai/investments/page.tsx",
       "pathname": "/one/kai/investments",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.kai_investments"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.investments"
       }
@@ -4060,21 +4054,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "aa5ea6e6f46d3dfabf79e4fddf80a987541f43d98ea136a645ba48af591dc164",
-    "agent_registry": "9d1de73f99b3cf4d18816e185434536ebc272bcad9d3058823245bdf580ea78b",
-    "cache_manifest": "d23f81539d21f6d00591686d6c2dcc464c54e0168ca5a7944fe094b7baa83a12",
+    "action_gateway": "3f982e6ed3859a48f1f7fd61b9de7119f233d9cc8dad073a8f40b3a537d14a73",
+    "agent_registry": "277e07bfd16d70760bd47c197521a6844239e76eb454e0e91633f71310307c86",
+    "cache_manifest": "991a2817597c0682ea91d0fe84526233706993293d37e4d762d0a5ea8fb5ff3c",
     "data_plane": "8c737de2775fb032e82a1b030e93507e12e562bd230336c61bac3c89d8386d33",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "b914e73295b83c169df10e7fb001814533f0281a813dfa055b0dc122f34bc85c",
-    "route_layout": "7ea669b5a05588dacbe9bbd17f8b1fe8c698ff03b64d0c685887d1c02b0cb79b",
-    "surface_map": "c10aec49af2e622f239275f847b136a40a618be818e217a931e759eb2d9f31cf",
+    "route_index": "4b924c314c763470ad5051602b44371c101dadbee314152c37692c98770763bc",
+    "route_layout": "0381b248ae2f38bb4f5edeb956be9145d7d6590b513546101c8c29a39d2cc868",
+    "surface_map": "c6eebacfe9ec41606fd4721083c33a09f5173aaba6305da3a5845e6cc51a0c66",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 117,
+    "actions": 116,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,

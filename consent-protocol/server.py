@@ -376,6 +376,20 @@ logger.info(
 
 
 @app.on_event("startup")
+async def startup_one_runtime_dependency_guard() -> None:
+    """Reject a process launched with an interpreter outside the pinned ADK contract."""
+    from hushh_mcp.runtime_readiness import assert_pinned_google_adk, runtime_dependency_evidence
+
+    assert_pinned_google_adk()
+    evidence = runtime_dependency_evidence()
+    logger.info(
+        "startup.one_runtime_dependency_ready google_adk_expected=%s google_adk_installed=%s",
+        evidence["google_adk_expected"],
+        evidence["google_adk_installed"],
+    )
+
+
+@app.on_event("startup")
 async def startup_pool_and_iam_cache() -> None:
     """Eagerly create the asyncpg pool and pre-populate the IAM schema cache.
 

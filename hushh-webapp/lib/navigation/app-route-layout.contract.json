@@ -1166,11 +1166,11 @@
   {
     "route": "/kai/investments",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/investments surface.",
+    "exemptionReason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.kai.investments",
-      "purpose": "Help the person understand and use the investments screen through its generated controls.",
-      "screen": "kai_investments",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1192,24 +1192,16 @@
   },
   {
     "route": "/one/kai/investments",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/kai/views/investments-master-view.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.investments",
-      "purpose": "Help the person understand and use the investments screen through its generated controls.",
-      "screen": "kai_investments",
-      "entryCue": "You can say “Open Investments Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_investments",
-      "happyPathActionIds": ["route.kai_investments"],
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1220,19 +1212,19 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/investments",
-      "returnPolicy": "stay",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/kai/funding-trade",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/funding-trade surface.",
+    "exemptionReason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.kai.funding.trade",
-      "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-      "screen": "kai_funding_trade",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1254,20 +1246,12 @@
   },
   {
     "route": "/one/kai/funding-trade",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/kai/views/funding-trade-view.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.funding.trade",
-      "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-      "screen": "kai_funding_trade",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1283,7 +1267,7 @@
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
-      "returnPolicy": "stay",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

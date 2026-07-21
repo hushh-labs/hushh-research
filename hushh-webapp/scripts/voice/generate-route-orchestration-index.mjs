@@ -91,6 +91,7 @@ const routes = (surfaceMap.routes || [])
     const delegateAgentIds = [
       ...new Set(
         routeActions
+          .filter((action) => action.execution_target?.status === "wired")
           .map((action) => action.delegate_agent_id)
           .filter((agentId) => typeof agentId === "string" && agentId.trim()),
       ),

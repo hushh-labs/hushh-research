@@ -66,6 +66,11 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   warmAgentPkmContext: (...a: unknown[]) => agentPkmWarmMock(...a),
 }));
 
+const agentHistoryWarmMock = vi.fn();
+vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
+  warmAgentChatHistoryCache: (...a: unknown[]) => agentHistoryWarmMock(...a),
+}));
+
 vi.mock("@/lib/services/cache-service", () => {
   const store = new Map<string, unknown>();
   return {
@@ -167,6 +172,7 @@ function setupDefaultMocks() {
   apiGetConsentHistoryMock.mockResolvedValue(okJsonResponse({ items: [] }));
   consentRefreshEnsureRunningMock.mockResolvedValue(undefined);
   agentPkmWarmMock.mockResolvedValue(undefined);
+  agentHistoryWarmMock.mockResolvedValue(undefined);
 }
 
 /* ---------- tests ---------- */

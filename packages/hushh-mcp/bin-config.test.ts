@@ -107,8 +107,10 @@ describe("hushh-mcp CLI config output", () => {
         toolsOnly: true,
       },
       executionBoundary: {
-        consentLifecycleExecution: "enabled",
-        applicationAuthentication: "oauth2-client-credentials",
+        directAgentforceExecution: "catalog-only",
+        mulesoftUpstreamExecution: "operations-provisioned-execute-principal",
+        agentforcePersonalizedExecution: "requires-salesforce-supported-host-boundary",
+        applicationAuthentication: "oauth2-client-credentials-per-hop",
       },
     });
     expect(manifest.mulesoftAgentforceHandoff.agentforce.toolAllowlist).toEqual(
@@ -193,6 +195,27 @@ describe("hushh-mcp CLI config output", () => {
     const handoff = JSON.parse(stdout);
     expect(handoff.integrationTarget).toBe("mulesoft-agentforce");
     expect(handoff.agentforce.toolAllowlist).toHaveLength(5);
+    expect(handoff.agentforce.agentActionPolicy).toEqual({
+      catalogOnly: true,
+      directPersonalizedToolCalls: "blocked",
+      directToolCallResult: "REQUIRES_SECURE_CONSENT_FLOW",
+      muleControlPlaneTools: [
+        "search-user-scopes",
+        "prepare-campaign-context",
+        "request-consent",
+        "check-consent-status",
+      ],
+      agentforceActionDefault: "no-personalized-consent-actions",
+      salesforceApprovedUatActionAllowlist: [
+        "search-user-scopes",
+        "prepare-campaign-context",
+        "request-consent",
+        "check-consent-status",
+      ],
+      connectorOnlyTool: "get-encrypted-scoped-export",
+      connectorOnlyReason:
+        "The encrypted export is delivered to the registered connector and must be decrypted outside the Agentforce LLM.",
+    });
     expect(handoff.relayRequirements).toEqual({
       preserveToolNames: true,
       preserveInputOutputSchemas: true,
@@ -200,7 +223,11 @@ describe("hushh-mcp CLI config output", () => {
       allowPrompts: false,
       expandNestedFields: false,
     });
-    expect(handoff.executionBoundary.consentLifecycleExecution).toBe("enabled");
+    expect(handoff.executionBoundary).toMatchObject({
+      directAgentforceExecution: "catalog-only",
+      mulesoftUpstreamExecution: "operations-provisioned-execute-principal",
+      agentforcePersonalizedExecution: "requires-salesforce-supported-host-boundary",
+    });
     expect(stdout).not.toContain("client_secret");
     expect(stdout).not.toContain("developer-token");
   });

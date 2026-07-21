@@ -9585,7 +9585,6 @@
           "summary_mode": "specialist_answer"
         },
         "entrypoint_support": [
-          "voice",
           "chat",
           "typed_search",
           "command_bar",
@@ -9897,7 +9896,6 @@
           "summary_mode": "chat_handoff"
         },
         "entrypoint_support": [
-          "voice",
           "chat",
           "typed_search",
           "command_bar",
@@ -10069,7 +10067,7 @@
       "delegate_agent_id": "agent_connected_systems",
       "reachability": {
         "routes": [
-          "/connected-systems",
+          "/one/connected-systems",
           "/one"
         ],
         "screens": [
@@ -10114,7 +10112,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /connected-systems"
+          "current route becomes /one/connected-systems"
         ],
         "backend_effects": []
       },
@@ -11044,109 +11042,6 @@
             "action_id": "route.kai_import",
             "label": "Open Portfolio Import",
             "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.kai_investments",
-      "surface_id": "kai_portfolio_dashboard",
-      "label": "Open Investments Surface",
-      "aliases": [
-        "open investments",
-        "show investments"
-      ],
-      "search_keywords": [
-        "investments"
-      ],
-      "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/kai/investments"
-        ],
-        "screens": [
-          "kai_investments"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/kai/investments"
-      },
-      "control_ids": [
-        "view_investments"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "components/kai/views/dashboard-master-view.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kai/investments"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.kai_investments",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.kai_investments",
-            "label": "Open Investments Surface",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai/investments",
-              "screen": "kai_investments"
-            }
           }
         ],
         "progress_contract": {

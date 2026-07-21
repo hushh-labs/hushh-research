@@ -136,12 +136,6 @@ describe("top shell breadcrumbs", () => {
       items: [{ label: "One", href: "/one" }, { label: "Kai" }],
     });
 
-    // A Kai subroute opened during onboarding preserves the setup origin on the
-    // Kai-home hop so the retrace can still reach the hub.
-    expect(
-      resolveTopShellBreadcrumb("/one/kai/investments", fromSetup)?.backHref,
-    ).toBe("/one/kai?tab=market&from=%2Fone%2Fsetup");
-
     // Unsafe origins are rejected → One home fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "//evil.example/path");

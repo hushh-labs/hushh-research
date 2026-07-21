@@ -90,7 +90,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/profile")).toBe("profile_regulatory");
     expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
     expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
-    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_funding_trade");
+    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 

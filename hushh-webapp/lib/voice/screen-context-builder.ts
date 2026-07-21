@@ -47,6 +47,7 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.one_location",
   "route.one_pkm",
   "route.consents",
+  "route.profile_connected_systems",
 ];
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";

@@ -1,39 +1,22 @@
-// components/kai/charts/portfolio-history-chart.tsx
-
-/**
- * Portfolio History Chart - Real data visualization
- * 
- * Features:
- * - Displays actual historical portfolio values from brokerage statements
- * - Uses shadcn ChartContainer for proper dark mode support
- * - Graceful fallback to period summary when no historical data
- * - Responsive and mobile-friendly
- */
-
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
-  AreaChart,
   Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceDot,
   XAxis,
   YAxis,
-  CartesianGrid,
 } from "recharts";
-import { TrendingUp, TrendingDown, Calendar } from "lucide-react";
-import { cn } from "@/lib/utils";
+
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { Card, CardContent } from "@/lib/morphy-ux/card";
-import { Icon } from "@/lib/morphy-ux/ui";
-
-// =============================================================================
-// TYPES
-// =============================================================================
+import { cn } from "@/lib/utils";
 
 export interface HistoricalDataPoint {
   date: string;
@@ -41,264 +24,266 @@ export interface HistoricalDataPoint {
 }
 
 interface PortfolioHistoryChartProps {
-  data?: HistoricalDataPoint[];
-  beginningValue?: number;
-  endingValue?: number;
-  statementPeriod?: string;
+  data: HistoricalDataPoint[];
   height?: number;
   className?: string;
-  /** When true, renders without card wrapper for embedding */
-  inline?: boolean;
 }
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
+type RangeKey = "all" | "1y" | "3m" | "1m";
 
-function formatCurrency(value: number, decimals: number = 2): string {
+const RANGE_LABELS: Record<RangeKey, string> = {
+  all: "All",
+  "1y": "1Y",
+  "3m": "3M",
+  "1m": "1M",
+};
+
+function formatCurrency(value: number, maximumFractionDigits = 0): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
+    notation: Math.abs(value) >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits:
+      Math.abs(value) >= 1_000_000 ? 1 : maximumFractionDigits,
   }).format(value);
 }
 
-function formatAxisValue(value: number): string {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  }
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(0)}k`;
-  }
-  return `$${value.toFixed(0)}`;
-}
-
-function formatPercent(value: number): string {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
+function formatDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed);
 }
 
 function formatDateTick(value: string): string {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(parsed);
-  }
-  return raw.length > 10 ? `${raw.slice(0, 10)}…` : raw;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(parsed);
 }
 
-// =============================================================================
-// PERIOD SUMMARY FALLBACK
-// =============================================================================
-
-interface PeriodSummaryProps {
-  beginningValue: number;
-  endingValue: number;
-  statementPeriod?: string;
+function availableRanges(data: HistoricalDataPoint[]): RangeKey[] {
+  const first = new Date(data[0]?.date || "");
+  const last = new Date(data.at(-1)?.date || "");
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime()))
+    return ["all"];
+  const days = Math.max(0, (last.getTime() - first.getTime()) / 86_400_000);
+  return [
+    ...(days >= 30 ? (["1m"] as const) : []),
+    ...(days >= 90 ? (["3m"] as const) : []),
+    ...(days >= 365 ? (["1y"] as const) : []),
+    "all",
+  ];
 }
 
-function PeriodSummaryFallback({ 
-  beginningValue, 
-  endingValue, 
-  statementPeriod 
-}: PeriodSummaryProps) {
-  const changeInValue = endingValue - beginningValue;
-  const changePercent = beginningValue > 0 
-    ? ((changeInValue / beginningValue) * 100) 
-    : 0;
-  const isPositive = changeInValue >= 0;
-
-  return (
-    <div className="space-y-4">
-      {statementPeriod && (
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Icon icon={Calendar} size="sm" />
-          <span>{statementPeriod}</span>
-        </div>
-      )}
-      
-      <div className="grid grid-cols-2 gap-4">
-        <div className="text-center p-4 rounded-lg bg-muted/50">
-          <p className="text-xs text-muted-foreground mb-1">Beginning Value</p>
-          <p className="text-lg font-semibold">{formatCurrency(beginningValue)}</p>
-        </div>
-        <div className="text-center p-4 rounded-lg bg-muted/50">
-          <p className="text-xs text-muted-foreground mb-1">Ending Value</p>
-          <p className="text-lg font-semibold">{formatCurrency(endingValue)}</p>
-        </div>
-      </div>
-      
-      <div className={cn(
-        "flex items-center justify-center gap-2 py-3 rounded-lg",
-        isPositive ? "bg-emerald-500/10" : "bg-red-500/10"
-      )}>
-        <Icon
-          icon={isPositive ? TrendingUp : TrendingDown}
-          size="md"
-          className={isPositive ? "text-emerald-500" : "text-red-500"}
-        />
-        <span className={cn(
-          "font-medium",
-          isPositive ? "text-emerald-500" : "text-red-500"
-        )}>
-          {formatCurrency(Math.abs(changeInValue))} ({formatPercent(changePercent)})
-        </span>
-      </div>
-    </div>
-  );
+function filterRange(
+  data: HistoricalDataPoint[],
+  range: RangeKey,
+): HistoricalDataPoint[] {
+  if (range === "all") return data;
+  const last = new Date(data.at(-1)?.date || "");
+  if (Number.isNaN(last.getTime())) return data;
+  const days = range === "1m" ? 30 : range === "3m" ? 90 : 365;
+  const lowerBound = new Date(last);
+  lowerBound.setDate(lowerBound.getDate() - days);
+  const filtered = data.filter((point) => {
+    const date = new Date(point.date);
+    return !Number.isNaN(date.getTime()) && date >= lowerBound;
+  });
+  return filtered.length >= 2 ? filtered : data;
 }
 
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
-
+/**
+ * Renders only provider-backed historical points. It intentionally has no
+ * statement-period fallback: a range line is evidence, not decoration.
+ */
 export function PortfolioHistoryChart({
   data,
-  beginningValue = 0,
-  endingValue = 0,
-  statementPeriod,
-  height = 200,
+  height = 256,
   className,
-  inline = false,
 }: PortfolioHistoryChartProps) {
-  // Determine if we have enough data for a chart
-  const hasChartData = data && data.length >= 2;
-  
-  // Calculate if performance is positive
-  const isPositive = useMemo(() => {
-    if (hasChartData && data && data.length >= 2) {
-      const lastItem = data[data.length - 1];
-      const firstItem = data[0];
-      if (lastItem && firstItem) {
-        return lastItem.value >= firstItem.value;
-      }
-    }
-    return endingValue >= beginningValue;
-  }, [data, hasChartData, beginningValue, endingValue]);
+  const sanitizedData = useMemo(
+    () =>
+      data
+        .filter((point) => point.date && Number.isFinite(point.value))
+        .slice()
+        .sort(
+          (left, right) =>
+            new Date(left.date).getTime() - new Date(right.date).getTime(),
+        ),
+    [data],
+  );
+  const ranges = useMemo(() => availableRanges(sanitizedData), [sanitizedData]);
+  const [range, setRange] = useState<RangeKey>("all");
+  const [selectedPoint, setSelectedPoint] =
+    useState<HistoricalDataPoint | null>(null);
+  const visibleData = useMemo(
+    () => filterRange(sanitizedData, ranges.includes(range) ? range : "all"),
+    [range, ranges, sanitizedData],
+  );
+  const first = visibleData[0] ?? null;
+  const latest = visibleData.at(-1) ?? null;
+  const change = first && latest ? latest.value - first.value : 0;
+  const changePct =
+    first && first.value !== 0 ? (change / first.value) * 100 : 0;
+  const positive = change >= 0;
+  const readout = selectedPoint || latest;
+  const chartConfig = useMemo<ChartConfig>(
+    () => ({
+      value: {
+        label: "Portfolio value",
+        color: positive ? "var(--chart-2)" : "var(--destructive)",
+      },
+    }),
+    [positive],
+  );
 
-  // Chart config for shadcn ChartContainer - uses CSS variables for theme support
-  const chartConfig = useMemo<ChartConfig>(() => ({
-    value: {
-      label: "Portfolio Value",
-      color: isPositive ? "var(--chart-2)" : "var(--destructive)",
-    },
-  }), [isPositive]);
+  if (visibleData.length < 2 || !latest) return null;
 
-  // Use CSS variables for theme-aware colors
-  const chartColor = isPositive ? "var(--chart-2)" : "var(--destructive)";
+  const chartColor = positive ? "var(--chart-2)" : "var(--destructive)";
 
-  // If no historical data, show period summary fallback (only when not inline)
-  if (!hasChartData) {
-    if (!inline && (beginningValue > 0 || endingValue > 0)) {
-      return (
-        <Card variant="none" effect="glass" showRipple={false} className={className}>
-          <CardContent className="p-4">
-            <PeriodSummaryFallback
-              beginningValue={beginningValue}
-              endingValue={endingValue}
-              statementPeriod={statementPeriod}
-            />
-          </CardContent>
-        </Card>
-      );
-    }
-    return null;
-  }
-
-  // Chart content (shared between inline and card modes)
-  const chartContent = (
-    <>
-      {!inline && statementPeriod && (
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-4">
-          <Icon icon={Calendar} size="sm" />
-          <span>{statementPeriod}</span>
+  return (
+    <section
+      className={cn("min-w-0", className)}
+      aria-label="Portfolio performance"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Performance</p>
+          <p
+            className={cn(
+              "mt-1 text-sm font-medium",
+              positive
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-rose-600 dark:text-rose-400",
+            )}
+          >
+            {positive ? "+" : ""}
+            {formatCurrency(change)} ({positive ? "+" : ""}
+            {changePct.toFixed(2)}%)
+          </p>
         </div>
-      )}
-      
-      <ChartContainer 
-        config={chartConfig} 
-        className="w-full min-w-0 overflow-hidden"
+        {ranges.length > 1 ? (
+          <div
+            className="flex rounded-full bg-muted p-1"
+            aria-label="Performance range"
+          >
+            {ranges.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setRange(option);
+                  setSelectedPoint(null);
+                }}
+                className={cn(
+                  "min-h-8 rounded-full px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  range === option
+                    ? "bg-background text-foreground shadow-[var(--shadow-xs)]"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={range === option}
+              >
+                {RANGE_LABELS[option]}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-4 rounded-[var(--app-card-radius-compact)] bg-muted/40 px-3 py-2.5">
+        <p className="text-xs text-muted-foreground">
+          {readout ? formatDate(readout.date) : "Latest value"}
+        </p>
+        <p className="mt-0.5 text-lg font-medium tabular-nums text-foreground">
+          {readout ? formatCurrency(readout.value, 2) : "—"}
+        </p>
+      </div>
+
+      <ChartContainer
+        config={chartConfig}
+        className="mt-3 w-full min-w-0"
         style={{ height }}
       >
         <AreaChart
-          data={data}
+          data={visibleData}
           accessibilityLayer
-          margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+          margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+          onClick={(state) => {
+            const payload = state.activePayload?.[0]?.payload as
+              HistoricalDataPoint | undefined;
+            if (payload) setSelectedPoint(payload);
+          }}
         >
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            strokeOpacity={0.9}
-          />
-          <XAxis 
-            dataKey="date" 
+          <defs>
+            <linearGradient
+              id="portfolio-performance-fill"
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1"
+            >
+              <stop offset="0%" stopColor={chartColor} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={chartColor} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis
+            dataKey="date"
             tickFormatter={formatDateTick}
             tickLine={false}
             axisLine={false}
+            minTickGap={28}
             tickMargin={8}
-            interval="preserveStartEnd"
-            minTickGap={26}
-            tick={{ fontSize: 10 }}
           />
-          <YAxis 
+          <YAxis
+            tickFormatter={(value) => formatCurrency(Number(value))}
             tickLine={false}
             axisLine={false}
-            tickFormatter={formatAxisValue}
-            width={55}
-            domain={["dataMin * 0.95", "dataMax * 1.05"]}
+            width={58}
+            domain={["dataMin * 0.985", "dataMax * 1.015"]}
           />
           <ChartTooltip
-            cursor={false}
+            cursor={{ stroke: "hsl(var(--border))", strokeDasharray: "3 3" }}
             content={
-              <ChartTooltipContent 
-                formatter={(value) => formatCurrency(value as number)}
+              <ChartTooltipContent
+                labelFormatter={(label) => formatDate(String(label))}
+                formatter={(value) => formatCurrency(Number(value), 2)}
               />
             }
           />
-          <defs>
-            <linearGradient id="portfolioHistoryGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={chartColor} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
-            </linearGradient>
-          </defs>
           <Area
             dataKey="value"
             type="monotone"
-            fill="url(#portfolioHistoryGradient)"
             stroke={chartColor}
-            strokeWidth={3}
+            strokeWidth={2.5}
+            fill="url(#portfolio-performance-fill)"
             activeDot={{
-              r: 6,
-              style: { fill: chartColor, opacity: 0.9, stroke: "var(--background)", strokeWidth: 2 }
+              r: 5,
+              fill: chartColor,
+              stroke: "hsl(var(--background))",
+              strokeWidth: 2,
             }}
-            animationDuration={1500}
-            animationEasing="ease-in-out"
+            animationDuration={420}
           />
+          {selectedPoint ? (
+            <ReferenceDot
+              x={selectedPoint.date}
+              y={selectedPoint.value}
+              r={5}
+              fill={chartColor}
+              stroke="hsl(var(--background))"
+              strokeWidth={2}
+            />
+          ) : null}
         </AreaChart>
       </ChartContainer>
-      
-      {!inline && (
-        <p className="text-xs text-muted-foreground text-center mt-2">
-          Portfolio Value Over Time
-        </p>
-      )}
-    </>
-  );
-
-  // Inline mode: return just the chart content
-  if (inline) {
-    return <div className={className}>{chartContent}</div>;
-  }
-
-  // Card mode: wrap in card
-  return (
-    <Card variant="none" effect="glass" showRipple={false} className={className}>
-      <CardContent className="p-4">
-        {chartContent}
-      </CardContent>
-    </Card>
+    </section>
   );
 }
 

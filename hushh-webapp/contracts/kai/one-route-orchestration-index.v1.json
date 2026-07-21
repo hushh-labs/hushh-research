@@ -671,8 +671,8 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.kai.funding.trade",
-        "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-        "screen": "kai_funding_trade",
+        "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+        "screen": "kai_portfolio_dashboard",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -694,7 +694,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "kai_funding_trade",
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -703,7 +703,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-funding-trade"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/kai/import",
@@ -757,8 +757,8 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.kai.investments",
-        "purpose": "Help the person understand and use the investments screen through its generated controls.",
-        "screen": "kai_investments",
+        "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+        "screen": "kai_portfolio_dashboard",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -780,7 +780,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "kai_investments",
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -789,7 +789,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-investments"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/kai/onboarding",
@@ -1324,9 +1324,6 @@
       "delegation_policy": {
         "mode": "one_action_gate",
         "allowed_delegate_agent_ids": [
-          "agent_connected_systems",
-          "agent_connections",
-          "agent_email",
           "agent_location",
           "agent_nav"
         ]
@@ -1555,7 +1552,6 @@
       "delegation_policy": {
         "mode": "one_action_gate",
         "allowed_delegate_agent_ids": [
-          "agent_connections",
           "agent_nav"
         ]
       },
@@ -1749,14 +1745,14 @@
     {
       "route_pattern": "/one/kai/funding-trade",
       "page_file": "app/one/kai/funding-trade/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.kai.funding.trade",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.kai.funding.trade",
-        "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-        "screen": "kai_funding_trade",
+        "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+        "screen": "kai_portfolio_dashboard",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1772,13 +1768,13 @@
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
         "next_route": null,
-        "return_policy": "stay",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "kai_funding_trade",
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1787,7 +1783,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-funding-trade"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/kai/import",
@@ -1839,20 +1835,18 @@
     {
       "route_pattern": "/one/kai/investments",
       "page_file": "app/one/kai/investments/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.kai.investments",
-      "context_policy": "publish",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.kai.investments",
-        "purpose": "Help the person understand and use the investments screen through its generated controls.",
-        "screen": "kai_investments",
-        "entry_cue": "You can say “Open Investments Surface” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.kai_investments",
-        "happy_path_action_ids": [
-          "route.kai_investments"
-        ],
+        "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+        "screen": "kai_portfolio_dashboard",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1863,25 +1857,23 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": "/one/kai/investments",
-        "return_policy": "stay",
+        "next_route": null,
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "kai_investments",
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.kai_investments"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
-      "native_surface_id": "native-route-kai-investments"
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/kai/market",

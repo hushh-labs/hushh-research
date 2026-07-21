@@ -4763,9 +4763,9 @@ export function OneLocationAgentPageContent({
     toast.success("Live location preview is off.");
   }, []);
 
-  const dismissLocationOnboarding = useCallback(() => {
+  const dismissLocationOnboarding = useCallback(async () => {
     if (mode === "setup") {
-      void onSetupComplete?.();
+      await onSetupComplete?.();
       return;
     }
     // Persist only after dismissal/completion so an interrupted first run can
@@ -4785,9 +4785,9 @@ export function OneLocationAgentPageContent({
     setLocationOnboardingBusy(false);
   }, [auth.userId, mode, onSetupComplete]);
 
-  const skipLocationOnboarding = useCallback(() => {
+  const skipLocationOnboarding = useCallback(async () => {
     if (mode === "setup") {
-      void onSetupSkip?.();
+      await onSetupSkip?.();
       return;
     }
     dismissLocationOnboarding();

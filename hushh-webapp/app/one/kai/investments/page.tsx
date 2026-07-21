@@ -1,41 +1,15 @@
-"use client";
+import { ClientRedirect } from "@/components/navigation/client-redirect";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
-import { Suspense } from "react";
-
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { InvestmentsMasterView } from "@/components/kai/views/investments-master-view";
-import { useAuth } from "@/lib/firebase/auth-context";
-import { useVault } from "@/lib/vault/vault-context";
-
-function KaiInvestmentsPageContent() {
-  const { user, loading: authLoading } = useAuth();
-  const { vaultOwnerToken } = useVault();
-
-  if (authLoading || !user) {
-    return null;
-  }
-
+/**
+ * Temporary recovery endpoint for saved links and OAuth returns. The former
+ * Investments workspace was consolidated into the canonical Portfolio tab.
+ */
+export default function RetiredKaiInvestmentsPage() {
   return (
-    <>
-      <NativeTestBeacon
-        routeId="/one/kai/investments"
-        marker="native-route-kai-investments"
-        authState="authenticated"
-        dataState="loaded"
-      />
-      <InvestmentsMasterView
-        userId={user.uid}
-        vaultOwnerToken={vaultOwnerToken ?? ""}
-      />
-    </>
-  );
-}
-
-export default function KaiInvestmentsPage() {
-  return (
-    <Suspense fallback={<HushhLoader label="Loading investments..." variant="fullscreen" />}>
-      <KaiInvestmentsPageContent />
-    </Suspense>
+    <ClientRedirect
+      to={buildKaiMarketRoute("portfolio")}
+      redirectRouteId="kai_dashboard_legacy_redirect"
+    />
   );
 }

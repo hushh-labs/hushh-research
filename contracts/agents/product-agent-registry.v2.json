@@ -1410,7 +1410,14 @@
         "data": [],
         "invocation": []
       },
-      "capabilities": {},
+      "capabilities": {
+        "direct_subagents": [
+          "agent_connections"
+        ],
+        "roles": [
+          "consent_review"
+        ]
+      },
       "credential_policy": {
         "allowed": [
           "hushh_managed_vertex"
@@ -1618,8 +1625,7 @@
           "agent_kyc",
           "agent_email",
           "agent_location",
-          "agent_connected_systems",
-          "agent_consent"
+          "agent_connected_systems"
         ]
       },
       "credential_policy": {
@@ -1703,7 +1709,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "7d0b2f3bdcd8fc656828bfabaf54f2dbd9f94a06458abc4b54ed56757a009982",
+      "system_instruction_sha256": "70ba663f9d61ca8675d708da2d3d0e49fe2afd12c525a195e9318ecb5a2b76e9",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",

@@ -293,9 +293,7 @@ export function resolveTopShellBreadcrumb(
   // origin is preserved on the Kai-home hop so the retrace can still reach the
   // setup hub from a subroute opened during onboarding.
   const kaiSubroutes: Array<[string, string]> = [
-    [ROUTES.KAI_INVESTMENTS, "Investments"],
     [ROUTES.KAI_OPTIMIZE, "Optimize"],
-    [ROUTES.KAI_FUNDING_TRADE, "Funding"],
   ];
   for (const [route, label] of kaiSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
