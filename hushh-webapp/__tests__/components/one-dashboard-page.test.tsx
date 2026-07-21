@@ -64,7 +64,9 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Agents (8)" }),
+    ).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -76,6 +78,7 @@ describe("OneDashboardPage", () => {
     const expectedProfileFormatIcons = [
       "finance",
       "ria",
+      "gmail",
       "email",
       "pkm",
       "consent",
@@ -96,6 +99,7 @@ describe("OneDashboardPage", () => {
     const rosterPaletteOrder = [
       "finance",
       "ria",
+      "gmail",
       "email",
       "location",
       "pkm",
@@ -107,7 +111,16 @@ describe("OneDashboardPage", () => {
         .getAllByTestId(`one-agent-icon-${id}`)[0]
         .getAttribute("data-agent-icon-palette-index"),
     );
-    expect(rosterPaletteSlots).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
+    expect(rosterPaletteSlots).toEqual([
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+    ]);
     expect(
       new Set(
         rosterPaletteOrder.map((id) =>
@@ -135,7 +148,9 @@ describe("OneDashboardPage", () => {
     // colored workflow card.
     expect(financeLink.className).not.toContain("border-emerald-500");
     expect(financeLink.getAttribute("style") ?? "").not.toContain("background");
-    expect(screen.queryByRole("link", { name: "Open Gmail" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
+    ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
       screen.getByRole("link", { name: "Open KYC" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_KYC);
@@ -154,11 +169,9 @@ describe("OneDashboardPage", () => {
     ).toBeGreaterThan(0);
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByText("Explore")).toBeNull();
-    // Gmail is intentionally paused in the One surface while its runtime and
-    // Profile recovery controls remain available. Five agents are currently
-    // setup capabilities; Memory, Consent/Nav, and Marketplace are direct
-    // workspaces and never inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(7);
+    // Six agents are currently setup capabilities; Memory, Consent/Nav, and
+    // Marketplace are direct workspaces and never inflate setup progress.
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -190,8 +203,10 @@ describe("OneDashboardPage", () => {
 
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
-    expect(countRosterMetrics(document.body, "0", "actions due")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
+    expect(countRosterMetrics(document.body, "0", "actions due")).toBe(6);
+    expect(
+      screen.getByRole("heading", { name: "Agents (8)" }),
+    ).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
 

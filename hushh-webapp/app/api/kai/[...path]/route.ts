@@ -8,10 +8,11 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
+import { resolveGmailIntegrationEnabled } from "@/lib/profile/gmail-feature";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
-const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
-  developmentFloorMs: 15_000,
+const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
+  developmentFloorMs: 75_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
 });
 const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
@@ -33,6 +34,13 @@ const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, 
 
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
+}
+
+function isGmailProxyEnabled(): boolean {
+  return resolveGmailIntegrationEnabled(
+    process.env.GMAIL_INTEGRATION_ENABLED ??
+      process.env.NEXT_PUBLIC_GMAIL_INTEGRATION_ENABLED,
+  );
 }
 
 function isUpstreamTimeoutError(error: unknown): boolean {
@@ -92,7 +100,12 @@ function resolveUpstreamSignal(
   return controller.signal;
 }
 
-function buildUpstreamFailurePayload(path: string, error: unknown) {
+function buildUpstreamFailurePayload(
+  path: string,
+  error: unknown,
+  options?: { timedOut?: boolean }
+) {
+  const timedOut = options?.timedOut ?? isUpstreamTimeoutError(error);
   if (!isGmailPath(path)) {
     return {
       error: "Upstream request failed",
@@ -110,9 +123,18 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
   if (path === "gmail/reconcile") {
     return {
       error: "Gmail refresh unavailable",
-      message: isUpstreamTimeoutError(error)
+      message: timedOut
         ? "Gmail is taking a little longer to refresh right now. Please try again in a moment."
         : "We couldn't refresh your Gmail connection right now. Please try again in a moment.",
+    };
+  }
+
+  if (path === "gmail/disconnect") {
+    return {
+      error: "Gmail disconnect unavailable",
+      message: timedOut
+        ? "Gmail is taking too long to disconnect right now. Please try again in a moment."
+        : "We couldn't disconnect Gmail right now. Please try again in a moment.",
     };
   }
 
@@ -139,7 +161,7 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 
   return {
     error: "Gmail temporarily unavailable",
-    message: isUpstreamTimeoutError(error)
+    message: timedOut
       ? "Gmail is taking too long to respond right now. Please try again in a moment."
       : "Gmail is temporarily unavailable. Please try again in a moment.",
   };
@@ -222,6 +244,17 @@ export async function DELETE(
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
+  let upstreamTimeoutMs: number | null = null;
+  if (isGmailPath(path) && !isGmailProxyEnabled()) {
+    return withRequestIdJson(
+      requestId,
+      {
+        error: "Gmail integration disabled",
+        message: "Gmail integration is currently disabled.",
+      },
+      { status: 404 },
+    );
+  }
   // Forward query string to backend
   const queryString = request.nextUrl.search;
   const url = `${getPythonApiUrl()}/api/kai/${path}${queryString}`;
@@ -272,7 +305,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body = await request.text();
     }
 
-    const upstreamTimeoutMs = resolveKaiUpstreamTimeoutMs(path);
+    upstreamTimeoutMs = resolveKaiUpstreamTimeoutMs(path);
 
     const response = await fetch(url, {
       method: request.method,
@@ -333,7 +366,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     return withRequestIdJson(requestId, data);
   } catch (error) {
-    if (isClientAbortError(error)) {
+    const requestWasAborted = request.signal.aborted;
+    const upstreamTimedOut =
+      isUpstreamTimeoutError(error) ||
+      (isClientAbortError(error) && !requestWasAborted && upstreamTimeoutMs !== null);
+    if (isClientAbortError(error) && requestWasAborted) {
       console.info(`[Kai API] request_id=${requestId} client_aborted path=${path}`);
       return withRequestIdJson(
         requestId,
@@ -349,10 +386,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,
       summarizeProxyError(error)
     );
-    const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
+    const statusCode = upstreamTimedOut ? 504 : 502;
     return withRequestIdJson(
       requestId,
-      buildUpstreamFailurePayload(path, error),
+      buildUpstreamFailurePayload(path, error, { timedOut: upstreamTimedOut }),
       { status: statusCode }
     );
   }

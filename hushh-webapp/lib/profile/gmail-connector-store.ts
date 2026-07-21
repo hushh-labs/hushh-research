@@ -6,6 +6,7 @@ import { AppBackgroundTaskService } from "@/lib/services/app-background-task-ser
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   GmailReceiptsService,
+  isGmailRequestCancelledError,
   type GmailConnectionStatus,
   type GmailSyncQueueResponse,
   type GmailSyncRun,
@@ -621,6 +622,13 @@ async function fetchStatusFromNetwork(params: {
         }
       }
 
+      if (isGmailRequestCancelledError(error)) {
+        updateEntry(normalizedUserId, {
+          statusError: null,
+        });
+        return entry.status;
+      }
+
       console.error(
         "[gmail-connector-store] Failed to refresh Gmail status:",
         error,
@@ -784,6 +792,10 @@ async function pollSyncRun(params: {
       });
     }
   } catch (error) {
+    if (isGmailRequestCancelledError(error) || controller.signal.aborted) {
+      return;
+    }
+
     console.error(
       "[gmail-connector-store] Failed to poll Gmail sync run:",
       error,

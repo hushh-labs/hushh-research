@@ -59,6 +59,7 @@ import {
 } from "@/lib/services/gmail-receipt-memory-service";
 import {
   GmailReceiptsService,
+  isGmailRequestCancelledError,
   type GmailSyncRun,
   type ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
@@ -81,6 +82,7 @@ import {
   readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
+import { openNativeGmailOAuthUrl } from "@/lib/profile/gmail-native-oauth";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -429,6 +431,20 @@ export default function GmailReceiptsPage({
             has_more: nextHasMore,
           },
         });
+      } catch (error) {
+        if (isGmailRequestCancelledError(error)) {
+          return;
+        }
+        console.error("[ProfileReceiptsPage] Failed to load Gmail receipts:", error);
+        if (!options?.silent) {
+          toast.error(
+            sanitizeGmailUserMessage(error, {
+              fallback:
+                "We couldn't load your receipts right now. Please try again in a moment.",
+              authFallback: "Reconnect Gmail to continue syncing your receipts.",
+            }),
+          );
+        }
       } finally {
         if (showBlockingLoader) {
           setLoadingReceipts(false);
@@ -616,15 +632,9 @@ export default function GmailReceiptsPage({
   const handleConnectGmail = useCallback((): Promise<boolean> => {
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
 
-    if (Capacitor.isNativePlatform()) {
-      toast.error(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
-      );
-      return Promise.resolve(false);
-    }
-
-    const attempt = createGmailOAuthPopupAttempt();
-    const popup = openGmailOAuthPopup(attempt);
+    const isNative = Capacitor.isNativePlatform();
+    const attempt = isNative ? null : createGmailOAuthPopupAttempt();
+    const popup = attempt ? openGmailOAuthPopup(attempt) : null;
     if (popup) {
       gmailPopupRef.current = popup;
       setGmailPopupAttempt(attempt);
@@ -683,6 +693,16 @@ export default function GmailReceiptsPage({
             console.warn(
               "[ProfileReceiptsPage] Gmail setup popup could not persist its browser correlation; the return route will recover from the durable journey.",
             );
+          }
+        }
+
+        if (isNative) {
+          const openedNativeBrowser = await openNativeGmailOAuthUrl(
+            payload.authorize_url,
+          );
+          if (openedNativeBrowser) {
+            setGmailActionBusy(null);
+            return true;
           }
         }
 
@@ -803,6 +823,62 @@ export default function GmailReceiptsPage({
       );
     }
   }, [gmail, isConnected, syncing, user?.uid]);
+
+  useLocalOnboardingActionHandler(
+    "profile.gmail.connect",
+    () => {
+      if (journeyVariant === "onboarding") {
+        return {
+          status: "blocked",
+          summary: "Use the Gmail setup action on this onboarding screen.",
+        };
+      }
+      if (gmailActionBusy !== null) {
+        return {
+          status: "blocked",
+          summary: "Gmail connection is already being prepared.",
+        };
+      }
+      return handleConnectGmail().then((opened) => {
+        if (!opened) {
+          return {
+            status: "blocked",
+            summary:
+              "Use the Connect Gmail button to open the secure Gmail connection window.",
+          };
+        }
+        return {
+          status: "started",
+          summary:
+            "Gmail connection is open in its secure window. Finish setup after it verifies.",
+        };
+      });
+    },
+    { enabled: journeyVariant !== "onboarding" },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.gmail.sync_now",
+    () => {
+      if (!isConnected) {
+        return {
+          status: "blocked",
+          summary: "Connect Gmail before syncing receipts.",
+        };
+      }
+      if (syncing || gmailActionBusy !== null) {
+        return {
+          status: "blocked",
+          summary: "Gmail receipt sync is already running.",
+        };
+      }
+      return handleSyncNow().then(() => ({
+        status: "started",
+        summary: "Gmail receipt sync is refreshing.",
+      }));
+    },
+    { enabled: journeyVariant !== "onboarding" },
+  );
 
   const progressPercent = useMemo(
     () => computeSyncProgressPercent(gmail.syncRun),
@@ -934,6 +1010,7 @@ export default function GmailReceiptsPage({
               label: "Disconnect Gmail",
               purpose:
                 "disconnects Gmail sync while keeping already saved receipts available.",
+              actionId: "profile.gmail.disconnect",
               role: "button",
               voiceAliases: ["disconnect gmail", "turn off gmail sync"],
             },
@@ -947,7 +1024,7 @@ export default function GmailReceiptsPage({
               actionId:
                 journeyVariant === "onboarding"
                   ? "setup.connect_gmail"
-                  : null,
+                  : "profile.gmail.connect",
               role: "button",
               voiceAliases: [
                 "connect gmail",
@@ -1023,10 +1100,12 @@ export default function GmailReceiptsPage({
           purpose: "This section lists the receipts we already found in Gmail.",
         },
       ],
-      actions: availableActions.map((action) => ({
-        id: action.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-        label: action,
-        purpose: `${action} from this receipts workspace.`,
+      actions: controls.map((control) => ({
+        id: control.actionId || control.id,
+        actionId: control.actionId || null,
+        label: control.label,
+        purpose: control.purpose || `${control.label} from this receipts workspace.`,
+        voiceAliases: control.voiceAliases,
       })),
       controls,
       concepts: [
@@ -1386,6 +1465,7 @@ export default function GmailReceiptsPage({
                   disabled={syncing || gmailActionBusy !== null}
                   className="min-w-[150px]"
                   data-voice-control-id="disconnect_gmail"
+                  data-voice-action-id="profile.gmail.disconnect"
                   data-voice-label="Disconnect Gmail"
                   data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
                 >
@@ -1458,7 +1538,7 @@ export default function GmailReceiptsPage({
                   data-voice-action-id={
                     journeyVariant === "onboarding"
                       ? "setup.connect_gmail"
-                      : undefined
+                      : "profile.gmail.connect"
                   }
                   data-voice-label={primaryActionLabel}
                   data-voice-purpose="starts Gmail connection or reconnection from this receipts page."
@@ -1478,6 +1558,7 @@ export default function GmailReceiptsPage({
                     disabled={gmailActionBusy !== null}
                     className="h-12 w-full px-8 text-base sm:w-auto"
                     data-voice-control-id="disconnect_gmail"
+                    data-voice-action-id="profile.gmail.disconnect"
                     data-voice-label="Disconnect Gmail"
                     data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
                   >

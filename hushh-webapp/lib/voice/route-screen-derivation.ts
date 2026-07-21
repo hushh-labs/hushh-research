@@ -1,6 +1,8 @@
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 
+const LEGACY_PROFILE_GMAIL_OAUTH_RETURN_ROUTE = "/profile/gmail/oauth/return";
+
 export type VoiceRouteScreenInfo = {
   screen: string;
   subview?: string | null;
@@ -246,6 +248,12 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
     return { screen: "gmail", subview: "legacy" };
+  }
+  if (
+    normalizedPath === ROUTES.PROFILE_GMAIL_OAUTH_RETURN ||
+    normalizedPath === LEGACY_PROFILE_GMAIL_OAUTH_RETURN_ROUTE
+  ) {
+    return { screen: "profile_account", subview: "gmail_oauth_return" };
   }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);

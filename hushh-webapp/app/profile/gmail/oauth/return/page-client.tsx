@@ -41,10 +41,9 @@ type OnboardingConnectorIntentRef = Pick<
 >;
 
 function resolveErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-  return "Gmail connection could not be completed.";
+  return sanitizeGmailUserMessage(error, {
+    fallback: "Gmail connection could not be completed.",
+  });
 }
 
 /**
@@ -195,12 +194,14 @@ export default function ProfileGmailOAuthReturnPageClient({
     if (oauthError) {
       const oauthErrorDescription =
         liveErrorDescription || initialErrorDescription;
-      setStage("error");
-      setError(
-        oauthErrorDescription ||
-          oauthError ||
-          "Google OAuth authorization was denied.",
+      const safeMessage = sanitizeGmailUserMessage(
+        oauthErrorDescription || oauthError,
+        {
+          fallback: "Gmail connection could not be completed.",
+        },
       );
+      setStage("error");
+      setError(safeMessage);
       void persistEarlyCallbackOutcome(
         oauthError.toLowerCase() === "access_denied" ? "cancelled" : "failed",
       ).finally(() => {
@@ -209,13 +210,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             oauthError.toLowerCase() === "access_denied"
               ? "cancelled"
               : "failed",
-          message:
-            sanitizeGmailUserMessage(
-              oauthErrorDescription || oauthError,
-              {
-                fallback: "Gmail connection could not be completed.",
-              },
-            ),
+          message: safeMessage,
         });
       });
       return;

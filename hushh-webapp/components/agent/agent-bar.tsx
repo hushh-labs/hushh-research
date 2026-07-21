@@ -1218,13 +1218,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       return;
     }
 
-    const controller = new AbortController();
+    let prewarmActive = true;
     const timer = window.setTimeout(() => {
       // Context (screen, consent token) rides in post-connect app_context
       // frames, so the prewarmed URL only carries the opaque relay ticket.
-      void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
+      void ApiService.getOneAdkLiveRelayUrl()
         .then((relayUrl) => {
-          if (controller.signal.aborted) return;
+          if (!prewarmActive) return;
           prewarmedRelayRef.current = {
             relayUrl,
             expiresAtMs: Date.now() + 45_000,
@@ -1233,14 +1233,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           };
         })
         .catch(() => {
-          if (!controller.signal.aborted) {
+          if (prewarmActive) {
             prewarmedRelayRef.current = null;
           }
         });
     }, 300);
 
     return () => {
-      controller.abort();
+      prewarmActive = false;
       window.clearTimeout(timer);
     };
   }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier]);

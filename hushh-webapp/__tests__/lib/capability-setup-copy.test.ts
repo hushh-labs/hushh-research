@@ -2,8 +2,12 @@ import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { describe, expect, it } from "vitest";
 
 describe("onboarding capability copy", () => {
-  it("does not expose setup copy for the paused Gmail capability", () => {
-    expect(getCapabilitySetupCopy("gmail")).toBeUndefined();
+  it("exposes setup copy for Gmail when the capability is enabled", () => {
+    expect(getCapabilitySetupCopy("gmail")).toMatchObject({
+      setupTitle: "Connect Gmail",
+      actionLabel: "Connect Gmail",
+      resumeActionLabel: "Finish Gmail",
+    });
   });
 
   it("frames location as a trusted-person sharing choice", () => {

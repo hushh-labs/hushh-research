@@ -62,6 +62,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return`; the key name is shared but the value is environment-specific. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `GMAIL_INTEGRATION_ENABLED` | `api/routes/kai/gmail.py`, `hushh_mcp/services/gmail_receipts_service.py` | No | Default-on kill switch for all backend Gmail routes and scheduled sync. Set to `false`, `0`, `off`, `no`, `disabled`, or `paused` to hide the integration at runtime. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |
@@ -309,6 +310,7 @@ Local runtime bootstrap:
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_TOKEN_KEY` | Yes | GCP Secret Manager |
+| `GMAIL_INTEGRATION_ENABLED` | No | Cloud Run env var |
 | `OPENAI_API_KEY` | Yes | GCP Secret Manager |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
 | `VOICE_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |

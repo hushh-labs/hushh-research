@@ -49,6 +49,11 @@ const mocks = vi.hoisted(() => {
       clear: vi.fn(),
     },
     assignWindowLocation: vi.fn(),
+    nativeGmailOAuth: {
+      open: vi.fn(),
+      close: vi.fn(),
+      resolveReturnHref: vi.fn(),
+    },
     capacitor: {
       isNativePlatform: vi.fn(),
     },
@@ -273,6 +278,12 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
     mocks.gmailOAuthPopup.clear(...args),
   isGmailOAuthPopupSettlement: () => false,
   readGmailOAuthPopupSettlementFallback: () => null,
+}));
+
+vi.mock("@/lib/profile/gmail-native-oauth", () => ({
+  openNativeGmailOAuthUrl: mocks.nativeGmailOAuth.open,
+  closeNativeGmailOAuthBrowser: mocks.nativeGmailOAuth.close,
+  resolveNativeGmailOAuthReturnHref: mocks.nativeGmailOAuth.resolveReturnHref,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -541,6 +552,9 @@ describe("ProfileReceiptsPage", () => {
     gmailView = buildGmailView();
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
     mocks.capacitor.isNativePlatform.mockReturnValue(false);
+    mocks.nativeGmailOAuth.open.mockResolvedValue(true);
+    mocks.nativeGmailOAuth.close.mockResolvedValue(undefined);
+    mocks.nativeGmailOAuth.resolveReturnHref.mockReturnValue(null);
     mocks.preVaultUserStateService.bootstrapState.mockResolvedValue(null);
     mocks.preVaultUserStateService.syncOnboardingJourney.mockResolvedValue(
       undefined,
@@ -1072,7 +1086,7 @@ describe("ProfileReceiptsPage", () => {
     }
   });
 
-  it("does not launch browser Gmail OAuth inside the native iOS shell", async () => {
+  it("launches Gmail OAuth through the native iOS browser handoff", async () => {
     mocks.capacitor.isNativePlatform.mockReturnValue(true);
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
@@ -1097,23 +1111,40 @@ describe("ProfileReceiptsPage", () => {
         },
       }),
     );
+    mocks.preVaultUserStateService.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "capability_setup",
+      onboardingActiveCapability: "gmail",
+      onboardingJourneyUpdatedAt: 456,
+    });
 
     render(<ProfileReceiptsPage journeyVariant="onboarding" />);
 
     fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
 
     await waitFor(() => {
-      expect(mocks.toast.error).toHaveBeenCalledWith(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+      expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        loginHint: "akshat@example.com",
+        includeGrantedScopes: true,
+      });
+      expect(mocks.nativeGmailOAuth.open).toHaveBeenCalledWith(
+        "https://accounts.google.com/o/oauth2/v2/auth",
       );
     });
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
-    expect(GmailReceiptsService.startConnect).not.toHaveBeenCalled();
     expect(assignWindowLocation).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.navigate).not.toHaveBeenCalled();
-    expect(
-      mocks.preVaultUserStateService.syncOnboardingJourney,
-    ).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    expect(mocks.preVaultUserStateService.syncOnboardingJourney).toHaveBeenCalledWith({
+      userId: "user-123",
+      phase: "external_connector",
+      activeCapability: "gmail",
+      callbackState: "pending",
+      callbackAttemptId: expect.any(String),
+      expectedJourneyUpdatedAt: 456,
+    });
   });
 
   it("continues onboarding Gmail OAuth when iOS blocks popup session storage", async () => {

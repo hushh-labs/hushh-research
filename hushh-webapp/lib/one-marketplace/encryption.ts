@@ -93,7 +93,7 @@ function exactArrayBuffer(view: Uint8Array): ArrayBuffer {
   return copy;
 }
 
-function fromBase64Url(value: string): ArrayBuffer {
+function fromBase64Url(value: string): Uint8Array {
   const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(
     Math.ceil(value.length / 4) * 4,
     "=",
@@ -103,7 +103,7 @@ function fromBase64Url(value: string): ArrayBuffer {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
-  return bytes.buffer;
+  return bytes;
 }
 
 async function keyFingerprint(publicKeyJwk: JsonWebKey): Promise<string> {

@@ -36,7 +36,15 @@ export async function GET() {
     {
       applinks: {
         apps: [],
-        details: [],
+        details: [
+          {
+            appID: appId,
+            paths: [
+              "/profile/gmail/oauth/return",
+              "/profile/gmail/oauth/return/*",
+            ],
+          },
+        ],
       },
       webcredentials: {
         apps: [appId],

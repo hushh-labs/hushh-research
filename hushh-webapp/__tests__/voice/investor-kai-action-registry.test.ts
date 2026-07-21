@@ -88,12 +88,17 @@ describe("investor-kai-action-registry", () => {
     expect(deadActions).toEqual([]);
   });
 
-  it("keeps paused Gmail out of generated runtime discovery while retaining support effects", () => {
+  it("publishes wired Gmail actions while keeping removed receipt-memory actions absent", () => {
     for (const actionId of [
       "route.profile_receipts",
       "profile.gmail.connect",
       "profile.gmail.sync_now",
       "profile.gmail.disconnect",
+    ]) {
+      expect(getInvestorKaiActionById(actionId)?.wiring.status).toBe("wired");
+    }
+
+    for (const actionId of [
       "profile.receipts_memory.preview",
       "profile.receipts_memory.save",
     ]) {
@@ -111,14 +116,19 @@ describe("investor-kai-action-registry", () => {
     ]);
   });
 
-  it("keeps Gmail and localhost-only PKM Lab actions out of generated surface discovery", () => {
+  it("publishes Gmail surface actions while keeping localhost-only PKM Lab actions out of discovery", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
       screen: "gmail",
       href: "/one/gmail",
       pathname: "/one/gmail",
     }).map((action) => action.id);
 
-    expect(gmailActions).toEqual([]);
+    expect(gmailActions).toEqual([
+      "route.profile_receipts",
+      "profile.gmail.connect",
+      "profile.gmail.sync_now",
+      "profile.gmail.disconnect",
+    ]);
 
     const pkmActions = listInvestorKaiActionsForSurface({
       screen: "profile_pkm_agent_lab",

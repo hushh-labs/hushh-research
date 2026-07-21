@@ -27,11 +27,12 @@ describe("setup catalog voice parity", () => {
       "ria",
       "connected-systems",
     ]);
-    expect(ONE_SETUP_CAPABILITIES).toHaveLength(5);
+    expect(ONE_SETUP_CAPABILITIES).toHaveLength(6);
     expect(ROUTE_SETUP_CAPABILITY_IDS).toBe(ONE_SETUP_CAPABILITY_IDS);
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
+      "Connect Gmail",
       "Set up location",
       "KYC",
       "Set up your finances",
@@ -90,9 +91,8 @@ describe("setup catalog voice parity", () => {
       hubContract.actions.some(
         (action) => action.action_id === "setup.open_gmail",
       ),
-    ).toBe(false);
-    // Gmail remains a direct-route contract for existing connected people, but
-    // the paused capability is deliberately absent from the setup-hub actions.
+    ).toBe(true);
+    // Gmail keeps its guided route contract for the OAuth-specific setup step.
     const connectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );

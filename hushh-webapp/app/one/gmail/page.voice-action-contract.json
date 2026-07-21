@@ -1,6 +1,5 @@
 {
   "schema_version": "kai.local_action_contract.v1",
-  "availability": "paused",
   "surface_id": "gmail",
   "surface_title": "Gmail",
   "docs_references": ["docs/reference/kai/kai-action-gateway-vnext.md"],
@@ -68,9 +67,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
-        "intended_handler": "handleConnectGmail"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.gmail.connect"
       },
       "control_ids": ["open_gmail_connector"],
       "state_exposure": [],
@@ -101,9 +100,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.gmail.sync_now"
       },
       "control_ids": ["sync_gmail_receipts"],
       "state_exposure": [],
@@ -138,9 +137,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
-        "intended_handler": "handleDisconnectGmail"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.gmail.disconnect"
       },
       "control_ids": ["disconnect_gmail"],
       "state_exposure": [],

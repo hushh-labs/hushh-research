@@ -119,6 +119,7 @@ hushh-webapp/native-ios-screenshots/
 # Generated native/build artifacts
 hushh-webapp/.next/
 hushh-webapp/.next-prod/
+hushh-webapp/.next-capacitor/
 hushh-webapp/ios/build/
 hushh-webapp/ios/DerivedData/
 hushh-webapp/ios/App/DerivedData*/

@@ -16,12 +16,32 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
-from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.gmail_receipts_service import (
+    GmailApiError,
+    get_gmail_receipts_service,
+    is_gmail_integration_enabled,
+)
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Kai Gmail"])
+
+def _require_gmail_integration_enabled() -> None:
+    if is_gmail_integration_enabled():
+        return
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={
+            "code": "GMAIL_INTEGRATION_DISABLED",
+            "message": "Gmail integration is currently disabled.",
+        },
+    )
+
+
+router = APIRouter(
+    tags=["Kai Gmail"],
+    dependencies=[Depends(_require_gmail_integration_enabled)],
+)
 
 
 class GmailConnectStartRequest(BaseModel):

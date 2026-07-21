@@ -82,6 +82,10 @@ const TECHNICAL_ERROR_PATTERNS = [
   "undefined",
   "nullreference",
   "syntaxerror",
+  "<!doctype html",
+  "<html",
+  "<head",
+  "<script",
   "background on this error at",
   "failed to store domain data",
 ];

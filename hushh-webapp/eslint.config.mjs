@@ -15,6 +15,8 @@ export default [
       ".next-prod/**/*",
       ".next-native-uat/**",
       ".next-native-uat/**/*",
+      ".next-capacitor/**",
+      ".next-capacitor/**/*",
       "out/**",
       "node_modules/**",
       "node_modules*/**",

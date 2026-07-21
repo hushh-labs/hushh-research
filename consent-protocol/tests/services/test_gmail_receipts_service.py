@@ -11,6 +11,7 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailReceiptsService,
     ReceiptCandidate,
     _parse_iso,
+    is_gmail_integration_enabled,
 )
 
 
@@ -83,6 +84,21 @@ def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
     assert service.is_configured() is True
     assert service._resolve_oauth_redirect_uri(redirect_uri) == redirect_uri
     assert service._resolve_oauth_redirect_uri(None) == redirect_uri
+
+
+def test_gmail_integration_switch_defaults_enabled(monkeypatch):
+    monkeypatch.delenv("GMAIL_INTEGRATION_ENABLED", raising=False)
+
+    assert is_gmail_integration_enabled() is True
+
+
+def test_gmail_integration_switch_disables_oauth_configuration(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv("GMAIL_INTEGRATION_ENABLED", "paused")
+    service = GmailReceiptsService()
+
+    assert is_gmail_integration_enabled() is False
+    assert service.is_configured() is False
 
 
 def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
@@ -902,10 +918,29 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
             return SimpleNamespace(data=[])
 
     service._db = _CaptureDb()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
     monkeypatch.setattr(
         service,
         "_fetch_connection_row",
         lambda user_id: {
+            "status": "disconnected",
+            "revoked": True,
+            "google_email": "user@example.com",
+            "google_sub": "google-sub",
+            "scope_csv": "gmail.readonly",
+            "last_sync_at": None,
+            "last_sync_status": "idle",
+            "last_sync_error": None,
+            "auto_sync_enabled": False,
+            "connected_at": None,
+            "disconnected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            "bootstrap_state": "idle",
+            "watch_status": "not_configured",
+            "watch_expiration_at": None,
+            "status_refreshed_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            "last_notification_at": None,
+            "receipt_total": 3,
             "refresh_token_ciphertext": None,
             "refresh_token_iv": None,
             "refresh_token_tag": None,
@@ -913,12 +948,20 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     )
     monkeypatch.setattr(service, "_decrypt_token", lambda *args, **kwargs: "")
     monkeypatch.setattr(
-        service, "get_status", lambda user_id: asyncio.sleep(0, result={"status": "disconnected"})
+        service,
+        "get_status",
+        lambda user_id: (_ for _ in ()).throw(
+            AssertionError("disconnect should return its local snapshot")
+        ),
     )
 
     result = await service.disconnect(user_id="user_123")
 
-    assert result == {"status": "disconnected"}
+    assert result["connected"] is False
+    assert result["status"] == "disconnected"
+    assert result["connection_state"] == "not_connected"
+    assert result["revoked"] is True
+    assert result["receipt_counts"]["total"] == 3
     assert sync_task.cancel_calls == 1
     assert any(
         "UPDATE kai_gmail_sync_runs" in query

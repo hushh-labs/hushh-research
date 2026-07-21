@@ -168,6 +168,16 @@ interface ErrorEnvelope {
   error?: string;
 }
 
+function isHtmlErrorBody(value: string): boolean {
+  const normalized = value.trim().slice(0, 512).toLowerCase();
+  return (
+    normalized.startsWith("<!doctype html") ||
+    normalized.startsWith("<html") ||
+    normalized.includes("<head") ||
+    normalized.includes("<script")
+  );
+}
+
 async function extractError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
   try {
@@ -183,8 +193,49 @@ async function extractError(response: Response, fallback: string): Promise<strin
       (typeof payload?.error === "string" ? payload.error : null);
     return (message || fallback).trim();
   } catch {
-    return raw.trim() || fallback;
+    const trimmed = raw.trim();
+    if (!trimmed || isHtmlErrorBody(trimmed) || trimmed.length > 500) {
+      return fallback;
+    }
+    return trimmed;
   }
+}
+
+export class GmailRequestCancelledError extends Error {
+  readonly status?: number;
+
+  constructor(message = "The request was cancelled.", status?: number) {
+    super(message);
+    this.name = "GmailRequestCancelledError";
+    this.status = status;
+  }
+}
+
+export function isGmailRequestCancelledError(error: unknown): boolean {
+  if (error instanceof GmailRequestCancelledError) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    error.name === "AbortError" ||
+    message.includes("request was cancelled") ||
+    message.includes("request cancelled") ||
+    message.includes("request canceled") ||
+    message.includes("aborted")
+  );
+}
+
+async function buildGmailServiceError(
+  response: Response,
+  fallback: string,
+): Promise<Error> {
+  const message = await extractError(response, fallback);
+  if (
+    response.status === 499 ||
+    isGmailRequestCancelledError(new Error(message))
+  ) {
+    return new GmailRequestCancelledError(message, response.status);
+  }
+  return new Error(message);
 }
 
 function buildSealedHeaders(idToken: string, vaultOwnerToken: string): HeadersInit {
@@ -219,7 +270,10 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail connector status."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to load Gmail connector status.",
+      );
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
@@ -256,7 +310,7 @@ export class GmailReceiptsService {
         action: "start",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to start Gmail OAuth."));
+      throw await buildGmailServiceError(response, "Failed to start Gmail OAuth.");
     }
 
     trackEvent("gmail_connect_result", {
@@ -290,7 +344,10 @@ export class GmailReceiptsService {
         action: "complete",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to complete Gmail OAuth."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to complete Gmail OAuth.",
+      );
     }
 
     trackEvent("gmail_connect_result", {
@@ -315,7 +372,7 @@ export class GmailReceiptsService {
 
     if (!response.ok) {
       trackEvent("gmail_disconnect_result", { result: "error" });
-      throw new Error(await extractError(response, "Failed to disconnect Gmail."));
+      throw await buildGmailServiceError(response, "Failed to disconnect Gmail.");
     }
 
     trackEvent("gmail_disconnect_result", { result: "success" });
@@ -336,7 +393,10 @@ export class GmailReceiptsService {
     });
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to refresh Gmail connector status."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to refresh Gmail connector status.",
+      );
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
@@ -371,7 +431,10 @@ export class GmailReceiptsService {
         action: "queue",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to queue Gmail receipt sync."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to queue Gmail receipt sync.",
+      );
     }
 
     const payload = (await response.json()) as GmailSyncQueueResponse;
@@ -399,7 +462,10 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail sync run status."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to load Gmail sync run status.",
+      );
     }
 
     return (await response.json()) as { run: GmailSyncRun };
@@ -428,7 +494,10 @@ export class GmailReceiptsService {
       trackEvent("gmail_receipts_loaded", {
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to load synced Gmail receipts."));
+      throw await buildGmailServiceError(
+        response,
+        "Failed to load synced Gmail receipts.",
+      );
     }
 
     trackEvent("gmail_receipts_loaded", {
@@ -455,7 +524,7 @@ export class GmailReceiptsService {
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail nudges."));
+      throw await buildGmailServiceError(response, "Failed to load Gmail nudges.");
     }
 
     return (await response.json()) as GmailNudgesResponse;

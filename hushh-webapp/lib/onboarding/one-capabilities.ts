@@ -18,6 +18,7 @@ import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
 } from "@/lib/onboarding/setup-capability-ids";
+import { isGmailIntegrationEnabled } from "@/lib/profile/gmail-feature";
 
 export {
   ONE_SETUP_CAPABILITY_IDS,
@@ -168,7 +169,6 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: lucideCapabilityIcon(Mail),
     tone: "gmail",
     group: "memory",
-    availability: "paused",
     requiresVault: true,
   },
   {
@@ -334,6 +334,9 @@ export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
 export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
   const resolved =
     typeof capability === "string" ? getOneCapability(capability) : capability;
+  if (resolved?.id === "gmail" && !isGmailIntegrationEnabled()) {
+    return false;
+  }
   return Boolean(
     resolved &&
       resolved.id !== "marketplace" &&

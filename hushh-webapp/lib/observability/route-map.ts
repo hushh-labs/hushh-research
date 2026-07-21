@@ -1,5 +1,7 @@
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
+const LEGACY_PROFILE_GMAIL_OAUTH_RETURN_ROUTE = "/profile/gmail/oauth/return";
+
 export const ROUTE_ID_VALUES = [
   "one_dashboard",
   "getting_started",
@@ -138,7 +140,10 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_PKM) return "profile_pkm";
   if (pathname === ROUTES.PROFILE_PKM_AGENT_LAB) return "profile_pkm_agent_lab";
   if (pathname === ROUTES.PROFILE_RECEIPTS) return "profile_receipts";
-  if (pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN) {
+  if (
+    pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN ||
+    pathname === LEGACY_PROFILE_GMAIL_OAUTH_RETURN_ROUTE
+  ) {
     return "profile_gmail_oauth_return";
   }
   if (pathname === ROUTES.OAUTH_AUTHORIZE) return "oauth_authorize";

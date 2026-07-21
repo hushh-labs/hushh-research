@@ -74,6 +74,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
     expect(resolveRouteId("/one/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/one/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
+    expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");
     expect(resolveRouteId("/one/location")).toBe("one_location");
     expect(resolveRouteId("/one/location/request/sample")).toBe("one_location_public_request");

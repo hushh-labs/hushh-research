@@ -70,6 +70,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import ProfileGmailOAuthReturnPage from "@/app/one/profile/gmail/oauth/return/page";
+import LegacyProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
 
 describe("ProfileGmailOAuthReturnPage", () => {
   afterEach(() => {
@@ -157,6 +158,44 @@ describe("ProfileGmailOAuthReturnPage", () => {
         state: "live-state-123",
       });
     });
+  });
+
+  it("keeps the legacy backend callback route wired to the OAuth completion page", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "legacy-code-123";
+      if (key === "state") return "legacy-state-123";
+      return null;
+    });
+
+    render(<LegacyProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        code: "legacy-code-123",
+        state: "legacy-state-123",
+      });
+    });
+  });
+
+  it("does not render raw HTML when OAuth completion returns a document body", async () => {
+    mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
+      new Error("<!DOCTYPE html><html><body>Next.js error</body></html>"),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-raw-html";
+      if (key === "state") return "state-raw-html";
+      return null;
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Gmail connection needs attention")).toBeTruthy();
+    });
+    expect(screen.getByText("Gmail connection could not be completed.")).toBeTruthy();
+    expect(screen.queryByText(/<!DOCTYPE html>/i)).toBeNull();
   });
 
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {

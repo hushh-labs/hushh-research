@@ -92,6 +92,12 @@ npm run build
 npm run start
 ```
 
+One-command fast local stack, using local frontend + local backend:
+
+```bash
+./scripts/runtime/run_local_fast.sh
+```
+
 Use `./bin/hushh env use --mode uat` or `./bin/hushh env use --mode prod` before `npm run build` only when you intentionally want the optimized local frontend to call the deployed UAT or production backend.
 
 ## Choose Your Lane

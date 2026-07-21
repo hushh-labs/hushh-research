@@ -2521,7 +2521,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.gmail",
-          "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
+          "purpose": "Gmail receipt sync is enabled; route actions are governed by the Gmail integration feature switch.",
           "screen": "gmail",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -5477,6 +5477,7 @@
           "primary_action_id": "setup.open_connections",
           "happy_path_action_ids": [
             "setup.open_connections",
+            "setup.open_gmail",
             "setup.open_location",
             "setup.open_email",
             "setup.open_finance",
@@ -5939,7 +5940,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.gmail",
-          "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
+          "purpose": "Gmail setup is enabled; connect actions are governed by the Gmail integration feature switch.",
           "screen": "one_setup_gmail",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -5948,13 +5949,13 @@
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Explain that Gmail setup is paused.",
-            "failed": "Explain that Gmail setup is paused.",
-            "timeout": "Explain that Gmail setup is paused.",
-            "callback_error": "Explain that Gmail setup is paused.",
+            "cancelled": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+            "failed": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+            "timeout": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+            "callback_error": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The paused setup route has no executable actions.",
+          "completion_boundary": "The setup route completes only after the Gmail connection action settles successfully.",
           "next_route": null,
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6344,6 +6345,55 @@
           "empty-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/gmail/oauth/return",
+      "page_file": "app/profile/gmail/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility callback route launches the canonical /one/profile/gmail/oauth/return surface.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.legacy.profile.gmail.oauth.return",
+          "purpose": "Help the person understand and use the return screen through its generated controls.",
+          "screen": "profile_account",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/gmail/oauth/return",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7297,5 +7347,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "250364442b13ed150e4158a2ffc3a50e8b96acf5ef404d7a84a612fabe4e7957"
+  "content_sha256": "791ca4e0b4daee181c96aeb52905fac56f54f9cd65ca537ad487283dcc697e34"
 }

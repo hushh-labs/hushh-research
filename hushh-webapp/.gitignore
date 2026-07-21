@@ -23,6 +23,7 @@
 /.next/
 /.next-prod/
 /.next-native-uat/
+/.next-capacitor/
 /out/
 
 # production

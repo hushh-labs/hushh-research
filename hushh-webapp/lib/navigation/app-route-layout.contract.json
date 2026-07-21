@@ -83,6 +83,7 @@
       "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
         "setup.open_connections",
+        "setup.open_gmail",
         "setup.open_location",
         "setup.open_email",
         "setup.open_finance",
@@ -442,7 +443,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.gmail",
-      "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
+      "purpose": "Gmail receipt sync is enabled; route actions are governed by the Gmail integration feature switch.",
       "screen": "gmail",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1382,7 +1383,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.gmail",
-      "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
+      "purpose": "Gmail setup is enabled; connect actions are governed by the Gmail integration feature switch.",
       "screen": "one_setup_gmail",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1391,13 +1392,13 @@
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Explain that Gmail setup is paused.",
-        "failed": "Explain that Gmail setup is paused.",
-        "timeout": "Explain that Gmail setup is paused.",
-        "callbackError": "Explain that Gmail setup is paused.",
+        "cancelled": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+        "failed": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+        "timeout": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
+        "callbackError": "Explain that Gmail setup is currently unavailable only when the Gmail integration switch is disabled.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The paused setup route has no executable actions.",
+      "completionBoundary": "The setup route completes only after the Gmail connection action settles successfully.",
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2615,6 +2616,33 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/profile/gmail/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility callback route launches the canonical /one/profile/gmail/oauth/return surface.",
+    "voicePlaybook": {
+      "playbookId": "route.legacy.profile.gmail.oauth.return",
+      "purpose": "Help the person understand and use the return screen through its generated controls.",
+      "screen": "profile_account",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/profile/gmail/oauth/return",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/app/api/_utils/backend", () => ({
@@ -15,11 +15,25 @@ let kaiRoute: KaiRouteModule;
 
 beforeEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.resetModules();
   kaiRoute = await import("../../../app/api/kai/[...path]/route");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function createRequest(url: string, init: RequestInit): NextRequest {
   return new NextRequest(url, init);
+}
+
+async function waitForFetchCall(fetchSpy: ReturnType<typeof vi.spyOn>) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (fetchSpy.mock.calls.length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Expected fetch to be called");
 }
 
 describe("/api/kai/[...path] proxy", () => {
@@ -282,4 +296,98 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBeNull();
   });
 
+  it("blocks Gmail proxy calls when the integration switch is disabled", async () => {
+    vi.resetModules();
+    vi.stubEnv("GMAIL_INTEGRATION_ENABLED", "false");
+    kaiRoute = await import("../../../app/api/kai/[...path]/route");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const req = createRequest("http://localhost:3000/api/kai/gmail/status/user_123", {
+      method: "GET",
+      headers: { Authorization: "Bearer vault_owner_token" },
+    });
+
+    const res = await kaiRoute.GET(req, {
+      params: Promise.resolve({ path: ["gmail", "status", "user_123"] }),
+    });
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Gmail integration disabled",
+      message: "Gmail integration is currently disabled.",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports Gmail proxy timeouts as upstream failures instead of client cancellations", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout.", "AbortError")
+      );
+
+    const req = createRequest("http://localhost:3000/api/kai/gmail/disconnect", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "disconnect"] }),
+    });
+
+    expect(res.status).toBe(504);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Gmail disconnect unavailable",
+      message: "Gmail is taking too long to disconnect right now. Please try again in a moment.",
+    });
+
+    const [, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("keeps real incoming Gmail request cancellations as 499 responses", async () => {
+    const controller = new AbortController();
+    let upstreamSignal: AbortSignal | undefined;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      upstreamSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        upstreamSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true }
+        );
+      });
+    });
+
+    const req = createRequest("http://localhost:3000/api/kai/gmail/disconnect", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123" }),
+      signal: controller.signal,
+    });
+
+    const pending = kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "disconnect"] }),
+    });
+    await waitForFetchCall(fetchSpy);
+
+    expect(upstreamSignal).toBeInstanceOf(AbortSignal);
+    expect(upstreamSignal?.aborted).toBe(false);
+    controller.abort();
+
+    const res = await pending;
+    expect(upstreamSignal?.aborted).toBe(true);
+    expect(res.status).toBe(499);
+    await expect(res.json()).resolves.toEqual({
+      error: "Request cancelled",
+      message: "The request was cancelled.",
+    });
+  });
 });

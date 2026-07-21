@@ -17,6 +17,13 @@ function jsonResponse(body: unknown) {
   });
 }
 
+function htmlResponse(body: string, status = 500) {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
 describe("GmailReceiptsService.getStatus caching", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -66,5 +73,19 @@ describe("GmailReceiptsService.getStatus caching", () => {
     await GmailReceiptsService.getStatus({ idToken: "token-2", userId: "user-2" });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not surface an HTML response body as a user-facing Gmail status error", async () => {
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      htmlResponse("<!DOCTYPE html><html><body>Next.js error</body></html>"),
+    );
+
+    await expect(
+      GmailReceiptsService.getStatus({
+        idToken: "token-1",
+        userId: "user-1",
+        force: true,
+      }),
+    ).rejects.toThrow("Failed to load Gmail connector status.");
   });
 });

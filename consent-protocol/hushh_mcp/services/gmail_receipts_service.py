@@ -219,6 +219,13 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def is_gmail_integration_enabled() -> bool:
+    raw = os.getenv("GMAIL_INTEGRATION_ENABLED")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return True
+    return _to_bool(raw, True)
+
+
 def _parse_iso(value: Any) -> datetime | None:
     if value is None:
         return None
@@ -489,7 +496,8 @@ class GmailReceiptsService:
 
     def is_configured(self) -> bool:
         return bool(
-            self._oauth_client_id()
+            is_gmail_integration_enabled()
+            and self._oauth_client_id()
             and self._oauth_client_secret()
             and self._oauth_redirect_uri()
             and self._expected_oauth_redirect_uri()
@@ -1224,9 +1232,9 @@ class GmailReceiptsService:
             return "not_connected"
         status_text = _clean_text(row.get("status"), "disconnected")
         revoked = _to_bool(row.get("revoked"), False)
-        if status_text == "connected" and not revoked:
-            return "connected"
-        if status_text == "error" or revoked:
+        if status_text == "connected":
+            return "needs_reauth" if revoked else "connected"
+        if status_text == "error" or (revoked and status_text != "disconnected"):
             return "needs_reauth"
         return "not_connected"
 
@@ -1605,7 +1613,13 @@ class GmailReceiptsService:
             )
 
         logger.info("gmail.disconnect user_id=%s", user_id)
-        return await self.get_status(user_id=user_id)
+        disconnected_row = self._fetch_connection_row(user_id=user_id)
+        latest_run = self._latest_sync_run(user_id=user_id)
+        return self._serialize_status_payload(
+            user_id=user_id,
+            row=disconnected_row,
+            latest_run=latest_run,
+        )
 
     def _is_connection_sync_active(self, *, user_id: str) -> bool:
         row = self._fetch_connection_row(user_id=user_id)
@@ -3704,6 +3718,9 @@ class GmailReceiptsService:
                 raise
 
     def start_background_sync_loop(self) -> None:
+        if not is_gmail_integration_enabled():
+            logger.info("gmail.integration.disabled")
+            return
         if not self._sync_enabled():
             logger.info("gmail.schedule.disabled")
             return

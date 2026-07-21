@@ -67,8 +67,13 @@ import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-sta
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  requestInternalAppNavigation,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
+import {
+  closeNativeGmailOAuthBrowser,
+  resolveNativeGmailOAuthReturnHref,
+} from "@/lib/profile/gmail-native-oauth";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -261,6 +266,44 @@ function AppShellFrame({ children }: ProvidersProps) {
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
     root.classList.toggle("native-ios", isNativeIOS);
     return () => root.classList.remove("native-ios");
+  }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let disposed = false;
+    let listener: { remove: () => Promise<void> | void } | null = null;
+
+    void import("@capacitor/app")
+      .then(({ App }) =>
+        App.addListener("appUrlOpen", async ({ url }) => {
+          const href = resolveNativeGmailOAuthReturnHref(url);
+          if (!href) return;
+          await closeNativeGmailOAuthBrowser();
+          requestInternalAppNavigation({
+            href,
+            replace: true,
+            scroll: false,
+          });
+        }),
+      )
+      .then((handle) => {
+        if (disposed) {
+          void handle.remove();
+          return;
+        }
+        listener = handle;
+      })
+      .catch((error) => {
+        console.warn("[NativeDeepLink] Failed to attach appUrlOpen listener:", error);
+      });
+
+    return () => {
+      disposed = true;
+      if (listener) {
+        void listener.remove();
+      }
+    };
   }, []);
 
   // The shared route envelope is the only page-transition owner. In

@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 107,
-    "physical_page_count": 107,
-    "route_contract_count": 107,
-    "surface_map_count": 107,
+    "total_screens": 108,
+    "physical_page_count": 108,
+    "route_contract_count": 108,
+    "surface_map_count": 108,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
-      "redirect/alias": 37,
+      "redirect/alias": 38,
       "vault-backed": 38,
       "hidden flow": 9,
       "auth/pre-vault": 6,
@@ -4112,6 +4112,46 @@
       "findings": []
     },
     {
+      "route": "/profile/gmail/oauth/return",
+      "page_file": "app/profile/gmail/oauth/return/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/profile/gmail/oauth/return",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
       "route": "/register-phone",
       "page_file": "app/register-phone/page.tsx",
       "route_contract_mode": "hidden",
@@ -4794,5 +4834,5 @@
       ]
     }
   ],
-  "content_sha256": "bac2a4f5d5142836618b2c2a160447301d2b277e1dceaa053c33113ac997ad4e"
+  "content_sha256": "f706fae251c75ebaff576251f8dbc766af24818b914193606f547f6c2f153042"
 }
