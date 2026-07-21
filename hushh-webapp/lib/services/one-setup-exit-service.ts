@@ -61,17 +61,47 @@ export function acknowledgeOneSetupExit(params: {
     completedAt,
   });
   return (async () => {
-    await PreVaultUserStateService.syncKaiSetupState({
-      userId: params.userId,
-      completed: true,
-      skipped: params.skipped,
-      completedAt,
-    });
-    await PreVaultUserStateService.syncOnboardingJourney({
-      userId: params.userId,
-      phase: "root_completion",
-    });
+    // Persist the account-wide, cross-device setupCompleted flag. Retry so it
+    // lands even on a flaky network: the sticky local latch already keeps THIS
+    // device out of setup meanwhile, and the bootstrap self-heal re-pushes on a
+    // future load if every attempt here still fails.
+    await persistWithRetry(() =>
+      PreVaultUserStateService.syncKaiSetupState({
+        userId: params.userId,
+        completed: true,
+        skipped: params.skipped,
+        completedAt,
+      }),
+    );
+    await persistWithRetry(() =>
+      PreVaultUserStateService.syncOnboardingJourney({
+        userId: params.userId,
+        phase: "root_completion",
+      }),
+    );
     // Root completion must not mutate the Finance profile. Finance has its own
     // terminal capability acknowledgement and setupCapabilityIds signal.
   })();
+}
+
+const SETUP_EXIT_RETRY_DELAYS_MS = [400, 1200];
+
+async function persistWithRetry(op: () => Promise<unknown>): Promise<void> {
+  let lastError: unknown;
+  for (
+    let attempt = 0;
+    attempt <= SETUP_EXIT_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    try {
+      await op();
+      return;
+    } catch (error) {
+      lastError = error;
+      const wait = SETUP_EXIT_RETRY_DELAYS_MS[attempt];
+      if (wait === undefined) break;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+  throw lastError;
 }

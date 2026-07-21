@@ -136,12 +136,18 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
   });
 
-  it("clears the positive latch only for explicit incomplete state", async () => {
+  it("keeps the sticky completion latch on a stale incomplete or unknown read", async () => {
     const incompleteUserId = "bootstrap-explicit-incomplete-user";
     const unknownUserId = "bootstrap-unknown-setup-user";
     getIdTokenMock.mockResolvedValue("firebase-token");
     OneSetupCompletionHintService.markResolved(incompleteUserId);
     OneSetupCompletionHintService.markResolved(unknownUserId);
+    // Any extra (self-heal) write resolves cleanly so the fire-and-forget
+    // re-push never rejects during the test.
+    apiJsonMock.mockResolvedValue({
+      userId: incompleteUserId,
+      setupCompleted: true,
+    });
     apiJsonMock
       .mockResolvedValueOnce({
         userId: incompleteUserId,
@@ -155,10 +161,33 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     await PreVaultUserStateService.bootstrapState(incompleteUserId);
     await PreVaultUserStateService.bootstrapState(unknownUserId);
 
-    expect(
-      OneSetupCompletionHintService.isResolved(incompleteUserId),
-    ).toBe(false);
+    // The latch is a sticky, monotonic "onboarding dismissed" signal: a routine
+    // or racing `false`/null read must NOT wipe it (that was the guard-bounce
+    // bug). It is cleared only by explicit sign-out / account reset.
+    expect(OneSetupCompletionHintService.isResolved(incompleteUserId)).toBe(true);
     expect(OneSetupCompletionHintService.isResolved(unknownUserId)).toBe(true);
+  });
+
+  it("self-heals the backend when the latch is set but setupCompleted is false", async () => {
+    const userId = "bootstrap-self-heal-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    OneSetupCompletionHintService.markResolved(userId);
+    apiJsonMock
+      .mockResolvedValueOnce({ userId, setupCompleted: false }) // bootstrap read
+      .mockResolvedValueOnce({ userId, setupCompleted: true }); // self-heal re-push
+
+    await PreVaultUserStateService.bootstrapState(userId);
+
+    // The fire-and-forget self-heal re-pushes setupCompleted=true so every
+    // device converges even if the dismissal-time write never landed.
+    await vi.waitFor(() => {
+      expect(apiJsonMock).toHaveBeenCalledTimes(2);
+    });
+    const healCall = apiJsonMock.mock.calls[1];
+    expect(String(healCall?.[0])).toContain("pre-vault-state");
+    expect(
+      JSON.parse(String((healCall?.[1] as RequestInit).body)),
+    ).toMatchObject({ userId, setupCompleted: true });
   });
 
   it("persists the explicit Connections choice without replacing capability markers", async () => {
