@@ -101,12 +101,16 @@ function printGatewayManifest(filename) {
   if (!fs.existsSync(manifestPath)) {
     fatal("The packaged gateway manifest is unavailable.");
   }
-  process.stdout.write(`${fs.readFileSync(manifestPath, "utf8").trim()}\n`);
+  writeStdoutAndExit(`${fs.readFileSync(manifestPath, "utf8").trim()}\n`);
 }
 
 function fatal(message) {
   process.stderr.write(`[hushh-mcp] ${message}\n`);
   process.exit(1);
+}
+
+function writeStdoutAndExit(value) {
+  process.stdout.write(value, () => process.exit(0));
 }
 
 function resolveRuntimeDir() {
@@ -371,17 +375,17 @@ if (args.includes("--print-remote-config")) {
 
 if (args.includes("--print-gateway-manifest")) {
   printGatewayManifest("hushh-mcp-gateway.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-agentforce-manifest")) {
   printGatewayManifest("hushh-agentforce-mcp-manifest.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-mulesoft-exchange-manifest")) {
   printGatewayManifest("hushh-mulesoft-exchange-mcp-schema.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-mulesoft-agentforce-handoff")) {
@@ -397,8 +401,8 @@ if (args.includes("--print-mulesoft-agentforce-handoff")) {
   if (!manifest.mulesoftAgentforceHandoff) {
     fatal("The packaged MuleSoft Agentforce handoff is unavailable.");
   }
-  process.stdout.write(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
-  process.exit(0);
+  writeStdoutAndExit(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
+  return;
 }
 
 const runtimeDir = resolveRuntimeDir();
