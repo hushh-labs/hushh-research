@@ -21,6 +21,7 @@ import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   resolveCompletedSetupCapabilityTarget,
   ROUTES,
@@ -82,10 +83,16 @@ export function OneSetupHub() {
     runtimeChoiceSnapshot.userId === (user?.uid ?? null)
       ? runtimeChoiceSnapshot.state
       : "loading";
-  const returnTo = useMemo(
-    () => normalizeInternalRouteHref(searchParams.get("return_to")),
-    [searchParams],
-  );
+  const returnTo = useMemo(() => {
+    const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
+    if (!raw) return null;
+    // Never send the master exit back onto a setup surface. A stray
+    // `?return_to=/one/setup` (e.g. from a capability/connector sub-flow that
+    // returns to the hub) would make Skip/Finish replace /one/setup with
+    // itself and look like a no-op. Fall through to home instead.
+    const path = raw.split(/[?#]/)[0] ?? raw;
+    return isOneSetupSurfaceRoute(path) ? null : raw;
+  }, [searchParams]);
   const completionTarget = returnTo || ROUTES.ONE_HOME;
 
   useEffect(() => {
@@ -308,12 +315,33 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
-          description={summary}
-          accent="neutral"
-          className={styles.setupHeader}
-        />
+        <div className="relative">
+          <PageHeader
+            title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
+            description={summary}
+            accent="neutral"
+            className={styles.setupHeader}
+          />
+          {/* Mobile surfaces the master Skip/Finish action top-right in the
+              header so it is always reachable and never hides behind the fixed
+              "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
+          {!hubStateLoading ? (
+            <button
+              type="button"
+              onClick={() => void handleMasterAck()}
+              disabled={dismissing || !runtimeChoiceComplete}
+              title={
+                !runtimeChoiceComplete
+                  ? "Choose a Connections option before continuing."
+                  : undefined
+              }
+              data-testid="one-setup-master-ack-mobile"
+              className="absolute right-0 top-1 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+            >
+              {masterActionLabel}
+            </button>
+          ) : null}
+        </div>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
@@ -416,29 +444,34 @@ export function OneSetupHub() {
             </SettingsGroup>
           ) : null}
         </div>
-        <SetupCompletionFooter
-          label={masterActionLabel}
-          onComplete={() => void handleMasterAck()}
-          busy={dismissing}
-          disabled={!runtimeChoiceComplete}
-          controlId="one-setup-master-ack"
-          actionId="setup.hub_master_ack"
-          testId="one-setup-master-ack"
-          purpose={
-            masterSkipped
-              ? "Skip the remaining setup for now and go home."
-              : "Finish setup for now and go home."
-          }
-          supportingText={
-            !runtimeChoiceComplete
-              ? "Choose a Connections option before continuing."
-              : masterSkipped
-              ? "You can set up these capabilities any time."
-              : "Your completed setup stays in place. You can add more any time."
-          }
-          variant={masterSkipped ? "none" : "blue-gradient"}
-          effect={masterSkipped ? "fade" : "fill"}
-        />
+        {/* Desktop keeps the calm in-flow terminal action; mobile uses the
+            top-right header action instead (the fixed agent bar would cover a
+            bottom footer on phones). */}
+        <div className="hidden sm:block">
+          <SetupCompletionFooter
+            label={masterActionLabel}
+            onComplete={() => void handleMasterAck()}
+            busy={dismissing}
+            disabled={!runtimeChoiceComplete}
+            controlId="one-setup-master-ack"
+            actionId="setup.hub_master_ack"
+            testId="one-setup-master-ack"
+            purpose={
+              masterSkipped
+                ? "Skip the remaining setup for now and go home."
+                : "Finish setup for now and go home."
+            }
+            supportingText={
+              !runtimeChoiceComplete
+                ? "Choose a Connections option before continuing."
+                : masterSkipped
+                ? "You can set up these capabilities any time."
+                : "Your completed setup stays in place. You can add more any time."
+            }
+            variant={masterSkipped ? "none" : "blue-gradient"}
+            effect={masterSkipped ? "fade" : "fill"}
+          />
+        </div>
           </>
         )}
       </AppPageContentRegion>
