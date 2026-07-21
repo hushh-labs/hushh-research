@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
@@ -36,6 +36,8 @@ function PausedGmailSetupRedirect() {
 
 function EnabledGmailOnboardingSetup() {
   const [connected, setConnected] = useState(false);
+  const finishStartedRef = useRef(false);
+  const router = useRouter();
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "gmail",
     isOperationallyReady: connected,
@@ -46,6 +48,21 @@ function EnabledGmailOnboardingSetup() {
       ready ? "finish_gmail_setup" : "skip_gmail_setup",
   });
 
+  const handleFinishSetup = useCallback(() => {
+    if (finishStartedRef.current) return;
+    finishStartedRef.current = true;
+
+    router.replace(ROUTES.ONE_SETUP);
+    void coordinator
+      .finish()
+      .catch((error) => {
+        console.warn("[GmailOnboardingSetup] Background finish failed:", error);
+      })
+      .finally(() => {
+        finishStartedRef.current = false;
+      });
+  }, [coordinator, router]);
+
   if (!coordinator.isReady) {
     return <SetupCapabilityLoading label="Preparing Gmail setup…" />;
   }
@@ -54,8 +71,8 @@ function EnabledGmailOnboardingSetup() {
     <GmailReceiptsPage
       journeyVariant="onboarding"
       onConnectionStateChange={setConnected}
-      onFinishSetup={() => void coordinator.finish()}
-      finishingSetup={coordinator.isSettling}
+      onFinishSetup={handleFinishSetup}
+      finishingSetup={false}
       onSkipSetup={() => void coordinator.skip()}
       skippingSetup={coordinator.isSettling}
       voicePublisherRole="chrome"

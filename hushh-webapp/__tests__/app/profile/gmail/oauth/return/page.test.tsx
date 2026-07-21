@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
-  searchParamsGet: vi.fn(),
   useAuth: vi.fn(),
   gmailReceiptsService: {
     completeConnect: vi.fn(),
@@ -16,9 +15,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.routerReplace }),
-  useSearchParams: () => ({
-    get: mocks.searchParamsGet,
-  }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -72,6 +68,18 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 import ProfileGmailOAuthReturnPage from "@/app/one/profile/gmail/oauth/return/page";
 import LegacyProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
 
+function setOAuthReturnSearch(
+  params: Record<string, string>,
+  pathname = "/one/profile/gmail/oauth/return",
+) {
+  const query = new URLSearchParams(params).toString();
+  window.history.replaceState(
+    {},
+    "",
+    `${pathname}${query ? `?${query}` : ""}`,
+  );
+}
+
 describe("ProfileGmailOAuthReturnPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -79,7 +87,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.searchParamsGet.mockReturnValue(null);
+    setOAuthReturnSearch({});
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-123",
@@ -118,11 +126,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
       new Error("OAuth state expired"),
     );
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-123";
-      if (key === "state") return "state-123";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "code-123", state: "state-123" });
 
     render(<ProfileGmailOAuthReturnPage />);
 
@@ -142,11 +146,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
   });
 
   it("uses live search params when the initial server props are empty", async () => {
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "live-code-123";
-      if (key === "state") return "live-state-123";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "live-code-123", state: "live-state-123" });
 
     render(<ProfileGmailOAuthReturnPage />);
 
@@ -161,11 +161,10 @@ describe("ProfileGmailOAuthReturnPage", () => {
   });
 
   it("keeps the legacy backend callback route wired to the OAuth completion page", async () => {
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "legacy-code-123";
-      if (key === "state") return "legacy-state-123";
-      return null;
-    });
+    setOAuthReturnSearch(
+      { code: "legacy-code-123", state: "legacy-state-123" },
+      "/profile/gmail/oauth/return",
+    );
 
     render(<LegacyProfileGmailOAuthReturnPage />);
 
@@ -183,11 +182,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
       new Error("<!DOCTYPE html><html><body>Next.js error</body></html>"),
     );
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-raw-html";
-      if (key === "state") return "state-raw-html";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "code-raw-html", state: "state-raw-html" });
 
     render(<ProfileGmailOAuthReturnPage />);
 
@@ -216,11 +211,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         startedAt: Date.now(),
       }),
     );
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "popup-code";
-      if (key === "state") return "popup-state";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "popup-code", state: "popup-state" });
 
     render(<ProfileGmailOAuthReturnPage />);
 
@@ -250,11 +241,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         startedAt: Date.now(),
       }),
     );
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-setup";
-      if (key === "state") return "state-setup";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "code-setup", state: "state-setup" });
     mocks.bootstrapState.mockResolvedValue({
       setupCompleted: false,
       onboardingPhase: "external_connector",
@@ -283,10 +270,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
   });
 
   it("recovers setup acknowledgement from the durable journey when the browser correlation is missing", async () => {
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-setup-ios";
-      if (key === "state") return "state-setup-ios";
-      return null;
+    setOAuthReturnSearch({
+      code: "code-setup-ios",
+      state: "state-setup-ios",
     });
     mocks.bootstrapState.mockResolvedValue({
       setupCompleted: false,
@@ -329,10 +315,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
         throw new Error("sessionStorage unavailable");
       },
     });
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-setup-storage-blocked";
-      if (key === "state") return "state-setup-storage-blocked";
-      return null;
+    setOAuthReturnSearch({
+      code: "code-setup-storage-blocked",
+      state: "state-setup-storage-blocked",
     });
     mocks.bootstrapState.mockResolvedValue({
       setupCompleted: false,
@@ -377,10 +362,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       setupCompleted: false,
       onboardingActiveCapability: "gmail",
     });
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "error") return "access_denied";
-      return null;
-    });
+    setOAuthReturnSearch({ error: "access_denied" });
 
     render(<ProfileGmailOAuthReturnPage />);
 
@@ -412,11 +394,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         startedAt: Date.now(),
       }),
     );
-    mocks.searchParamsGet.mockImplementation((key: string) => {
-      if (key === "code") return "code-setup";
-      if (key === "state") return "state-setup";
-      return null;
-    });
+    setOAuthReturnSearch({ code: "code-setup", state: "state-setup" });
     mocks.syncOnboardingJourney.mockRejectedValue(
       new Error("journey unavailable"),
     );
@@ -432,7 +410,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
     });
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
     expect(

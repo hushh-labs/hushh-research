@@ -184,7 +184,53 @@ describe("gmail-connector-store", () => {
     expect(result.current.status?.google_email).toBe("user-hook@hushh.ai");
   });
 
-  it("falls back to a plain status fetch when reconcile times out", async () => {
+  it("uses a plain status fetch for forced refreshes without reconciling", async () => {
+    vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "fallback@hushh.ai",
+      scope_csv: "gmail.readonly",
+      auto_sync_enabled: true,
+      revoked: false,
+      connection_state: "connected",
+      sync_state: "idle",
+      bootstrap_state: "completed",
+      watch_status: "active",
+      needs_reauth: false,
+    } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
+
+    const { result } = renderHook(() =>
+      useGmailConnectorStatus({
+        userId: "user-hook",
+        enabled: true,
+        idTokenProvider: async () => "id-token",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalled();
+    });
+
+    vi.mocked(GmailReceiptsService.getStatus).mockClear();
+
+    await act(async () => {
+      await result.current.refreshStatus({ force: true });
+    });
+
+    await waitFor(() => {
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalled();
+      expect(result.current.status?.google_email).toBe("fallback@hushh.ai");
+    });
+    expect(GmailReceiptsService.reconcile).not.toHaveBeenCalled();
+    expect(GmailReceiptsService.getStatus).toHaveBeenLastCalledWith({
+      idToken: "id-token",
+      userId: "user-hook",
+      force: true,
+    });
+  });
+
+  it("falls back to a plain status fetch when explicit reconcile times out", async () => {
     vi.mocked(GmailReceiptsService.reconcile).mockRejectedValueOnce(
       new Error(
         "Gmail is taking too long to respond right now. Please try again in a moment.",
@@ -220,7 +266,7 @@ describe("gmail-connector-store", () => {
     vi.mocked(GmailReceiptsService.getStatus).mockClear();
 
     await act(async () => {
-      await result.current.refreshStatus({ force: true });
+      await result.current.refreshStatus({ force: true, reconcile: true });
     });
 
     await waitFor(() => {
@@ -267,7 +313,7 @@ describe("gmail-connector-store", () => {
           };
         },
       );
-      vi.mocked(GmailReceiptsService.reconcile).mockResolvedValue({
+      vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
         configured: true,
         connected: true,
         status: "connected",
@@ -282,7 +328,7 @@ describe("gmail-connector-store", () => {
         needs_reauth: false,
         last_sync_status: "running",
         latest_run: activeRun,
-      } as Awaited<ReturnType<typeof GmailReceiptsService.reconcile>>);
+      } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
 
       primeConnectorStatus({
         userId: "user-timeout",
@@ -322,7 +368,7 @@ describe("gmail-connector-store", () => {
         await Promise.resolve();
       });
 
-      expect(GmailReceiptsService.reconcile).toHaveBeenCalledTimes(1);
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalledTimes(1);
 
       const view = getConnectorView("user-timeout");
       expect(view.presentation.state).toBe("syncing");
@@ -348,33 +394,90 @@ describe("gmail-connector-store", () => {
     }) as typeof window.setTimeout);
 
     try {
-      vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
-        configured: true,
-        connected: true,
-        status: "connected",
-        google_email: "handoff@hushh.ai",
-        scope_csv: "gmail.readonly",
-        auto_sync_enabled: true,
-        revoked: false,
-        connection_state: "connected",
-        sync_state: "bootstrap_running",
-        bootstrap_state: "running",
-        watch_status: "active",
-        needs_reauth: false,
-        latest_run: {
-          run_id: "run_bootstrap",
-          user_id: "user-hook",
-          trigger_source: "connect",
-          sync_mode: "bootstrap",
-          status: "running",
-          listed_count: 2,
-          filtered_count: 1,
-          synced_count: 1,
-          extracted_count: 1,
-          duplicates_dropped: 0,
-          extraction_success_rate: 1,
-        },
-      } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
+      vi.mocked(GmailReceiptsService.getStatus)
+        .mockResolvedValueOnce({
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "handoff@hushh.ai",
+          scope_csv: "gmail.readonly",
+          auto_sync_enabled: true,
+          revoked: false,
+          connection_state: "connected",
+          sync_state: "bootstrap_running",
+          bootstrap_state: "running",
+          watch_status: "active",
+          needs_reauth: false,
+          latest_run: {
+            run_id: "run_bootstrap",
+            user_id: "user-hook",
+            trigger_source: "connect",
+            sync_mode: "bootstrap",
+            status: "running",
+            listed_count: 2,
+            filtered_count: 1,
+            synced_count: 1,
+            extracted_count: 1,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>)
+        .mockResolvedValueOnce({
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "handoff@hushh.ai",
+          scope_csv: "gmail.readonly",
+          auto_sync_enabled: true,
+          revoked: false,
+          connection_state: "connected",
+          sync_state: "backfill_running",
+          bootstrap_state: "completed",
+          watch_status: "active",
+          needs_reauth: false,
+          last_sync_status: "running",
+          latest_run: {
+            run_id: "run_backfill",
+            user_id: "user-hook",
+            trigger_source: "backfill",
+            sync_mode: "backfill",
+            status: "running",
+            listed_count: 3,
+            filtered_count: 2,
+            synced_count: 2,
+            extracted_count: 2,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>)
+        .mockResolvedValueOnce({
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "handoff@hushh.ai",
+          scope_csv: "gmail.readonly",
+          auto_sync_enabled: true,
+          revoked: false,
+          connection_state: "connected",
+          sync_state: "idle",
+          bootstrap_state: "completed",
+          watch_status: "active",
+          needs_reauth: false,
+          last_sync_status: "completed",
+          latest_run: {
+            run_id: "run_backfill",
+            user_id: "user-hook",
+            trigger_source: "backfill",
+            sync_mode: "backfill",
+            status: "completed",
+            listed_count: 3,
+            filtered_count: 2,
+            synced_count: 2,
+            extracted_count: 2,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
       vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(
         async ({ runId }) => {
           if (runId === "run_bootstrap") {
@@ -411,64 +514,6 @@ describe("gmail-connector-store", () => {
           };
         },
       );
-      vi.mocked(GmailReceiptsService.reconcile)
-        .mockResolvedValueOnce({
-          configured: true,
-          connected: true,
-          status: "connected",
-          google_email: "handoff@hushh.ai",
-          scope_csv: "gmail.readonly",
-          auto_sync_enabled: true,
-          revoked: false,
-          connection_state: "connected",
-          sync_state: "backfill_running",
-          bootstrap_state: "completed",
-          watch_status: "active",
-          needs_reauth: false,
-          last_sync_status: "running",
-          latest_run: {
-            run_id: "run_backfill",
-            user_id: "user-hook",
-            trigger_source: "backfill",
-            sync_mode: "backfill",
-            status: "running",
-            listed_count: 3,
-            filtered_count: 2,
-            synced_count: 2,
-            extracted_count: 2,
-            duplicates_dropped: 0,
-            extraction_success_rate: 1,
-          },
-        } as Awaited<ReturnType<typeof GmailReceiptsService.reconcile>>)
-        .mockResolvedValueOnce({
-          configured: true,
-          connected: true,
-          status: "connected",
-          google_email: "handoff@hushh.ai",
-          scope_csv: "gmail.readonly",
-          auto_sync_enabled: true,
-          revoked: false,
-          connection_state: "connected",
-          sync_state: "idle",
-          bootstrap_state: "completed",
-          watch_status: "active",
-          needs_reauth: false,
-          last_sync_status: "completed",
-          latest_run: {
-            run_id: "run_backfill",
-            user_id: "user-hook",
-            trigger_source: "backfill",
-            sync_mode: "backfill",
-            status: "completed",
-            listed_count: 3,
-            filtered_count: 2,
-            synced_count: 2,
-            extracted_count: 2,
-            duplicates_dropped: 0,
-            extraction_success_rate: 1,
-          },
-        } as Awaited<ReturnType<typeof GmailReceiptsService.reconcile>>);
-
       renderHook(() =>
         useGmailConnectorStatus({
           userId: "user-hook",

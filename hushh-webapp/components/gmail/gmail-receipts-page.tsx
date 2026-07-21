@@ -644,9 +644,12 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
-        const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
-          force: true,
-        }).catch(() => null);
+        const journey =
+          journeyVariant === "onboarding"
+            ? await PreVaultUserStateService.bootstrapState(user.uid, {
+                force: true,
+              }).catch(() => null)
+            : null;
         const fromSetup = Boolean(
           journey &&
             !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -733,7 +736,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [gmailActionBusy, user]);
+  }, [gmailActionBusy, journeyVariant, user]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {

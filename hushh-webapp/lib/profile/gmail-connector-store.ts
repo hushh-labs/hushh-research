@@ -86,6 +86,7 @@ export interface UseGmailConnectorStatusResult {
   statusError: string | null;
   refreshStatus: (options?: {
     force?: boolean;
+    reconcile?: boolean;
   }) => Promise<GmailConnectionStatus | null>;
   disconnectGmail: () => Promise<GmailConnectionStatus | null>;
   syncNow: () => Promise<GmailSyncQueueResponse | null>;
@@ -541,6 +542,7 @@ async function fetchStatusFromNetwork(params: {
   userId: string;
   idToken: string;
   force?: boolean;
+  reconcile?: boolean;
   routeHref?: string | null;
   idTokenProvider?: (() => Promise<string>) | null;
   pollActiveRun?: boolean;
@@ -578,14 +580,17 @@ async function fetchStatusFromNetwork(params: {
     statusError: null,
   });
 
-  const request = (
-    params.force
-      ? GmailReceiptsService.reconcile
-      : GmailReceiptsService.getStatus
-  )({
-    idToken: params.idToken,
-    userId: normalizedUserId,
-  })
+  const shouldReconcile = Boolean(params.reconcile);
+  const request = (shouldReconcile
+    ? GmailReceiptsService.reconcile({
+        idToken: params.idToken,
+        userId: normalizedUserId,
+      })
+    : GmailReceiptsService.getStatus({
+        idToken: params.idToken,
+        userId: normalizedUserId,
+        force: params.force,
+      }))
     .then((status) => {
       primeConnectorStatus({
         userId: normalizedUserId,
@@ -600,7 +605,7 @@ async function fetchStatusFromNetwork(params: {
       return status;
     })
     .catch(async (error) => {
-      if (params.force) {
+      if (shouldReconcile) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
             idToken: params.idToken,
@@ -1018,7 +1023,7 @@ export function useGmailConnectorStatus(
   const refreshKey = options.refreshKey || "";
 
   const refreshStatus = useCallback(
-    async (refreshOptions?: { force?: boolean }) => {
+    async (refreshOptions?: { force?: boolean; reconcile?: boolean }) => {
       if (!enabled || !normalizedUserId || !idTokenProvider) {
         return getConnectorView(normalizedUserId).status;
       }
@@ -1027,6 +1032,7 @@ export function useGmailConnectorStatus(
         userId: normalizedUserId,
         idToken,
         force: refreshOptions?.force,
+        reconcile: refreshOptions?.reconcile,
         routeHref,
         idTokenProvider,
       });

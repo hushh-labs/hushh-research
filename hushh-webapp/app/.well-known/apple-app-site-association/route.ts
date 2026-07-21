@@ -40,6 +40,8 @@ export async function GET() {
           {
             appID: appId,
             paths: [
+              "/one/profile/gmail/oauth/return",
+              "/one/profile/gmail/oauth/return/*",
               "/profile/gmail/oauth/return",
               "/profile/gmail/oauth/return/*",
             ],

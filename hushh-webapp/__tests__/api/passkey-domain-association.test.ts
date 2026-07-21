@@ -32,9 +32,18 @@ describe.sequential("native passkey domain association routes", () => {
     ]);
 
     expect(aasaResponse.status).toBe(200);
-    expect(await aasaResponse.json()).toMatchObject({
+    const aasaPayload = await aasaResponse.json();
+    expect(aasaPayload).toMatchObject({
       webcredentials: { apps: ["ABCDEFGHIJ.com.hushh.app"] },
     });
+    expect(aasaPayload.applinks.details[0].paths).toEqual(
+      expect.arrayContaining([
+        "/one/profile/gmail/oauth/return",
+        "/one/profile/gmail/oauth/return/*",
+        "/profile/gmail/oauth/return",
+        "/profile/gmail/oauth/return/*",
+      ]),
+    );
     expect(assetLinksResponse.status).toBe(200);
     expect(await assetLinksResponse.json()).toEqual([
       {

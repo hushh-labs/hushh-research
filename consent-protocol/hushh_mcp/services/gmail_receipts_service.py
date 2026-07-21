@@ -1207,6 +1207,122 @@ class GmailReceiptsService:
             },
         )
 
+    async def _register_watch_after_connect(
+        self,
+        *,
+        user_id: str,
+        access_token: str,
+    ) -> None:
+        if not self._watch_enabled():
+            return
+
+        try:
+            watch_state = await self._register_watch(access_token=access_token)
+            await asyncio.to_thread(
+                self._update_watch_snapshot,
+                user_id=user_id,
+                watch_status=_clean_text(watch_state.get("watch_status"), "active"),
+                watch_expiration_at=_parse_iso(watch_state.get("watch_expiration_at"))
+                or watch_state.get("watch_expiration_at"),
+                history_id=_history_id_text(watch_state.get("history_id")),
+            )
+        except Exception as exc:
+            logger.warning(
+                "gmail.connect.watch_registration_failed user_id=%s reason=%s",
+                user_id,
+                exc,
+            )
+            await self._execute_raw_async(
+                """
+                UPDATE kai_gmail_connections
+                SET watch_status = 'failed',
+                    status_refreshed_at = NOW(),
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                """,
+                {"user_id": user_id},
+            )
+
+    async def _queue_connect_bootstrap(
+        self,
+        *,
+        user_id: str,
+        window_start_at: datetime,
+        window_end_at: datetime,
+    ) -> None:
+        try:
+            queued_sync = await self.queue_sync(
+                user_id=user_id,
+                trigger_source="connect",
+                sync_mode="bootstrap",
+                window_start_at=window_start_at,
+                window_end_at=window_end_at,
+            )
+            if not queued_sync.get("accepted", False):
+                logger.info(
+                    "gmail.connect.queue_skipped user_id=%s reason=%s",
+                    user_id,
+                    _clean_text(queued_sync.get("reason")) or "queue_rejected",
+                )
+        except Exception as exc:
+            logger.warning("gmail.connect.queue_failed user_id=%s reason=%s", user_id, exc)
+            message = _clean_text(str(exc)) or (
+                "Gmail connected, but the first sync could not start. Try Sync now."
+            )
+            await asyncio.to_thread(
+                self._update_connection_sync_status,
+                user_id=user_id,
+                status="failed",
+                error_message=message,
+            )
+            await self._execute_raw_async(
+                """
+                UPDATE kai_gmail_connections
+                SET bootstrap_state = 'failed',
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                """,
+                {"user_id": user_id},
+            )
+
+    async def _cleanup_disconnect_artifacts(
+        self,
+        *,
+        user_id: str,
+        refresh_token: str | None,
+    ) -> None:
+        try:
+            result = await self._execute_raw_async(
+                """
+                UPDATE kai_gmail_sync_runs
+                SET status = :status,
+                    error_message = :error_message,
+                    completed_at = COALESCE(completed_at, NOW()),
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                  AND status IN ('queued', 'running')
+                RETURNING run_id
+                """,
+                {
+                    "user_id": user_id,
+                    "status": "canceled",
+                    "error_message": _RUN_CANCELED_MESSAGE,
+                },
+            )
+            for active_run in result.data:
+                run_id = _clean_text(active_run.get("run_id"))
+                if run_id:
+                    self._cancel_local_sync_task(run_id)
+        except Exception as exc:
+            logger.warning(
+                "gmail.disconnect.cleanup_failed user_id=%s reason=%s",
+                user_id,
+                exc,
+            )
+
+        if refresh_token:
+            await self._revoke_refresh_token(refresh_token)
+
     def _derive_watch_status(self, row: dict[str, Any] | None) -> str:
         if row is None:
             return "not_configured" if not self._watch_enabled() else "unknown"
@@ -1334,7 +1450,7 @@ class GmailReceiptsService:
         claims = self._decode_id_token_claims(id_token)
         profile_history_id = _history_id_text(profile.get("historyId"))
 
-        existing = self._fetch_connection_row(user_id=user_id)
+        existing = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not refresh_token and existing:
             refresh_token = (
                 self._decrypt_token(
@@ -1358,16 +1474,6 @@ class GmailReceiptsService:
             "watch_expiration_at": None,
             "history_id": profile_history_id,
         }
-        try:
-            watch_state = {
-                **watch_state,
-                **(await self._register_watch(access_token=access_token)),
-            }
-        except Exception as exc:
-            logger.warning(
-                "gmail.connect.watch_registration_failed user_id=%s reason=%s", user_id, exc
-            )
-            watch_state["watch_status"] = "failed"
 
         initial_history_id = _max_history_id_text(
             watch_state.get("history_id"),
@@ -1379,7 +1485,7 @@ class GmailReceiptsService:
             days=self._bootstrap_recent_days()
         )
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             INSERT INTO kai_gmail_connections (
                 user_id,
@@ -1498,37 +1604,33 @@ class GmailReceiptsService:
             _clean_text(profile.get("emailAddress"), "unknown"),
         )
 
-        # Kick off bootstrap sync in the background. The caller only waits for
-        # auth exchange + watch registration + snapshot persistence.
-        try:
-            await self.queue_sync(
+        if self._watch_enabled():
+            watch_task = asyncio.create_task(
+                self._register_watch_after_connect(
+                    user_id=user_id,
+                    access_token=access_token,
+                )
+            )
+            self._track_background_task(watch_task)
+
+        bootstrap_task = asyncio.create_task(
+            self._queue_connect_bootstrap(
                 user_id=user_id,
-                trigger_source="connect",
-                sync_mode="bootstrap",
                 window_start_at=bootstrap_window_start,
                 window_end_at=bootstrap_window_end,
             )
-        except Exception as exc:
-            logger.warning("gmail.connect.queue_failed user_id=%s reason=%s", user_id, exc)
-            message = _clean_text(str(exc)) or (
-                "Gmail connected, but the first sync could not start. Try Sync now."
-            )
-            self._update_connection_sync_status(
-                user_id=user_id,
-                status="failed",
-                error_message=message,
-            )
-            self.db.execute_raw(
-                """
-                UPDATE kai_gmail_connections
-                SET bootstrap_state = 'failed',
-                    updated_at = NOW()
-                WHERE user_id = :user_id
-                """,
-                {"user_id": user_id},
-            )
+        )
+        self._track_background_task(bootstrap_task)
 
-        return await self.get_status(user_id=user_id)
+        row, latest_run = await asyncio.gather(
+            asyncio.to_thread(self._fetch_connection_row, user_id=user_id),
+            asyncio.to_thread(self._latest_sync_run, user_id=user_id),
+        )
+        return self._serialize_status_payload(
+            user_id=user_id,
+            row=row,
+            latest_run=latest_run,
+        )
 
     async def _revoke_refresh_token(self, refresh_token: str) -> None:
         try:
@@ -1542,44 +1644,15 @@ class GmailReceiptsService:
             logger.warning("gmail.disconnect.revoke_failed")
 
     async def disconnect(self, *, user_id: str) -> dict[str, Any]:
-        row = self._fetch_connection_row(user_id=user_id)
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if row:
-            active_runs = self.db.execute_raw(
-                """
-                SELECT run_id, user_id, status
-                FROM kai_gmail_sync_runs
-                WHERE user_id = :user_id
-                  AND status IN ('queued', 'running')
-                ORDER BY requested_at DESC
-                """,
-                {"user_id": user_id},
-            ).data
-            for active_run in active_runs:
-                run_id = _clean_text(active_run.get("run_id"))
-                if not run_id:
-                    continue
-                self._mark_run_terminal(
-                    run_id=run_id,
-                    status="canceled",
-                    error_message=_RUN_CANCELED_MESSAGE,
-                )
-                task = self._sync_tasks_by_run_id.get(run_id)
-                if task is None:
-                    continue
-                try:
-                    task.cancel()
-                except Exception:
-                    logger.warning("gmail.disconnect.cancel_task_failed run_id=%s", run_id)
-
             refresh_token = self._decrypt_token(
                 row.get("refresh_token_ciphertext"),
                 row.get("refresh_token_iv"),
                 row.get("refresh_token_tag"),
             )
-            if refresh_token:
-                await self._revoke_refresh_token(refresh_token)
 
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_connections
                 SET status = 'disconnected',
@@ -1612,13 +1685,21 @@ class GmailReceiptsService:
                 {"user_id": user_id, "watch_enabled": self._watch_enabled()},
             )
 
+            cleanup_task = asyncio.create_task(
+                self._cleanup_disconnect_artifacts(
+                    user_id=user_id,
+                    refresh_token=refresh_token,
+                )
+            )
+            self._track_background_task(cleanup_task)
+            logger.info("gmail.disconnect.cleanup_scheduled user_id=%s", user_id)
+
         logger.info("gmail.disconnect user_id=%s", user_id)
-        disconnected_row = self._fetch_connection_row(user_id=user_id)
-        latest_run = self._latest_sync_run(user_id=user_id)
+        disconnected_row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         return self._serialize_status_payload(
             user_id=user_id,
             row=disconnected_row,
-            latest_run=latest_run,
+            latest_run=None,
         )
 
     def _is_connection_sync_active(self, *, user_id: str) -> bool:

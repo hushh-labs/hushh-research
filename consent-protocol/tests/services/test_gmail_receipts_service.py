@@ -352,16 +352,47 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             "tag": f"{token}-tag",
         },
     )
-    monkeypatch.setattr(service, "_fetch_connection_row", lambda user_id: None)
+    fetch_calls = 0
+
+    def _fetch_connection_row(*, user_id):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        if fetch_calls == 1:
+            return None
+        return {
+            "status": "connected",
+            "revoked": False,
+            "google_email": "user@example.com",
+            "google_sub": "google-sub",
+            "scope_csv": "gmail.readonly",
+            "last_sync_at": None,
+            "last_sync_status": "idle",
+            "last_sync_error": None,
+            "auto_sync_enabled": True,
+            "connected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            "disconnected_at": None,
+            "bootstrap_state": "queued",
+            "watch_status": "not_configured",
+            "watch_expiration_at": None,
+            "status_refreshed_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            "last_notification_at": None,
+            "receipt_total": 0,
+        }
+
+    monkeypatch.setattr(service, "_fetch_connection_row", _fetch_connection_row)
 
     async def _queue_sync(**kwargs):
         raise RuntimeError("queue offline")
 
-    async def _get_status(user_id):
-        return {"user_id": user_id, "status": "connected"}
-
     monkeypatch.setattr(service, "queue_sync", _queue_sync)
-    monkeypatch.setattr(service, "get_status", _get_status)
+    monkeypatch.setattr(service, "_latest_sync_run", lambda user_id: None)
+    monkeypatch.setattr(
+        service,
+        "get_status",
+        lambda user_id: (_ for _ in ()).throw(
+            AssertionError("connect should return its local snapshot")
+        ),
+    )
 
     class _CaptureDb:
         def __init__(self):
@@ -380,8 +411,12 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             state="state-token",
             redirect_uri=redirect_uri,
         )
+        tasks = list(service._background_tasks)
+        if tasks:
+            await asyncio.gather(*tasks)
 
-    assert result == {"user_id": "user_123", "status": "connected"}
+    assert result["connected"] is True
+    assert result["status"] == "connected"
     assert any("gmail.connect.queue_failed" in record.message for record in caplog.records)
     assert any("INSERT INTO kai_gmail_connections" in sql for sql, _ in service._db.calls)
 
@@ -906,7 +941,7 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
             active_run_queries.append((sql, params))
-            if "SELECT run_id" in sql and "kai_gmail_sync_runs" in sql:
+            if "UPDATE kai_gmail_sync_runs" in sql and "RETURNING run_id" in sql:
                 return SimpleNamespace(
                     data=[
                         {
@@ -956,6 +991,9 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     )
 
     result = await service.disconnect(user_id="user_123")
+    tasks = list(service._background_tasks)
+    if tasks:
+        await asyncio.gather(*tasks)
 
     assert result["connected"] is False
     assert result["status"] == "disconnected"
