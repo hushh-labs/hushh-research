@@ -43,6 +43,21 @@ describe("route transition intent ownership", () => {
     expect(navigate).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the outgoing surface hidden until the new route has settled", () => {
+    vi.useFakeTimers();
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one/kai", navigate, "tap");
+    vi.advanceTimersByTime(300);
+    expect(navigate).toHaveBeenCalledTimes(1);
+
+    // A route may take longer than the exit beat to resolve. The old surface
+    // must not be replayed by a fixed timer while React/Next mounts the new
+    // one; the route-key effect is the sole owner of the enter state.
+    vi.advanceTimersByTime(500);
+    expect(document.documentElement.dataset.routeTransition).toBe("pending");
+  });
+
   it("commits contextual query selections immediately without a crossfade", () => {
     vi.useFakeTimers();
     const navigate = vi.fn();
