@@ -106,6 +106,12 @@ Client surfaces
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
 
+### One Runtime Configuration
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before a user confirms encrypted BYOK storage; distinguishes invalid credentials, exhausted quota/rate limits, billing blocks, unsupported model access, and temporary provider failure without logging or storing the key |
+
 ### One Email KYC
 
 One mailbox intake is One-led and approval-gated. KYC workspace routes require
@@ -133,11 +139,22 @@ request for a copied user. Apple private relay addresses are not inferred to
 original emails; original addresses must be verified as aliases before they can
 resolve intake.
 
+Mailbox automation is explicit opt-in. The account-scoped backend preference is
+the authority for clients and asynchronous intake; missing state is disabled.
+The Pub/Sub `emailAddress` and the fetched message recipient headers must match
+the configured canonical `one@hushh.ai` mailbox before the sender can be
+resolved or a workflow can be created. Workflow insertion atomically rechecks
+that opt-in remains enabled after classification. Webhook `accepted: true`
+acknowledges Pub/Sub delivery; `handled: true` is returned only when at least
+one eligible request actually creates or advances work.
+
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
 | POST | `/api/one/email/watch/renew` | `X-Hushh-Maintenance-Token` | Renew the Gmail watch for the delegated One mailbox |
 | POST | `/api/one/email/sync/recent` | VAULT_OWNER Bearer | Bounded catch-up scan of recent One mailbox messages, used by Email refresh when Pub/Sub delivery or history state lags |
+| GET | `/api/one/kyc/preferences/automatic-response-preparation?user_id={user_id}` | VAULT_OWNER Bearer | Read the server-authoritative account preference; a missing row returns disabled |
+| PATCH | `/api/one/kyc/preferences/automatic-response-preparation` | VAULT_OWNER Bearer | Explicitly enable or disable automatic processing of canonical One mailbox requests for the authenticated vault owner |
 | GET | `/api/one/kyc/client-connector?user_id={user_id}` | VAULT_OWNER Bearer | Read registered public client connector metadata |
 | POST | `/api/one/kyc/client-connector` | VAULT_OWNER Bearer | Register public client connector metadata after vault unlock; private key remains client/vault-only |
 | GET | `/api/one/kyc/workflows?user_id={user_id}` | VAULT_OWNER Bearer | List One KYC workflows for the vault owner |
@@ -274,7 +291,8 @@ RIA relationship bundle note:
 
 #### Connected Systems
 
-Connected Systems are vault-owner authenticated and registry-driven. Every
+Connected Systems are registry-driven. Safe registry listing is signed-in;
+schema, binding, and record operations are vault-owner authenticated. Every
 active CRM declares one primary object, enabled operation names, direct
 Streamable HTTP MCP tool/endpoint mappings, timeout/retry policy, and a
 validated non-secret response contract per operation. Cloud Run reaches
@@ -286,12 +304,13 @@ The schema response is normalized from its registered object and field paths
 into `objectMetadata` and `fields[]` descriptors with `name`, `label`,
 `dataType`, `required`, `readable`, `identityField`, `immutable`,
 `createable`, `updateable`, derived `writable`, and portable constraints such
-as `allowedValues` and `maxLength`. A missing response mapping or permission
-descriptor fails closed. The current MuleSoft `details[0].fields` response is
-therefore a display-only catalogue until schema v1 publishes all access flags.
+as `allowedValues` and `maxLength`. A missing operation response mapping fails
+closed. Field access flags are optional refinements: an explicit `false` is
+enforced, while an absent flag does not create a separate authorization gate.
 List responses expose only the exact active row's capabilities; schema
-responses expose `schemaStatus` and `effectiveActions`. The UI cannot expose a
-record action that those effective capabilities do not authorize.
+responses expose `schemaStatus`, `schemaFingerprint`, freshness, refresh
+guidance, and `effectiveActions`. The UI cannot expose a record action that
+those effective capabilities do not authorize.
 
 Read and search requests use generic `searchFields` and `returnFields` and
 return only normalized, requested, explicitly readable fields. Create and
@@ -302,8 +321,9 @@ intents. Only intent approval issues the registered direct MCP mutation.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/connected-systems` | List connected systems visible to the vault owner |
-| GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}` | Fetch the registered primary-object schema and return normalized fields, `schemaStatus`, and exact `effectiveActions` |
+| GET | `/api/connected-systems` | List active registry systems with `registryRevision` and per-system `configurationRevision`; signed-in metadata only |
+| GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}&forceRefresh=false` | Return the normalized schema catalogue, fingerprint, freshness, refresh guidance, and exact `effectiveActions` |
+| GET | `/api/connected-systems/record-bindings` | Return owner-scoped binding statuses for every active CRM in one request; no CRM record IDs or values |
 | GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
 | POST | `/api/connected-systems/{system_id}/records/read` | Read using generic `{ objectType, searchFields, returnFields }`; returns a sanitized normalized projection only |
 | POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
@@ -312,6 +332,13 @@ intents. Only intent approval issues the registered direct MCP mutation.
 | POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
+
+Registry activation is not an API. Operators use the local, ignored
+`crm-registry.v1` descriptor with
+`scripts/ops/configure_crm_registry.py check|probe|apply|deactivate`. A CRM is
+activated only after its declared MCP tools and operation response contracts
+pass; CRUD descriptors additionally pass an isolated create/read/update/read/
+delete/absent lifecycle with cleanup.
 
 #### Kai Chat
 
@@ -514,6 +541,18 @@ Backward-compatible sections remain present while migration is active:
 - `market_overview`
 - `spotlights`
 - `themes`
+
+### Kai Market News Feed (Cursor Snapshot)
+
+`GET /api/kai/market/news/baseline/{user_id}` serves the authenticated public baseline feed. `GET /api/kai/market/news/{user_id}` serves a vault-owner-scoped feed for up to three validated symbols. Both return the same bounded envelope:
+
+- `items`: normalized provider headlines only (`symbol`, `title`, optional `summary`, `url`, `published_at`, `source_name`, `provider`)
+- `next_cursor` and `has_more`: opaque cursor pagination over one server-side snapshot
+- `snapshot_id`: must match the snapshot encoded in `next_cursor`; a changed snapshot returns `409`, so a client restarts at page one instead of mixing editions
+- `cache`: bounded cache tier/age/hit metadata and `stale`
+- `provider_status`: provider health metadata only
+
+The server resolves at most three symbols with bounded fanout, caches the normalized bundle for ten minutes fresh and thirty minutes stale, and slices later pages from that cached bundle. Paging must not trigger a second provider fanout. Provider resolution is strict priority fallback (Finnhub, then PMP/FMP, NewsAPI, Google News RSS); PMP/FMP news calls share the FMP request budget and honor provider cooldowns.
 
 ### Ticker Enrichment Fields (`/api/tickers/search`, `/api/tickers/all`)
 

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const AXIS_LOCK_THRESHOLD_PX = 6;
 const DIRECTION_RATIO = 1.12;
@@ -165,7 +166,12 @@ export function TopShellRouteSwipe({
       const destination = tabSet.tabs[activeIndex + (deltaX < 0 ? 1 : -1)];
       if (!destination || destination.href === pathname) return;
       scrollAppToTop("auto");
-      router.push(destination.href);
+      beginRouteTransition(
+        destination.href,
+        () => router.push(destination.href, { scroll: false }),
+        "tap",
+        tabSet.queryParam ? "contextual" : "full",
+      );
     };
 
     const startListener: EventListener = (event) =>

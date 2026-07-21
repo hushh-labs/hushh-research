@@ -79,7 +79,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfileAvatarEditor } from "@/components/profile/profile-avatar-editor";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -129,6 +129,7 @@ import {
   resolveProfileRiaRegulatoryRow,
 } from "@/lib/profile/profile-ria-regulatory-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -553,7 +554,11 @@ function ProfilePageContent() {
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const { personaState, refresh: refreshPersonaState } = usePersonaState();
+  const {
+    personaState,
+    refresh: refreshPersonaState,
+    riaOnboardingStatus: personaRiaOnboardingStatus,
+  } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -646,8 +651,13 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  // Seed synchronously from the persona context (itself warm-seeded from cache)
+  // so the regulatory row paints "Update" instantly instead of flashing
+  // "Checking" on every open. SWR keeps it fresh in the background.
   const [riaOnboardingStatus, setRiaOnboardingStatus] =
-    useState<RiaOnboardingStatus | null>(null);
+    useState<RiaOnboardingStatus | null>(
+      () => personaRiaOnboardingStatus ?? null,
+    );
   const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
     useState(false);
   const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
@@ -1033,13 +1043,31 @@ function ProfilePageContent() {
         return null;
       }
 
-      setLoadingRiaOnboardingStatus(true);
+      // Only show the "Checking" spinner on a genuine cold cache — a warm value
+      // (the synchronously-seeded snapshot) already paints, so we revalidate
+      // silently. Independent of `force` so an explicit refresh with a value
+      // shown doesn't flash the row either.
+      const hasDisplayable = Boolean(
+        CacheService.getInstance().peek<RiaOnboardingStatus>(
+          CACHE_KEYS.RIA_ONBOARDING_STATUS(user.uid),
+        ),
+      );
+      // Show the spinner on a cold cache, or on an explicit user-triggered
+      // refresh (force) where feedback is expected; stay silent on a warm open.
+      if (!hasDisplayable || force) {
+        setLoadingRiaOnboardingStatus(true);
+      }
       setRiaOnboardingStatusError(null);
       try {
         const idToken = await user.getIdToken();
+        // Always revalidate against the server on open/refresh (force) so a warm
+        // SESSION-cached snapshot can't leave a compliance-meaningful status
+        // (e.g. verification_status) stale for up to 30 min; the seed already
+        // painted instantly, and setState below repaints when the fresh value
+        // lands (no spinner on a warm cache).
         const nextStatus = await RiaService.getOnboardingStatus(idToken, {
           userId: user.uid,
-          force,
+          force: true,
         });
         setRiaOnboardingStatus(nextStatus);
         return nextStatus;
@@ -1387,7 +1415,7 @@ function ProfilePageContent() {
           })(),
           {
             loading: "Deleting your account...",
-            success: "Account deleted. Redirecting...",
+            success: "Account deleted.",
             error: "Failed to delete account. Please try again.",
             variant: "destructive",
           },
@@ -2961,6 +2989,7 @@ function ProfilePageContent() {
         loading={profileManagerLoading}
         metadataReady={pkmMetadataReady}
         metadataError={pkmError}
+        sharingReady={consentCenterReady}
         sharingError={consentCenterError}
         needsVaultCreation={vaultAccess.needsVaultCreation}
         needsUnlock={vaultAccess.needsUnlock}
@@ -3073,23 +3102,20 @@ function ProfilePageContent() {
           icon={Mail}
           title="Email"
           description={user.email || "Not available"}
-          trailing={
-            <Badge variant="secondary">
-              {emailVerified ? "Verified" : "Unverified"}
-            </Badge>
-          }
-          stackTrailingOnMobile
         />
         <SettingsRow
           icon={Phone}
           title="Phone number"
           description={phoneSummaryText}
           trailing={
-            <Badge variant="secondary">
-              {phoneNumber ? "Verified" : "Required"}
-            </Badge>
+            <span className="text-xs font-medium text-accent-strong">
+              {phoneNumber ? "Change" : "Add"}
+            </span>
           }
-          stackTrailingOnMobile
+          chevron
+          onClick={() =>
+            updateProfileView({ panel: "account", detail: "phone" }, "push")
+          }
         />
         <SettingsRow
           icon={Fingerprint}
@@ -3098,19 +3124,6 @@ function ProfilePageContent() {
         />
       </SettingsGroup>
       <SettingsGroup title="Account actions">
-        <SettingsRow
-          icon={Phone}
-          title={phoneNumber ? "Change phone number" : "Add phone number"}
-          description={
-            phoneNumber
-              ? "Verify a new number to replace the current one."
-              : "Add a verified phone number to this account."
-          }
-          chevron
-          onClick={() =>
-            updateProfileView({ panel: "account", detail: "phone" }, "push")
-          }
-        />
         <SettingsRow
           icon={RefreshCw}
           title="Reset account"
@@ -3255,6 +3268,7 @@ function ProfilePageContent() {
 
   const connectedSystemsContent = (
     <ConnectedSystemsPanel
+      cacheUserId={user?.uid}
       vaultOwnerToken={vaultOwnerToken}
       onRequestUnlock={() => requestVaultUnlock("profile_data")}
       profile={{
@@ -3961,48 +3975,7 @@ function ProfilePageContent() {
           data-slot="page-header"
           data-page-primary="true"
         >
-          <div
-            data-profile-avatar-frame="true"
-            className="h-14 w-14 shrink-0 rounded-full bg-primary/18 p-1 sm:h-16 sm:w-16"
-          >
-            {user.photoURL ? (
-              <Avatar className="h-full w-full">
-                <AvatarImage
-                  className="object-cover"
-                  src={user.photoURL}
-                  alt={user.displayName || "Profile"}
-                />
-                <AvatarFallback className="bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg">
-                  {user.displayName ? (
-                    user.displayName
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase()
-                  ) : (
-                    <Icon icon={User} size={32} className="sm:size-9" />
-                  )}
-                </AvatarFallback>
-              </Avatar>
-            ) : (
-              <div
-                data-profile-avatar-fallback="true"
-                className="flex h-full w-full items-center justify-center rounded-full bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg"
-              >
-                {user.displayName ? (
-                  user.displayName
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                ) : (
-                  <Icon icon={User} size={32} className="sm:size-9" />
-                )}
-              </div>
-            )}
-          </div>
+          <ProfileAvatarEditor />
           <div className="min-w-0 max-w-full space-y-1.5">
             <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}

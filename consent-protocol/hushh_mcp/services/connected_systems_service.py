@@ -7,6 +7,7 @@ import copy
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -938,6 +939,10 @@ class ConnectedSystemDefinition:
     capabilities: frozenset[str] = frozenset({"schema", "read", "create", "update", "delete"})
     timeout_seconds: float = 30.0
     retry_count: int = 0
+    # Internal DB identity and monotonic configuration version. Neither carries
+    # credentials; both make cache invalidation deterministic for aliased IDs.
+    registry_id: str | None = None
+    configuration_revision: int = 1
 
     def operation(self, operation: str) -> dict[str, Any] | None:
         return next(
@@ -994,6 +999,7 @@ class ConnectedSystemDefinition:
         }
         return {
             "systemId": self.system_id,
+            "configurationRevision": self.configuration_revision,
             "displayName": self.display_name,
             "customerDisplayName": self.customer_display_name,
             "systemType": self.system_type,
@@ -1324,6 +1330,9 @@ class ConnectedSystemIntentStore:
     ) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    def list_bindings(self, *, user_id: str) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
     def upsert_binding(self, binding: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -1395,6 +1404,13 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
         if not binding or binding.get("status") != "active":
             return None
         return _deepcopy_json(binding)
+
+    def list_bindings(self, *, user_id: str) -> list[dict[str, Any]]:
+        return [
+            _deepcopy_json(binding)
+            for binding in self.bindings.values()
+            if binding.get("user_id") == user_id and binding.get("status") == "active"
+        ]
 
     def upsert_binding(self, binding: dict[str, Any]) -> dict[str, Any]:
         key = (binding["user_id"], binding["system_id"], binding["object_type"])
@@ -1626,6 +1642,19 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
         ).data
         return _binding_from_db_row(rows[0]) if rows else None
 
+    def list_bindings(self, *, user_id: str) -> list[dict[str, Any]]:
+        rows = self.db.execute_raw(
+            """
+            SELECT *
+            FROM connected_system_record_bindings
+            WHERE user_id = :user_id
+              AND status = 'active'
+            ORDER BY system_id, object_type
+            """,
+            {"user_id": user_id},
+        ).data
+        return [_binding_from_db_row(row) for row in rows]
+
     def upsert_binding(self, binding: dict[str, Any]) -> dict[str, Any]:
         rows = self.db.execute_raw(
             """
@@ -1795,6 +1824,7 @@ class ConnectedSystemsService:
         delete_enabled: bool | None = None,
         registry: tuple[ConnectedSystemDefinition, ...] | None = None,
         identity_service: Any | None = None,
+        schema_cache: Any | None = None,
     ):
         self._registry_explicit = registry is not None
         self.registry = registry or self._load_registry()
@@ -1802,6 +1832,20 @@ class ConnectedSystemsService:
         self.store = store or DatabaseConnectedSystemIntentStore()
         self.delete_enabled = True if delete_enabled is None else delete_enabled
         self.identity_service = identity_service
+        if schema_cache is None:
+            from hushh_mcp.services.crm_schema_catalog_cache import (
+                InMemoryCrmSchemaCatalogCache,
+                get_crm_schema_catalog_cache,
+            )
+
+            schema_cache = (
+                InMemoryCrmSchemaCatalogCache()
+                if self._registry_explicit
+                else get_crm_schema_catalog_cache()
+            )
+        self.schema_cache = schema_cache
+        self._schema_refresh_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._forced_schema_refresh_at: dict[str, float] = {}
 
     def _load_registry(self) -> tuple[ConnectedSystemDefinition, ...]:
         from hushh_mcp.services import crm_registry_repo
@@ -1821,6 +1865,15 @@ class ConnectedSystemsService:
         self, system: ConnectedSystemDefinition
     ) -> ExternalCrmStreamableMcpAdapter:
         return self.adapter or ExternalCrmStreamableMcpAdapter.from_registry(system)
+
+    def _finish_background_schema_refresh(
+        self, key: str, task: asyncio.Task[dict[str, Any]]
+    ) -> None:
+        self._schema_refresh_tasks.pop(key, None)
+        try:
+            task.result()
+        except Exception:  # noqa: BLE001 - stale display remains safe on refresh failure
+            logger.info("crm_schema.background_refresh_failed cache_key=%s", key)
 
     def _require_operation(
         self, system: ConnectedSystemDefinition, operation: str
@@ -1896,8 +1949,35 @@ class ConnectedSystemsService:
             for system in registry
         ]
 
+    def registry_revision(self) -> int:
+        registry = self.registry if self._registry_explicit else self._load_registry()
+        # Every active-row update changes this aggregate revision. Deactivation
+        # removes the row from the projection, which also changes the value.
+        return sum(system.configuration_revision for system in registry)
+
     def get_system(self, system_id: str) -> ConnectedSystemDefinition:
         return self._resolve_system(system_id)
+
+    def list_record_binding_statuses(self, *, user_id: str) -> dict[str, Any]:
+        """Return safe owner-scoped binding states without CRM ids or values."""
+        active = self._store_call(self.store.list_bindings, user_id=user_id)
+        indexed = {
+            (str(binding.get("system_id")), str(binding.get("object_type"))): binding
+            for binding in active
+        }
+        statuses: list[dict[str, Any]] = []
+        for summary in self.list_systems():
+            system_id = str(summary.get("systemId") or "")
+            object_type = str(summary.get("objectTypeDefault") or "")
+            binding = indexed.get((system_id, object_type))
+            statuses.append(
+                {
+                    "systemId": system_id,
+                    "objectType": object_type,
+                    "status": "active" if binding else "unbound",
+                }
+            )
+        return {"bindings": statuses}
 
     def _resolve_system(self, system_id: str) -> ConnectedSystemDefinition:
         """Resolve a connected system definition.
@@ -2063,9 +2143,94 @@ class ConnectedSystemsService:
             )
         return bound_record_id
 
-    async def get_schema(self, *, system_id: str, object_type: str | None = None) -> dict[str, Any]:
+    async def get_schema(
+        self,
+        *,
+        system_id: str,
+        object_type: str | None = None,
+        force_refresh: bool = False,
+        require_fresh: bool = False,
+    ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "schema")
+        normalized_object_type = _normalize_object_type(
+            object_type, default=system.object_type_default
+        )
+        registry_id = system.registry_id or system.system_id
+        cache_key = f"{registry_id}:{normalized_object_type}:{system.configuration_revision}"
+        cached = self.schema_cache.get(
+            crm_id=registry_id,
+            object_type=normalized_object_type,
+            configuration_revision=system.configuration_revision,
+        )
+        if force_refresh:
+            last_forced_at = self._forced_schema_refresh_at.get(cache_key, 0.0)
+            if cached and time.monotonic() - last_forced_at < 30.0:
+                return {
+                    **_deepcopy_json(cached["schema"]),
+                    "systemId": system.system_id,
+                    "configurationRevision": system.configuration_revision,
+                    "schemaFingerprint": cached.get("schemaFingerprint"),
+                    "freshness": cached.get("freshness"),
+                    "refreshedAt": cached.get("refreshedAt"),
+                    "refreshGuidance": "A recent explicit refresh is already available.",
+                }
+            self._forced_schema_refresh_at[cache_key] = time.monotonic()
+            cached = None
+        if cached and cached.get("freshness") == "fresh":
+            return {
+                **_deepcopy_json(cached["schema"]),
+                "systemId": system.system_id,
+                "configurationRevision": system.configuration_revision,
+                "schemaFingerprint": cached.get("schemaFingerprint"),
+                "freshness": "fresh",
+                "refreshedAt": cached.get("refreshedAt"),
+                "refreshGuidance": "Cached schema is current.",
+            }
+        if cached and not require_fresh:
+            if cache_key not in self._schema_refresh_tasks:
+                task = asyncio.create_task(
+                    self._refresh_schema(system=system, object_type=normalized_object_type)
+                )
+                self._schema_refresh_tasks[cache_key] = task
+                task.add_done_callback(
+                    lambda completed, key=cache_key: self._finish_background_schema_refresh(
+                        key, completed
+                    )
+                )
+            stale_schema = _deepcopy_json(cached["schema"])
+            stale_schema["effectiveActions"] = {
+                "schema": True,
+                "read": False,
+                "create": False,
+                "update": False,
+                "delete": False,
+            }
+            return {
+                **stale_schema,
+                "systemId": system.system_id,
+                "configurationRevision": system.configuration_revision,
+                "schemaFingerprint": cached.get("schemaFingerprint"),
+                "freshness": "stale_display_only",
+                "refreshedAt": cached.get("refreshedAt"),
+                "refreshGuidance": "Showing the last safe field catalogue while it refreshes.",
+                "configurationMessage": "The saved field catalogue is visible while this CRM refreshes. Record actions resume only with a fresh schema.",
+            }
+        existing = self._schema_refresh_tasks.get(cache_key)
+        if existing:
+            return await existing
+        task = asyncio.create_task(
+            self._refresh_schema(system=system, object_type=normalized_object_type)
+        )
+        self._schema_refresh_tasks[cache_key] = task
+        try:
+            return await task
+        finally:
+            self._schema_refresh_tasks.pop(cache_key, None)
+
+    async def _refresh_schema(
+        self, *, system: ConnectedSystemDefinition, object_type: str
+    ) -> dict[str, Any]:
         response_contract = _operation_response_contract(system, "schema")
         if system.registry_source == "enterprise_crm_registry" and (
             response_contract.get("version") != "crm-primary-object-schema.v1"
@@ -2078,7 +2243,7 @@ class ConnectedSystemsService:
             )
         payload = {
             "target": system.target,
-            "objectType": _normalize_object_type(object_type, default=system.object_type_default),
+            "objectType": object_type,
         }
         result = await self._call_operation(system=system, operation="schema", payload=payload)
         schema_fields = _schema_fields_from_schema_result(
@@ -2105,8 +2270,9 @@ class ConnectedSystemsService:
             "update": bool(system.supports("update")),
             "delete": bool(system.supports("delete") and self.delete_enabled),
         }
-        return {
+        schema = {
             "systemId": system.system_id,
+            "configurationRevision": system.configuration_revision,
             "target": system.target,
             "objectType": payload["objectType"],
             "objectMetadata": object_metadata,
@@ -2127,6 +2293,17 @@ class ConnectedSystemsService:
                 else "Some field-level access metadata is not declared. Registered CRM operations remain available and explicit field restrictions are still enforced."
             ),
         }
+        cache_metadata = self.schema_cache.put(
+            crm_id=system.registry_id or system.system_id,
+            object_type=object_type,
+            configuration_revision=system.configuration_revision,
+            schema=schema,
+        )
+        return {
+            **schema,
+            **cache_metadata,
+            "refreshGuidance": "Schema refreshed from the registered CRM MCP tool.",
+        }
 
     @staticmethod
     def _require_schema_action(schema: dict[str, Any], action: str) -> None:
@@ -2143,6 +2320,7 @@ class ConnectedSystemsService:
         *,
         action: str,
         require_required_fields: bool = False,
+        satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(values, dict) or not values:
             raise ConnectedSystemValidationError(f"recordFields is required for {action}.")
@@ -2174,6 +2352,7 @@ class ConnectedSystemsService:
             normalized[field["name"]] = value
         if require_required_fields:
             supplied = {str(key).lower() for key in normalized}
+            supplied.update(str(key).lower() for key in (satisfied_required_fields or set()))
             missing = [
                 field["label"]
                 for field in fields.values()
@@ -2199,14 +2378,21 @@ class ConnectedSystemsService:
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
         profile_field_mappings: dict[str, str] | None = None,
+        satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "create")
-        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type, require_fresh=True
+        )
         self._require_schema_action(schema, "create")
         fields = {str(field["key"]): field for field in schema["fields"]}
         normalized = self._validated_schema_fields(
-            fields, record_fields, action="create", require_required_fields=True
+            fields,
+            record_fields,
+            action="create",
+            require_required_fields=True,
+            satisfied_required_fields=satisfied_required_fields,
         )
         object_type_value = str(schema["objectType"])
         payload: dict[str, Any] = {
@@ -2273,7 +2459,9 @@ class ConnectedSystemsService:
         signed-in display name mapped against the active CRM schema.
         """
         profile = await self._verified_user_crm_profile(user_id=user_id)
-        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type, require_fresh=True
+        )
         system = self.get_system(system_id)
         mappings = dict(profile_field_mappings or {})
         if not mappings and system.registry_source != "enterprise_crm_registry":
@@ -2292,7 +2480,25 @@ class ConnectedSystemsService:
         # Salesforce-style `Name` fields are frequently derived and cannot be
         # written alongside FirstName/LastName. Use a full-name field only for
         # schemas that do not expose the split name pair.
-        if not (mappings.get("firstName") and mappings.get("lastName")):
+        first_name_field = _clean_text(mappings.get("firstName"), max_length=80)
+        last_name_field = _clean_text(mappings.get("lastName"), max_length=80)
+        split_name_is_complete = bool(
+            first_name_field
+            and last_name_field
+            and first_name_field != last_name_field
+            and first_name_field in fields
+            and last_name_field in fields
+        )
+        satisfied_required_fields: set[str] = set()
+        if split_name_is_complete:
+            # Some CRM schemas expose a derived full-name field as required
+            # even though create accepts its mapped first/last components.
+            # The schema mapper owns this semantic equivalence; do not send the
+            # derived field back as a second, potentially read-only value.
+            full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
+            if full_name_field:
+                satisfied_required_fields.add(full_name_field)
+        else:
             full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
             full_name = _clean_text(profile.get("displayName"), max_length=160)
             if full_name_field and full_name:
@@ -2308,6 +2514,7 @@ class ConnectedSystemsService:
             object_type=object_type,
             record_fields=fields,
             profile_field_mappings=mappings,
+            satisfied_required_fields=satisfied_required_fields,
         )
 
     async def update_record_intent_from_fields(
@@ -2329,7 +2536,9 @@ class ConnectedSystemsService:
             object_type=object_type_value,
             supplied_record_id=record_id,
         )
-        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type, require_fresh=True
+        )
         self._require_schema_action(schema, "update")
         fields = {str(field["key"]): field for field in schema["fields"]}
         normalized = self._validated_schema_fields(fields, record_fields, action="update")
@@ -2480,7 +2689,9 @@ class ConnectedSystemsService:
         record_id: str | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type, require_fresh=True
+        )
         self._require_schema_action(schema, "read")
         fields = {
             str(field["key"]): field
@@ -2681,7 +2892,19 @@ class ConnectedSystemsService:
             search_fields=search_fields,
             return_fields=return_fields,
         )
-        record_id = _clean_text(read.get("recordId"), max_length=128)
+        matched_records = _ensure_list(read.get("records"))
+        if len(matched_records) > 1:
+            raise ConnectedSystemBlockedError(
+                "More than one CRM profile matched your verified account information.",
+                code="CONNECTED_SYSTEM_RECORD_MATCH_AMBIGUOUS",
+                status_code=409,
+            )
+        record_id = _clean_text(
+            (matched_records[0] if matched_records else {}).get("recordId")
+            if matched_records
+            else read.get("recordId"),
+            max_length=128,
+        )
         binding: dict[str, Any] | None = None
         if read.get("resultClass") == "succeeded" and record_id:
             system = self.get_system(system_id)
@@ -2904,7 +3127,9 @@ class ConnectedSystemsService:
                 )
             if system.registry_source == "enterprise_crm_registry":
                 schema = await self.get_schema(
-                    system_id=system_id, object_type=intent.get("object_type")
+                    system_id=system_id,
+                    object_type=intent.get("object_type"),
+                    require_fresh=True,
                 )
                 self._require_schema_action(schema, str(intent.get("action") or ""))
             response_contract = _operation_response_contract(

@@ -3,6 +3,7 @@ import XCTest
 
 final class AppUITests: XCTestCase {
     private var vaultUnlockSubmitted = false
+    private var activeUiFlowRunId = ""
 
     struct RouteCase {
         let name: String
@@ -114,7 +115,7 @@ final class AppUITests: XCTestCase {
 
     func testConsentAndProfileRoutes() throws {
         try assertRoutes([
-            reviewerRoute(name: "consents", redirect: "/consents", marker: "native-route-consents"),
+            reviewerRoute(name: "consents", redirect: "/one/consent", marker: "native-route-consents"),
             reviewerRoute(
                 name: "agent",
                 redirect: "/agent",
@@ -128,12 +129,12 @@ final class AppUITests: XCTestCase {
                 marker: "native-route-one-location",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
-            reviewerRoute(name: "profile", redirect: "/profile", marker: "native-route-profile"),
+            reviewerRoute(name: "profile", redirect: "/one/profile", marker: "native-route-profile"),
             RouteCase(
                 name: "profile-pkm",
-                initialRoute: "/login?redirect=%2Fprofile%2Fpkm",
-                expectedMarker: "native-route-profile",
-                expectedRoute: "/profile?panel=my-data",
+                initialRoute: "/login?redirect=%2Fone%2Fprofile%2Fpkm",
+                expectedMarker: "native-route-pkm",
+                expectedRoute: "/one/pkm",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
@@ -141,8 +142,8 @@ final class AppUITests: XCTestCase {
             ),
             reviewerRoute(
                 name: "profile-receipts",
-                redirect: "/profile/receipts",
-                marker: "native-route-profile-receipts",
+                redirect: "/one/profile/receipts",
+                marker: "native-route-gmail",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
         ])
@@ -159,7 +160,7 @@ final class AppUITests: XCTestCase {
                 initialRoute: "/login?redirect=%2Fria%2Frequests",
                 expectedMarker: "native-route-consents",
                 expectedRoute: nil,
-                expectedRoutePrefix: "/consents",
+                expectedRoutePrefix: "/one/consent",
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
                 allowedDataStates: ["loaded"]
@@ -168,7 +169,7 @@ final class AppUITests: XCTestCase {
                 name: "ria-settings",
                 initialRoute: "/login?redirect=%2Fria%2Fsettings",
                 expectedMarker: "native-route-profile",
-                expectedRoute: "/profile",
+                expectedRoute: "/one/profile",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
@@ -194,7 +195,7 @@ final class AppUITests: XCTestCase {
                 name: "marketplace-connections",
                 initialRoute: "/login?redirect=%2Fmarketplace%2Fconnections",
                 expectedMarker: "native-route-consents",
-                expectedRoute: "/consents?tab=pending",
+                expectedRoute: "/one/consent?tab=pending",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
@@ -235,7 +236,7 @@ final class AppUITests: XCTestCase {
             ),
             reviewerRoute(
                 name: "profile-gmail-return",
-                redirect: "/profile/gmail/oauth/return",
+                redirect: "/one/profile/gmail/oauth/return",
                 marker: "native-route-profile-gmail-return",
                 allowedDataStates: ["unavailable-valid", "redirect-valid"]
             ),
@@ -245,16 +246,22 @@ final class AppUITests: XCTestCase {
     func testReviewerUiInteractionFlows() throws {
         assertReviewerPassphraseAliasesMatch()
         let app = launchUiInteractionAuditApp()
+        defer { app.terminate() }
         let status = try waitForUiFlowsComplete(app, timeout: uiInteractionFlowTimeout())
         XCTAssertEqual(status["bootstrap"], "vault_unlocked", "Native reviewer vault bootstrap did not complete")
         XCTAssertEqual(status["ui_complete"], "1", "UI interaction flows did not complete. \(statusSummaryForLog(status))")
         XCTAssertEqual(status["ui_ok"], "1", "UI interaction flows failed. \(statusSummaryForLog(status))")
-        app.terminate()
+        XCTAssertEqual(status["ui_run"], activeUiFlowRunId, "UI interaction report belongs to another run")
+        XCTAssertTrue(
+            (status["ui_plan"] ?? "").range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+            "UI interaction report does not identify the bundled audit plan"
+        )
     }
 
     func testPhysicalMicrophoneCaptureSmoke() throws {
         let app = XCUIApplication()
         app.terminate()
+        defer { app.terminate() }
         app.launchArguments = [
             "-UITestMode",
             "-UITestInitialRoute", "/",
@@ -303,7 +310,6 @@ final class AppUITests: XCTestCase {
             ).firstMatch.exists,
             "WebView reported microphone access blocked"
         )
-        app.terminate()
     }
 
     private func uiInteractionFlowTimeout() -> TimeInterval {
@@ -452,7 +458,6 @@ final class AppUITests: XCTestCase {
             return false
         }
         let vaultCreationControls = [
-            app.buttons["Continue to Vault Setup"],
             app.buttons["Create Vault"],
             app.buttons["I've Saved My Recovery Key"],
         ]
@@ -519,6 +524,7 @@ final class AppUITests: XCTestCase {
 
     private func launchUiInteractionAuditApp() -> XCUIApplication {
         vaultUnlockSubmitted = false
+        activeUiFlowRunId = UUID().uuidString
         let app = XCUIApplication()
         app.terminate()
         let environment = ProcessInfo.processInfo.environment
@@ -539,7 +545,7 @@ final class AppUITests: XCTestCase {
             // actions. Cold-entry behavior has its own route tests.
             "-UITestResetAppState", "false",
             "-UITestRunUiFlows", "true",
-            "-UITestUiFlowRunId", UUID().uuidString,
+            "-UITestUiFlowRunId", activeUiFlowRunId,
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -795,13 +801,15 @@ final class AppUITests: XCTestCase {
 
     private func assertRoutes(_ routes: [RouteCase]) throws {
         for route in routes {
-            let app = launchApp(route)
-            let status = try waitForSatisfiedStatus(app, route: route, timeout: 90)
-            XCTAssertTrue(
-                route.allowedDataStates.contains(status["data"] ?? ""),
-                "Unexpected data state for \(route.name): \(statusSummaryForLog(status))"
-            )
-            app.terminate()
+            do {
+                let app = launchApp(route)
+                defer { app.terminate() }
+                let status = try waitForSatisfiedStatus(app, route: route, timeout: 90)
+                XCTAssertTrue(
+                    route.allowedDataStates.contains(status["data"] ?? ""),
+                    "Unexpected data state for \(route.name): \(statusSummaryForLog(status))"
+                )
+            }
         }
     }
 

@@ -23,7 +23,10 @@ router = APIRouter(prefix="/api/connected-systems", tags=["Connected Systems"])
 
 
 class ConnectedSystemsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     systems: list[dict[str, Any]]
+    registry_revision: int = Field(alias="registryRevision")
 
 
 class CrmReadRequest(BaseModel):
@@ -102,6 +105,17 @@ def _user_id(token_data: dict) -> str:
     return str(token_data.get("user_id") or "")
 
 
+def _schema_mapping_crm_id(*, service: Any, system_id: str) -> str:
+    """Resolve the registry parent key used by the schema-mapping cache.
+
+    Public system identifiers are stable connector handles and may differ from
+    the registry's internal ``crm_id`` primary key. Mapping cache rows must use
+    the parent key so every dynamically registered CRM satisfies the FK.
+    """
+    system = service.get_system(system_id)
+    return str(system.registry_id or system.system_id)
+
+
 async def _resolve_schema_mapping(
     *,
     service: Any,
@@ -114,9 +128,14 @@ async def _resolve_schema_mapping(
     The mapper receives the normalized schema only. It never receives the
     authenticated user, their verified values, a CRM record, or credentials.
     """
-    schema = await service.get_schema(system_id=system_id, object_type=object_type)
+    schema = await service.get_schema(
+        system_id=system_id,
+        object_type=object_type,
+        force_refresh=force_refresh,
+        require_fresh=True,
+    )
     resolved = await get_crm_schema_mapping_service().resolve(
-        crm_id=system_id,
+        crm_id=_schema_mapping_crm_id(service=service, system_id=system_id),
         schema=schema,
         force_refresh=force_refresh,
     )
@@ -194,7 +213,20 @@ async def list_connected_systems(
     _ = firebase_uid
     try:
         service = get_connected_systems_service()
-        return ConnectedSystemsResponse(systems=service.list_systems())
+        return ConnectedSystemsResponse(
+            systems=service.list_systems(), registryRevision=service.registry_revision()
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
+@router.get("/record-bindings")
+async def list_connected_system_record_bindings(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    service = get_connected_systems_service()
+    try:
+        return service.list_record_binding_statuses(user_id=_user_id(token_data))
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
 
@@ -207,19 +239,27 @@ async def get_connected_system_schema(
         alias="objectType",
         max_length=80,
     ),
+    force_refresh: bool = Query(default=False, alias="forceRefresh"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     _ = _user_id(token_data)
     service = get_connected_systems_service()
     try:
+        # Fetch the remote catalogue once. Mapping failure must not issue a
+        # second 20s+ MuleSoft schema request merely to render catalogue-only.
+        schema = await service.get_schema(
+            system_id=system_id,
+            object_type=object_type,
+            force_refresh=force_refresh,
+        )
         try:
-            schema, mapping = await _resolve_schema_mapping(
-                service=service,
-                system_id=system_id,
-                object_type=object_type,
+            resolved = await get_crm_schema_mapping_service().resolve(
+                crm_id=_schema_mapping_crm_id(service=service, system_id=system_id),
+                schema=schema,
+                force_refresh=force_refresh,
             )
+            mapping = resolved.mapping
         except CrmSchemaMappingError:
-            schema = await service.get_schema(system_id=system_id, object_type=object_type)
             return _schema_catalogue_only(schema)
         return {
             **schema,

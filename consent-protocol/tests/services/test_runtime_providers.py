@@ -19,6 +19,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.runtime_providers import (
+    GeminiByokTransportUnsupportedError,
+    build_managed_gemini_adk_model,
     build_managed_runtime_client,
     build_runtime_client,
     default_model_for_provider,
@@ -130,6 +132,15 @@ def test_resolve_model_entry_empty_model_uses_default():
     entry = resolve_model_entry("gemini", "")
     assert entry.provider == "gemini"
     assert entry.model == default_model_for_provider("gemini")
+
+
+def test_only_gemini_live_model_advertises_native_realtime():
+    assert resolve_model_entry("gemini", "gemini-3.5-flash").supports_native_realtime is False
+    assert resolve_model_entry("gemini", "gemini-3.1-flash-lite").supports_native_realtime is False
+    assert (
+        resolve_model_entry("gemini", "gemini-live-2.5-flash-native-audio").supports_native_realtime
+        is True
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -266,7 +277,7 @@ def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
     ]
 
 
-def test_factory_routes_a_google_cloud_vertex_api_key_to_the_vertex_endpoint(monkeypatch):
+def test_factory_rejects_unrehearsed_google_cloud_vertex_api_key_transport(monkeypatch):
     calls: list[dict] = []
 
     monkeypatch.setattr(
@@ -274,23 +285,16 @@ def test_factory_routes_a_google_cloud_vertex_api_key_to_the_vertex_endpoint(mon
         lambda **kwargs: calls.append(kwargs) or types.SimpleNamespace(kind="vertex-api-key"),
     )
 
-    client = build_runtime_client(
-        "gemini",
-        "K1",
-        gemini_byok_transport="vertex_api_key",
-        vertex_project="customer-vertex-project",
-        vertex_location="us-central1",
-    )
+    with pytest.raises(GeminiByokTransportUnsupportedError):
+        build_runtime_client(
+            "gemini",
+            "K1",
+            gemini_byok_transport="vertex_api_key",
+            vertex_project="customer-vertex-project",
+            vertex_location="us-central1",
+        )
 
-    assert client.kind == "vertex-api-key"
-    assert calls == [
-        {
-            "vertexai": True,
-            "api_key": "K1",
-            "project": "customer-vertex-project",
-            "location": "us-central1",
-        }
-    ]
+    assert calls == []
 
 
 def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):
@@ -305,6 +309,53 @@ def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):
     build_managed_runtime_client("gemini")
 
     assert calls == [{"vertexai": True, "project": "hushh-test", "location": "us-central1"}]
+
+
+def test_factory_builds_adk_model_with_explicit_managed_vertex_contract(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("GOOGLE_API_KEY", "LEGACY_KEY_MUST_NOT_BE_USED")
+
+    model = build_managed_gemini_adk_model("gemini-test")
+
+    assert model.model == "gemini-test"
+    assert model.client_kwargs == {
+        "vertexai": True,
+        "project": "hushh-test",
+        "location": "global",
+    }
+
+
+def test_factory_adk_model_honors_explicit_live_location(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    model = build_managed_gemini_adk_model(
+        "gemini-live-test",
+        vertex_location="us-central1",
+    )
+
+    assert model.client_kwargs == {
+        "vertexai": True,
+        "project": "hushh-test",
+        "location": "us-central1",
+    }
+
+
+@pytest.mark.parametrize("location", ["us", "eu"])
+def test_factory_accepts_supported_vertex_multi_regions(monkeypatch, location):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    model = build_managed_gemini_adk_model(
+        "gemini-3.1-flash-lite",
+        vertex_location=location,
+    )
+
+    assert model.client_kwargs["location"] == location
 
 
 @pytest.mark.asyncio

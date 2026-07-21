@@ -47,14 +47,14 @@ describe("agent chat client", () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse(
         [
-          'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+          'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
           'event: token\ndata: {"token":"Hel"}\n\n',
           'event: token\ndata: {"token":"lo"}\n\n',
-          'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+          'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
         ],
         {
           "X-Agent-Conversation-Id": "conversation-1",
-          "X-Agent-Model": "gemini-2.5-pro",
+          "X-Agent-Model": "gemini-3.5-flash",
         }
       )
     );
@@ -75,7 +75,7 @@ describe("agent chat client", () => {
 
     expect(result).toEqual({
       conversationId: "conversation-1",
-      model: "gemini-2.5-pro",
+      model: "gemini-3.5-flash",
       text: "Hello",
     });
     expect(tokens).toEqual(["Hel", "lo"]);
@@ -91,16 +91,20 @@ describe("agent chat client", () => {
       timezone: expect.any(String),
       runtimeCredential: undefined,
       runtimeCredentialMode: undefined,
+      runtimeCredentialTransport: undefined,
+      runtimeVertexProject: undefined,
+      runtimeVertexLocation: undefined,
+      delegateAgentId: undefined,
       delegateResult: undefined,
-      signal: undefined,
+      signal: expect.any(AbortSignal),
     });
   });
 
   it("passes runtime credential fields through to the backend stream request", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
-        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
+        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
       ])
     );
 
@@ -123,19 +127,23 @@ describe("agent chat client", () => {
       timezone: expect.any(String),
       runtimeCredential: "USER_BYOK_KEY",
       runtimeCredentialMode: "byok",
+      runtimeCredentialTransport: undefined,
+      runtimeVertexProject: undefined,
+      runtimeVertexLocation: undefined,
+      delegateAgentId: undefined,
       delegateResult: undefined,
-      signal: undefined,
+      signal: expect.any(AbortSignal),
     });
   });
 
   it("streams live tool events alongside token frames", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
         'event: tool_start\ndata: {"call_id":"tool_1","action_id":"analysis.start","label":"Start analysis for NVDA","execution":"frontend","slots":{"symbol":"NVDA"},"message":"Starting Kai analysis for NVDA."}\n\n',
         'event: tool_waiting\ndata: {"call_id":"tool_1","action_id":"analysis.start","label":"Start analysis for NVDA","execution":"frontend","slots":{"symbol":"NVDA"},"message":"Starting Kai analysis for NVDA.","status":"waiting_for_frontend"}\n\n',
         'event: token\ndata: {"token":"Starting NVDA."}\n\n',
-        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
       ])
     );
     const starts: string[] = [];
@@ -208,7 +216,7 @@ describe("agent chat client", () => {
   it("throws streamed backend error events after notifying the handler", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
         'event: token\ndata: {"token":"Partial"}\n\n',
         'event: error\ndata: {"message":"Agent chat failed. Please try again."}\n\n',
       ])
@@ -228,10 +236,36 @@ describe("agent chat client", () => {
     expect(errors).toEqual(["Agent chat failed. Please try again."]);
   });
 
+  it("surfaces a silent model completion as an explicit One runtime error", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
+        'event: error\ndata: {"code":"AGENT_RUNTIME_EMPTY_RESPONSE","message":"Provider detail should not leak."}\n\n',
+      ])
+    );
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "list down a summary of my memory",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow(
+      "One did not receive a response from the configured model. Please try again."
+    );
+    expect(errors).toEqual([
+      "One did not receive a response from the configured model. Please try again.",
+    ]);
+  });
+
   it("sanitizes malformed Agent SSE JSON frames", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
         "event: token\ndata: {not-json}\n\n",
       ])
     );
@@ -253,7 +287,7 @@ describe("agent chat client", () => {
   it("formats streamed runtime provider errors", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
         'event: error\ndata: {"code":"AGENT_RUNTIME_CREDENTIAL_INVALID","message":"Provider detail should not leak."}\n\n',
       ])
     );

@@ -150,6 +150,9 @@ class OnboardingGoal(BaseModel):
     setup_completed_ids: list[str] = Field(default_factory=list)
     setup_remaining_ids: list[str] = Field(default_factory=list)
     selected_action_id: str | None = None
+    # A generated destination action may be carried only through an explicit
+    # settled journey. It is never executable on the source screen.
+    deferred_action_id: str | None = Field(default=None, max_length=128)
     missing_input: str | None = None
     expected_settlement: Literal[
         "route", "auth_session", "external_redirect", "callback", "local_action", "none"
@@ -205,7 +208,18 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
     provider_candidate = (
         f"auth.sign_in_{assessment.provider}" if assessment.provider is not None else None
     )
-    proposal_conflict = bool(candidate and provider_candidate and candidate != provider_candidate)
+    root_claim_with_provider = bool(
+        phase == "anonymous_auth"
+        and context.screen == "one_intro"
+        and candidate == "onboarding.claim_one"
+        and provider_candidate
+    )
+    proposal_conflict = bool(
+        candidate
+        and provider_candidate
+        and candidate != provider_candidate
+        and not root_claim_with_provider
+    )
     if candidate is None:
         candidate = provider_candidate
     action_intent = assessment.intent in {
@@ -249,6 +263,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
                 next_route="/login",
                 permitted_action_ids=permitted,
                 selected_action_id="onboarding.claim_one",
+                deferred_action_id=provider_candidate if root_claim_with_provider else None,
                 missing_input=None,
                 expected_settlement="route",
                 return_to_hub=False,

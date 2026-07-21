@@ -38,11 +38,17 @@ def _status_code(error: Exception) -> int | None:
 
 def is_retryable_vertex_error(error: Exception) -> bool:
     """Return whether an idempotent call may be retried in another location."""
-
-    if _status_code(error) in _RETRYABLE_STATUS_CODES:
-        return True
-    status = str(getattr(error, "status", "") or "").strip().upper()
-    return status in _RETRYABLE_STATUS_NAMES
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, Exception) and _status_code(current) in _RETRYABLE_STATUS_CODES:
+            return True
+        status = str(getattr(current, "status", "") or "").strip().upper()
+        if status in _RETRYABLE_STATUS_NAMES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class _AsyncModels:

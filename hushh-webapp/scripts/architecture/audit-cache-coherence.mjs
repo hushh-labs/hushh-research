@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -74,6 +75,28 @@ function sourceForRoute(route, contractEntry) {
       sources.push(read(absolute));
     }
   }
+  let joined = sources.join("\n\n");
+  if (joined.includes("ConnectedSystemDetailClient")) {
+    sources.push(
+      read(
+        path.join(
+          appRoot,
+          "app/one/connected-systems/[systemId]/connected-system-detail-client.tsx",
+        ),
+      ),
+    );
+    joined = sources.join("\n\n");
+  }
+  if (joined.includes("ConnectedSystemsPanel")) {
+    sources.push(
+      read(
+        path.join(
+          appRoot,
+          "components/profile/connected-systems-panel.tsx",
+        ),
+      ),
+    );
+  }
   return sources.join("\n\n");
 }
 
@@ -111,6 +134,15 @@ function isConsentCenterRoute(route) {
   return route === "/consents" || route === "/one/consent";
 }
 
+function isConnectedSystemsRoute(route) {
+  return (
+    route === "/one/connected-systems" ||
+    route.startsWith("/one/connected-systems/") ||
+    route === "/one/profile/connected-systems" ||
+    route === "/one/setup/connected-systems"
+  );
+}
+
 function screenClassForRoute(route, mode, flags) {
   if (mode === "redirect") return "redirect/alias";
   if (
@@ -142,7 +174,7 @@ function screenClassForRoute(route, mode, flags) {
     route === "/one/kyc" ||
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
+    isConnectedSystemsRoute(route) ||
     route.startsWith("/one/profile/pkm") ||
     route === "/one/profile/receipts"
   ) {
@@ -161,6 +193,10 @@ function cachePolicyFor(route, screenClass, flags) {
   if (route === "/kai/portfolio" || route === "/kai/analysis")
     return "secure-resource";
   if (route === "/one/kai") return "device-resource";
+  if (route === "/one/kai/news") return "device-resource";
+  if (isConnectedSystemsRoute(route)) {
+    return "memory-only";
+  }
   if (screenClass === "PKM-secure") return "secure-resource";
   if (screenClass === "realtime/SSE")
     return flags.secure_cache
@@ -185,8 +221,9 @@ function routeCacheKeys(route) {
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")
     return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
-  if (route === "/connected-systems")
-    return ["CONNECTED_SYSTEMS", "CONNECTED_SYSTEM_INTENTS"];
+  if (isConnectedSystemsRoute(route)) {
+    return ["CONNECTED_SYSTEMS_REGISTRY", "CONNECTED_SYSTEM_SCHEMA"];
+  }
   if (route === "/one/profile/pkm-agent-lab")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/one/profile/receipts")
@@ -197,6 +234,7 @@ function routeCacheKeys(route) {
       "KAI_MARKET_HOME_BASELINE",
       "KAI_DASHBOARD_PROFILE_PICKS",
     ];
+  if (route === "/one/kai/news") return ["KAI_MARKET_NEWS"];
   if (route === "/kai/portfolio")
     return ["KAI_FINANCIAL_RESOURCE", "PKM_METADATA", "DOMAIN_DATA(financial)"];
   if (route === "/kai/analysis")
@@ -224,10 +262,12 @@ function resourceClassesFor(route, screenClass) {
   if (isConsentCenterRoute(route)) return ["consent_list"];
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
+  if (isConnectedSystemsRoute(route)) {
+    return ["crm_registry_metadata", "crm_schema_metadata"];
+  }
   if (
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
     route.startsWith("/one/profile/pkm") ||
     route === "/one/profile/receipts"
   ) {
@@ -236,6 +276,7 @@ function resourceClassesFor(route, screenClass) {
   if (route === "/kai/portfolio" || route === "/kai/analysis") {
     return ["financial_resource", "pkm_metadata"];
   }
+  if (route === "/one/kai/news") return ["market_data"];
   if (route.startsWith("/one/kai"))
     return ["market_data", "financial_resource"];
   if (route.startsWith("/ria")) return ["ria_workspace", "consent_list"];
@@ -299,7 +340,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
   ];
 
   if (
-    route.startsWith("/one/kai") ||
+    (route.startsWith("/one/kai") && route !== "/one/kai/news") ||
     route === "/one/profile" ||
     route === "/one/kyc" ||
     isConsentCenterRoute(route)
@@ -321,6 +362,9 @@ function ttlClassFor(route, screenClass) {
     return "single-use";
   if (screenClass === "realtime/SSE")
     return "CACHE_TTL.SHORT with active stream patching";
+  if (isConnectedSystemsRoute(route)) {
+    return "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable";
+  }
   if (screenClass === "RIA/provider" || route.startsWith("/one/kai"))
     return "CACHE_TTL.MEDIUM";
   if (screenClass === "PKM-secure")
@@ -331,12 +375,18 @@ function ttlClassFor(route, screenClass) {
 function warmSourceFor(route, screenClass) {
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
+  if (route === "/one/kai/news") {
+    return "route resource loader with memory/device stale cache; personalized symbols are added only after vault unlock";
+  }
   if (route.startsWith("/one/kai"))
     return "UnlockWarmOrchestrator plus route resource loader";
   if (route.startsWith("/ria") || route.startsWith("/marketplace"))
     return "RIA service memory/device cache";
   if (isConsentCenterRoute(route))
     return "UnlockWarmOrchestrator plus ConsentCenterService memory cache";
+  if (isConnectedSystemsRoute(route)) {
+    return "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh";
+  }
   if (screenClass === "PKM-secure")
     return "Vault unlock plus secure resource cache";
   return "Route-local resource loader";
@@ -358,11 +408,13 @@ function invalidatorFor(route, screenClass) {
     return "none";
   if (isConsentCenterRoute(route) || route.includes("/requests"))
     return "CacheSyncService.onConsentMutated";
+  if (isConnectedSystemsRoute(route)) {
+    return "explicit refresh plus CacheService user/session invalidation";
+  }
   if (
     route.startsWith("/one/kai") ||
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc"
   ) {
@@ -516,7 +568,6 @@ function buildManifest() {
 
   return {
     schema_version: "hushh.cache_coherence_screen_manifest.v1",
-    generated_at: "2026-05-21",
     purpose:
       "Screen-level cache posture manifest used to keep warm-cache UX, TTL, route inventory, and reviewer verification aligned.",
     sources: {
@@ -556,6 +607,15 @@ function buildManifest() {
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function withContentDigest(value) {
+  return {
+    ...value,
+    content_sha256: createHash("sha256")
+      .update(JSON.stringify(value))
+      .digest("hex"),
+  };
 }
 
 /**
@@ -622,7 +682,7 @@ function linkageInvariants() {
 }
 
 const check = process.argv.includes("--check");
-const next = stableJson(buildManifest());
+const next = stableJson(withContentDigest(buildManifest()));
 
 if (check) {
   const current = fs.existsSync(outputPath) ? read(outputPath) : "";

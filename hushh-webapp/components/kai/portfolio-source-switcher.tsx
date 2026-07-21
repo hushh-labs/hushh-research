@@ -105,10 +105,10 @@ export function PortfolioSourceSwitcher({
   const showPlaidActions = activeSource === "plaid" && availableSources.includes("plaid");
 
   return (
-    <SurfaceCard>
+    <SurfaceCard className="max-w-full">
       <SurfaceCardContent className="space-y-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="min-w-0 space-y-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Portfolio Source
             </p>
@@ -121,7 +121,7 @@ export function PortfolioSourceSwitcher({
               className="w-full max-w-md"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
             {showImportStatement ? (
               <Button
                 variant="none"
@@ -190,8 +190,8 @@ export function PortfolioSourceSwitcher({
           </div>
         </div>
         {showStatementControls ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-0.5">
+          <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-end">
+            <div className="min-w-0 space-y-0.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 Saved Statements
               </p>
@@ -199,14 +199,14 @@ export function PortfolioSourceSwitcher({
                 Choose which saved statement drives the editable portfolio.
               </p>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
               {showStatementPicker ? (
                 <Select
                   value={activeStatementId || undefined}
                   onValueChange={onStatementSnapshotChange}
                   disabled={isDeletingStatementSnapshot}
                 >
-                  <SelectTrigger size="sm" className="w-full min-w-0 sm:w-[260px]">
+                  <SelectTrigger size="sm" className="w-full min-w-0 sm:flex-1">
                     <SelectValue placeholder="Select statement" />
                   </SelectTrigger>
                   <SelectContent>

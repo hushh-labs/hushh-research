@@ -277,6 +277,7 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
             {
                 "directiveId": "directive-1",
                 "actionId": "analysis.start",
+                "contextRevision": "context-1",
                 "status": "invented",
             },
             issued,
@@ -289,16 +290,20 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
         {
             "directiveId": "directive-1",
             "actionId": "analysis.start",
+            "contextRevision": "context-1",
             "status": "blocked",
             "summary": "Portfolio access is locked.",
             "reason": "vault_locked",
             "routeAfter": "/one/kai",
             "screenAfter": "finance",
+            "destinationContextId": "ctx-2",
         },
         issued,
     )
 
     assert settlement is not None
     assert settlement["status"] == "blocked"
+    assert settlement["context_revision"] == "context-1"
     assert settlement["summary"] == "Portfolio access is locked."
+    assert settlement["destination_context_id"] == "ctx-2"
     assert issued == {}

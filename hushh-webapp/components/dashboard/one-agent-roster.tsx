@@ -40,6 +40,7 @@ type OneAgentMode = {
     value: string;
     label: string;
   };
+  paletteIndex: number;
   tone: OneCapabilityTone;
   isExploreOnly: boolean;
 };
@@ -74,7 +75,8 @@ function latestMarketPayload(userId: string): KaiHomeInsightsV2 | null {
   for (const key of cache.getStats().keys) {
     if (!key.startsWith(prefix)) continue;
     const snapshot = cache.peek<KaiHomeInsightsV2>(key);
-    if (!snapshot || (latest && latest.timestamp >= snapshot.timestamp)) continue;
+    if (!snapshot || (latest && latest.timestamp >= snapshot.timestamp))
+      continue;
     latest = { timestamp: snapshot.timestamp, payload: snapshot.data };
   }
 
@@ -85,7 +87,9 @@ function latestMarketPayload(userId: string): KaiHomeInsightsV2 | null {
  * Read-only cache metrics for the One roster. These never trigger a fetch and
  * only expose existing, non-sensitive workspace summaries.
  */
-export function resolveCachedAgentMetrics(userId: string | null | undefined): Record<string, AgentMetric> {
+export function resolveCachedAgentMetrics(
+  userId: string | null | undefined,
+): Record<string, AgentMetric> {
   if (!userId) return {};
   const cache = CacheService.getInstance();
   const metrics: Record<string, AgentMetric> = {};
@@ -93,8 +97,12 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
   const market = latestMarketPayload(userId);
   const topMover = (market?.movers?.gainers ?? [])
     .filter((row) => Number(row?.change_pct) > 0)
-    .sort((left, right) => Number(right.change_pct) - Number(left.change_pct))[0];
-  const moverSymbol = String(topMover?.symbol ?? "").trim().toUpperCase();
+    .sort(
+      (left, right) => Number(right.change_pct) - Number(left.change_pct),
+    )[0];
+  const moverSymbol = String(topMover?.symbol ?? "")
+    .trim()
+    .toUpperCase();
   if (moverSymbol) {
     metrics.finance = {
       value: moverSymbol,
@@ -102,7 +110,9 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
     };
   }
 
-  const riaHome = cache.peek<RiaHomeResponse>(CACHE_KEYS.RIA_HOME(userId))?.data;
+  const riaHome = cache.peek<RiaHomeResponse>(
+    CACHE_KEYS.RIA_HOME(userId),
+  )?.data;
   const activeClients = positiveNumber(riaHome?.counts?.active_clients);
   if (activeClients !== null) {
     metrics.ria = {
@@ -111,17 +121,31 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
     };
   }
 
-  const pendingConsents = cache.peek<unknown[]>(CACHE_KEYS.PENDING_CONSENTS(userId))?.data;
+  const pendingConsents = cache.peek<unknown[]>(
+    CACHE_KEYS.PENDING_CONSENTS(userId),
+  )?.data;
   if (Array.isArray(pendingConsents)) {
-    const label = pendingConsents.length === 1 ? "approval waiting" : "approvals waiting";
+    const label =
+      pendingConsents.length === 1 ? "approval waiting" : "approvals waiting";
     metrics.email = { value: String(pendingConsents.length), label };
-    metrics.consent = { value: String(pendingConsents.length), label: pendingConsents.length === 1 ? "request to review" : "requests to review" };
+    metrics.consent = {
+      value: String(pendingConsents.length),
+      label:
+        pendingConsents.length === 1
+          ? "request to review"
+          : "requests to review",
+    };
   }
 
-  const location = cache.peek<OneLocationState>(CACHE_KEYS.ONE_LOCATION_STATE(userId))?.data;
+  const location = cache.peek<OneLocationState>(
+    CACHE_KEYS.ONE_LOCATION_STATE(userId),
+  )?.data;
   if (location) {
-    const liveShares = [...location.ownerGrants, ...location.receivedGrants].filter(
-      (grant) => /active|approved|shared|granted/i.test(String(grant.status)),
+    const liveShares = [
+      ...location.ownerGrants,
+      ...location.receivedGrants,
+    ].filter((grant) =>
+      /active|approved|shared|granted/i.test(String(grant.status)),
     ).length;
     metrics.location = {
       value: String(liveShares),
@@ -129,7 +153,9 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
     };
   }
 
-  const metadata = cache.peek<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId))?.data;
+  const metadata = cache.peek<PersonalKnowledgeModelMetadata>(
+    CACHE_KEYS.PKM_METADATA(userId),
+  )?.data;
   const attributes = positiveNumber(metadata?.totalAttributes);
   if (attributes !== null) {
     metrics.pkm = {
@@ -138,8 +164,13 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
     };
   }
 
-  const access = cache.peek<Record<string, unknown>>(CACHE_KEYS.DEVELOPER_ACCESS(userId))?.data;
-  const connectedSystems = countCollection(access?.connections) ?? countCollection(access?.systems) ?? countCollection(access?.items);
+  const access = cache.peek<Record<string, unknown>>(
+    CACHE_KEYS.DEVELOPER_ACCESS(userId),
+  )?.data;
+  const connectedSystems =
+    countCollection(access?.connections) ??
+    countCollection(access?.systems) ??
+    countCollection(access?.items);
   if (connectedSystems !== null) {
     metrics["connected-systems"] = {
       value: String(connectedSystems),
@@ -150,13 +181,20 @@ export function resolveCachedAgentMetrics(userId: string | null | undefined): Re
   return metrics;
 }
 
-function useCachedAgentMetrics(userId?: string | null): Record<string, AgentMetric> {
+function useCachedAgentMetrics(
+  userId?: string | null,
+): Record<string, AgentMetric> {
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     if (!userId) return;
     return CacheService.getInstance().subscribe((event) => {
-      const keys = event.type === "set" ? [event.key] : event.type === "invalidate" || event.type === "invalidate_user" ? event.keys : [];
+      const keys =
+        event.type === "set"
+          ? [event.key]
+          : event.type === "invalidate" || event.type === "invalidate_user"
+            ? event.keys
+            : [];
       if (event.type === "clear" || keys.some((key) => key.includes(userId))) {
         setRevision((current) => current + 1);
       }
@@ -175,8 +213,9 @@ function buildModes(
 ): OneAgentMode[] {
   return ONE_CAPABILITIES.filter(
     (capability) =>
-      capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
-  ).map((capability) => {
+      capability.isVisibleOnRoster !== false &&
+      isOneCapabilityEnabled(capability),
+  ).map((capability, paletteIndex) => {
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
     const copy = setupCapability
@@ -196,23 +235,28 @@ function buildModes(
             tone: "action" as CapabilityStatusTone,
           };
 
-    const isActionable = "isActionable" in display ? (display as any).isActionable : true;
+    const isActionable =
+      "isActionable" in display ? (display as any).isActionable : true;
 
-    const primaryMetric = cachedMetrics[capability.id] ?? resolvePrimaryMetric({
-      capabilityId: capability.id,
-      status,
-    });
+    const primaryMetric =
+      cachedMetrics[capability.id] ??
+      resolvePrimaryMetric({
+        capabilityId: capability.id,
+        status,
+      });
 
     return {
       id: capability.id,
       title: capability.title,
       description: capability.description,
-      href: setupCapability && isActionable && status?.state !== "skipped"
-        ? buildOneSetupCapabilityRoute(capability.id)
-        : capability.href,
+      href:
+        setupCapability && isActionable
+          ? buildOneSetupCapabilityRoute(capability.id)
+          : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
       primaryMetric,
+      paletteIndex,
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
@@ -238,7 +282,8 @@ function resolvePrimaryMetric({
     const pendingConsentCount = status.pendingCount;
     return {
       value: String(pendingConsentCount),
-      label: pendingConsentCount === 1 ? "request to review" : "requests to review",
+      label:
+        pendingConsentCount === 1 ? "request to review" : "requests to review",
     };
   }
 
@@ -343,6 +388,7 @@ function AgentGridItem({
         id={mode.id}
         icon={mode.icon}
         tone={mode.tone}
+        paletteIndex={mode.paletteIndex}
         isActive={mode.statusTone !== "muted"}
         size="launcher"
         treatment="profile"
@@ -371,6 +417,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           id={mode.id}
           icon={mode.icon}
           tone={mode.tone}
+          paletteIndex={mode.paletteIndex}
           isActive={mode.statusTone !== "muted"}
           size="menu"
           treatment="profile"
@@ -450,7 +497,12 @@ export function OneAgentRoster({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return modes;
     return modes.filter((mode) =>
-      [mode.title, mode.description, mode.primaryMetric.value, mode.primaryMetric.label]
+      [
+        mode.title,
+        mode.description,
+        mode.primaryMetric.value,
+        mode.primaryMetric.label,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(normalized),
@@ -459,7 +511,9 @@ export function OneAgentRoster({
 
   useEffect(() => {
     try {
-      const persisted = window.localStorage.getItem(AGENT_ROSTER_VIEW_STORAGE_KEY);
+      const persisted = window.localStorage.getItem(
+        AGENT_ROSTER_VIEW_STORAGE_KEY,
+      );
       if (persisted === "grid" || persisted === "list") setView(persisted);
     } catch {
       // A display preference is optional and does not affect roster access.

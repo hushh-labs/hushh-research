@@ -123,6 +123,10 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     chrome and transient overlays, and keeps theme-derived fallback tokens
     until the first valid sample. Do not set global
     `--background` from a chrome sample or add a route-local blur/tint recipe.
+    The only edge variables are `--ambient-chrome-{top,bottom}-{bg,fg}`;
+    a bottom-specific Foundation/base tint is prohibited. Every chrome child
+    inherits the matching sampled foreground through `currentColor`, so dark
+    tint yields light ink and light tint yields dark ink on both platforms.
     The top mask height is the resolved shell height plus a mode-specific tail:
     `bar-with-tabs` must dissolve farther below its tab underline than `bar`.
     The engine also publishes the top surface tone for native system-bar icon
@@ -144,6 +148,11 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     one shared outer gutter. The top shell owns contextual tabs; each tab may
     have one primary `PageHeader`, never another fixed header or wider
     route-local dashboard shell.
+34. A query-owned tab selection is a `contextual` interaction intent: it
+    commits immediately, settles against `pathname + search`, and never plays
+    the full screen route crossfade. Full pathname changes use the shared
+    `300ms` exit and `360ms` enter envelope. `SwipeViews` publishes selection
+    on Embla `select`; `settle` may only reconcile a different final snap.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -616,7 +625,7 @@ Rules:
 2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom utilities remain `One / Connect / Search`; Profile remains the rightmost top-bar action.
 3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
-5. The shell should contextualize `/one/consent` as `Profile > Privacy` for breadcrumb and primary-nav highlighting; legacy `/consents` preserves inbound links by redirecting to that canonical URL.
+5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.
 6. Advanced PKM tools such as `PKM Agent Lab` should inherit the standard profile/privacy shell contract instead of introducing a separate hidden-route layout language.
 7. Relationship views should stay grouped around:
    - relationship state

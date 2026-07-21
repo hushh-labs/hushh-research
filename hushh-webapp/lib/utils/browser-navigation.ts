@@ -7,6 +7,7 @@ export type InternalAppNavigationRequest = {
   replace?: boolean;
   scroll?: boolean;
   source?: "tap" | "voice" | "search" | "native_back" | "programmatic";
+  transitionMode?: "full" | "contextual";
 };
 
 function canUseWindow(): boolean {

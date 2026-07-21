@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -17,6 +17,7 @@ import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -40,7 +41,13 @@ export function KaiMarketHubPage() {
     const destination = FINANCE_TAB_DEFINITION.tabs.find(
       (candidate) => candidate.value === tab,
     );
-    if (destination) router.replace(destination.href, { scroll: false });
+    if (!destination || destination.href === `${KAI_MARKET_PATH}?tab=${activeTab}`) return;
+    beginRouteTransition(
+      destination.href,
+      () => router.replace(destination.href, { scroll: false }),
+      "tap",
+      "contextual",
+    );
   };
 
   useEffect(() => {
@@ -63,9 +70,11 @@ export function KaiMarketHubPage() {
       userId: user.uid,
       vaultKey,
       vaultOwnerToken,
-      activeTab,
+      // The warmup primes every Finance panel. Do not cancel it merely because
+      // a swipe changed the query selection before the browser became idle.
+      activeTab: "market",
     });
-  }, [activeTab, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   if (authLoading || !user) return null;
 
@@ -75,8 +84,7 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       width="reading"
-      className="relative pb-32"
-      style={{ "--one-gutter": "0px" } as CSSProperties}
+      className="relative !px-0 pb-32"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -89,7 +97,8 @@ export function KaiMarketHubPage() {
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={activeTab}
         options={FINANCE_TAB_DEFINITION.tabs}
-        onChildSwiped={(value) => setActiveTab(value as PortfolioTab)}
+        onSelectionChange={(value) => setActiveTab(value as PortfolioTab)}
+        panelInset="page"
       >
         <div className="h-full w-full">
           <AppPageContentRegion><KaiPreviewRouter /></AppPageContentRegion>

@@ -50,15 +50,14 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("treats consents as the profile privacy workspace by default", () => {
+  it("returns the One-owned consent workspace to One by default", () => {
     expect(resolveTopShellBreadcrumb("/one/consent")).toEqual({
-      backHref: "/one/profile/access",
+      backHref: "/one",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/one/profile/access" },
-        { label: "Privacy", href: "/one/profile/access" },
-        { label: "Consent center" },
+        { label: "One", href: "/one" },
+        { label: "Consent Center" },
       ],
     });
   });
@@ -72,9 +71,8 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/one/profile/access" },
-        { label: "Privacy", href: "/one/profile/access" },
-        { label: "Consent center" },
+        { label: "One", href: "/one" },
+        { label: "Consent Center" },
       ],
     });
   });
@@ -207,7 +205,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "Connected Systems" },
+        { label: "CRM" },
       ],
     });
 

@@ -26,6 +26,10 @@ export type AgentChatConversation = {
 
 export type AgentChatToolEvent = {
   callId: string;
+  directiveId: string | null;
+  conversationId: string | null;
+  contextRevision: string | null;
+  expiresAt: string | null;
   actionId: string | null;
   label: string;
   execution: "frontend" | "blocked" | string;
@@ -33,6 +37,8 @@ export type AgentChatToolEvent = {
   message: string;
   reason?: string | null;
   status?: string;
+  requiresConfirmation: boolean;
+  trustedActivationRequired: boolean;
   raw: Record<string, unknown>;
 };
 
@@ -53,6 +59,32 @@ export type AgentChatStreamHandlers = {
   onError?: (message: string) => void;
   onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
 };
+
+const SSE_OPEN_TIMEOUT_MS = 10_000;
+const SSE_FIRST_MEANINGFUL_TIMEOUT_MS = 25_000;
+const SSE_INACTIVITY_TIMEOUT_MS = 45_000;
+
+async function openAgentChatStream(
+  opener: (signal: AbortSignal) => Promise<Response>,
+  externalSignal?: AbortSignal,
+): Promise<Response> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(externalSignal?.reason);
+  externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort("agent_chat_open_timeout");
+        reject(new Error("Agent chat did not open in time. Please retry."));
+      }, SSE_OPEN_TIMEOUT_MS);
+    });
+    return await Promise.race([opener(controller.signal), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -83,7 +115,10 @@ function formatAgentChatErrorMessage(message: string, code?: string): string {
     return "Hushh managed Gemini is not available in this environment.";
   }
   if (code === "AGENT_RUNTIME_MODEL_UNAVAILABLE") {
-    return "Kai's configured Gemini model is not available for this runtime.";
+    return "One's configured Gemini model is not available for this runtime.";
+  }
+  if (code === "AGENT_RUNTIME_EMPTY_RESPONSE") {
+    return "One did not receive a response from the configured model. Please try again.";
   }
   return message || "Agent chat failed. Please try again.";
 }
@@ -102,6 +137,10 @@ function resolveBrowserTimeZone(): string | undefined {
 function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
   return {
     callId: readString(payload, "call_id"),
+    directiveId: readString(payload, "directive_id") || null,
+    conversationId: readString(payload, "conversation_id") || null,
+    contextRevision: readString(payload, "context_revision") || null,
+    expiresAt: readString(payload, "expires_at") || null,
     actionId: readString(payload, "action_id") || null,
     label: readString(payload, "label"),
     execution: readString(payload, "execution"),
@@ -109,8 +148,67 @@ function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEven
     message: readString(payload, "message"),
     reason: readString(payload, "reason") || null,
     status: readString(payload, "status") || undefined,
+    requiresConfirmation: payload.requires_confirmation === true,
+    trustedActivationRequired: payload.trusted_activation_required === true,
     raw: payload,
   };
+}
+
+export async function confirmAgentChatAction(input: {
+  directiveId: string;
+  userId: string;
+  conversationId: string;
+  actionId: string;
+  contextRevision: string;
+  trustedActivation: true;
+  vaultOwnerToken: string;
+}): Promise<{ receipt: string; expiresAt: string }> {
+  const response = await ApiService.confirmAgentChatAction(input);
+  if (!response.ok) throw new Error(await readError(response));
+  const payload = (await response.json()) as { receipt: string; expires_at: string };
+  return { receipt: payload.receipt, expiresAt: payload.expires_at };
+}
+
+export async function consumeAgentChatAction(input: {
+  directiveId: string;
+  userId: string;
+  conversationId: string;
+  actionId: string;
+  contextRevision: string;
+  receipt: string;
+  vaultOwnerToken: string;
+}): Promise<void> {
+  const response = await ApiService.consumeAgentChatAction(input);
+  if (!response.ok) throw new Error(await readError(response));
+}
+
+export async function cancelAgentChatAction(input: {
+  directiveId: string;
+  userId: string;
+  conversationId: string;
+  actionId: string;
+  contextRevision: string;
+  reasonCode: string;
+  vaultOwnerToken: string;
+}): Promise<void> {
+  const response = await ApiService.cancelAgentChatAction(input);
+  if (!response.ok) throw new Error(await readError(response));
+}
+
+export async function settleAgentChatAction(input: {
+  directiveId: string;
+  userId: string;
+  receipt: string;
+  actionId: string;
+  contextRevision: string;
+  status: "succeeded" | "failed" | "cancelled";
+  reasonCode: string;
+  routeAfter?: string | null;
+  screenAfter?: string | null;
+  vaultOwnerToken: string;
+}): Promise<void> {
+  const response = await ApiService.settleAgentChatAction(input);
+  if (!response.ok) throw new Error(await readError(response));
 }
 
 async function readError(response: Response): Promise<string> {
@@ -146,7 +244,7 @@ export async function streamAgentChat(input: {
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const timezone = resolveBrowserTimeZone();
-  const response = await ApiService.streamAgentChat({
+  const response = await openAgentChatStream((signal) => ApiService.streamAgentChat({
     userId: input.userId,
     message: input.message,
     conversationId: input.conversationId || undefined,
@@ -161,19 +259,11 @@ export async function streamAgentChat(input: {
     runtimeVertexLocation: input.runtimeVertexLocation,
     delegateAgentId: input.delegateAgentId,
     delegateResult: input.delegateResult,
-    signal: input.signal,
-  });
+    signal,
+  }), input.signal);
 
   return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
 }
-
-/**
- * Maximum time to wait for any single chunk before treating the stream as
- * stalled. Generation can pause between tokens (tool calls, model latency), so
- * this is generous; it only guards against a silently dead connection that
- * would otherwise hang the UI forever.
- */
-const SSE_INACTIVITY_TIMEOUT_MS = 60_000;
 
 /**
  * Shared SSE consumer for the Agent chat event protocol (start / token /
@@ -186,6 +276,7 @@ export async function consumeAgentChatStream(
   options?: {
     signal?: AbortSignal;
     inactivityTimeoutMs?: number;
+    firstMeaningfulTimeoutMs?: number;
   }
 ): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   if (!response.ok) {
@@ -204,14 +295,14 @@ export async function consumeAgentChatStream(
   let text = "";
   let streamError: string | null = null;
 
-  const handleFrame = (event: string, data: string) => {
+  const handleFrame = (event: string, data: string): boolean => {
     let payload: Record<string, unknown>;
     try {
       payload = parseJsonPayload(data);
     } catch {
       streamError = "Agent chat stream returned malformed information. Please retry.";
       handlers?.onError?.(streamError);
-      return;
+      return true;
     }
     if (event === "start") {
       conversationId = readString(payload, "conversation_id") || conversationId;
@@ -220,7 +311,7 @@ export async function consumeAgentChatStream(
         conversationId: conversationId || "",
         model: model || undefined,
       });
-      return;
+      return false;
     }
     if (event === "token") {
       const token = readString(payload, "token");
@@ -228,19 +319,19 @@ export async function consumeAgentChatStream(
         text += token;
         handlers?.onToken?.(token);
       }
-      return;
+      return Boolean(readString(payload, "token"));
     }
     if (event === "tool_start") {
       handlers?.onToolStart?.(normalizeToolEvent(payload));
-      return;
+      return true;
     }
     if (event === "tool_waiting") {
       handlers?.onToolWaiting?.(normalizeToolEvent(payload));
-      return;
+      return true;
     }
     if (event === "tool_result") {
       handlers?.onToolResult?.(normalizeToolEvent(payload));
-      return;
+      return true;
     }
     if (event === "complete") {
       conversationId = readString(payload, "conversation_id") || conversationId;
@@ -249,7 +340,7 @@ export async function consumeAgentChatStream(
         conversationId: conversationId || "",
         model: model || undefined,
       });
-      return;
+      return true;
     }
     if (event === "error") {
       streamError = formatAgentChatErrorMessage(
@@ -257,7 +348,7 @@ export async function consumeAgentChatStream(
         readString(payload, "code") || undefined
       );
       handlers?.onError?.(streamError);
-      return;
+      return true;
     }
     if (event === "specialist_directive") {
       const p = payload as Record<string, unknown>;
@@ -271,10 +362,16 @@ export async function consumeAgentChatStream(
         message: String(p.message ?? ""),
         stateChanged: Boolean(p.state_changed),
       });
+      return true;
     }
+    return false;
   };
 
   const inactivityTimeoutMs = options?.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
+  const firstMeaningfulTimeoutMs =
+    options?.firstMeaningfulTimeoutMs ?? SSE_FIRST_MEANINGFUL_TIMEOUT_MS;
+  const firstMeaningfulDeadline = Date.now() + firstMeaningfulTimeoutMs;
+  let sawMeaningfulEvent = false;
 
   // Race each read against an inactivity deadline so a silently dead connection
   // rejects instead of hanging the UI indefinitely. The watchdog is reset on
@@ -282,9 +379,18 @@ export async function consumeAgentChatStream(
   const readWithWatchdog = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
+      const waitMs = sawMeaningfulEvent
+        ? inactivityTimeoutMs
+        : Math.max(0, firstMeaningfulDeadline - Date.now());
       timer = setTimeout(() => {
-        reject(new Error("Agent chat stream stalled. Please try again."));
-      }, inactivityTimeoutMs);
+        reject(
+          new Error(
+            sawMeaningfulEvent
+              ? "Agent chat stream stalled. Please try again."
+              : "One did not respond in time. Please retry.",
+          ),
+        );
+      }, waitMs);
     });
     try {
       return await Promise.race([reader.read(), timeout]);
@@ -311,7 +417,7 @@ export async function consumeAgentChatStream(
     const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), buffer);
     buffer = parsed.remainder;
     for (const frame of parsed.events) {
-      handleFrame(frame.event, frame.data);
+      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
     }
   }
 
@@ -320,14 +426,14 @@ export async function consumeAgentChatStream(
     const parsed = parseSSEBlocks(flushed, buffer);
     buffer = parsed.remainder;
     for (const frame of parsed.events) {
-      handleFrame(frame.event, frame.data);
+      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
     }
   }
 
   if (buffer.trim()) {
     const parsed = parseSSEBlocks("\n\n", buffer);
     for (const frame of parsed.events) {
-      handleFrame(frame.event, frame.data);
+      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
     }
   }
 
@@ -351,11 +457,11 @@ export async function streamAgentIntro(input: {
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  const response = await ApiService.streamAgentIntro({
+  const response = await openAgentChatStream((signal) => ApiService.streamAgentIntro({
     message: input.message,
     screenContext: input.screenContext,
-    signal: input.signal,
-  });
+    signal,
+  }), input.signal);
   return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
 }
 

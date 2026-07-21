@@ -66,6 +66,12 @@ BACKEND_REVIEWER_SMOKE_REQUIRED = (
     "REVIEWER_VAULT_PASSPHRASE",
 )
 
+BACKEND_PROD_PHONE_TEST_REQUIRED = (
+    "HUSHH_PROD_PHONE_TEST_NUMBERS",
+    "HUSHH_PROD_PHONE_TEST_CODE",
+    "HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET",
+)
+
 GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 FRONTEND_REQUIRED = (
@@ -602,6 +608,73 @@ def _classifications_from_runtime_entries(entries: list[dict[str, Any]]) -> list
     return classifications
 
 
+def _literal_runtime_value(
+    env_map: dict[str, dict[str, Any]], key: str
+) -> str:
+    entry = env_map.get(key)
+    if not isinstance(entry, dict) or isinstance(entry.get("valueFrom"), dict):
+        return ""
+    return str(entry.get("value") or "").strip()
+
+
+def _one_email_runtime_semantics(
+    env_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Validate public One mailbox routing values without rendering secrets."""
+
+    mailbox = _literal_runtime_value(env_map, "ONE_EMAIL_ADDRESS").lower()
+    delegated_user = _literal_runtime_value(
+        env_map, "ONE_EMAIL_DELEGATED_USER"
+    ).lower()
+    topic = _literal_runtime_value(env_map, "ONE_EMAIL_PUBSUB_TOPIC")
+    audience = urlsplit(
+        _literal_runtime_value(env_map, "ONE_EMAIL_WEBHOOK_AUDIENCE")
+    )
+    webhook_service_account = _literal_runtime_value(
+        env_map, "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL"
+    ).lower()
+    checks = {
+        "mailbox": mailbox == "one@hushh.ai",
+        "delegated_user": delegated_user == "one@hushh.ai",
+        "pubsub_topic": (
+            topic.startswith("projects/") and "/topics/" in topic
+        ),
+        "webhook_audience": (
+            audience.scheme == "https"
+            and bool(audience.netloc)
+            and audience.path == "/api/one/email/webhook"
+            and not audience.query
+            and not audience.fragment
+        ),
+        "webhook_service_account": webhook_service_account.endswith(
+            ".iam.gserviceaccount.com"
+        ),
+        "webhook_auth": _literal_runtime_value(
+            env_map, "ONE_EMAIL_WEBHOOK_AUTH_ENABLED"
+        ).lower()
+        == "true",
+        "watch_renew_auth": _literal_runtime_value(
+            env_map, "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED"
+        ).lower()
+        == "true",
+        "default_scope": _literal_runtime_value(
+            env_map, "ONE_EMAIL_KYC_DEFAULT_SCOPE"
+        )
+        == "attr.identity.*",
+        "strict_client_zk": _literal_runtime_value(
+            env_map, "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED"
+        ).lower()
+        == "true",
+    }
+    return {
+        "status": "valid" if all(checks.values()) else "mismatch",
+        "checks": {
+            key: "valid" if value else "mismatch"
+            for key, value in checks.items()
+        },
+    }
+
+
 def _parity_targets(
     backend_revision: str | None, frontend_revision: str | None
 ) -> tuple[bool, bool]:
@@ -680,6 +753,11 @@ def main() -> int:
         help="Also require non-production reviewer smoke secrets on the backend runtime.",
     )
     parser.add_argument(
+        "--require-prod-phone-test",
+        action="store_true",
+        help="Also require production fixed-code phone-test secrets on the backend runtime.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -713,6 +791,8 @@ def main() -> int:
         required.extend(BACKEND_VOICE_REQUIRED)
     if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
+    if checks_backend and args.require_prod_phone_test:
+        required.extend(BACKEND_PROD_PHONE_TEST_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
@@ -741,6 +821,9 @@ def main() -> int:
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
             if checks_backend and args.require_reviewer_smoke
             else [],
+            "prod_phone_test": list(BACKEND_PROD_PHONE_TEST_REQUIRED)
+            if checks_backend and args.require_prod_phone_test
+            else [],
             "plaid": list(BACKEND_PLAID_REQUIRED)
             if checks_backend and args.require_plaid
             else [],
@@ -762,6 +845,7 @@ def main() -> int:
         "gmail_redirect_contract": {"status": "not_checked"},
         "domain_runtime_contract": {"status": "not_checked"},
         "firebase_project_contract": {"status": "not_checked"},
+        "one_email_runtime_semantics": {"status": "not_checked"},
     }
 
     print(f"Project: {args.project}")
@@ -800,6 +884,11 @@ def main() -> int:
         print(
             "Required reviewer smoke backend secrets "
             f"({len(BACKEND_REVIEWER_SMOKE_REQUIRED)}): {_format_names(BACKEND_REVIEWER_SMOKE_REQUIRED)}"
+        )
+    if checks_backend and args.require_prod_phone_test:
+        print(
+            "Required production phone-test backend secrets "
+            f"({len(BACKEND_PROD_PHONE_TEST_REQUIRED)}): {_format_names(BACKEND_PROD_PHONE_TEST_REQUIRED)}"
         )
     if checks_frontend:
         print(
@@ -933,6 +1022,18 @@ def main() -> int:
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
         report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
         report["runtime_contract"]["backend_serving_revisions"] = backend_revisions
+
+        if checks_backend and args.require_one_email:
+            one_email_runtime_semantics = _one_email_runtime_semantics(backend_env)
+            report["one_email_runtime_semantics"] = one_email_runtime_semantics
+            print(
+                "One email runtime semantics: "
+                f"{one_email_runtime_semantics['status']}"
+            )
+            if one_email_runtime_semantics["status"] != "valid":
+                report["classifications"].append(
+                    "one_email_runtime_semantics_failed"
+                )
 
         runtime_classifications = []
         runtime_classifications.extend(_classifications_from_runtime_entries(frontend_entries))

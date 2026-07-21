@@ -83,6 +83,9 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("resolveTopShellTabSet(");
     expect(tabs).toContain('role="tablist"');
     expect(tabs).toContain('role="tab"');
+    expect(tabs).toContain(
+      'tabSet.id === "ria" ? `ria_route_tab_${tab.value}`',
+    );
     expect(tabs).toContain("aria-controls={topShellTabDomId");
     expect(tabs).toContain('event.key === "ArrowRight"');
     expect(tabs).toContain('event.key === "Home"');
@@ -189,7 +192,11 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain("router.push(ROUTES.PROFILE)");
+    expect(source).toContain("requestInternalAppNavigation({");
+    expect(source).toContain("href: ROUTES.PROFILE");
+    expect(source).toContain('source: "tap"');
+    expect(source).toContain('transitionMode: "full"');
+    expect(source).not.toContain("onClick={() => router.push(ROUTES.PROFILE)}");
     expect(source).toContain("<AvatarImage");
     expect(source).toContain("<AvatarFallback");
     expect(source).not.toContain('aria-label="Open Connect"');
@@ -206,8 +213,26 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain(
       "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
     );
+    expect(source).toContain(
+      "'[data-testid=\"app-top-shell-layout\"]'",
+    );
+    expect(source).toContain("shell?.getBoundingClientRect().height");
+    expect(source).not.toContain(
+      'getPropertyValue("--top-shell-reserved-height");\n  const value = Number.parseFloat(raw);',
+    );
+    expect(source).toContain("new MutationObserver(scheduleHeaderRefresh)");
     expect(source).toContain("getScrolledRouteTitle(pathname)");
     expect(source).toContain('label: "Agents"');
+    expect(source).toContain("const tabsOnlyChrome");
+    expect(source).toContain("topChromeFullyCollapsed");
+    expect(source).toContain("resolveTopChromeScrollProgress({");
+    expect(source).toContain("previousY: lastScrollY");
+    expect(source).not.toContain(
+      'model.mode === "bar-with-tabs" && primaryHeaderOutOfView;',
+    );
+    expect(source).toContain('data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}');
+    expect(source).toContain('"calc(var(--top-inset) + var(--top-tabs-h))"');
+    expect(source).toContain('paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"');
   });
 
   it("keeps background activity visible and adds locked-vault unlock action", () => {

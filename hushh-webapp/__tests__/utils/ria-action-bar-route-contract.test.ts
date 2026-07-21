@@ -32,6 +32,13 @@ describe("RIA action bar route contract", () => {
     }
   });
 
+  it("keeps the required Connections choice inside onboarding chrome", () => {
+    const chrome = getKaiChromeState(ROUTES.ONE_SETUP_CONNECTIONS);
+    expect(chrome.isOnboardingRoute).toBe(true);
+    expect(chrome.useOnboardingChrome).toBe(true);
+    expect(chrome.hideCommandBar).toBe(true);
+  });
+
   it("keeps the shared command surface visible on signed-in marketplace routes", () => {
     for (const pathname of [
       ROUTES.MARKETPLACE,

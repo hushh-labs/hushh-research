@@ -9,8 +9,17 @@ import {
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
+import {
+  activeRiaRouteTabFromPath,
+  RIA_ROUTE_TABS,
+} from "@/lib/navigation/ria-route-tabs";
 
-export type TopShellTabSetId = "location" | "finance" | "consent" | "public";
+export type TopShellTabSetId =
+  | "location"
+  | "finance"
+  | "consent"
+  | "ria"
+  | "public";
 
 export interface TopShellTabDefinition {
   id: TopShellTabSetId;
@@ -27,6 +36,10 @@ export interface TopShellTabSet {
   activeValue: string;
   tabs: readonly TopShellTab[];
 }
+
+const RIA_TOP_SHELL_TABS: readonly TopShellTab[] = RIA_ROUTE_TABS.map(
+  ({ id, label, href }) => ({ value: id, label, href }),
+);
 
 /**
  * Returns the preceding route-owned tab, if the current tab has one. This is
@@ -137,6 +150,13 @@ export const TOP_SHELL_TAB_REGISTRY = {
       },
     ],
   },
+  ria: {
+    id: "ria",
+    label: "RIA workspace",
+    queryParam: null,
+    defaultValue: "home",
+    tabs: RIA_TOP_SHELL_TABS,
+  },
   public: {
     id: "public",
     label: "Explore",
@@ -174,7 +194,12 @@ function splitRouteKey(routeKey: string): {
   searchParams: URLSearchParams;
 } {
   const [pathnameWithHash, query = ""] = String(routeKey ?? "").split("?", 2);
-  const pathname = (pathnameWithHash ?? "").split("#", 1)[0] || "/";
+  const rawPathname = (pathnameWithHash ?? "").split("#", 1)[0] || "/";
+  // Capacitor's static export serves directory routes with a trailing slash.
+  // Normalize before matching the authored registry so iOS/Android resolve the
+  // same fixed tab shell as Next's non-static web router.
+  const pathname =
+    rawPathname === "/" ? "/" : rawPathname.replace(/\/+$/, "") || "/";
   return {
     pathname,
     searchParams: new URLSearchParams(query.split("#", 1)[0]),
@@ -233,6 +258,20 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
           searchParams,
         ),
       })),
+    };
+  }
+
+  if (
+    pathname === ROUTES.RIA_HOME ||
+    pathname.startsWith(`${ROUTES.RIA_CLIENTS}/`) ||
+    pathname === ROUTES.RIA_CLIENTS ||
+    pathname.startsWith(`${ROUTES.RIA_PICKS}/`) ||
+    pathname === ROUTES.RIA_PICKS
+  ) {
+    const definition = TOP_SHELL_TAB_REGISTRY.ria;
+    return {
+      ...definition,
+      activeValue: activeRiaRouteTabFromPath(pathname),
     };
   }
 

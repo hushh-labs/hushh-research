@@ -630,6 +630,34 @@ async def test_search_found_record_creates_active_binding_without_raw_lookup_sto
 
 
 @pytest.mark.asyncio
+async def test_search_never_binds_an_ambiguous_verified_identity_match():
+    service, adapter = build_service()
+    adapter.readback_records = [
+        {"Id": "record-1", "Email": "person@example.test"},
+        {"Id": "record-2", "Email": "person@example.test"},
+    ]
+
+    with pytest.raises(ConnectedSystemBlockedError) as captured:
+        await service.search_record(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type=None,
+            email="person@example.test",
+            phone="4155550100",
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_RECORD_MATCH_AMBIGUOUS"
+    assert (
+        service.store.get_binding(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type="Contact",
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
 async def test_bound_read_skips_redundant_mcp_search():
     """Once a binding exists, a second search serves the bound id without an MCP call."""
     service, adapter = build_service()
@@ -688,6 +716,62 @@ async def test_verified_profile_create_uses_server_identity_and_never_writes_der
     assert stored["lastName"] == "Doe"
     assert "Name" not in stored
     assert "firstName" not in stored
+
+
+@pytest.mark.asyncio
+async def test_verified_profile_create_accepts_required_derived_full_name_when_split_name_is_mapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "John Doe",
+                    "email": "john@example.test",
+                    "email_verified": True,
+                    "phone_number": "+1 (415) 555-0100",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_compound_name(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "FirstName", "label": "First Name", "type": "string"},
+                    {
+                        "name": "LastName",
+                        "label": "Last Name",
+                        "type": "string",
+                        "required": True,
+                    },
+                    {
+                        "name": "Name",
+                        "label": "Full Name",
+                        "type": "string",
+                        "required": True,
+                    },
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_compound_name
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored["firstName"] == "John"
+    assert stored["lastName"] == "Doe"
+    assert "Name" not in stored
 
 
 @pytest.mark.asyncio
@@ -760,7 +844,9 @@ async def test_force_refresh_bypasses_binding_and_researches():
     )
     assert refreshed["servedFromBinding"] is False
     # A fresh schema validation and read-crm-record call were made.
-    assert len(adapter.calls) == calls_after_first + 2
+    # The normalized schema is reused; forceRefresh applies to the record
+    # lookup and does not spend another provider schema call.
+    assert len(adapter.calls) == calls_after_first + 1
     assert adapter.calls[-1][0] == "read-crm-record"
 
 

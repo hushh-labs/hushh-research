@@ -138,7 +138,7 @@ cd hushh-webapp
 npm run typecheck
 npm test
 npm run build
-npm run ios:test
+npm run ios:cold:audit
 ```
 
 Backend tests (monorepo sibling):

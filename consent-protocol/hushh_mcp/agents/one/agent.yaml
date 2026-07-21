@@ -11,8 +11,8 @@ parent: null
 model:
   provider: gemini
   name: gemini-3.5-flash
-  mode: byok
-  credential_ref: pkm:runtime_secrets.llm.gemini_api_key
+  mode: hushh_managed_vertex
+  credential_ref: null
 credential_policy:
   default: hushh_managed_vertex
   allowed:
@@ -26,3 +26,47 @@ system_instruction: |
   revocation, and metadata-only audit.
 required_scopes:
   - cap.one.invoke
+runtime:
+  kind: adk
+  factory: hushh_mcp.one_adk.agent_tree.build_one_text_agent
+  adk_mode: chat
+  transport:
+    - in_process
+    - chat
+    - voice
+    - a2a
+authorities:
+  invocation:
+    - cap.one.invoke
+  data: []
+  actions: []
+surfaces:
+  chat: true
+  voice: true
+  a2a: true
+  mcp: false
+  web: true
+  ios: true
+  android: true
+privacy:
+  context_allowlist:
+    - hussh:voice_context
+    - hussh:pkm_context
+  plaintext_telemetry: false
+telemetry_namespace: agent.one
+failure_states:
+  - confirmation_authority_unavailable
+  - managed_runtime_unavailable
+capabilities:
+  specialist_roster:
+    - agent_kai
+    - agent_nav
+    - agent_kyc
+    - agent_email
+    - agent_location
+    - agent_connected_systems
+    - agent_consent
+  heads:
+    text: gemini-3.5-flash
+    specialist_text: gemini-3.5-flash
+    live: gemini-live-2.5-flash-native-audio

@@ -19,7 +19,6 @@ from hushh_mcp.adk_bridge.contract import (
 from hushh_mcp.services.agent_chat_service import (
     AgentActionExecution,
     AgentChatActionPlan,
-    AgentChatService,
 )
 
 DELEGATED_MODEL = "one+connected-systems"
@@ -28,9 +27,6 @@ ALL_CONNECTED_CRM_SYSTEMS_SCOPE = "all_connected_crm_systems"
 
 
 class ConnectedSystemsAgentA2A:
-    def __init__(self, chat_service: AgentChatService | None = None) -> None:
-        self._chat_service = chat_service or AgentChatService()
-
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
         require_attenuated_authority(task, information=True, action=True)
         if task.delegate_result is not None:
@@ -46,14 +42,12 @@ class ConnectedSystemsAgentA2A:
             )
 
         plan = _plan_from_task(task)
-        if plan is None:
-            plan = self._chat_service.plan_action(message)
         if plan is None or not str(plan.action_id or "").startswith("connected_system.crm."):
             return _result(
                 task,
                 text=(
-                    "I can help with CRM read, create, and update requests. "
-                    "Tell me the record and the field change you want."
+                    "I can help after One supplies a validated Connected Systems action. "
+                    "Open the CRM field table to choose the record and fields."
                 ),
                 directive=None,
                 is_complete=True,

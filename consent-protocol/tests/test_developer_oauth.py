@@ -228,7 +228,7 @@ def test_client_credentials_is_advertised_and_returns_no_refresh_token(monkeypat
     assert "refresh_token" not in response.json()
 
 
-def test_client_credentials_requires_explicit_flat_partner_configuration():
+def test_client_credentials_requires_explicit_partner_grant_configuration():
     service = DeveloperOAuthService.__new__(DeveloperOAuthService)
     service._registry = MagicMock()  # type: ignore[attr-defined]
     service._issue_tokens = MagicMock(  # type: ignore[method-assign]
@@ -238,7 +238,6 @@ def test_client_credentials_requires_explicit_flat_partner_configuration():
     service._registry.get_app.return_value = {
         "status": "active",
         "kind": "partner_crm",
-        "schema_profile": "standard",
         "oauth_client_credentials_enabled": True,
     }
     with pytest.raises(OAuthValidationError) as blocked:
@@ -248,20 +247,28 @@ def test_client_credentials_requires_explicit_flat_partner_configuration():
     service._registry.get_app.return_value = {
         "status": "active",
         "kind": "partner_crm",
-        "schema_profile": "flat",
         "oauth_client_credentials_enabled": True,
     }
-    assert service.issue_client_credentials(client=_client(), scope="mcp:tools") == {
+    connector_client = OAuthClient(
+        **{**_client().__dict__, "allowed_grant_types": ("client_credentials",)}
+    )
+    assert service.issue_client_credentials(client=connector_client, scope="mcp:tools") == {
+        "access_token": "hdo_at_service",
+        "token_type": "Bearer",
+    }
+    catalog_only_client = OAuthClient(
+        **{**connector_client.__dict__, "mcp_execution_mode": "catalog_only"}
+    )
+    assert service.issue_client_credentials(client=catalog_only_client, scope="mcp:tools") == {
         "access_token": "hdo_at_service",
         "token_type": "Bearer",
     }
     service._registry.get_app.return_value = {
         "status": "active",
         "kind": "partner_crm",
-        "schema_profile": "agentforce",
         "oauth_client_credentials_enabled": True,
     }
-    assert service.issue_client_credentials(client=_client(), scope="mcp:tools") == {
+    assert service.issue_client_credentials(client=connector_client, scope="mcp:tools") == {
         "access_token": "hdo_at_service",
         "token_type": "Bearer",
     }
@@ -273,6 +280,7 @@ def test_client_credentials_requires_explicit_flat_partner_configuration():
             scopes=("mcp:tools",),
             include_refresh_token=False,
             grant_type="client_credentials",
+            mcp_execution_mode="execute",
         ),
         call(
             app_id="app_demo",
@@ -281,8 +289,60 @@ def test_client_credentials_requires_explicit_flat_partner_configuration():
             scopes=("mcp:tools",),
             include_refresh_token=False,
             grant_type="client_credentials",
+            mcp_execution_mode="catalog_only",
+        ),
+        call(
+            app_id="app_demo",
+            subject=None,
+            authorization_id=None,
+            scopes=("mcp:tools",),
+            include_refresh_token=False,
+            grant_type="client_credentials",
+            mcp_execution_mode="execute",
         ),
     ]
+
+
+def test_client_policy_update_preserves_secret_and_existing_tokens(monkeypatch):
+    service = DeveloperOAuthService.__new__(DeveloperOAuthService)
+    service.ensure_tables = MagicMock()  # type: ignore[method-assign]
+    service._db = MagicMock()  # type: ignore[attr-defined]
+    service._audit = MagicMock()  # type: ignore[method-assign]
+    existing = OAuthClient(
+        app_id="app_demo",
+        client_id="hco_demo_client",
+        client_secret_prefix="hcs_prefix",  # noqa: S106 - synthetic prefix fixture
+        redirect_uris=("https://claude.ai/api/mcp/auth_callback",),
+        created_at=1,
+        secret_rotated_at=1,
+    )
+    updated = OAuthClient(
+        **{
+            **existing.__dict__,
+            "allowed_grant_types": ("authorization_code", "refresh_token", "client_credentials"),
+            "mcp_execution_mode": "catalog_only",
+        }
+    )
+    service.get_client_for_app = MagicMock(return_value=existing)  # type: ignore[method-assign]
+    service.get_client = MagicMock(return_value=updated)  # type: ignore[method-assign]
+
+    result = service.update_client_policy(
+        app_id="app_demo",
+        allowed_grant_types=("authorization_code", "refresh_token", "client_credentials"),
+        mcp_execution_mode="catalog_only",
+    )
+
+    assert result == updated
+    statement, params = service._db.execute_raw.call_args.args
+    assert "client_secret" not in statement
+    assert params["grant_types"] == '["authorization_code", "refresh_token", "client_credentials"]'
+    assert params["execution_mode"] == "catalog_only"
+    service._audit.assert_called_once_with(
+        app_id="app_demo",
+        client_id="hco_demo_client",
+        subject=None,
+        event="oauth_client_policy_updated",
+    )
 
 
 def test_refresh_replay_and_revoke_contract(monkeypatch):
@@ -355,4 +415,8 @@ def test_oauth_migration_is_in_the_developer_release_lane():
     uat = json.loads((root / "db/contracts/uat_integrated_schema.json").read_text())
     assert "099_developer_oauth_pkce.sql" in manifest["ordered_migrations"]
     assert "099_developer_oauth_pkce.sql" in manifest["groups"]["developer"]
-    assert uat["expected_migration_version"] == 106
+    # Contract head advances as new migrations land; assert it still covers the
+    # executable client-credentials migration rather than pinning an exact version.
+    assert uat["expected_migration_version"] >= 109
+    assert "109_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
+    assert "109_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]

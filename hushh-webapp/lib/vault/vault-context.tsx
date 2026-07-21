@@ -32,6 +32,7 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -41,6 +42,8 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // ============================================================================
 // Types
@@ -133,6 +136,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
       clearAgentPkmContext(lockedUserId);
+      clearGeminiRuntimeConnectionCache(lockedUserId);
+      CacheService.getInstance().invalidate(
+        CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId),
+      );
       ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: lockedUserId });
     }
     setVaultKey(null);
@@ -183,14 +190,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
     vaultUserId,
   ]);
 
-  // App-resume expiry guard (iOS/Android + web). Proactively lock when the
-  // memory-only VAULT_OWNER token has reached its known expiry. Other backend
-  // validation failures are handled by ApiService's shared web/native response
-  // path, which requests the same fail-closed re-unlock flow.
+  // InteractionRuntime owns native/browser lifecycle collection. VaultProvider
+  // remains the security authority and only reacts to its active transition.
+  // This avoids competing Capacitor listeners while preserving the memory-only
+  // expiry rule on iOS, Android, and web.
   useEffect(() => {
-    let removeListener: (() => void) | null = null;
-    let cancelled = false;
-
     const relockIfTokenExpired = () => {
       const expiresAt = tokenExpiresAtRef.current;
       // Only act when a token exists AND is actually past expiry. A missing
@@ -203,34 +207,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
       }
     };
 
-    if (Capacitor.isNativePlatform()) {
-      void import("@capacitor/app")
-        .then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) relockIfTokenExpired();
-        }))
-        .then((handle) => {
-          if (cancelled) {
-            void handle.remove();
-            return;
-          }
-          removeListener = () => void handle.remove();
-        })
-        .catch((error) => {
-          console.warn("[VaultProvider] Failed to register app-resume expiry guard:", error);
-        });
-    } else if (typeof document !== "undefined") {
-      const onVisible = () => {
-        if (document.visibilityState === "visible") relockIfTokenExpired();
-      };
-      document.addEventListener("visibilitychange", onVisible);
-      removeListener = () =>
-        document.removeEventListener("visibilitychange", onVisible);
-    }
-
-    return () => {
-      cancelled = true;
-      if (removeListener) removeListener();
-    };
+    relockIfTokenExpired();
+    return appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        relockIfTokenExpired();
+      }
+    });
   }, [lockVault]);
 
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
@@ -389,6 +371,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const prefetchDashboardData = useCallback(
     async (userId: string, token: string, key: string, routePath?: string) => {
       try {
+        void import("@/lib/services/connected-systems-resource-service")
+          .then(({ ConnectedSystemsResourceService }) =>
+            ConnectedSystemsResourceService.warmBindingStatuses({
+              userId,
+              vaultOwnerToken: token,
+            })
+          )
+          .catch(() => undefined);
         // The consent center warm step needs a Firebase ID token (its proxy is
         // Firebase-authenticated). Fetch it best-effort; the orchestrator
         // skips consent-center warming gracefully if it is unavailable.

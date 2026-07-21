@@ -6,6 +6,7 @@ import jsonschema
 import pytest
 
 from hushh_mcp.consent.export_envelope import canonical_aad_bytes, digest_bytes
+from mcp_modules.flat_projection import project_flat_result
 from mcp_modules.public_contract import get_public_contract
 from mcp_modules.tools import public_tools_v3 as tools
 
@@ -46,6 +47,13 @@ def _install_client(monkeypatch, payload: dict, calls: list[dict], status_code: 
         lambda **_kwargs: _Client(_Response(payload, status_code), calls),
     )
     monkeypatch.setattr(tools, "get_developer_api_headers", lambda: {"Authorization": "Bearer x"})
+
+
+def test_backend_timeout_fits_partner_host_budget() -> None:
+    assert tools.BACKEND_REQUEST_TIMEOUT.connect == 5.0
+    assert tools.BACKEND_REQUEST_TIMEOUT.read == 45.0
+    assert tools.BACKEND_REQUEST_TIMEOUT.write == 45.0
+    assert tools.BACKEND_REQUEST_TIMEOUT.pool == 45.0
 
 
 def _payload(result):
@@ -202,7 +210,7 @@ async def test_request_consent_returns_only_lifecycle_reference(
 
 
 @pytest.mark.asyncio
-async def test_flat_profile_uses_registered_connector_key_without_sending_legacy_fields(
+async def test_hosted_transport_uses_registered_connector_key_without_sending_legacy_fields(
     monkeypatch,
 ) -> None:
     calls: list[dict] = []
@@ -216,15 +224,7 @@ async def test_flat_profile_uses_registered_connector_key_without_sending_legacy
         },
         calls,
     )
-    monkeypatch.setattr(tools, "is_local_stdio_transport", lambda: True)
-    monkeypatch.setattr(tools, "get_current_schema_profile", lambda: "flat")
-    monkeypatch.setattr(
-        tools,
-        "get_or_create_local_connector_keypair",
-        lambda: (_ for _ in ()).throw(
-            AssertionError("flat profile must use the registered app key")
-        ),
-    )
+    monkeypatch.setattr(tools, "is_local_stdio_transport", lambda: False)
 
     result = _payload(
         await tools.handle_request_consent(
@@ -317,13 +317,13 @@ async def test_hosted_export_returns_inline_ciphertext_without_resource_link(mon
     output_schema = next(
         tool["outputSchema"]
         for tool in get_public_contract()["tools"]
-        if tool["name"] == "get_encrypted_scoped_export"
+        if tool["name"] == "get-encrypted-scoped-export"
     )
-    jsonschema.validate(result, output_schema)
+    jsonschema.validate(project_flat_result("get_encrypted_scoped_export", result), output_schema)
 
 
 @pytest.mark.asyncio
-async def test_flat_profile_forces_ciphertext_delivery_even_on_stdio(monkeypatch) -> None:
+async def test_local_stdio_uses_transport_specific_decryption(monkeypatch) -> None:
     calls: list[dict] = []
     _install_client(
         monkeypatch,
@@ -338,7 +338,11 @@ async def test_flat_profile_forces_ciphertext_delivery_even_on_stdio(monkeypatch
         calls,
     )
     monkeypatch.setattr(tools, "is_local_stdio_transport", lambda: True)
-    monkeypatch.setattr(tools, "get_current_schema_profile", lambda: "flat")
+
+    async def _decrypted_response(*_args, **_kwargs):
+        return {"data": {"summary": "approved"}}, None
+
+    monkeypatch.setattr(tools, "_try_build_local_decrypted_response", _decrypted_response)
     result = _payload(
         await tools.handle_get_encrypted_scoped_export(
             {
@@ -347,9 +351,9 @@ async def test_flat_profile_forces_ciphertext_delivery_even_on_stdio(monkeypatch
             }
         )
     )
-    assert result["delivery"] == "encrypted_inline"
-    assert result["ciphertext"] == "ZmFrZQ=="
-    assert result["information"] is None
+    assert result["delivery"] == "decrypted_local"
+    assert result["ciphertext"] is None
+    assert result["information"] == {"summary": "approved"}
 
 
 @pytest.mark.asyncio
@@ -470,10 +474,10 @@ def test_fabricated_scope_and_unknown_fields_fail_contract_validation() -> None:
                 "scope": "attr.fabricated.BAD SCOPE",
                 "purpose": "A sufficiently clear purpose.",
             },
-            schemas["request_consent"],
+            schemas["request-consent"],
         )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(
             {"request_ref": "req_0123456789abcdef0123456789ab", "user_id": "leak"},
-            schemas["check_consent_status"],
+            schemas["check-consent-status"],
         )

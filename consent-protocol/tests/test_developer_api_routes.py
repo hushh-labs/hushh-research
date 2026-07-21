@@ -678,11 +678,11 @@ def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
     assert payload["allowed_tool_groups"] == ["core_consent"]
     assert payload["approval_required"] is False
     assert tool_names == [
-        "search_user_scopes",
-        "prepare_campaign_context",
-        "request_consent",
-        "check_consent_status",
-        "get_encrypted_scoped_export",
+        "search-user-scopes",
+        "prepare-campaign-context",
+        "request-consent",
+        "check-consent-status",
+        "get-encrypted-scoped-export",
     ]
     assert "list_ria_profiles" not in tool_names
 

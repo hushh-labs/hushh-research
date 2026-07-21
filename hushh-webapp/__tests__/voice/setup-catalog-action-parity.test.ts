@@ -36,13 +36,21 @@ describe("setup catalog voice parity", () => {
       "KYC",
       "Set up your finances",
       "Set up RIA",
-      "Link your record to external systems",
+      "CRM",
     ]);
     expect(
       hubContract.actions
         .filter((action) => action.action_id.startsWith("setup.open_"))
         .map((action) => action.label),
-    ).toEqual(CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle));
+    ).toEqual([
+      "Set up Connections",
+      ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
+    ]);
+    expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({
+      status: "wired",
+      path: "route",
+      target: "/one/setup/connections",
+    });
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();
@@ -59,18 +67,22 @@ describe("setup catalog voice parity", () => {
     const orderedActionIds = ONE_SETUP_CAPABILITIES.map(
       (capability) => capability.setupActionId,
     );
+    const orderedHubActionIds = [
+      "setup.open_connections",
+      ...orderedActionIds,
+    ];
     expect(
       hubContract.actions
         .map((action) => action.action_id)
         .filter((actionId) => actionId.startsWith("setup.open_")),
-    ).toEqual(orderedActionIds);
+    ).toEqual(orderedHubActionIds);
 
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_location");
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_connections");
     expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
-      ...orderedActionIds,
+      ...orderedHubActionIds,
       "setup.hub_master_ack",
     ]);
 

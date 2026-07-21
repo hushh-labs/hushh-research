@@ -354,6 +354,8 @@ class _FakeDb:
         self.user_id = user_id
         self.workflows: list[dict] = []
         self.connectors: list[dict] = []
+        self.automatic_response_preparation_enabled: bool | None = None
+        self.block_workflow_insert = False
         self.alias_rows = alias_rows or []
         self.identity_rows = identity_rows
         if user_id and connector:
@@ -409,6 +411,35 @@ class _FakeDb:
                 if row.get("user_id") == params.get("user_id") and row.get("status") == "active"
             ]
             return SimpleNamespace(data=rows[:1])
+        if (
+            "select automatic_response_preparation_enabled" in normalized
+            and "from one_email_kyc_preferences" in normalized
+        ):
+            if self.automatic_response_preparation_enabled is None:
+                return SimpleNamespace(data=[])
+            return SimpleNamespace(
+                data=[
+                    {
+                        "user_id": params.get("user_id"),
+                        "automatic_response_preparation_enabled": (
+                            self.automatic_response_preparation_enabled
+                        ),
+                    }
+                ]
+            )
+        if "insert into one_email_kyc_preferences" in normalized:
+            self.automatic_response_preparation_enabled = bool(params.get("enabled"))
+            return SimpleNamespace(
+                data=[
+                    {
+                        "user_id": params.get("user_id"),
+                        "automatic_response_preparation_enabled": (
+                            self.automatic_response_preparation_enabled
+                        ),
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                ]
+            )
         if "update one_kyc_client_connectors" in normalized:
             for row in self.connectors:
                 if (
@@ -452,6 +483,8 @@ class _FakeDb:
             )
             return SimpleNamespace(data=[existing])
         if "insert into one_kyc_workflows" in normalized:
+            if self.block_workflow_insert:
+                return SimpleNamespace(data=[])
             row = dict(params)
             row["participant_emails"] = json.loads(row["participant_emails"])
             row["required_fields"] = json.loads(row["required_fields"])
@@ -586,6 +619,7 @@ def _service(db: _FakeDb, consent_db: _FakeConsentDb) -> OneEmailKycService:
     # validation). Tests that need specific candidate_scopes override this per-test.
     service.classify_kyc_request = AsyncMock(return_value=_EMPTY_PROPOSAL)
     service._load_pkm_index_for_user = AsyncMock(return_value=_PKM_INDEX_EMPTY)
+    service._automatic_response_preparation_enabled = lambda user_id: True
     return service
 
 
@@ -660,6 +694,28 @@ def test_decode_pubsub_notification_normalizes_numeric_history_id():
     assert notification["historyId"] == "1681"
 
 
+@pytest.mark.asyncio
+async def test_push_notification_rejects_a_different_mailbox_before_history_fetch():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    payload = {
+        "message": {
+            "data": base64.b64encode(
+                json.dumps(
+                    {
+                        "emailAddress": "other@hushh.ai",
+                        "historyId": "1681",
+                    }
+                ).encode("utf-8")
+            ).decode("utf-8")
+        }
+    }
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.handle_push_notification(payload, headers={})
+
+    assert exc.value.code == "ONE_EMAIL_WEBHOOK_MAILBOX_MISMATCH"
+
+
 def test_from_env_rejects_unapproved_kyc_scope(monkeypatch):
     monkeypatch.setenv("ONE_EMAIL_KYC_DEFAULT_SCOPE", "attr.financial.*")
 
@@ -667,6 +723,23 @@ def test_from_env_rejects_unapproved_kyc_scope(monkeypatch):
         OneEmailKycConfig.from_env()
 
     assert exc.value.code == "ONE_KYC_SCOPE_NOT_ALLOWED"
+
+
+@pytest.mark.asyncio
+async def test_automatic_response_preparation_preference_is_default_off_and_persists():
+    db = _FakeDb()
+    service = OneEmailKycService(db=db)
+
+    initial = await service.get_automatic_response_preparation_preference(user_id="user_123")
+    enabled = await service.set_automatic_response_preparation_preference(
+        user_id="user_123",
+        enabled=True,
+    )
+    current = await service.get_automatic_response_preparation_preference(user_id="user_123")
+
+    assert initial["automatic_response_preparation_enabled"] is False
+    assert enabled["automatic_response_preparation_enabled"] is True
+    assert current["automatic_response_preparation_enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -970,7 +1043,7 @@ async def test_duplicate_message_repairs_legacy_consent_url():
     result = await service.process_message_id("gmail_msg_1", history_id="101")
 
     assert result["reason"] == "consent_request_repaired"
-    assert "/consents?tab=pending" in result["workflow"]["consent_request_url"]
+    assert "/one/consent?tab=pending" in result["workflow"]["consent_request_url"]
     assert "/profile?" not in result["workflow"]["consent_request_url"]
     assert consent_db.events[0]["action"] == "REQUESTED"
     assert consent_db.events[0]["request_id"] == request_id
@@ -1016,9 +1089,103 @@ async def test_process_message_blocks_unknown_user_without_creating_consent():
         history_id="101",
     )
 
-    assert result["workflow"]["status"] == "blocked"
-    assert result["workflow"]["last_error_code"] == "user_not_found"
+    assert result["handled"] is False
+    assert result["reason"] == "user_not_found"
+    assert db.workflows == []
     assert consent_db.events == []
+
+
+@pytest.mark.asyncio
+async def test_process_message_does_nothing_when_account_preference_is_disabled():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    service._automatic_response_preparation_enabled = lambda user_id: False
+
+    result = await service._process_message(
+        _message(body="KYC questionnaire for broker onboarding."),
+        history_id="101-disabled",
+    )
+
+    assert result == {
+        "handled": False,
+        "reason": "automatic_response_preparation_disabled",
+        "message_id": "gmail_msg_1",
+    }
+    assert db.workflows == []
+    assert consent_db.events == []
+    service.classify_kyc_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_workflow_is_not_repaired_after_account_disables_automation():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    service._automatic_response_preparation_enabled = lambda user_id: False
+    workflow = _workflow_row("wf_disabled_existing", status="needs_client_connector")
+    workflow["gmail_message_id"] = "gmail_disabled_existing"
+    db.workflows.append(workflow)
+
+    result = await service.process_message_id("gmail_disabled_existing")
+
+    assert result == {
+        "handled": False,
+        "reason": "automatic_response_preparation_disabled",
+        "message_id": "gmail_disabled_existing",
+    }
+    assert db.workflows[0]["status"] == "needs_client_connector"
+
+
+@pytest.mark.asyncio
+async def test_preference_disabled_during_classification_prevents_atomic_workflow_insert():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    async def _disable_before_insert(**_kwargs):
+        db.block_workflow_insert = True
+        return _EMPTY_PROPOSAL
+
+    service.classify_kyc_request = AsyncMock(side_effect=_disable_before_insert)
+
+    result = await service._process_message(
+        _message(body="KYC questionnaire for broker onboarding."),
+        history_id="101-disabled-during-routing",
+    )
+
+    assert result == {
+        "handled": False,
+        "reason": "automatic_response_preparation_disabled",
+        "message_id": "gmail_msg_1",
+    }
+    assert db.workflows == []
+    assert consent_db.events == []
+
+
+@pytest.mark.asyncio
+async def test_process_message_requires_the_configured_one_mailbox_as_a_recipient():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(
+            to="other@hushh.ai",
+            cc="",
+            body="KYC questionnaire for broker onboarding.",
+        ),
+        history_id="101-wrong-mailbox",
+    )
+
+    assert result == {
+        "handled": False,
+        "reason": "canonical_mailbox_not_addressed",
+        "message_id": "gmail_msg_1",
+    }
+    assert db.workflows == []
+    assert consent_db.events == []
+    service.classify_kyc_request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1084,12 +1251,9 @@ async def test_process_message_does_not_bind_recipient_distribution_list_to_user
         history_id="101distribution",
     )
 
-    workflow = result["workflow"]
-    assert workflow["status"] == "blocked"
-    assert workflow["user_id"] is None
-    assert workflow["last_error_code"] == "user_not_found"
-    assert workflow["metadata"]["identity_match_source"] == "sender"
-    assert workflow["metadata"]["reply_thread"]["matched_user_emails"] == []
+    assert result["handled"] is False
+    assert result["reason"] == "canonical_mailbox_not_addressed"
+    assert db.workflows == []
     assert consent_db.events == []
 
 
@@ -1229,6 +1393,30 @@ async def test_sync_recent_messages_catches_up_verified_sender_mail_without_webh
 
 
 @pytest.mark.asyncio
+async def test_sync_recent_messages_does_not_access_mailbox_when_preference_is_disabled():
+    db = _FakeDb(user_id="sender_user")
+    service = _service(db, _FakeConsentDb())
+    service._automatic_response_preparation_enabled = lambda user_id: False
+    service._list_recent_message_ids = lambda **_kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("disabled sync must not list the shared mailbox")
+    )
+    service._fetch_message = lambda _message_id: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("disabled sync must not fetch shared mailbox messages")
+    )
+
+    result = await service.sync_recent_messages(user_id="sender_user", max_results=12)
+
+    assert result == {
+        "accepted": True,
+        "reason": "automatic_response_preparation_disabled",
+        "scanned_count": 0,
+        "processed_count": 0,
+        "matched_count": 0,
+        "workflows": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_first_history_notification_catches_up_recent_messages_instead_of_dropping_them():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
@@ -1254,6 +1442,62 @@ async def test_first_history_notification_catches_up_recent_messages_instead_of_
     assert result["reason"] == "history_primed_recent_catchup"
     assert result["handled"] is True
     assert result["results"][0]["workflow"]["status"] == "needs_confirm"
+
+
+@pytest.mark.asyncio
+async def test_push_notification_acknowledges_but_does_not_report_disabled_message_as_handled():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    service.process_message_id = AsyncMock(
+        return_value={
+            "handled": False,
+            "reason": "automatic_response_preparation_disabled",
+            "message_id": "gmail_disabled",
+        }
+    )
+    payload = {
+        "message": {
+            "data": base64.b64encode(
+                json.dumps(
+                    {
+                        "emailAddress": "one@hushh.ai",
+                        "message_id": "gmail_disabled",
+                    }
+                ).encode("utf-8")
+            ).decode("utf-8")
+        }
+    }
+
+    result = await service.handle_push_notification(payload, headers={})
+
+    assert result["accepted"] is True
+    assert result["handled"] is False
+
+
+@pytest.mark.asyncio
+async def test_push_history_batch_reports_handled_only_when_a_message_created_work():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    service._get_mailbox_state = lambda: {"history_id": "100"}  # type: ignore[method-assign]
+    service._upsert_mailbox_state = lambda **_kwargs: None  # type: ignore[method-assign]
+    service._list_message_ids_from_history = lambda _history_id: ["ignored-1", "ignored-2"]  # type: ignore[method-assign]
+    service._process_message_ids = AsyncMock(
+        return_value=[
+            {"handled": False, "reason": "canonical_mailbox_not_addressed"},
+            {"handled": False, "reason": "automatic_response_preparation_disabled"},
+        ]
+    )
+    payload = {
+        "message": {
+            "data": base64.b64encode(
+                json.dumps({"emailAddress": "one@hushh.ai", "historyId": "101"}).encode("utf-8")
+            ).decode("utf-8")
+        }
+    }
+
+    result = await service.handle_push_notification(payload, headers={})
+
+    assert result["accepted"] is True
+    assert result["handled"] is False
+    assert result["message_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -1594,7 +1838,7 @@ async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
     assert selected["requested_scopes"] == ["attr.identity.*", "attr.financial.*"]
     assert selected["metadata"]["scope_selection_required"] is False
     assert selected["consent_bundle_id"].startswith("okycb_")
-    assert "/consents?tab=pending" in selected["consent_request_url"]
+    assert "/one/consent?tab=pending" in selected["consent_request_url"]
     assert "bundleId=" in selected["consent_request_url"]
     assert len(consent_db.events) == 2
     bundle_ids = {event["metadata"]["bundle_id"] for event in consent_db.events}
@@ -1639,9 +1883,9 @@ async def test_process_message_blocks_ambiguous_verified_aliases():
         history_id="101b",
     )
 
-    assert result["workflow"]["status"] == "blocked"
-    assert result["workflow"]["last_error_code"] == "ambiguous_identity_resolution"
-    assert result["workflow"]["metadata"]["identity_match_source"] == "sender"
+    assert result["handled"] is False
+    assert result["reason"] == "ambiguous_identity_resolution"
+    assert db.workflows == []
     assert consent_db.events == []
 
 

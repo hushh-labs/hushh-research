@@ -58,6 +58,7 @@ const ICON_SIZE_CLASS = {
 } as const;
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
+type ProfileIconStyle = CSSProperties & Record<`--${string}`, string>;
 
 const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
   Record<OneCapabilityTone, CSSProperties>
@@ -128,10 +129,86 @@ const PROFILE_CAPABILITY_ICON_STYLE_BY_TONE: Partial<
   } as CSSProperties,
 };
 
+// One's roster is a launcher, not a status legend. Give its first nine cells
+// a stable visual identity, then repeat that exact sequence as specialists are
+// added. The roster passes its authored order, so filtering does not reshuffle
+// an agent's icon color.
+const PROFILE_LAUNCHER_PALETTE: readonly ProfileIconStyle[] = [
+  {
+    "--agent-icon-profile-bg": "#b9ecff",
+    "--agent-icon-profile-fg": "#153d52",
+    "--agent-icon-profile-bg-dark": "#334f62",
+    "--agent-icon-profile-fg-dark": "#b9ecff",
+  },
+  {
+    "--agent-icon-profile-bg": "#dfd4ff",
+    "--agent-icon-profile-fg": "#37304d",
+    "--agent-icon-profile-bg-dark": "#514a68",
+    "--agent-icon-profile-fg-dark": "#dfd4ff",
+  },
+  {
+    "--agent-icon-profile-bg": "#c0f5dd",
+    "--agent-icon-profile-fg": "#164536",
+    "--agent-icon-profile-bg-dark": "#28594a",
+    "--agent-icon-profile-fg-dark": "#c0f5dd",
+  },
+  {
+    "--agent-icon-profile-bg": "#ffe0b8",
+    "--agent-icon-profile-fg": "#4d2f1a",
+    "--agent-icon-profile-bg-dark": "#694a31",
+    "--agent-icon-profile-fg-dark": "#ffe0b8",
+  },
+  {
+    "--agent-icon-profile-bg": "#d7dfff",
+    "--agent-icon-profile-fg": "#303a62",
+    "--agent-icon-profile-bg-dark": "#46547c",
+    "--agent-icon-profile-fg-dark": "#dce4ff",
+  },
+  {
+    "--agent-icon-profile-bg": "#ffe0e8",
+    "--agent-icon-profile-fg": "#642b42",
+    "--agent-icon-profile-bg-dark": "#6c3c50",
+    "--agent-icon-profile-fg-dark": "#ffe0e8",
+  },
+  {
+    "--agent-icon-profile-bg": "#bdeee9",
+    "--agent-icon-profile-fg": "#194a47",
+    "--agent-icon-profile-bg-dark": "#2d5a58",
+    "--agent-icon-profile-fg-dark": "#c4f2ed",
+  },
+  {
+    "--agent-icon-profile-bg": "#f8edaf",
+    "--agent-icon-profile-fg": "#504919",
+    "--agent-icon-profile-bg-dark": "#5b5328",
+    "--agent-icon-profile-fg-dark": "#fbf1bf",
+  },
+  {
+    "--agent-icon-profile-bg": "#d7e7ee",
+    "--agent-icon-profile-fg": "#294650",
+    "--agent-icon-profile-bg-dark": "#405963",
+    "--agent-icon-profile-fg-dark": "#e0eff6",
+  },
+] as const;
+
+function resolveProfileIconStyle(
+  tone: OneCapabilityTone | null | undefined,
+  paletteIndex: number | undefined,
+): CSSProperties | undefined {
+  if (paletteIndex !== undefined && Number.isInteger(paletteIndex)) {
+    return PROFILE_LAUNCHER_PALETTE[
+      ((paletteIndex % PROFILE_LAUNCHER_PALETTE.length) +
+        PROFILE_LAUNCHER_PALETTE.length) %
+        PROFILE_LAUNCHER_PALETTE.length
+    ];
+  }
+  return tone ? PROFILE_CAPABILITY_ICON_STYLE_BY_TONE[tone] : undefined;
+}
+
 export function AgentSectionIcon({
   id,
   icon,
   tone,
+  paletteIndex,
   size = "launcher",
   treatment = "default",
   glyphContrast = "default",
@@ -141,6 +218,8 @@ export function AgentSectionIcon({
   id: string;
   icon: OneCapabilityIcon;
   tone?: OneCapabilityTone | null;
+  /** Stable launcher-order color slot; repeats after the canonical palette. */
+  paletteIndex?: number;
   size?: AgentSectionIconSize;
   /** Profile-style rows need one full-bleed icon well, not an inset glass chip. */
   treatment?: "default" | "profile";
@@ -162,9 +241,7 @@ export function AgentSectionIcon({
 
   if (treatment === "profile" && Icon) {
     const active = isActive !== false;
-    const profileToneStyle = tone
-      ? PROFILE_CAPABILITY_ICON_STYLE_BY_TONE[tone]
-      : undefined;
+    const profileToneStyle = resolveProfileIconStyle(tone, paletteIndex);
 
     return (
       <span
@@ -179,6 +256,9 @@ export function AgentSectionIcon({
         )}
         style={active ? profileToneStyle : undefined}
         data-testid={`one-agent-icon-${id}`}
+        data-agent-icon-palette-index={
+          Number.isInteger(paletteIndex) ? paletteIndex : undefined
+        }
         data-agent-icon-kind="lucide"
         aria-hidden
       >

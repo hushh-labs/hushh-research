@@ -36,15 +36,15 @@ from mcp.types import CallToolResult, TextContent
 from mcp_modules import resources as mcp_resources
 from mcp_modules.agentforce_contract import (
     AGENTFORCE_PROFILE,
-    canonical_agentforce_tool_name,
 )
+from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.developer_context import (
+    get_current_developer_principal,
     get_current_schema_profile,
     get_current_visible_tool_names,
     is_tool_allowed,
 )
-from mcp_modules.flat_contract import FLAT_PROFILE, validate_flat_input, validate_flat_output
 from mcp_modules.flat_projection import project_flat_result
 from mcp_modules.log_redaction import install_sensitive_log_filter
 from mcp_modules.public_contract import (
@@ -136,7 +136,7 @@ HANDLERS = {
     "kai_resume_active_analysis": handle_kai_resume_active_analysis,
     "kai_cancel_active_analysis": handle_kai_cancel_active_analysis,
 }
-_PUBLIC_TOOL_NAMES = frozenset(get_public_tool_names())
+_PUBLIC_TOOL_NAMES = frozenset(canonical_tool_name(name) for name in get_public_tool_names())
 _PRIVATE_INPUT_SCHEMAS = {
     tool.name: tool.inputSchema
     for tool in get_tool_definitions(allowed_tool_names=set(HANDLERS) - _PUBLIC_TOOL_NAMES)
@@ -179,10 +179,7 @@ async def call_tool(name: str, arguments: dict):
     start_time = time.perf_counter()
     logger.info("Tool called: %s", name)
 
-    schema_profile = get_current_schema_profile()
-    canonical_name = (
-        canonical_agentforce_tool_name(name) if schema_profile == AGENTFORCE_PROFILE else name
-    )
+    canonical_name = canonical_tool_name(name)
     handler = HANDLERS.get(canonical_name or "")
     if not handler:
         logger.warning(f"❌ Unknown tool requested: {name}")
@@ -206,21 +203,21 @@ async def call_tool(name: str, arguments: dict):
             )
         )
 
-    if schema_profile == AGENTFORCE_PROFILE:
+    principal = get_current_developer_principal()
+    if principal and (
+        principal.mcp_execution_mode == "catalog_only"
+        or principal.schema_profile == AGENTFORCE_PROFILE
+    ):
         return _mcp_error(
             build_safe_error(
-                "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
-                "This Agentforce catalog is available for schema registration only. Salesforce currently does not support user-level or personalized MCP workflows.",
+                "REQUIRES_SECURE_CONSENT_FLOW",
+                "This action needs a person-specific consent review before it can continue.",
                 recoverable=False,
-                next_action="Do not call this user-specific consent workflow from Agentforce until the platform limitation is removed and Hussh enables production support.",
+                next_action="Continue in Hussh Consent Center, where the person can review and approve the request.",
             )
         )
 
-    if canonical_name in _PUBLIC_TOOL_NAMES and not (
-        validate_flat_input(name, arguments)
-        if schema_profile == FLAT_PROFILE
-        else validate_public_tool_input(canonical_name, arguments)
-    ):
+    if canonical_name in _PUBLIC_TOOL_NAMES and not validate_public_tool_input(name, arguments):
         return _mcp_error(
             build_safe_error(
                 "INVALID_ARGUMENTS",
@@ -248,24 +245,19 @@ async def call_tool(name: str, arguments: dict):
             return result
         if "error_code" in result[1]:
             return _mcp_error(result)
-        if schema_profile == FLAT_PROFILE:
-            try:
-                flat_payload = project_flat_result(canonical_name, result[1])
-            except (TypeError, ValueError):
-                return _mcp_error(
-                    build_safe_error(
-                        "INVALID_TOOL_RESULT",
-                        "Hussh could not produce a contract-valid tool result.",
-                        recoverable=True,
-                        next_action="Retry once; if it repeats, report the correlation reference.",
-                    )
+        try:
+            flat_payload = project_flat_result(canonical_name, result[1])
+        except (TypeError, ValueError):
+            return _mcp_error(
+                build_safe_error(
+                    "INVALID_TOOL_RESULT",
+                    "Hussh could not produce a contract-valid tool result.",
+                    recoverable=True,
+                    next_action="Retry once; if it repeats, report the correlation reference.",
                 )
-            result = ([TextContent(type="text", text=json.dumps(flat_payload))], flat_payload)
-        valid_output = (
-            validate_flat_output(canonical_name, result[1])
-            if schema_profile == FLAT_PROFILE
-            else validate_public_tool_output(canonical_name, result[1])
-        )
+            )
+        result = ([TextContent(type="text", text=json.dumps(flat_payload))], flat_payload)
+        valid_output = validate_public_tool_output(canonical_name, result[1])
         if not valid_output:
             logger.error("Tool %s returned a contract-invalid result", name)
             return _mcp_error(

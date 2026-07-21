@@ -9,6 +9,7 @@ import {
   KAI_IMPORT_E2E_FLOW_ID,
   filterUiFlows,
 } from "../testing/signed-in-ui-flows.mjs";
+import { createNativeUiAuditManifest } from "./native-ui-audit-plan.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -20,20 +21,13 @@ export function writeNativeUiFlowsManifest({
 } = {}) {
   const flows = filterUiFlows({ flowFilter, routeFilter });
   const flowsPublicPath = path.join(root, "out", "native-ui-flows.json");
+  const nativeAuditManifest = createNativeUiAuditManifest(flows);
   fs.mkdirSync(path.dirname(flowsPublicPath), { recursive: true });
   fs.writeFileSync(
     flowsPublicPath,
-    `${JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        flow_count: flows.length,
-        flows,
-      },
-      null,
-      2
-    )}\n`
+    `${JSON.stringify(nativeAuditManifest, null, 2)}\n`
   );
-  return { flows, flowsPublicPath };
+  return { flows, flowsPublicPath, nativeAuditManifest };
 }
 
 export function copyNativeImportE2eAsset({

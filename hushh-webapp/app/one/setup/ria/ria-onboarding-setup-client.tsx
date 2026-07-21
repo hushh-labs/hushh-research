@@ -22,12 +22,20 @@ export function RiaOnboardingSetupClient() {
 
   return (
     <div className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
-      <RiaOnboardingPage setupMode onSetupReadinessChange={setReady} />
-      <SetupCapabilityTerminalFooter
-        capabilityId="ria"
-        isOperationallyReady={ready}
-        coordinator={coordinator}
+      <RiaOnboardingPage
+        setupMode
+        onSetupReadinessChange={setReady}
+        onSetupSkip={async () => {
+          await coordinator.skip();
+        }}
       />
+      {ready ? (
+        <SetupCapabilityTerminalFooter
+          capabilityId="ria"
+          isOperationallyReady
+          coordinator={coordinator}
+        />
+      ) : null}
     </div>
   );
 }

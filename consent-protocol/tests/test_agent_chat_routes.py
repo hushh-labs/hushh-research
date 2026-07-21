@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -36,7 +39,7 @@ class _FakeAgentChatService:
             user_id="user-1",
             title="First prompt",
             status="active",
-            model="gemini-2.5-pro",
+            model="gemini-3.5-flash",
             message_count=2,
             created_at="2026-05-18T00:00:00+00:00",
             updated_at="2026-05-18T00:00:01+00:00",
@@ -61,7 +64,7 @@ class _FakeAgentChatService:
                 role="assistant",
                 status="complete",
                 content="Hi there",
-                model="gemini-2.5-pro",
+                model="gemini-3.5-flash",
                 created_at="2026-05-18T00:00:01+00:00",
                 completed_at="2026-05-18T00:00:01+00:00",
             ),
@@ -116,7 +119,7 @@ class _FakeAgentChatService:
         return PreparedAgentRuntime(
             mode=runtime_credential_mode or "hushh_managed_vertex",
             provider="gemini",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
             gemini_byok_transport="developer_api",
             vertex_project=None,
@@ -134,7 +137,7 @@ class _FakeAgentChatService:
             conversation_id="conversation-1",
             user_message_id="message-user-2",
             history=[],
-            model="gemini-2.5-pro",
+            model="gemini-3.5-flash",
         )
 
     async def stream_response(
@@ -150,7 +153,7 @@ class _FakeAgentChatService:
         assert user_message == "Hello Agent"
         assert history == []
         assert runtime_client is self.runtime_client
-        assert runtime_model == "gemini-2.5-flash"
+        assert runtime_model == "gemini-3.1-flash-lite"
         assert pkm_context in {None, "Saved domains: Financial"}
         self.stream_action_plans.append(action_plan)
         if self.stream_error is not None:
@@ -196,7 +199,7 @@ class _FakeAgentChatService:
         assert user_message == "Hello Agent"
         assert history == []
         assert runtime_client is self.runtime_client
-        assert runtime_model == "gemini-2.5-flash"
+        assert runtime_model == "gemini-3.1-flash-lite"
         assert pkm_context in {None, "Saved domains: Financial"}
         if self.plan_error is not None:
             raise self.plan_error
@@ -250,6 +253,25 @@ class _FakeAgentChatService:
         return self.history
 
 
+class _FakeActionDirectiveStore:
+    def __init__(self):
+        self.cancelled: list[dict] = []
+
+    async def issue(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(
+            directive_id="dir_test_1",
+            action_id=kwargs["action_id"],
+            context_revision=kwargs["context_revision"],
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+
+    async def cancel_open_for_conversation(self, **kwargs):  # noqa: ANN003
+        return None
+
+    async def cancel_typed(self, **kwargs):  # noqa: ANN003
+        self.cancelled.append(kwargs)
+
+
 def _client(service: _FakeAgentChatService, user_id: str = "user-1") -> TestClient:
     app = FastAPI()
     app.include_router(agent_chat.router)
@@ -272,7 +294,7 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
 
     assert response.status_code == 200
     assert response.headers["x-agent-conversation-id"] == "conversation-1"
-    assert response.headers["x-agent-model"] == "gemini-2.5-flash"
+    assert response.headers["x-agent-model"] == "gemini-3.1-flash-lite"
     assert 'event: token\ndata: {"token": "Hello"}' in response.text
     assert 'event: token\ndata: {"token": " from Gemini"}' in response.text
     assert 'event: complete\ndata: {"conversation_id": "conversation-1"' in response.text
@@ -290,8 +312,38 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
             "role": "assistant",
             "content": "Hello from Gemini",
             "status": "complete",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "error_code": None,
+        }
+    ]
+
+
+def test_agent_chat_cancel_disarms_exact_bound_directive(monkeypatch):
+    store = _FakeActionDirectiveStore()
+    monkeypatch.setattr(agent_chat, "get_action_directive_store", lambda: store)
+    client = _client(_FakeAgentChatService())
+
+    response = client.post(
+        "/agent/chat/actions/dir_test_1/cancel",
+        json={
+            "user_id": "user-1",
+            "conversation_id": "conversation-1",
+            "action_id": "analysis.start",
+            "context_revision": "route-1:screen-2",
+            "reason_code": "user_cancelled",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"directive_id": "dir_test_1", "status": "cancelled"}
+    assert store.cancelled == [
+        {
+            "directive_id": "dir_test_1",
+            "user_id": "user-1",
+            "conversation_id": "conversation-1",
+            "action_id": "analysis.start",
+            "context_revision": "route-1:screen-2",
+            "reason_code": "user_cancelled",
         }
     ]
 
@@ -442,6 +494,9 @@ def test_agent_chat_stream_saves_short_frontend_action_receipt(monkeypatch):
         message="Starting Kai analysis for NVDA.",
     )
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(
+        agent_chat, "get_action_directive_store", lambda: _FakeActionDirectiveStore()
+    )
     client = _client(service)
 
     response = client.post(
@@ -450,10 +505,10 @@ def test_agent_chat_stream_saves_short_frontend_action_receipt(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert 'event: tool_start\ndata: {"call_id": "one_text_' in response.text
+    assert 'event: tool_start\ndata: {"call_id": "dir_test_1"' in response.text
     assert '"action_id": "analysis.start"' in response.text
     assert '"slots": {"symbol": "NVDA"}' in response.text
-    assert 'event: tool_waiting\ndata: {"call_id": "one_text_' in response.text
+    assert 'event: tool_waiting\ndata: {"call_id": "dir_test_1"' in response.text
     assert '"status": "waiting_for_frontend"' in response.text
     assert 'event: token\ndata: {"token": "Starting Kai analysis for NVDA."}' in response.text
     assert service.stream_action_plans == []
@@ -473,6 +528,9 @@ def test_agent_chat_stream_does_not_stream_long_text_for_navigation_action(monke
         message="Open Consent Center in the app.",
     )
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(
+        agent_chat, "get_action_directive_store", lambda: _FakeActionDirectiveStore()
+    )
     client = _client(service)
 
     response = client.post(
@@ -481,14 +539,14 @@ def test_agent_chat_stream_does_not_stream_long_text_for_navigation_action(monke
     )
 
     assert response.status_code == 200
-    assert 'event: tool_waiting\ndata: {"call_id": "one_text_' in response.text
+    assert 'event: tool_waiting\ndata: {"call_id": "dir_test_1"' in response.text
     assert 'event: token\ndata: {"token": "Open Consent Center in the app."}' in response.text
     assert "long generic Gemini" not in response.text
     assert service.stream_action_plans == []
     assert service.saved_messages[0]["content"] == "Open Consent Center in the app."
 
 
-def test_agent_chat_stream_does_not_save_empty_assistant_message(monkeypatch):
+def test_agent_chat_stream_turns_empty_provider_completion_into_typed_error(monkeypatch):
     service = _FakeAgentChatService()
     service.stream_tokens = []
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
@@ -500,8 +558,11 @@ def test_agent_chat_stream_does_not_save_empty_assistant_message(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert 'event: complete\ndata: {"conversation_id": "conversation-1"' in response.text
-    assert service.saved_messages == []
+    assert 'event: error\ndata: {"code": "AGENT_RUNTIME_EMPTY_RESPONSE"' in response.text
+    assert service.saved_messages[0]["content"] == (
+        "One did not receive a response from the configured model. Please try again."
+    )
+    assert service.saved_messages[0]["status"] == "error"
 
 
 def test_agent_chat_stream_saves_error_message_when_stream_fails_before_tokens(monkeypatch):
@@ -524,7 +585,7 @@ def test_agent_chat_stream_saves_error_message_when_stream_fails_before_tokens(m
             "role": "assistant",
             "content": "Agent chat failed. Please try again.",
             "status": "error",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "error_code": "AGENT_CHAT_STREAM_FAILED",
         }
     ]
@@ -567,7 +628,7 @@ def test_agent_chat_stream_saves_safe_runtime_provider_error(monkeypatch):
                 "or switch Kai to Hushh managed Gemini."
             ),
             "status": "error",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "error_code": "AGENT_RUNTIME_CREDENTIAL_INVALID",
         }
     ]
@@ -604,7 +665,7 @@ async def test_agent_chat_stream_saves_partial_interrupted_response(monkeypatch)
             "role": "assistant",
             "content": "Hello",
             "status": "interrupted",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "error_code": None,
         }
     ]
@@ -637,7 +698,7 @@ async def test_agent_chat_stream_saves_non_empty_interrupted_fallback(monkeypatc
             "role": "assistant",
             "content": "Agent response was interrupted before it could finish.",
             "status": "interrupted",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "error_code": None,
         }
     ]

@@ -178,6 +178,43 @@ function enableLocalDevPhoneTest() {
   });
 }
 
+describe("AuthService.signOut", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(HushhAuth.signOut).mockResolvedValue(undefined);
+    vi.mocked(firebaseSignOut).mockResolvedValue(undefined);
+  });
+
+  it("clears native and Firebase JS auth stores", async () => {
+    await expect(AuthService.signOut()).resolves.toBeUndefined();
+
+    expect(HushhAuth.signOut).toHaveBeenCalledTimes(1);
+    expect(firebaseSignOut).toHaveBeenCalledWith(mockAuth);
+  });
+
+  it("still clears Firebase JS auth when native sign-out rejects", async () => {
+    vi.mocked(HushhAuth.signOut).mockRejectedValue(
+      new Error("native keychain unavailable"),
+    );
+
+    await expect(AuthService.signOut()).rejects.toThrow(
+      "One or more authentication stores failed to sign out",
+    );
+    expect(firebaseSignOut).toHaveBeenCalledWith(mockAuth);
+  });
+
+  it("still clears native auth when Firebase JS sign-out rejects", async () => {
+    vi.mocked(firebaseSignOut).mockRejectedValue(
+      new Error("firebase persistence unavailable"),
+    );
+
+    await expect(AuthService.signOut()).rejects.toThrow(
+      "One or more authentication stores failed to sign out",
+    );
+    expect(HushhAuth.signOut).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("AuthService native custom-token continuity", () => {
   beforeEach(() => {
     vi.clearAllMocks();

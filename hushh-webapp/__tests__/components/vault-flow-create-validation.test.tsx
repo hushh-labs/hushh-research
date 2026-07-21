@@ -153,11 +153,13 @@ describe("VaultFlow create validation", () => {
   it("explains why Create Vault is disabled for short or mismatched passphrases", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /continue to vault setup/i }));
-
-    const passphraseInput = screen.getByLabelText("Passphrase");
-    const confirmInput = screen.getByLabelText("Confirm Passphrase");
+    const passphraseInput = await screen.findByLabelText("Vault Key");
+    const confirmInput = screen.getByLabelText("Confirm Vault Key");
     const createButton = screen.getByRole("button", { name: "Create Vault" }) as HTMLButtonElement;
+
+    // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
+    // Vault confirmation uses normal submit behavior without adding that glyph.
+    expect(confirmInput.getAttribute("enterkeyhint")).toBeNull();
 
     fireEvent.change(passphraseInput, { target: { value: "short" } });
     expect(await screen.findByText("Minimum 8 characters required.")).toBeTruthy();
@@ -172,11 +174,10 @@ describe("VaultFlow create validation", () => {
   it("submits vault creation when Enter is pressed on a valid confirmation", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /continue to vault setup/i }));
-    fireEvent.change(screen.getByLabelText("Passphrase"), {
+    fireEvent.change(await screen.findByLabelText("Vault Key"), {
       target: { value: "correct horse battery staple" },
     });
-    const confirmation = screen.getByLabelText("Confirm Passphrase");
+    const confirmation = screen.getByLabelText("Confirm Vault Key");
     fireEvent.change(confirmation, {
       target: { value: "correct horse battery staple" },
     });
@@ -186,6 +187,17 @@ describe("VaultFlow create validation", () => {
     await screen.findByRole("dialog", { name: /save your recovery key/i });
     expect(createVaultMock).toHaveBeenCalledTimes(1);
     expect(createVaultMock).toHaveBeenCalledWith("correct horse battery staple");
+  });
+
+  it("opens fresh vault creation directly in the canonical credential layout", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    expect(await screen.findByRole("heading", { name: "Create Your Vault" })).toBeTruthy();
+    expect(screen.getByLabelText("Vault Key")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm Vault Key")).toBeTruthy();
+    expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
+    expect(screen.queryByRole("button", { name: /continue to vault setup/i })).toBeNull();
+    expect(document.querySelector('[data-vault-flow-step="create"]')).toBeTruthy();
   });
 
   it("uses compact Vault Key primary copy with Passkey and Recovery Key alternatives", async () => {

@@ -47,6 +47,8 @@ import {
   removeLocalItem,
   removeSessionItem,
 } from "@/lib/utils/session-storage";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { ApiService } from "@/lib/services/api-service";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -100,6 +102,8 @@ interface AuthContextType {
   }) => Promise<void>;
   checkAuth: () => Promise<void>; // Manually trigger auth check (e.g. after native login)
   setNativeUser: (user: User | null) => void; // Helper to manually set user state
+  beginPostAuthSettlement: (user: User) => number;
+  completePostAuthSettlement: (settlementId: number) => void;
   refreshUser: () => Promise<User | null>;
 }
 
@@ -133,6 +137,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const router = useRouter();
   const userRef = useRef<User | null>(null);
   const authRecoveryInFlightRef = useRef(false);
+  const signOutPromiseRef = useRef<Promise<void> | null>(null);
+  const postAuthSettlementEpochRef = useRef(0);
+  const activePostAuthSettlementRef = useRef<number | null>(null);
   // Firebase JS commonly emits `null` before the native keychain/provider has
   // finished restoring. Until this flips, native restoration owns the loading
   // state and the JS listener must not publish a false signed-out transition.
@@ -144,6 +151,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(nextUser);
     setUserId(nextUser?.uid ?? null);
     setPhoneNumber(nextUser?.phoneNumber ?? null);
+    if (nextUser?.uid) {
+      void import("@/lib/services/connected-systems-resource-service")
+        .then(async ({ ConnectedSystemsResourceService }) => {
+          await ConnectedSystemsResourceService.hydrateRegistry(nextUser.uid);
+          const authToken = await nextUser.getIdToken().catch(() => null);
+          if (!authToken || userRef.current?.uid !== nextUser.uid) return;
+          await ConnectedSystemsResourceService.loadRegistry({
+            userId: nextUser.uid,
+            authToken,
+          });
+        })
+        .catch(() => undefined);
+    }
   }, []);
 
   useEffect(() => {
@@ -208,6 +228,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
    * to prevent VaultLockGuard from getting stuck.
    */
   const checkAuth = useCallback(async () => {
+    // Native lifecycle callbacks can arrive while an Apple credential is
+    // settling or while sign-out is clearing the native keychain. Neither
+    // window may start an independent restore that can republish stale state.
+    if (
+      signOutPromiseRef.current ||
+      activePostAuthSettlementRef.current !== null
+    ) {
+      return;
+    }
+
     // 1. Native Session Restoration
     if (Capacitor.isNativePlatform()) {
       const restoreEpoch = nativeRestoreEpochRef.current.begin();
@@ -269,36 +299,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Initialize on Mount - CRITICAL: Do not depend on `user` to avoid render loops
   useEffect(() => {
     let mounted = true;
+    let removeLifecycleListener: (() => void) | null = null;
 
     const init = async () => {
-      // App State Listener (Background clear)
-      if (typeof window !== "undefined" && IS_NATIVE) {
-        try {
-          const { App } = await import("@capacitor/app");
+      if (IS_NATIVE) {
+        removeLifecycleListener = appInteractionCoordinator.subscribeLifecycle(() => {
+          const lifecycle = appInteractionCoordinator.getLifecycleSnapshot();
+          if (lifecycle.state === "background") {
+            // Defensive cleanup for an obsolete storage key only. VaultProvider
+            // owns the actual in-memory vault and does not lock on background.
+            removeLocalItem("vault_key");
+            removeSessionItem("vault_key");
+            return;
+          }
 
-          await App.addListener("appStateChange", ({ isActive }) => {
-            if (!isActive) {
-              console.log(
-                "🔒 [AuthProvider] App backgrounded - clearing sensitive data"
-              );
-              // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
-              // Vault key should be managed by VaultContext (memory-only)
-              removeLocalItem("vault_key");
-              removeSessionItem("vault_key");
-
-              // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
-              // No need to force reload, which causes loops on some Android devices
-              return;
-            }
-
-            if (!userRef.current) {
-              console.log("🍎 [AuthProvider] App active with no in-memory user - rechecking native auth");
-              void checkAuth();
-            }
-          });
-        } catch (error) {
-          console.warn("⚠️ [AuthProvider] Failed to install native app-state listener", error);
-        }
+          if (!userRef.current) {
+            void checkAuth();
+          }
+        });
       }
 
       await checkAuth();
@@ -309,22 +327,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!mounted) return;
 
-      // Safety: Don't overwrite a valid User with null if on Native
-      // The Firebase JS SDK often fires 'null' on startup or network change in Capacitor apps
-      // Use ref to check current user without adding `user` to dependencies
+      // Native identity has one publication authority: checkAuth/refreshUser
+      // for restoration and the explicit post-auth settlement for sign-in.
+      // The WebView Firebase observer can fire either null or a matching user
+      // while the native Apple SDK is still completing, so publishing either
+      // value here would reopen the setup/vault race.
       if (IS_NATIVE) {
         if (!firebaseUser && !nativeRestoreSettledRef.current) {
           console.log(
             "🍎 [AuthContext] Ignoring Firebase Null State While Native Restore Is Pending"
           );
-          return;
-        }
-        if (!firebaseUser && userRef.current) {
+        } else {
           console.log(
-            "🍎 [AuthContext] Ignoring Firebase Null State (Native Mode)"
+            "🍎 [AuthContext] Ignoring Firebase JS State (Native Mode)"
           );
-          return;
         }
+        return;
       }
 
       applyAuthUser(firebaseUser);
@@ -334,6 +352,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => {
       mounted = false;
+      removeLifecycleListener?.();
       unsubscribe();
     };
   }, [applyAuthUser, checkAuth]); // Do not depend on `user`; that would re-run auth init on every user state update.
@@ -343,57 +362,99 @@ export function AuthProvider({ children }: AuthProviderProps) {
     redirectTo?: string;
     skipFcmCleanup?: boolean;
   }): Promise<void> => {
-    // A restore that began before sign-out must never repopulate auth state.
-    nativeRestoreEpochRef.current.invalidate();
-    nativeRestoreSettledRef.current = true;
-    const currentUid = user?.uid ?? null;
-    const redirectTo = options?.redirectTo || ROUTES.HOME;
-    try {
-      // Delete FCM token before signing out (requires auth). Skipped for the
-      // account-deletion flow: the backend already removes the account and its
-      // push tokens, so this would only add a redundant network round-trip to
-      // the wait before redirect.
-      if (currentUid && !options?.skipFcmCleanup) {
-        try {
-          const idToken = await user?.getIdToken();
-          const { deleteFCMToken } = await import("@/lib/notifications/fcm-service");
-          await deleteFCMToken(currentUid, idToken);
-        } catch (fcmErr) {
-          console.warn("FCM token cleanup on signOut failed (non-critical):", fcmErr);
+    if (signOutPromiseRef.current) {
+      return signOutPromiseRef.current;
+    }
+
+    const operation = (async () => {
+      // A restore or post-auth settlement that began before sign-out must
+      // never repopulate auth state. Keep the sign-out barrier active through
+      // the terminal navigation below.
+      nativeRestoreEpochRef.current.invalidate();
+      nativeRestoreSettledRef.current = true;
+      postAuthSettlementEpochRef.current += 1;
+      activePostAuthSettlementRef.current = null;
+      const currentUser = userRef.current;
+      const currentUid = currentUser?.uid ?? null;
+      const redirectTo = options?.redirectTo || ROUTES.HOME;
+      setLoading(true);
+
+      try {
+        // Delete FCM token before signing out (requires auth). Skipped for the
+        // account-deletion flow: the backend already removes the account and its
+        // push tokens, so this would only add a redundant network round-trip to
+        // the wait before redirect.
+        if (currentUid && !options?.skipFcmCleanup) {
+          try {
+            const idToken = await currentUser?.getIdToken();
+            const { deleteFCMToken } = await import("@/lib/notifications/fcm-service");
+            await deleteFCMToken(currentUid, idToken);
+          } catch (fcmErr) {
+            console.warn("FCM token cleanup on signOut failed (non-critical):", fcmErr);
+          }
+        }
+
+        // Clear the server-owned httpOnly session independently from the
+        // native/JS Firebase credentials. Logout must not leave a valid web
+        // session cookie behind merely because one auth transport failed.
+        const cleanupTasks: Promise<unknown>[] = [AuthService.signOut()];
+        // The httpOnly session cookie exists only on the web/Next.js origin.
+        // Native static builds authenticate directly against the backend, where
+        // `/api/auth/session` is intentionally not a route.
+        if (!IS_NATIVE) {
+          cleanupTasks.push(ApiService.deleteSession());
+        }
+        const cleanupResults = await Promise.allSettled(cleanupTasks);
+        for (const result of cleanupResults) {
+          if (result.status === "rejected") {
+            console.error("Sign out cleanup error", result.reason);
+          }
+        }
+      } finally {
+        CacheSyncService.onAuthSignedOut(currentUid);
+        if (currentUid) {
+          await UserLocalStateService.clearForUser(currentUid);
+        }
+
+        userRef.current = null;
+        applyAuthUser(null);
+        setConfirmationResult(null);
+        setNativeVerificationId(null);
+        setPhoneVerificationPhoneNumber(null);
+
+        // Reset landing/onboarding entry markers so sign-out returns to Intro on "/".
+        await OnboardingLocalService.clearMarketingSeen();
+        await OnboardingLocalService.markForceIntroOnce();
+        setOnboardingRequiredCookie(false);
+        setOnboardingFlowActiveCookie(false);
+
+        // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
+        // Vault key should be managed by VaultContext (memory-only)
+        removeLocalItem("vault_key");
+        removeLocalItem("user_id");
+        clearSessionStorage();
+
+        if (IS_NATIVE && typeof window !== "undefined") {
+          // Logout is a terminal security boundary. A document replacement
+          // prevents App Router history, delayed transition callbacks, or a
+          // stale WebView tree from re-entering the authenticated route.
+          window.location.replace(redirectTo);
+        } else {
+          router.replace(redirectTo);
+          setLoading(false);
         }
       }
+    })();
 
-      const { AuthService } = await import("@/lib/services/auth-service");
-      await AuthService.signOut(); // Handles Native + Firebase
-    } catch (e) {
-      console.error("Sign out error", e);
+    signOutPromiseRef.current = operation;
+    try {
+      await operation;
     } finally {
-      CacheSyncService.onAuthSignedOut(currentUid);
-      if (currentUid) {
-        await UserLocalStateService.clearForUser(currentUid);
+      if (signOutPromiseRef.current === operation && !IS_NATIVE) {
+        signOutPromiseRef.current = null;
       }
-
-      userRef.current = null;
-      applyAuthUser(null);
-      setConfirmationResult(null);
-      setNativeVerificationId(null);
-      setPhoneVerificationPhoneNumber(null);
-
-      // Reset landing/onboarding entry markers so sign-out returns to Intro on "/".
-      await OnboardingLocalService.clearMarketingSeen();
-      await OnboardingLocalService.markForceIntroOnce();
-      setOnboardingRequiredCookie(false);
-      setOnboardingFlowActiveCookie(false);
-
-      // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
-      // Vault key should be managed by VaultContext (memory-only)
-      removeLocalItem("vault_key");
-      removeLocalItem("user_id");
-      clearSessionStorage();
-
-      router.push(redirectTo);
     }
-  }, [applyAuthUser, router, user]);
+  }, [applyAuthUser, router]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {
@@ -702,6 +763,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signOut,
     checkAuth,
     refreshUser,
+    beginPostAuthSettlement: (nextUser: User) => {
+      nativeRestoreEpochRef.current.invalidate();
+      nativeRestoreSettledRef.current = true;
+      postAuthSettlementEpochRef.current += 1;
+      const settlementId = postAuthSettlementEpochRef.current;
+      activePostAuthSettlementRef.current = settlementId;
+      applyAuthUser(nextUser);
+      setLoading(true);
+      return settlementId;
+    },
+    completePostAuthSettlement: (settlementId: number) => {
+      if (activePostAuthSettlementRef.current !== settlementId) return;
+      activePostAuthSettlementRef.current = null;
+      setLoading(false);
+    },
     setNativeUser: (user: User | null) => {
       console.log("🍎 [AuthContext] Manually setting Native User");
       // AuthStep has a confirmed native Apple result. Invalidate any launch or

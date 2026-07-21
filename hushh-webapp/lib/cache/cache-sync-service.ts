@@ -4,6 +4,9 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
+import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -283,6 +286,11 @@ export class CacheSyncService {
         });
       })
       .catch(() => undefined);
+    void import("@/lib/kai/kai-market-news-resource")
+      .then(({ KaiMarketNewsResourceService }) => {
+        KaiMarketNewsResourceService.invalidateUser(userId);
+      })
+      .catch(() => undefined);
     void import("@/lib/services/unlock-warm-orchestrator")
       .then(({ UnlockWarmOrchestrator }) => {
         UnlockWarmOrchestrator.invalidateForUser(userId);
@@ -521,6 +529,11 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.VAULT_CHECK(userId));
     }
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
+    void import("@/lib/services/connected-systems-resource-service")
+      .then(({ ConnectedSystemsResourceService }) => {
+        ConnectedSystemsResourceService.clearProtected(userId);
+      })
+      .catch(() => undefined);
     if (options?.hasVault === false) {
       this.invalidateKaiFinancialResource(userId);
     }
@@ -570,6 +583,26 @@ export class CacheSyncService {
     this.onKaiMarketContextChanged(userId);
   }
 
+  /**
+   * Clear the persistent RIA tiers (IndexedDB device cache + native Preferences
+   * hint) alongside the in-memory invalidations. Required now that the RIA
+   * onboarding status is cached with SESSION (30m) TTL — otherwise a persona
+   * switch / marketplace toggle / RIA delete could keep serving a stale
+   * `exists`/profile from a persistent tier for up to 30 minutes. Fire-and-forget
+   * so callers stay synchronous.
+   */
+  private static invalidateRiaPersistentCaches(userId: string): void {
+    if (!userId) return;
+    // Bump the RIA invalidation epoch FIRST so any in-flight status/persona
+    // fetch dispatched before this clear has its write-back dropped (prevents a
+    // stale exists:true from repopulating the persistent tiers after a delete).
+    bumpRiaInvalidationEpoch(userId);
+    void DeviceResourceCacheService.invalidateResourcePrefix(userId, "ria:").catch(
+      () => undefined,
+    );
+    void RiaOnboardingStatusLocalService.clear(userId).catch(() => undefined);
+  }
+
   static onPersonaStateChanged(
     userId: string,
     options?: {
@@ -594,6 +627,7 @@ export class CacheSyncService {
     cache.invalidatePattern(`ria_clients_${userId}_`);
     cache.invalidatePattern(`ria_client_detail_${userId}_`);
     cache.invalidatePattern(`ria_workspace_${userId}_`);
+    this.invalidateRiaPersistentCaches(userId);
     this.onKaiMarketContextChanged(userId);
   }
 
@@ -604,6 +638,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidatePattern("marketplace_rias_");
     cache.invalidatePattern("marketplace_investors_");
+    this.invalidateRiaPersistentCaches(userId);
   }
 
   /**
@@ -663,6 +698,11 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     if (userId) {
       cache.invalidateUser(userId);
+      void import("@/lib/services/connected-systems-resource-service")
+        .then(({ ConnectedSystemsResourceService }) =>
+          ConnectedSystemsResourceService.purgeUser(userId)
+        )
+        .catch(() => undefined);
       return;
     }
     cache.clear();

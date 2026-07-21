@@ -22,8 +22,6 @@ from urllib.parse import urlsplit, urlunsplit
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.developer_registry_service import (
-    SCHEMA_PROFILE_AGENTFORCE,
-    SCHEMA_PROFILE_FLAT,
     DeveloperPrincipal,
     DeveloperRegistryService,
 )
@@ -53,6 +51,8 @@ class OAuthClient:
     redirect_uris: tuple[str, ...]
     created_at: int
     secret_rotated_at: int
+    allowed_grant_types: tuple[str, ...] = ("authorization_code", "refresh_token")
+    mcp_execution_mode: str = "execute"
 
 
 def _now_ms() -> int:
@@ -143,7 +143,9 @@ class DeveloperOAuthService:
                     app_id TEXT PRIMARY KEY, client_id TEXT NOT NULL UNIQUE,
                     client_secret_hash TEXT NOT NULL, client_secret_prefix TEXT NOT NULL,
                     redirect_uris TEXT NOT NULL, created_at INTEGER NOT NULL,
-                    secret_rotated_at INTEGER NOT NULL, revoked_at INTEGER)""",
+                    secret_rotated_at INTEGER NOT NULL, revoked_at INTEGER,
+                    allowed_grant_types TEXT NOT NULL DEFAULT '[\"authorization_code\",\"refresh_token\"]',
+                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_authorizations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, transaction_ref TEXT NOT NULL UNIQUE,
                     code_hash TEXT UNIQUE, app_id TEXT NOT NULL, client_id TEXT NOT NULL,
@@ -157,7 +159,8 @@ class DeveloperOAuthService:
                     subject_firebase_uid TEXT, authorization_id INTEGER,
                     scopes TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
                     revoked_at INTEGER, last_used_at INTEGER,
-                    grant_type TEXT NOT NULL DEFAULT 'authorization_code')""",
+                    grant_type TEXT NOT NULL DEFAULT 'authorization_code',
+                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, app_id TEXT NOT NULL,
                     client_id TEXT, subject_firebase_uid TEXT, event_type TEXT NOT NULL,
@@ -169,7 +172,9 @@ class DeveloperOAuthService:
                     app_id TEXT PRIMARY KEY REFERENCES developer_apps(app_id) ON DELETE CASCADE,
                     client_id TEXT NOT NULL UNIQUE, client_secret_hash TEXT NOT NULL,
                     client_secret_prefix TEXT NOT NULL, redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    created_at BIGINT NOT NULL, secret_rotated_at BIGINT NOT NULL, revoked_at BIGINT)""",
+                    created_at BIGINT NOT NULL, secret_rotated_at BIGINT NOT NULL, revoked_at BIGINT,
+                    allowed_grant_types JSONB NOT NULL DEFAULT '[\"authorization_code\",\"refresh_token\"]'::jsonb,
+                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_authorizations (
                     id BIGSERIAL PRIMARY KEY, transaction_ref TEXT NOT NULL UNIQUE,
                     code_hash TEXT UNIQUE, app_id TEXT NOT NULL REFERENCES developer_apps(app_id) ON DELETE CASCADE,
@@ -188,6 +193,7 @@ class DeveloperOAuthService:
                     created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL,
                     revoked_at BIGINT, last_used_at BIGINT,
                     grant_type TEXT NOT NULL DEFAULT 'authorization_code',
+                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute',
                     CONSTRAINT developer_oauth_token_kind_check CHECK (token_kind IN ('access', 'refresh')))""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
                     id BIGSERIAL PRIMARY KEY, app_id TEXT NOT NULL,
@@ -205,6 +211,18 @@ class DeveloperOAuthService:
             )
             self._db.execute_raw(
                 "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS grant_type TEXT NOT NULL DEFAULT 'authorization_code'",
+                {},
+            )
+            self._db.execute_raw(
+                'ALTER TABLE developer_oauth_clients ADD COLUMN IF NOT EXISTS allowed_grant_types JSONB NOT NULL DEFAULT \'["authorization_code","refresh_token"]\'::jsonb',
+                {},
+            )
+            self._db.execute_raw(
+                "ALTER TABLE developer_oauth_clients ADD COLUMN IF NOT EXISTS mcp_execution_mode TEXT NOT NULL DEFAULT 'execute'",
+                {},
+            )
+            self._db.execute_raw(
+                "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS mcp_execution_mode TEXT NOT NULL DEFAULT 'execute'",
                 {},
             )
         self.__class__._tables_ensured = True
@@ -234,12 +252,20 @@ class DeveloperOAuthService:
             redirect_uris=_json_list(row.get("redirect_uris")),
             created_at=int(row["created_at"]),
             secret_rotated_at=int(row["secret_rotated_at"]),
+            allowed_grant_types=_json_list(row.get("allowed_grant_types"))
+            or ("authorization_code", "refresh_token"),
+            mcp_execution_mode=(
+                "catalog_only"
+                if str(row.get("mcp_execution_mode") or "").strip() == "catalog_only"
+                else "execute"
+            ),
         )
 
     def get_client_for_app(self, app_id: str) -> OAuthClient | None:
         self.ensure_tables()
         result = self._db.execute_raw(
-            """SELECT app_id, client_id, client_secret_prefix, redirect_uris, created_at, secret_rotated_at
+            """SELECT app_id, client_id, client_secret_prefix, redirect_uris, created_at, secret_rotated_at,
+                      allowed_grant_types, mcp_execution_mode
                FROM developer_oauth_clients WHERE app_id = :app_id AND revoked_at IS NULL LIMIT 1""",
             {"app_id": app_id},
         )
@@ -248,13 +274,20 @@ class DeveloperOAuthService:
     def get_client(self, client_id: str) -> OAuthClient | None:
         self.ensure_tables()
         result = self._db.execute_raw(
-            """SELECT app_id, client_id, client_secret_prefix, redirect_uris, created_at, secret_rotated_at
+            """SELECT app_id, client_id, client_secret_prefix, redirect_uris, created_at, secret_rotated_at,
+                      allowed_grant_types, mcp_execution_mode
                FROM developer_oauth_clients WHERE client_id = :client_id AND revoked_at IS NULL LIMIT 1""",
             {"client_id": client_id},
         )
         return self._client_from_row(result.data[0]) if result.data else None
 
-    def create_or_rotate_client(self, *, app_id: str) -> tuple[OAuthClient, str]:
+    def create_or_rotate_client(
+        self,
+        *,
+        app_id: str,
+        allowed_grant_types: tuple[str, ...] = ("authorization_code", "refresh_token"),
+        mcp_execution_mode: str = "execute",
+    ) -> tuple[OAuthClient, str]:
         self.ensure_tables()
         current = self.get_client_for_app(app_id)
         now = _now_ms()
@@ -264,11 +297,11 @@ class DeveloperOAuthService:
             client_id = f"hco_{secrets.token_urlsafe(18)}"
             redirect_uris: tuple[str, ...] = ()
             if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
-                statement = """INSERT INTO developer_oauth_clients (app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at)
-                VALUES (:app_id, :client_id, :secret_hash, :secret_prefix, :redirect_uris, :created_at, :rotated_at)"""
+                statement = """INSERT INTO developer_oauth_clients (app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at, allowed_grant_types, mcp_execution_mode)
+                VALUES (:app_id, :client_id, :secret_hash, :secret_prefix, :redirect_uris, :created_at, :rotated_at, :grant_types, :execution_mode)"""
             else:
-                statement = """INSERT INTO developer_oauth_clients (app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at)
-                VALUES (:app_id, :client_id, :secret_hash, :secret_prefix, CAST(:redirect_uris AS JSONB), :created_at, :rotated_at)"""
+                statement = """INSERT INTO developer_oauth_clients (app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at, allowed_grant_types, mcp_execution_mode)
+                VALUES (:app_id, :client_id, :secret_hash, :secret_prefix, CAST(:redirect_uris AS JSONB), :created_at, :rotated_at, CAST(:grant_types AS JSONB), :execution_mode)"""
             self._db.execute_raw(
                 statement,
                 {
@@ -279,20 +312,36 @@ class DeveloperOAuthService:
                     "redirect_uris": json.dumps(redirect_uris),
                     "created_at": now,
                     "rotated_at": now,
+                    "grant_types": json.dumps(tuple(dict.fromkeys(allowed_grant_types))),
+                    "execution_mode": "catalog_only"
+                    if mcp_execution_mode == "catalog_only"
+                    else "execute",
                 },
             )
         else:
             client_id = current.client_id
             redirect_uris = current.redirect_uris
+            if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+                statement = """UPDATE developer_oauth_clients SET client_secret_hash = :secret_hash,
+                   client_secret_prefix = :secret_prefix, secret_rotated_at = :rotated_at,
+                   allowed_grant_types = :grant_types, mcp_execution_mode = :execution_mode
+                   WHERE app_id = :app_id AND revoked_at IS NULL"""
+            else:
+                statement = """UPDATE developer_oauth_clients SET client_secret_hash = :secret_hash,
+                   client_secret_prefix = :secret_prefix, secret_rotated_at = :rotated_at,
+                   allowed_grant_types = CAST(:grant_types AS JSONB), mcp_execution_mode = :execution_mode
+                   WHERE app_id = :app_id AND revoked_at IS NULL"""
             self._db.execute_raw(
-                """UPDATE developer_oauth_clients SET client_secret_hash = :secret_hash,
-                   client_secret_prefix = :secret_prefix, secret_rotated_at = :rotated_at
-                   WHERE app_id = :app_id AND revoked_at IS NULL""",
+                statement,
                 {
                     "app_id": app_id,
                     "secret_hash": _hash_secret(raw_secret),
                     "secret_prefix": secret_prefix,
                     "rotated_at": now,
+                    "grant_types": json.dumps(tuple(dict.fromkeys(allowed_grant_types))),
+                    "execution_mode": "catalog_only"
+                    if mcp_execution_mode == "catalog_only"
+                    else "execute",
                 },
             )
             self._db.execute_raw(
@@ -306,6 +355,64 @@ class DeveloperOAuthService:
             app_id=app_id, client_id=client.client_id, subject=None, event="client_secret_rotated"
         )
         return client, raw_secret
+
+    def update_client_policy(
+        self,
+        *,
+        app_id: str,
+        allowed_grant_types: tuple[str, ...],
+        mcp_execution_mode: str = "execute",
+    ) -> OAuthClient:
+        """Update a client's grants without rotating its secret or tokens.
+
+        This is intentionally separate from ``create_or_rotate_client``:
+        enabling a new host authentication method must not unexpectedly
+        invalidate an already configured remote connector.
+        """
+
+        allowed = tuple(
+            dict.fromkeys(str(value).strip() for value in allowed_grant_types if str(value).strip())
+        )
+        supported = {"authorization_code", "refresh_token", "client_credentials"}
+        if not allowed or any(value not in supported for value in allowed):
+            raise OAuthValidationError("invalid_request", "Unsupported OAuth grant configuration.")
+        if "refresh_token" in allowed and "authorization_code" not in allowed:
+            raise OAuthValidationError(
+                "invalid_request", "refresh_token requires authorization_code."
+            )
+        self.ensure_tables()
+        client = self.get_client_for_app(app_id)
+        if client is None:
+            raise OAuthValidationError(
+                "invalid_client", "Create an OAuth client before updating its policy."
+            )
+        execution_mode = "catalog_only" if mcp_execution_mode == "catalog_only" else "execute"
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+            statement = """UPDATE developer_oauth_clients
+                SET allowed_grant_types = :grant_types, mcp_execution_mode = :execution_mode
+                WHERE app_id = :app_id AND revoked_at IS NULL"""
+        else:
+            statement = """UPDATE developer_oauth_clients
+                SET allowed_grant_types = CAST(:grant_types AS JSONB), mcp_execution_mode = :execution_mode
+                WHERE app_id = :app_id AND revoked_at IS NULL"""
+        self._db.execute_raw(
+            statement,
+            {
+                "app_id": app_id,
+                "grant_types": json.dumps(allowed),
+                "execution_mode": execution_mode,
+            },
+        )
+        updated = self.get_client(client.client_id)
+        if updated is None:
+            raise RuntimeError("OAuth client policy update did not persist.")
+        self._audit(
+            app_id=app_id,
+            client_id=updated.client_id,
+            subject=None,
+            event="oauth_client_policy_updated",
+        )
+        return updated
 
     def update_redirect_uris(self, *, app_id: str, redirect_uris: list[str]) -> OAuthClient:
         normalized = tuple(dict.fromkeys(normalize_redirect_uri(value) for value in redirect_uris))
@@ -335,7 +442,8 @@ class DeveloperOAuthService:
     def verify_client_secret(self, *, client_id: str, client_secret: str | None) -> OAuthClient:
         self.ensure_tables()
         result = self._db.execute_raw(
-            """SELECT app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at
+            """SELECT app_id, client_id, client_secret_hash, client_secret_prefix, redirect_uris, created_at, secret_rotated_at,
+                      allowed_grant_types, mcp_execution_mode
                FROM developer_oauth_clients WHERE client_id = :client_id AND revoked_at IS NULL LIMIT 1""",
             {"client_id": client_id},
         )
@@ -360,6 +468,10 @@ class DeveloperOAuthService:
         client = self.get_client(client_id)
         if client is None:
             raise OAuthValidationError("invalid_client", "Unknown OAuth client.")
+        if "authorization_code" not in client.allowed_grant_types:
+            raise OAuthValidationError(
+                "unauthorized_client", "This client is not enabled for PKCE."
+            )
         normalized_uri = normalize_redirect_uri(redirect_uri)
         if normalized_uri not in client.redirect_uris:
             raise OAuthValidationError(
@@ -476,6 +588,7 @@ class DeveloperOAuthService:
         scopes: tuple[str, ...],
         include_refresh_token: bool = True,
         grant_type: str = "authorization_code",
+        mcp_execution_mode: str = "execute",
     ) -> dict[str, Any]:
         now = _now_ms()
         access_token = f"hdo_at_{secrets.token_urlsafe(32)}"
@@ -499,12 +612,15 @@ class DeveloperOAuthService:
                     "created_at": now,
                     "expires_at": now + ttl * 1000,
                     "grant_type": grant_type,
+                    "mcp_execution_mode": "catalog_only"
+                    if mcp_execution_mode == "catalog_only"
+                    else "execute",
                 }
             )
         if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
-            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, :scopes, :created_at, :expires_at, :grant_type)"""
+            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type, mcp_execution_mode) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, :scopes, :created_at, :expires_at, :grant_type, :mcp_execution_mode)"""
         else:
-            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, CAST(:scopes AS JSONB), :created_at, :expires_at, :grant_type)"""
+            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type, mcp_execution_mode) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, CAST(:scopes AS JSONB), :created_at, :expires_at, :grant_type, :mcp_execution_mode)"""
         for value in values:
             self._db.execute_raw(statement, value)
         payload = {
@@ -534,9 +650,8 @@ class DeveloperOAuthService:
             not app
             or str(app.get("status") or "") != "active"
             or str(app.get("kind") or "") != "partner_crm"
-            or str(app.get("schema_profile") or "")
-            not in {SCHEMA_PROFILE_FLAT, SCHEMA_PROFILE_AGENTFORCE}
             or not self._database_bool(app.get("oauth_client_credentials_enabled"))
+            or "client_credentials" not in client.allowed_grant_types
         ):
             raise OAuthValidationError(
                 "unauthorized_client",
@@ -549,6 +664,10 @@ class DeveloperOAuthService:
             scopes=(_MCP_SCOPE,),
             include_refresh_token=False,
             grant_type="client_credentials",
+            # A catalog-only setting is scoped to this machine-to-machine
+            # client-credentials grant. PKCE remains executable for the same
+            # developer app.
+            mcp_execution_mode=client.mcp_execution_mode,
         )
         self._audit(
             app_id=client.app_id,
@@ -561,6 +680,10 @@ class DeveloperOAuthService:
     def exchange_authorization_code(
         self, *, client: OAuthClient, code: str, redirect_uri: str, code_verifier: str
     ) -> dict[str, Any]:
+        if "authorization_code" not in client.allowed_grant_types:
+            raise OAuthValidationError(
+                "unauthorized_client", "This OAuth client cannot use authorization code."
+            )
         verifier = str(code_verifier or "").strip()
         if not _PKCE_VALUE_RE.fullmatch(verifier):
             raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
@@ -594,6 +717,8 @@ class DeveloperOAuthService:
             subject=str(row["subject_firebase_uid"]),
             authorization_id=int(row["id"]),
             scopes=(str(row["requested_scope"]),),
+            # PKCE is always the executable, user-authorized path.
+            mcp_execution_mode="execute",
         )
         self._audit(
             app_id=str(row["app_id"]),
@@ -604,6 +729,10 @@ class DeveloperOAuthService:
         return tokens
 
     def refresh(self, *, client: OAuthClient, refresh_token: str) -> dict[str, Any]:
+        if "refresh_token" not in client.allowed_grant_types:
+            raise OAuthValidationError(
+                "unauthorized_client", "This OAuth client cannot refresh tokens."
+            )
         result = self._db.execute_raw(
             """SELECT id, app_id, subject_firebase_uid, authorization_id, scopes
                FROM developer_oauth_tokens WHERE token_hash = :token_hash AND token_kind = 'refresh'
@@ -624,6 +753,8 @@ class DeveloperOAuthService:
             subject=str(row["subject_firebase_uid"]),
             authorization_id=row.get("authorization_id"),
             scopes=_json_list(row.get("scopes")) or (_MCP_SCOPE,),
+            # Refresh tokens are only minted by the PKCE path above.
+            mcp_execution_mode="execute",
         )
         self._audit(
             app_id=client.app_id,
@@ -656,7 +787,7 @@ class DeveloperOAuthService:
                       apps.allowed_capabilities, apps.support_url, apps.policy_url, apps.website_url,
                       apps.brand_image_url, apps.contact_email, apps.kind, apps.crm_id,
                       apps.schema_profile, apps.oauth_client_credentials_enabled,
-                      tokens.id AS token_id
+                      tokens.mcp_execution_mode, tokens.id AS token_id
                FROM developer_oauth_tokens AS tokens
                INNER JOIN developer_apps AS apps ON apps.app_id = tokens.app_id
                WHERE tokens.token_hash = :token_hash AND tokens.token_kind = 'access'

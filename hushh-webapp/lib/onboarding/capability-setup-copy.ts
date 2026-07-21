@@ -94,7 +94,7 @@ const SETUP_COPY_BY_ID: Record<
   email: {
     setupTitle: "KYC",
     setupBlurb:
-      "Set your review preference so One can prepare responses for your approval.",
+      "Choose whether requests you send to one@hushh.ai may prepare responses for your approval.",
     actionLabel: "Set up KYC",
     resumeActionLabel: "Finish KYC",
     setupBullets: [
@@ -154,11 +154,11 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   "connected-systems": {
-    setupTitle: "Link your record to external systems",
+    setupTitle: "CRM",
     setupBlurb:
-      "One finds your existing record or creates one, only with your approval.",
-    actionLabel: "Link your record",
-    resumeActionLabel: "Finish linking",
+      "Find your CRM record or approve creating one from your verified identity.",
+    actionLabel: "Set up CRM",
+    resumeActionLabel: "Finish CRM",
     setupBullets: [
       "One looks for your record first, then creates one if needed.",
       "Nothing happens without your approval.",

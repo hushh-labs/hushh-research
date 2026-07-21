@@ -72,6 +72,44 @@ function renderFlow(
 }
 
 describe("OneLocationOnboardingFlow", () => {
+  it("keeps real contact identities out of the static preview screens", () => {
+    renderFlow();
+
+    expect(screen.queryByText("Connected Person")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(screen.getByText("Akshat arrived")).toBeTruthy();
+    expect(screen.queryByText("Connected Person")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText("Ankit checked in")).toBeTruthy();
+    expect(screen.queryByText("Connected Person")).toBeNull();
+  });
+
+  it("publishes the canonical seven-screen sequence without side effects on the skip path", () => {
+    const props = renderFlow();
+    const expectScreen = (testId: string) => {
+      expect(screen.getByTestId(testId)).toBeTruthy();
+    };
+
+    expectScreen("one-location-onboarding-welcome");
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expectScreen("one-location-onboarding-arrival");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-checkin");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-sos");
+    fireEvent.click(screen.getByRole("button", { name: "Create my circle" }));
+    expectScreen("one-location-onboarding-people");
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expectScreen("one-location-onboarding-circle");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-permissions");
+
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
+  });
+
   it("runs the complete introduction and sends only deliberate connection requests", async () => {
     const props = renderFlow();
 
@@ -157,6 +195,43 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
     expect(onRequestLocation).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps setup Skip separate and requires real location readiness to finish", () => {
+    const onComplete = vi.fn();
+    const onSkip = vi.fn();
+    renderFlow({
+      startAt: "permissions",
+      requireLocationToComplete: true,
+      onComplete,
+      onSkip,
+    });
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("allows setup completion after foreground location is granted", () => {
+    const onComplete = vi.fn();
+    renderFlow({
+      startAt: "permissions",
+      requireLocationToComplete: true,
+      locationPermission: {
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      },
+      onComplete,
+    });
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).not.toBeDisabled();
+    fireEvent.click(continueButton);
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 

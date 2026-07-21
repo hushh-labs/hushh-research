@@ -24,6 +24,11 @@ function runStep(label, command, args, options = {}) {
 }
 
 function main() {
+  if (process.env.HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT !== "true") {
+    throw new Error(
+      "verify:capacitor:audit runs destructive cold-start native audits and is disabled by default. Run npm run verify:capacitor:static for non-destructive contract checks, npm run ios:continuity:local or android:continuity:local for a normal-session rehearsal, or npm run verify:capacitor:cold:audit for an intentional reset.",
+    );
+  }
   runStep("surface map contract", "npm", ["run", "verify:surface-map"]);
   runStep("Capacitor static parity", "npm", ["run", "verify:capacitor:static"]);
   runStep("Capacitor plugin contracts", "npm", ["run", "verify:capacitor:plugins"]);

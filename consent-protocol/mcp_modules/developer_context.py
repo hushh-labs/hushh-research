@@ -11,10 +11,8 @@ from hushh_mcp.services.developer_registry_service import (
 )
 from mcp_modules.agentforce_contract import (
     AGENTFORCE_PROFILE,
-    canonical_agentforce_tool_name,
-    get_agentforce_tool_names,
 )
-from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_tool_names
+from mcp_modules.flat_contract import FLAT_PROFILE
 
 _current_developer_principal: ContextVar[DeveloperPrincipal | None] = ContextVar(
     "hushh_mcp_developer_principal",
@@ -54,7 +52,18 @@ def get_current_developer_principal() -> DeveloperPrincipal | None:
     raw_token = _configured_token()
     if not raw_token:
         return None
-    return DeveloperRegistryService().authenticate_token(raw_token)
+    principal = DeveloperRegistryService().authenticate_token(raw_token)
+    if principal is not None:
+        return principal
+    if raw_token.startswith("hdo_at_"):
+        # Local stdio connectors may be launched with the same short-lived
+        # OAuth access token used by Streamable HTTP clients. Resolve that
+        # token through the OAuth registry so grant-scoped execution policy,
+        # especially catalog_only, is identical on both transports.
+        from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
+
+        return DeveloperOAuthService().authenticate_access_token(raw_token)
+    return None
 
 
 def get_current_visible_tool_names() -> tuple[str, ...]:
@@ -62,16 +71,6 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
     if principal is None:
         return visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
     visible = visible_tool_names_for_groups(principal.allowed_tool_groups)
-    if get_current_schema_profile() == FLAT_PROFILE:
-        allowed = set(get_flat_tool_names())
-        return tuple(name for name in visible if name in allowed)
-    if get_current_schema_profile() == AGENTFORCE_PROFILE:
-        allowed = set(visible)
-        return tuple(
-            name
-            for name in get_agentforce_tool_names()
-            if canonical_agentforce_tool_name(name) in allowed
-        )
     return visible
 
 
@@ -85,7 +84,9 @@ def get_current_schema_profile() -> str:
 
 
 def is_tool_allowed(tool_name: str) -> bool:
-    return tool_name in set(get_current_visible_tool_names())
+    from mcp_modules.canonical_contract import canonical_tool_name
+
+    return canonical_tool_name(tool_name) in set(get_current_visible_tool_names())
 
 
 def get_developer_request_headers() -> dict[str, str]:

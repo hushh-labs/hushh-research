@@ -2,7 +2,7 @@
  * Firebase Cloud Messaging service worker
  * Handles background push and notification click → open consent pending tab
  */
-self.__HUSHH_FCM_DEFAULT_TARGET__ = "/consents?tab=pending";
+self.__HUSHH_FCM_DEFAULT_TARGET__ = "/one/consent?tab=pending";
 const pendingForegroundDeliveryAcks = new Map();
 
 function nextDeliveryId() {
@@ -87,7 +87,7 @@ self.addEventListener("push", function (event) {
       data.fcmOptions?.link ||
       data.webpush?.fcmOptions?.link ||
       data.url ||
-      "/consents?tab=pending";
+      "/one/consent?tab=pending";
     const tag =
       data.data?.notification_tag ||
       data.notification?.tag ||

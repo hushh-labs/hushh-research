@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT:-}" != "true" ]]; then
+  echo "ios:test is a destructive cold-start audit and is disabled by default. Use npm run ios:continuity:local for normal-session continuity, or npm run ios:cold:audit for an intentional reset." >&2
+  exit 2
+fi
+
 PROJECT="ios/App/App.xcodeproj"
 SCHEME="App"
 DEVICE_NAME="${IOS_TEST_DEVICE_NAME:-iPhone 14 Plus}"
@@ -45,11 +50,25 @@ COMMON_FLAGS=(
   -maximum-parallel-testing-workers 1
 )
 
-echo "==> build-for-testing ($DESTINATION)"
-xcodebuild "${COMMON_FLAGS[@]}" build-for-testing
+cleanup_native_test_app() {
+  if [[ "$DESTINATION" == *",id="* ]]; then
+    local device_id="${DESTINATION##*,id=}"
+    xcrun simctl terminate "$device_id" com.hushh.app >/dev/null 2>&1 || true
+  fi
+}
+
+# This script runs only behind the explicit cold-audit gate above. Always
+# terminate the launched test process—even when xcodebuild or a child audit is
+# interrupted—without clearing the simulator's normal user data.
+trap cleanup_native_test_app EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "==> native unit tests"
-xcodebuild "${COMMON_FLAGS[@]}" -only-testing:AppTests test-without-building
+# App-hosted XCTest bundles are installed alongside a freshly built test host.
+# `test-without-building` can retain a prior simulator bundle path after an app
+# install, then launch an ordinary app process and fail before any assertion.
+xcodebuild "${COMMON_FLAGS[@]}" -only-testing:AppTests test
 
 echo "==> native route audit"
 IOS_TEST_DESTINATION="$DESTINATION" \
@@ -59,5 +78,4 @@ IOS_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
 echo "==> native UI interaction audit"
 IOS_TEST_DESTINATION="$DESTINATION" \
 IOS_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
-IOS_UI_INTERACTION_SKIP_BUILD=true \
   node ./scripts/native/ios-ui-interaction-audit.mjs

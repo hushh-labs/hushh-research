@@ -62,7 +62,7 @@ production-code proof, and a title/body that match the diff.
   - [ ] `cd hushh-webapp && npm run typecheck`
   - [ ] `cd hushh-webapp && npm test`
   - [ ] `cd hushh-webapp && npm run build`
-  - [ ] `cd hushh-webapp && npm run ios:test`
+  - [ ] `cd hushh-webapp && npm run ios:cold:audit` (intentional fixture reset only)
   - [ ] `python scripts/ops/kai-system-audit.py --api-base http://localhost:8000 --web-base http://localhost:3000`
 
 ## ✅ Review-Ready Contract

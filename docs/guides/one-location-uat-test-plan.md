@@ -44,7 +44,7 @@ Full-screen task flows:
 
 - [one-location-uat/setup-and-data-path.md](./one-location-uat/setup-and-data-path.md): test accounts, environment checks, reset helper, encryption/data path.
 - [one-location-uat/share-view-notifications.md](./one-location-uat/share-view-notifications.md): permissions, sharing, viewing, duplicate-notification prevention, dismiss/unwatch, request flow.
-- [one-location-uat/access-manager.md](./one-location-uat/access-manager.md): `/consents` tabs, actions, counts, coordinate-free consent rows.
+- [one-location-uat/access-manager.md](./one-location-uat/access-manager.md): `/one/consent` tabs, actions, counts, coordinate-free consent rows.
 - [one-location-uat/resilience-and-results.md](./one-location-uat/resilience-and-results.md): public links, resilience cases, release gate, and result capture.
 
 ## Release Gate

@@ -33,7 +33,29 @@ def _ready_workflow() -> dict:
         "workflow_id": "wf-1",
         "status": "waiting_on_user",
         "draft_status": "ready",
-        "metadata": {"draft_revision": 1},
+        "metadata": {
+            "draft_revision": 1,
+            "selected_scopes": ["attr.identity.*"],
+            "consent_exports": [{"scope": "attr.identity.*", "export_revision": 3}],
+        },
+    }
+
+
+def _redraft_context() -> dict:
+    return {
+        "approved_scopes": ["attr.identity.*"],
+        "request_text": "Please provide your identity information.",
+        "domains": [
+            {
+                "domain": "identity",
+                "scope": "attr.identity.*",
+                "export_revision": 3,
+                "domain_data": {
+                    "full_name": "Jane Smith",
+                    "reference": "123456",
+                },
+            }
+        ],
     }
 
 
@@ -78,6 +100,7 @@ async def test_redraft_full_blocks_scope_expansion(monkeypatch):
             workflow_id="wf-1",
             draft_body=DRAFT_BODY,
             instruction="also include my bank account and address",
+            **_redraft_context(),
             consent_token=VALID_TOKEN,
         )
     assert exc.value.code == "ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED"
@@ -110,6 +133,7 @@ async def test_redraft_full_invalid_consent_raises_permission_error(monkeypatch)
             workflow_id="wf-1",
             draft_body=DRAFT_BODY,
             instruction=INSTRUCTION,
+            **_redraft_context(),
             consent_token="HCT:bad",  # noqa: S106 - test fixture, not a secret
         )
 
@@ -149,6 +173,7 @@ async def test_redraft_full_happy_path_returns_rewritten_body(monkeypatch):
         workflow_id="wf-1",
         draft_body=DRAFT_BODY,
         instruction=INSTRUCTION,
+        **_redraft_context(),
         consent_token=VALID_TOKEN,
     )
 
@@ -164,3 +189,94 @@ async def test_redraft_full_happy_path_returns_rewritten_body(monkeypatch):
     assert metadata["draft_revision"] == 2
     assert metadata["last_redraft_source"] == "llm_full"
     assert metadata["client_draft_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_redraft_full_rejects_scope_mismatch(monkeypatch):
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    _patch_gemini(monkeypatch, "ignored")
+
+    async def _ok_validate(token, scope):  # noqa: ANN001
+        return True, None, SimpleNamespace(user_id="u1", agent_id="agent_one")
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _ok_validate, raising=False)
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+    context = _redraft_context()
+    context["approved_scopes"] = ["attr.financial.*"]
+    context["domains"] = [
+        {
+            "domain": "financial",
+            "scope": "attr.financial.*",
+            "export_revision": 3,
+            "domain_data": {"account": "999999"},
+        }
+    ]
+    with pytest.raises(OneEmailKycError) as exc:
+        await _service().redraft_full(
+            user_id="u1",
+            workflow_id="wf-1",
+            draft_body=DRAFT_BODY,
+            instruction=INSTRUCTION,
+            **context,
+            consent_token=VALID_TOKEN,
+        )
+    assert exc.value.code == "ONE_KYC_REDRAFT_SCOPE_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_redraft_full_rejects_empty_model_output(monkeypatch):
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    _patch_gemini(monkeypatch, "")
+
+    async def _ok_validate(token, scope):  # noqa: ANN001
+        return True, None, SimpleNamespace(user_id="u1", agent_id="agent_one")
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _ok_validate, raising=False)
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await _service().redraft_full(
+            user_id="u1",
+            workflow_id="wf-1",
+            draft_body=DRAFT_BODY,
+            instruction=INSTRUCTION,
+            **_redraft_context(),
+            consent_token=VALID_TOKEN,
+        )
+    assert exc.value.code == "ONE_KYC_LLM_INVALID_OUTPUT"
+
+
+@pytest.mark.asyncio
+async def test_redraft_full_returns_typed_provider_unavailable_error(monkeypatch):
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    async def _ok_validate(token, scope):  # noqa: ANN001
+        return True, None, SimpleNamespace(user_id="u1", agent_id="agent_one")
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _ok_validate, raising=False)
+    monkeypatch.setattr(svc_mod, "_require_gemini_ready", lambda: False, raising=False)
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await _service().redraft_full(
+            user_id="u1",
+            workflow_id="wf-1",
+            draft_body=DRAFT_BODY,
+            instruction=INSTRUCTION,
+            **_redraft_context(),
+            consent_token=VALID_TOKEN,
+        )
+    assert exc.value.code == "ONE_KYC_LLM_UNAVAILABLE"
+    assert exc.value.status_code == 503

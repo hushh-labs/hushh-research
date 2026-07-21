@@ -62,6 +62,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { cn } from "@/lib/utils";
 import {
   hasApprovedKycWorkflowAccess,
@@ -108,6 +109,7 @@ import {
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
+import { loadEmailDraftingEnabled } from "@/lib/onboarding/email-drafting-preference";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -389,13 +391,16 @@ export function OneKycWorkspace({
   const [sentReplySnapshots, setSentReplySnapshots] = useState<
     Record<string, KycWorkflowSentReplySnapshot>
   >({});
-  // Write-only cache of decrypted export payloads (kept in sync by the setter
-  // for cleanup/retention). The value is not read: the draft-prep path decrypts
-  // fresh and passes decryptedDomains into buildDraftViaLlm directly.
-  const [, setLocalExportPayloads] = useState<
+  // Memory-only cache of exact approved decrypted exports. Redraft reuses this
+  // context so it can revise intelligently without another decrypt or any PKM read.
+  const [localExportPayloads, setLocalExportPayloads] = useState<
     Record<
       string,
-      Array<{ scope?: string | null; payload: Record<string, unknown> }>
+      Array<{
+        scope?: string | null;
+        exportRevision?: number;
+        payload: Record<string, unknown>;
+      }>
     >
   >({});
   const [draftRecoveryAttempts, setDraftRecoveryAttempts] = useState<
@@ -412,6 +417,8 @@ export function OneKycWorkspace({
   >({});
   const [confirmSelection, setConfirmSelection] = useState<string[]>([]);
   const [connectorReady, setConnectorReady] = useState(false);
+  const [automaticResponsePreparationEnabled, setAutomaticResponsePreparationEnabled] =
+    useState<boolean | null>(null);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
   const [aliasCode, setAliasCode] = useState("");
@@ -500,6 +507,26 @@ export function OneKycWorkspace({
     // client connector are the operational boundary for first-run setup.
     onSetupReadinessChange?.(connectorReady && verifiedAliases.length > 0);
   }, [connectorReady, onSetupReadinessChange, verifiedAliases.length]);
+  useEffect(() => {
+    const userId = auth.userId;
+    const user = auth.user;
+    if (!userId || !user) {
+      setAutomaticResponsePreparationEnabled(null);
+      return;
+    }
+    let cancelled = false;
+    void user.getIdToken()
+      .then((idToken) => loadEmailDraftingEnabled({ userId, idToken }))
+      .then((enabled) => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.user, auth.userId]);
   const pendingAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "pending"),
@@ -599,11 +626,14 @@ export function OneKycWorkspace({
         selected_workflow_status: selected?.status || null,
         vault_unlocked: Boolean(isVaultUnlocked && vaultKey && vaultOwnerToken),
         connector_ready: connectorReady,
+        automatic_response_preparation_enabled:
+          automaticResponsePreparationEnabled,
         loading,
       },
     }),
     [
       aliasPanelOpen,
+      automaticResponsePreparationEnabled,
       connectorReady,
       isVaultUnlocked,
       loading,
@@ -809,6 +839,7 @@ export function OneKycWorkspace({
     let cancelled = false;
 
     async function prepareClientDraft() {
+      if (automaticResponsePreparationEnabled !== true) return;
       if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
       const userId = auth.userId;
       if (
@@ -834,6 +865,7 @@ export function OneKycWorkspace({
         const exportPayloads = await Promise.all(
           exportResponse.exports.map(async (exportPackage) => ({
             scope: exportPackage.scope,
+            exportRevision: exportPackage.export_revision,
             payload: await OneKycClientZkService.decryptScopedExport({
               exportPackage,
               connector,
@@ -842,7 +874,7 @@ export function OneKycWorkspace({
         );
         // Private KYC draft context is exclusively sourced from exact approved
         // encrypted exports. Public-profile resources never authorize PKM reads.
-        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
+        const draftPayloads = exportPayloads;
         // Deterministic draft — used as-is or as fallback if LLM Pass 2 fails.
         let draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
@@ -946,6 +978,7 @@ export function OneKycWorkspace({
     };
   }, [
     auth.userId,
+    automaticResponsePreparationEnabled,
     clearLocalWorkflowState,
     draftFailedAttemptKeys,
     draftRecoveryAttempts,
@@ -1078,21 +1111,25 @@ export function OneKycWorkspace({
               localDraft,
               instruction: redraftInstructions.trim(),
               workflow,
+              exportPayloads:
+                localExportPayloads[workflow.workflow_id] ?? [],
               input,
             });
             if (!result.ok) {
               setError("Redraft failed — please try again.");
-              setRedraftInstructions("");
               return;
             }
             setLocalDrafts((current) => ({
               ...current,
               [workflow.workflow_id]: result.draft,
             }));
-          } catch {
-            setError("Redraft failed — please try again.");
+            setRedraftInstructions("");
+            toast.success("Draft revised.");
+          } catch (err) {
+            setError(
+              oneKycErrorMessage(err, "Redraft failed — please try again."),
+            );
           }
-          setRedraftInstructions("");
           return;
         }
 
@@ -1233,12 +1270,105 @@ export function OneKycWorkspace({
       auth.userId,
       clearLocalWorkflowState,
       localDrafts,
+      localExportPayloads,
       redraftInstructions,
       refreshWorkflowState,
       updateWorkflow,
       vaultKey,
       vaultOwnerToken,
     ],
+  );
+
+  const handleAgentRedraft = useCallback(
+    async (slots: Record<string, unknown>) => {
+      const instruction =
+        typeof slots.instruction === "string" ? slots.instruction.trim() : "";
+      if (!instruction || instruction.length > 1000) {
+        return {
+          status: "blocked" as const,
+          summary: "Add a redraft instruction between 1 and 1000 characters.",
+        };
+      }
+      if (
+        !selected ||
+        !selectedCanReviewDraft ||
+        !auth.userId ||
+        !vaultKey ||
+        !vaultOwnerToken
+      ) {
+        return {
+          status: "blocked" as const,
+          summary: "A reviewable draft and an unlocked vault are required.",
+        };
+      }
+      const localDraft = localDrafts[selected.workflow_id];
+      const exportPayloads = localExportPayloads[selected.workflow_id] ?? [];
+      if (!localDraft || exportPayloads.length === 0) {
+        return {
+          status: "blocked" as const,
+          summary: "The approved draft information is not mounted for redraft.",
+        };
+      }
+      setBusy("redraft");
+      setError(null);
+      try {
+        const result = await runFullRedraft({
+          localDraft,
+          instruction,
+          workflow: selected,
+          exportPayloads,
+          input: {
+            userId: auth.userId,
+            vaultOwnerToken,
+            workflowId: selected.workflow_id,
+          },
+        });
+        if (!result.ok) {
+          return { status: "failed" as const, summary: "Redraft failed. Try again." };
+        }
+        setLocalDrafts((current) => ({
+          ...current,
+          [selected.workflow_id]: result.draft,
+        }));
+        setRedraftInstructions("");
+        toast.success("Draft revised.");
+        return {
+          status: "succeeded" as const,
+          summary: "The current response draft was revised for review.",
+        };
+      } catch (err) {
+        const message = oneKycErrorMessage(err, "Redraft failed. Try again.");
+        setError(message);
+        return { status: "failed" as const, summary: message };
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      auth.userId,
+      localDrafts,
+      localExportPayloads,
+      selected,
+      selectedCanReviewDraft,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
+
+  useLocalOnboardingActionHandler(
+    "kyc.draft.request_redraft",
+    handleAgentRedraft,
+    {
+      enabled: Boolean(
+        selectedCanReviewDraft &&
+          selected &&
+          localDrafts[selected.workflow_id] &&
+          (localExportPayloads[selected.workflow_id]?.length ?? 0) > 0 &&
+          auth.userId &&
+          vaultKey &&
+          vaultOwnerToken,
+      ),
+    },
   );
 
   const ensureConsentRequestsForWorkflow = useCallback(

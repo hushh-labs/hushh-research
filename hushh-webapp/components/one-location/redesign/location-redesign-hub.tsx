@@ -31,9 +31,7 @@ import {
   Calendar,
   Car,
   ChevronRight,
-  Clock,
   Hand,
-  Heart,
   Link as LinkIcon,
   Lock,
   MapPin,
@@ -96,6 +94,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { DriveToFlow } from "./drive-to-flow";
 import { PickMeUpFlow } from "./pick-me-up-flow";
 import { SafeArrivalFlow } from "./safe-arrival-flow";
+import { LocalEmergencyDialerRow } from "./local-emergency-dialer-row";
 import { deriveEnRouteHelpers } from "./pickup-enroute";
 import { PickupEnRouteCardLive } from "./pickup-enroute-card-live";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -108,10 +107,10 @@ import {
   resolveRegisteredTopShellTabValue,
   TOP_SHELL_TAB_REGISTRY,
 } from "@/lib/navigation/top-shell-tabs";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const LOCATION_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.location;
-type LocationHubTab =
-  (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
+type LocationHubTab = (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
 const LOCATION_HUB_TAB_PARAM = LOCATION_TAB_DEFINITION.queryParam;
 const LOCATION_SWIPE_OPTIONS = LOCATION_TAB_DEFINITION.tabs;
 
@@ -340,6 +339,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const setTab = useCallback(
     (next: LocationHubTab) => {
+      if (next === tab) return;
       setTabState(next);
       const params = new URLSearchParams(searchParams.toString());
       if (next === "now") {
@@ -348,11 +348,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         params.set(LOCATION_HUB_TAB_PARAM, next);
       }
       const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, {
-        scroll: false,
-      });
+      const href = query ? `${pathname}?${query}` : pathname;
+      beginRouteTransition(
+        href,
+        () => router.replace(href, { scroll: false }),
+        "tap",
+        "contextual",
+      );
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, tab],
   );
 
   useEffect(() => {
@@ -520,7 +524,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   if (flow !== "none") {
     return (
-      <div className="space-y-6">
+      <div
+        className="space-y-6"
+        data-ambient-chrome-ignore
+        data-testid="one-location-action-flow"
+      >
         {flow === "share" ? (
           <ShareFlow
             vm={vm}
@@ -583,10 +591,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             className="gap-2"
           >
             <RefreshCw
-              className={cn(
-                "h-4 w-4",
-                BUSY(vm, "load") && "animate-spin",
-              )}
+              className={cn("h-4 w-4", BUSY(vm, "load") && "animate-spin")}
               aria-hidden="true"
             />
             Refresh
@@ -599,9 +604,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           tabSetId={LOCATION_TAB_DEFINITION.id}
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
-          onChildSwiped={(value) => setTab(value as LocationHubTab)}
+          onSelectionChange={(value) => setTab(value as LocationHubTab)}
         >
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <NowHub
               vm={vm}
               hasActiveShare={hasActiveShare}
@@ -612,24 +617,23 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onPickMeUp={() => openFlow("pick-me-up")}
               onSafeArrival={() => openFlow("safe-arrival")}
               onSos={() => openFlow("sos")}
-              onOpenPrivacy={() => openFlow("privacy")}
             />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <PeopleHub
               vm={vm}
               onInvite={() => openFlow("invite")}
               onStartShare={() => openFlow("share")}
               onAsk={() => openFlow("ask")}
             />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <InboxHub
               vm={vm}
               collapsedGrantIds={collapsedGrantIds}
@@ -653,9 +657,37 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 }
               }}
             />
-          </div>
+          </LocationHubPanel>
         </SwipeViews>
       </div>
+    </div>
+  );
+}
+
+function LocationHubPanel({
+  children,
+  onOpenPrivacy,
+}: {
+  children: ReactNode;
+  onOpenPrivacy: () => void;
+}) {
+  return (
+    <div className="space-y-5 px-[var(--page-inline-gutter-standard)]">
+      {children}
+      <button
+        type="button"
+        onClick={onOpenPrivacy}
+        data-testid="one-location-privacy-entry"
+        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      >
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
+          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+          Settings
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+      </button>
     </div>
   );
 }
@@ -674,7 +706,6 @@ function NowHub({
   onPickMeUp,
   onSafeArrival: _onSafeArrival,
   onSos,
-  onOpenPrivacy,
 }: {
   vm: LocationHubViewModel;
   hasActiveShare: boolean;
@@ -685,7 +716,6 @@ function NowHub({
   onPickMeUp: () => void;
   onSafeArrival: () => void;
   onSos: () => void;
-  onOpenPrivacy: () => void;
 }) {
   // When location permission is blocked (denied / restricted / services off),
   // surface the Device readiness card at the very TOP so the user immediately
@@ -955,20 +985,6 @@ function NowHub({
           OFF/LIVE badge on the hero card now captures your live location, so we
           no longer show a separate readiness/capture section here. */}
 
-      {/* Privacy — opens the full-screen Privacy flow (Apple Blue v2 design). */}
-      <button
-        type="button"
-        onClick={onOpenPrivacy}
-        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-      >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
-        </span>
-        <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
-          Privacy
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
-      </button>
     </div>
   );
 }
@@ -1663,63 +1679,6 @@ function SosQuickCard({
   );
 }
 
-/** Row inside the "Reach out for help" list. */
-function SosHelpRow({
-  icon: Icon,
-  badge,
-  title,
-  subtitle,
-  actionLabel,
-  actionIcon: ActionIcon,
-  isLast,
-  onClick,
-}: {
-  icon?: typeof Phone;
-  badge?: string;
-  title: string;
-  subtitle: string;
-  actionLabel: string;
-  actionIcon?: typeof Phone;
-  isLast?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 py-3",
-        !isLast && "border-b border-black/[0.05] dark:border-white/[0.06]",
-      )}
-    >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fdeeec] dark:bg-[#e0342c]/15">
-        {badge ? (
-          <span className="text-[13px] font-bold text-[#e0342c]">{badge}</span>
-        ) : Icon ? (
-          <Icon
-            className="h-[18px] w-[18px] text-[#e0342c]"
-            strokeWidth={1.5}
-          />
-        ) : null}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[15px] font-bold text-foreground">{title}</div>
-        <div className="mt-px truncate text-[13px] text-black/45 dark:text-white/45">
-          {subtitle}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#fdeeec] px-[15px] py-[9px] text-[14px] font-semibold text-[#d92c24] dark:bg-[#e0342c]/15 dark:text-[#ff6f66]"
-      >
-        {ActionIcon ? (
-          <ActionIcon className="h-3.5 w-3.5" strokeWidth={2} />
-        ) : null}
-        {actionLabel}
-      </button>
-    </div>
-  );
-}
-
 function SosFlow({ vm }: { vm: LocationHubViewModel }) {
   const recipients = vm.sosRecipients;
   const sharedCount = recipients.length;
@@ -1795,54 +1754,11 @@ function SosFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="text-[16px] font-bold text-foreground">
           Reach out for help
         </div>
-        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] px-3 dark:bg-white/[0.04]">
-          <SosHelpRow
-            icon={Shield}
-            title="Emergency Contact"
-            subtitle="Contact your emergency contact"
-            actionLabel="Call"
-            actionIcon={Phone}
-          />
-          <SosHelpRow
-            badge="911"
-            title="Local Emergency"
-            subtitle="Call local emergency services"
-            actionLabel="Call"
-            actionIcon={Phone}
-          />
-          <SosHelpRow
-            icon={Heart}
-            title="Crisis Support"
-            subtitle="Connect with 24/7 support"
-            actionLabel="Chat"
-            actionIcon={MessageCircle}
-          />
-          <SosHelpRow
-            icon={Clock}
-            title="Safety Check"
-            subtitle="Set a timer and get a check-in"
-            actionLabel="Start"
-            isLast
-          />
+        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] dark:bg-white/[0.04]">
+          <LocalEmergencyDialerRow />
         </div>
       </div>
 
-      {/* Privacy */}
-      <button
-        type="button"
-        className="flex w-full items-center gap-3 rounded-[16px] bg-white px-4 py-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
-      >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[color:var(--app-accent)]/15">
-          <Lock
-            className="h-[18px] w-[18px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
-            strokeWidth={1.6}
-          />
-        </span>
-        <span className="flex-1 text-[15px] font-medium text-foreground">
-          Privacy
-        </span>
-        <ChevronRight className="h-4 w-4 text-black/35 dark:text-white/35" />
-      </button>
     </div>
   );
 }

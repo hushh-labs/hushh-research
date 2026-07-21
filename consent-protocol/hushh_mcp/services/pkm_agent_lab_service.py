@@ -641,16 +641,11 @@ class PKMAgentLabService:
     def client(self):
         if self._client is not None:
             return self._client
-        developer_api_key = (
-            str(os.getenv("GEMINI_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_GENAI_API_KEY", "")).strip()
-        )
         try:
-            self._client = build_managed_runtime_client(
-                "gemini",
-                developer_api_key,
-            )
+            # Managed PKM intelligence is bound to the same workload ADC
+            # contract as every other hosted Gemini caller. Environment API
+            # keys must never become an implicit fallback.
+            self._client = build_managed_runtime_client("gemini")
         except Exception as exc:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
             self._client = None
@@ -1411,6 +1406,14 @@ class PKMAgentLabService:
 
         config = genai_types.GenerateContentConfig(
             temperature=0.0,
+            # These calls are deterministic schema workers inside a bounded,
+            # sequential PKM graph. Gemini's default thinking can consume the
+            # shared preview deadline before the final structure contract runs.
+            # Minimal thinking preserves Gemini 3.5 Flash semantics while
+            # keeping the user-facing chain within its existing latency budget.
+            thinking_config=genai_types.ThinkingConfig(
+                thinking_level=genai_types.ThinkingLevel.MINIMAL,
+            ),
             response_mime_type="application/json",
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             response_schema=response_schema,

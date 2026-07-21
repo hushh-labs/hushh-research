@@ -134,6 +134,18 @@ async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
         "refresh_policy": str(args.get("refresh_policy") or "snapshot"),
         **country_fields,
     }
+    offer_fields = {
+        key: args.get(key)
+        for key in ("offer_amount", "offer_currency", "offer_summary", "settlement_ref")
+        if args.get(key) is not None
+    }
+    if offer_fields:
+        request_args["offer"] = {
+            "bid_amount": offer_fields.get("offer_amount"),
+            "currency": offer_fields.get("offer_currency") or "USD",
+            "offer_summary": offer_fields.get("offer_summary"),
+            "settlement_ref": offer_fields.get("settlement_ref"),
+        }
     for key in ("connector_public_key", "connector_key_id", "connector_wrapping_alg"):
         if args.get(key):
             request_args[key] = str(args[key]).strip()
@@ -215,5 +227,6 @@ async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
         "expires_at": lifecycle.get("expires_at"),
         "approval_timeout_at": lifecycle.get("approval_timeout_at"),
         "poll_attempts": poll_attempts,
+        "offer": requested.get("offer"),
     }
     return _success(payload)

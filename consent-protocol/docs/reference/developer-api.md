@@ -23,7 +23,7 @@ The Hussh developer contract is versioned under `/api/v1` and built around one s
 1. Discover the user's scopes at runtime.
 2. Request consent for one discovered scope.
 3. Wait for the user's approval in the first-party app.
-4. Read the encrypted export with `POST /api/v1/scoped-export` or `get_encrypted_scoped_export(...)`.
+4. Read the encrypted export with `POST /api/v1/scoped-export` or `get-encrypted-scoped-export(...)`.
 
 Do not hardcode domain keys. Dynamic scopes are derived from the indexed PKM and domain registry.
 
@@ -82,14 +82,17 @@ OAuth is an additional transport-authentication option for hosts such as Claude 
 
 Authorization-code and refresh-token grants remain the self-serve interactive
 path. `client_credentials` is available only to an operations-provisioned
-`partner_crm` app that has either the `flat` generic-host profile or the
-`agentforce` schema-registration-UAT profile, plus explicit client-credentials
-enablement. It issues a short-lived app-bound access token, never a refresh
-token or synthetic user subject. The `agentforce` profile is not a production
-personal-data integration: Salesforce currently excludes user-level and
-personalized MCP responses, so Hussh rejects personalized calls from that
-profile. Register an exact HTTPS
-redirect URI for PKCE first; loopback HTTP is permitted solely for local
+`partner_crm` app with explicit client-credentials enablement. It issues a
+short-lived app-bound access token, never a refresh token or synthetic user
+subject, and authenticates the same v0.4 five-tool catalog as bearer and PKCE.
+Operations-provisioned client credentials may execute the consent lifecycle.
+They authenticate only the partner application and never create a synthetic
+user subject. The supplied user identifier selects the consent subject;
+explicit approval and a valid scoped grant remain mandatory before encrypted
+information delivery. Salesforce currently documents no user-level MCP
+authentication and excludes use cases requiring personalized responses, so
+partners must validate that host boundary independently. Register an exact
+HTTPS redirect URI for PKCE first; loopback HTTP is permitted solely for local
 development. Client secrets, authorization codes, access tokens, refresh
 tokens, Firebase identifiers, and consent tokens are never returned by
 ordinary portal reads or MCP tools.
@@ -419,16 +422,22 @@ If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON l
 
 ## Developer MCP Surface
 
-The v0.3 MCP surface is a safe projection over this compatible raw HTTP API:
+The v0.4 MCP surface is one host-safe projection over this compatible raw HTTP
+API. Bearer, OAuth PKCE, and OAuth client credentials authenticate the same
+developer-app identity and catalog:
 
-1. `search_user_scopes(user_identifier, query?, domain?, cursor?, limit?)`
-2. `request_consent(user_identifier, scope, purpose, ...)`
-3. bounded `check_consent_status(request_ref)`
-4. `get_encrypted_scoped_export(grant_ref, expected_scope)`
+1. `search-user-scopes(user_identifier, query?, domain?, cursor?, limit?)`
+2. `prepare-campaign-context(user_identifier, ...)` for safe offer/context state
+3. `request-consent(user_identifier, scope, purpose, ...)`
+4. bounded `check-consent-status(request_ref)`
+5. `get-encrypted-scoped-export(grant_ref, expected_scope)`
 
 The MCP projection never returns raw HTTP `user_id` or `consent_token` fields.
 It resolves identity, tokens, app binding, and revocation internally. Raw
 `/api/v1` clients continue using the documented HTTP fields above.
+
+The v0.3 underscore names remain accepted inbound until 2026-10-20, but
+`tools/list` publishes only the v0.4 hyphenated names.
 
 Machine-readable references:
 

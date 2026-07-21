@@ -125,6 +125,7 @@ def _make_service() -> OneEmailKycService:
     svc._load_pkm_index_for_user = AsyncMock(
         return_value={"available_domains": [], "domain_summaries": {}, "computed_tags": []}
     )
+    svc._automatic_response_preparation_enabled = lambda user_id: True
     return svc
 
 
@@ -386,6 +387,7 @@ async def test_intake_no_connector_stores_proposal_in_needs_client_connector():
         return_value={"available_domains": [], "domain_summaries": {}, "computed_tags": []}
     )
     svc.classify_kyc_request = AsyncMock(return_value=_IDENTITY_PROPOSAL)
+    svc._automatic_response_preparation_enabled = lambda user_id: True
 
     result = await svc._process_message(
         _make_message(body="KYC check for identity."),
@@ -411,9 +413,8 @@ async def test_intake_blocked_when_sender_not_matched():
         history_id="h8",
     )
 
-    workflow = result["workflow"]
-    assert workflow["status"] == "blocked"
-    assert workflow["last_error_code"] == "user_not_found"
+    assert result["handled"] is False
+    assert result["reason"] == "user_not_found"
     service.classify_kyc_request.assert_not_called()
 
 
@@ -551,6 +552,7 @@ async def test_connector_repair_routes_to_needs_confirm_when_proposal_present():
 
     svc = OneEmailKycService(db=_RepairDb())
     svc._config = _make_service()._config
+    svc._automatic_response_preparation_enabled = lambda user_id: True
 
     result = await svc.process_message_id("gmail_repair_msg_1", history_id="200")
 
@@ -682,6 +684,7 @@ async def test_connector_repair_routes_to_needs_scope_without_proposal():
     legacy_db = _LegacyRepairDb()
     svc = OneEmailKycService(db=legacy_db, consent_db=_FakeConsentDb())
     svc._config = _make_service()._config
+    svc._automatic_response_preparation_enabled = lambda user_id: True
 
     result = await svc.process_message_id("gmail_legacy_repair_1", history_id="300")
 

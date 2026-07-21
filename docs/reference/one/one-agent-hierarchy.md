@@ -133,6 +133,13 @@ Codex subagents are engineering evidence lanes, not app runtime agents. They ins
 
 Use the repo-scoped subagent budget from [Coding Agent MCP](../operations/coding-agent-mcp.md): `max_threads = 6`, `max_depth = 1`, one reserved recovery slot, and two read-only evidence lanes by default.
 
+Structural maintenance follows the generated
+[Runtime Topology Maintenance](../architecture/runtime-topology-maintenance.md)
+index and its deterministic coverage profiles. Profiles select existing
+engineering evidence lanes for One, finance, privacy/connections, or
+information/identity changes; they do not create a persona-triggered runtime
+agent, receive user information, or gain action authority.
+
 ## Change Contract
 
 When adding or changing a runtime agent, update these surfaces together:

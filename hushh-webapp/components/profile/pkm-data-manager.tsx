@@ -151,6 +151,7 @@ export function PkmDataManagerPanel({
   loading,
   metadataReady,
   metadataError,
+  sharingReady,
   sharingError,
   needsVaultCreation,
   needsUnlock,
@@ -167,6 +168,7 @@ export function PkmDataManagerPanel({
   loading: boolean;
   metadataReady: boolean;
   metadataError?: string | null;
+  sharingReady: boolean;
   sharingError?: string | null;
   needsVaultCreation: boolean;
   needsUnlock: boolean;
@@ -283,6 +285,13 @@ export function PkmDataManagerPanel({
             iconTone="orange"
             title="Sharing status unavailable"
             description={sharingError}
+          />
+        ) : !sharingReady ? (
+          <SettingsRow
+            icon={RefreshCw}
+            iconTone="gray"
+            title="Checking sharing status"
+            description="Active access is loading in the background."
           />
         ) : null}
 

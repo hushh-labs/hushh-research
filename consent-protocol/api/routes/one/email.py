@@ -19,7 +19,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_vault_owner_token,
+    verify_user_id_match,
+)
 from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycError,
     get_one_email_kyc_service,
@@ -78,6 +82,10 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
 
+class AutomaticResponsePreparationPreferenceRequest(WorkflowUserRequest):
+    enabled: bool
+
+
 class ExtractDraftRequest(WorkflowUserRequest):
     domain: str = Field(default="", max_length=120)
     domain_data: dict = Field(default_factory=dict)
@@ -88,6 +96,13 @@ class ExtractDraftRequest(WorkflowUserRequest):
     # coherent LLM call. Each item must be {"domain": str, "domain_data": dict}.
     # Limit matches approved_scopes max_length (one domain per scope family).
     domains: list[dict] | None = Field(default=None, max_length=8)
+
+
+class FullRedraftDomain(BaseModel):
+    domain: str = Field(min_length=1, max_length=120)
+    scope: str = Field(min_length=1, max_length=256)
+    export_revision: int = Field(ge=1)
+    domain_data: dict = Field(default_factory=dict)
 
 
 class ConfirmProposalRequest(WorkflowUserRequest):
@@ -289,6 +304,35 @@ async def one_email_sync_recent(
     except Exception as exc:
         logger.exception("one.email.sync_recent_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc, operation="sync_recent") from exc
+
+
+@router.get("/kyc/preferences/automatic-response-preparation")
+async def one_kyc_get_automatic_response_preparation_preference(
+    user_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        return await _service().get_automatic_response_preparation_preference(user_id=user_id)
+    except Exception as exc:
+        logger.exception("one.kyc.preference_get_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="preference_get") from exc
+
+
+@router.patch("/kyc/preferences/automatic-response-preparation")
+async def one_kyc_set_automatic_response_preparation_preference(
+    payload: AutomaticResponsePreparationPreferenceRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().set_automatic_response_preparation_preference(
+            user_id=payload.user_id,
+            enabled=payload.enabled,
+        )
+    except Exception as exc:
+        logger.exception("one.kyc.preference_set_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="preference_set") from exc
 
 
 @router.get("/kyc/workflows")
@@ -605,6 +649,9 @@ async def one_kyc_redraft_llm(
 class FullRedraftRequest(WorkflowUserRequest):
     draft_body: str = Field(min_length=1, max_length=20000)
     instruction: str = Field(min_length=1, max_length=1000)
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+    request_text: str = Field(min_length=1, max_length=12000)
+    domains: list[FullRedraftDomain] = Field(min_length=1, max_length=8)
 
 
 @router.post("/kyc/workflows/{workflow_id}/redraft-full")
@@ -620,6 +667,9 @@ async def one_kyc_redraft_full(
             workflow_id=workflow_id,
             draft_body=payload.draft_body,
             instruction=payload.instruction,
+            approved_scopes=payload.approved_scopes,
+            request_text=payload.request_text,
+            domains=[domain.model_dump() for domain in payload.domains],
             consent_token=token_data.get("token", ""),
         )
     except Exception as exc:

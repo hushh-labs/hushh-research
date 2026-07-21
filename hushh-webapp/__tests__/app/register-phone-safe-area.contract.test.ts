@@ -32,14 +32,12 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).toContain(
       "calc(18px + var(--app-safe-area-top-effective, 0px))",
     );
-    expect(source).toContain("justify-start");
-    expect(source).toContain('verificationStep === "phone" ? "overflow-y-auto" : "overflow-hidden"');
-    // The identity mark is top-anchored like the vault credential flow, while
-    // the short OTP state does not introduce an inner scroll region.
-    expect(source).not.toContain(
-      "flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center",
-    );
-    expect(source).toContain("overflow-hidden");
+    expect(source).toContain('data-phone-mandate-input-region="true"');
+    expect(source).toContain("var(--kb-height, 0px)");
+    expect(source).toContain("mt-auto");
+    // The active field region owns keyboard clearance; it can scroll only as a
+    // compact-screen fallback instead of letting fields slip beneath iOS.
+    expect(source).toContain("overflow-y-auto overscroll-contain");
     expect(source).not.toContain("min-h-[24rem]");
     expect(source).not.toContain("4vh");
   });
@@ -58,14 +56,14 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).not.toContain("Delete account");
   });
 
-  it("uses the same quiet One mark as the home route without a decorative badge", () => {
+  it("keeps phone verification focused without decorative artwork", () => {
     const source = readFileSync(
       join(process.cwd(), "app/register-phone/page.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("🤫");
+    expect(source).not.toContain("🤫");
     expect(source).not.toContain("one-quiet-emoji.png");
-    expect(source).not.toContain("rounded-[22px]");
+    expect(source).toContain("Verification is a focused task, not a hero");
   });
 });

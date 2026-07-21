@@ -13,6 +13,7 @@ import {
   TOP_SHELL_TAB_REGISTRY,
   type PublicKnowledgeTab,
 } from "@/lib/navigation/top-shell-tabs";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 /**
  * The public knowledge pages share the same route-backed swipe contract as
@@ -31,7 +32,13 @@ export function PublicKnowledgeWorkspace() {
   const setActiveTab = useCallback(
     (next: PublicKnowledgeTab) => {
       if (next === activeTab) return;
-      router.replace(buildPublicKnowledgeRoute(next), { scroll: false });
+      const href = buildPublicKnowledgeRoute(next);
+      beginRouteTransition(
+        href,
+        () => router.replace(href, { scroll: false }),
+        "tap",
+        "contextual",
+      );
     },
     [activeTab, router],
   );
@@ -41,7 +48,7 @@ export function PublicKnowledgeWorkspace() {
       tabSetId={definition.id}
       activeValue={activeTab}
       options={definition.tabs}
-      onChildSwiped={(value) => setActiveTab(value as PublicKnowledgeTab)}
+      onSelectionChange={(value) => setActiveTab(value as PublicKnowledgeTab)}
     >
       <ResearchLanding />
       <BlogIndex />

@@ -51,7 +51,7 @@ def build_consent_request_path(
         params["actor"] = actor
     if manager_view in {"incoming", "outgoing"}:
         params["view"] = manager_view
-    return f"/consents?{urlencode(params)}"
+    return f"/one/consent?{urlencode(params)}"
 
 
 def build_consent_request_url(

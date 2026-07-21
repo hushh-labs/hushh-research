@@ -3,22 +3,43 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ConnectedSystemsService } from "@/lib/services/connected-systems-service";
+import {
+  CACHE_KEYS,
+  CACHE_TTL,
+  CacheService,
+} from "@/lib/services/cache-service";
+import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 
 const routerPushMock = vi.fn();
+const routerMock = {
+  push: routerPushMock,
+  replace: vi.fn(),
+  prefetch: vi.fn(),
+  back: vi.fn(),
+};
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: routerPushMock, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useRouter: () => routerMock,
 }));
 
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdToken: vi.fn().mockResolvedValue("firebase-id-token") },
 }));
 
+vi.mock("@/lib/services/device-resource-cache-service", () => ({
+  DeviceResourceCacheService: {
+    read: vi.fn().mockResolvedValue(null),
+    write: vi.fn().mockResolvedValue(undefined),
+    invalidateResourcePrefix: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 vi.mock("@/lib/services/connected-systems-service", () => ({
   ConnectedSystemsService: {
-    listSystems: vi.fn(),
+    getRegistry: vi.fn(),
     getSchema: vi.fn(),
     getRecordBinding: vi.fn(),
+    listRecordBindingStatuses: vi.fn(),
     readRecord: vi.fn(),
     searchRecord: vi.fn(),
     createRecordIntent: vi.fn(),
@@ -43,6 +64,7 @@ const system = {
   endpointConfigured: true,
   registrySource: "enterprise_crm_registry",
   supportedActions: { schema: true, read: false, create: false, update: false, delete: false },
+  configurationRevision: 1,
 };
 
 const metadataOnlySchema = {
@@ -73,8 +95,26 @@ const readySchema = {
 describe("ConnectedSystemsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ConnectedSystemsService.listSystems).mockResolvedValue([system]);
+    CacheService.getInstance().clear();
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [system],
+    });
+    vi.mocked(ConnectedSystemsService.listRecordBindingStatuses).mockResolvedValue({
+      bindings: [
+        { systemId: system.systemId, objectType: system.objectTypeDefault, status: "unbound" },
+      ],
+    });
     vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValue(metadataOnlySchema);
+    vi.spyOn(ConnectedSystemsResourceService, "loadSchema").mockImplementation(
+      async (params) =>
+        ConnectedSystemsService.getSchema({
+          vaultOwnerToken: params.vaultOwnerToken,
+          systemId: params.systemId,
+          objectType: params.objectType,
+          forceRefresh: params.forceRefresh,
+        }),
+    );
     vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValue({
       systemId: system.systemId,
       target: system.target,
@@ -89,20 +129,74 @@ describe("ConnectedSystemsPanel", () => {
       resultClass: "succeeded",
       records: [],
     });
+    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValue({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      resultClass: "succeeded",
+      records: [],
+      bindingStatus: "unbound",
+      binding: null,
+    });
   });
 
   it("lists dynamically registered CRM systems without requiring vault unlock", async () => {
-    render(<ConnectedSystemsPanel vaultOwnerToken={null} mode="list" />);
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken={null} mode="list" />);
 
     expect(await screen.findByText("Customer CRM")).toBeTruthy();
     expect(screen.getByText("Example · CRM")).toBeTruthy();
+    expect(screen.getByText("Set up")).toBeTruthy();
     fireEvent.click(screen.getByText("Customer CRM"));
     expect(routerPushMock).toHaveBeenCalledWith(
       "/one/connected-systems?system=customer-crm",
     );
   });
 
-  it("renders a searchable, paginated schema catalogue and blocks incomplete CRM actions", async () => {
+  it("separates CRM availability from the current user's record link", async () => {
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test" mode="list" />);
+
+    expect(await screen.findByText("Customer CRM")).toBeTruthy();
+    expect(
+      await screen.findByText("Example · CRM"),
+    ).toBeTruthy();
+    expect(screen.getByText("Set up")).toBeTruthy();
+    expect(screen.queryByText("CRM systems", { exact: true })).toBeNull();
+  });
+
+  it("keeps a warm schema in the background until a record is linked", async () => {
+    const cache = CacheService.getInstance();
+    cache.set(
+      CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY("user-1"),
+      { registryRevision: 1, systems: [system] },
+      CACHE_TTL.MEDIUM,
+    );
+    cache.set(
+      ConnectedSystemsResourceService.schemaCacheKey({
+        userId: "user-1",
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        configurationRevision: 1,
+      }),
+      readySchema,
+      CACHE_TTL.MEDIUM,
+    );
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Find my record" })).toBeTruthy();
+    expect(ConnectedSystemsService.getRegistry).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.getSchema).not.toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
+    expect(screen.queryByText("Fields ready")).toBeNull();
+  });
+
+  it("does not show a field catalogue before a fresh user has a linked record", async () => {
     const fields = Array.from({ length: 139 }, (_, index) => ({
       key: `Field${index + 1}`,
       name: `Field${index + 1}`,
@@ -121,40 +215,120 @@ describe("ConnectedSystemsPanel", () => {
       supportedFields: fields.map((field) => field.key),
       fields,
     });
-    render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" systemId={system.systemId} />);
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test" systemId={system.systemId} />);
 
-    expect(await screen.findByText("Customer CRM field catalogue")).toBeTruthy();
-    expect(screen.getByText(/Configuration update required/)).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search fields")).toBeTruthy();
-    expect(screen.getAllByText("not declared")).toHaveLength(16);
-    expect(screen.getByText("Showing 1-16 of 139")).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText("Search fields"), { target: { value: "Field 139" } });
-    await waitFor(() => expect(screen.getByText("Field 139")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: /Link this system/i })).toBeNull();
+    await waitFor(() => expect(ConnectedSystemsResourceService.loadSchema).toHaveBeenCalled());
+    expect(await screen.findByText("Profile setup is temporarily unavailable")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
+    expect(screen.queryByText("Field 139")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Find my record" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Update record$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Delete$/i })).toBeNull();
     expect(ConnectedSystemsService.readRecord).not.toHaveBeenCalled();
     expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
   });
 
-  it("keeps a ready schema display-only when record operation mappings are unavailable", async () => {
+  it("keeps an unbound system concise when record operation mappings are unavailable", async () => {
     vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce({
       ...readySchema,
       effectiveActions: { schema: true, read: false, create: false, update: false, delete: false },
       configurationMessage: undefined,
     });
-    render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" systemId={system.systemId} />);
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test" systemId={system.systemId} />);
 
-    expect(await screen.findByText("Customer CRM field catalogue")).toBeTruthy();
-    expect(
-      screen.getByText(/shown as a field catalogue until its verified onboarding mapping is available/i),
-    ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Field view"), { target: { value: "all" } });
-    expect(screen.getByText("Preferred language")).toBeTruthy();
+    expect(await screen.findByText("Profile setup is temporarily unavailable")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
+    expect(screen.queryByText("Preferred language")).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Link this system/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Update record$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Delete$/i })).toBeNull();
+  });
+
+  it("keeps lookup and create as separate explicit actions", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockResolvedValueOnce({
+      intentId: "intent-create-42",
+      systemId: system.systemId,
+      action: "create",
+      status: "pending",
+      fieldNames: ["Email"],
+    });
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+        profile={{
+          displayName: "Jordan Lee",
+          email: "jordan@example.test",
+          phone: "4155550100",
+        }}
+      />,
+    );
+
+    const findAndLink = await screen.findByRole("button", { name: "Find my record" });
+    expect(screen.getByText("jordan@example.test")).toBeTruthy();
+    expect(screen.getByText("4155550100")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
+    expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
+
+    fireEvent.click(findAndLink);
+    await waitFor(() => {
+      expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
+        "HCT:test",
+        expect.objectContaining({
+          systemId: system.systemId,
+          objectType: system.objectTypeDefault,
+          returnFields: ["Email", "PreferredLanguage"],
+        }),
+      );
+    });
+    expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Create profile" }));
+    await waitFor(() =>
+      expect(ConnectedSystemsService.createRecordIntent).toHaveBeenCalledWith(
+        "HCT:test",
+        expect.objectContaining({ systemId: system.systemId }),
+      )
+    );
+    expect(await screen.findByText("Review create request")).toBeTruthy();
+  });
+
+  it("links a verified-identity match and renders its returned record", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValueOnce({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      resultClass: "succeeded",
+      recordId: "person-99",
+      bindingStatus: "active",
+      binding: {
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        recordId: "person-99",
+        status: "active",
+      },
+      records: [
+        {
+          recordId: "person-99",
+          fields: {
+            Email: "person@example.test",
+            PreferredLanguage: "English",
+          },
+        },
+      ],
+    });
+    render(<ConnectedSystemsPanel cacheUserId="user-1" vaultOwnerToken="HCT:test" systemId={system.systemId} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find my record" }));
+
+    expect(
+      await screen.findByText("Update my Customer CRM information"),
+    ).toBeTruthy();
+    expect(await screen.findByText("person@example.test")).toBeTruthy();
+    expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
   });
 
   it("uses normalized records and stages one explicitly updateable field for confirmation", async () => {
@@ -189,6 +363,7 @@ describe("ConnectedSystemsPanel", () => {
 
     render(
       <ConnectedSystemsPanel
+        cacheUserId="user-1"
         vaultOwnerToken="HCT:test"
         systemId={system.systemId}
         profile={{ email: "person@example.test" }}
@@ -197,7 +372,8 @@ describe("ConnectedSystemsPanel", () => {
 
     expect(await screen.findByText("Update my Customer CRM information")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Field view"), { target: { value: "all" } });
-    expect(await screen.findByText("English")).toBeTruthy();
+    const preferredLanguage = await screen.findByText("Preferred language");
+    expect(preferredLanguage.closest("tr")?.textContent).toContain("English");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const editor = await screen.findByRole("combobox");
     fireEvent.change(editor, { target: { value: "French" } });

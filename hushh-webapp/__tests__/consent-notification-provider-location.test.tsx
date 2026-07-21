@@ -88,7 +88,10 @@ vi.mock("@/lib/morphy-ux/ui", () => ({
   Icon: () => null,
 }));
 
-import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import {
+  ConsentNotificationProvider,
+  useConsentNotificationState,
+} from "@/components/consent/notification-provider";
 import { markOneLocationGrantUnwatched } from "@/lib/one-location/notifications";
 
 const EMPTY_LOCATION_STATE = {
@@ -120,9 +123,23 @@ beforeEach(() => {
 });
 
 describe("global One Location notification provider", () => {
+  function PermissionRequestButton() {
+    const notificationState = useConsentNotificationState();
+    return (
+      <button type="button" onClick={notificationState.retryPushRegistration}>
+        Enable notifications
+      </button>
+    );
+  }
+
   it("removes a legacy masked phone suffix from the rendered popup", async () => {
     renderProvider();
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+    expect(mocks.initializeFCM).toHaveBeenCalledWith(
+      "recipient-user",
+      "firebase-token",
+      { requestPermission: false },
+    );
 
     act(() => {
       window.dispatchEvent(
@@ -147,6 +164,32 @@ describe("global One Location notification provider", () => {
       screen.getByText("hushh Social shared location access with you."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/8014/)).not.toBeInTheDocument();
+  });
+
+  it("requests notification authorization only after an explicit user action", async () => {
+    mocks.initializeFCM.mockResolvedValue({
+      status: "push_not_requested",
+      detail: "permission_default",
+    });
+    renderProvider(<PermissionRequestButton />);
+
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(1));
+    expect(mocks.initializeFCM).toHaveBeenLastCalledWith(
+      "recipient-user",
+      "firebase-token",
+      { requestPermission: false },
+    );
+
+    act(() => {
+      screen.getByRole("button", { name: "Enable notifications" }).click();
+    });
+
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
+    expect(mocks.initializeFCM).toHaveBeenLastCalledWith(
+      "recipient-user",
+      "firebase-token",
+      { requestPermission: true },
+    );
   });
 
   it("shows one popup and records one bell item for duplicate live pushes on a non-Location route", async () => {

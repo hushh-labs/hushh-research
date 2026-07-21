@@ -60,6 +60,22 @@ Valid execution policies are:
 Actions with a delegate agent must still have an ingress-validated authority
 path. Until that exists, they remain unwired and fail closed.
 
+### Settled journeys
+
+A cross-screen flow is authored as a settled journey, not improvised by the
+model. Its first `action` step names an explicit `settlement_target` (`route`
+and `screen`), followed by an optional `choice` step naming only generated
+action IDs that are valid on that destination. A source-route fallback is
+invalid for a route-changing local handler.
+
+The browser publishes the destination's redacted context snapshot and waits
+for the relay acknowledgement before it reports the originating settlement.
+Only then can `continue_app_goal` make the authored choices eligible. An
+explicit user choice is retained as its generated action ID only, in the live
+session, and is cleared on timeout, cancellation, sign-out, route mismatch,
+back navigation, or session end. It never carries speech, slots, credentials,
+or durable intent across screens.
+
 ## Runtime Consumers
 
 - Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)

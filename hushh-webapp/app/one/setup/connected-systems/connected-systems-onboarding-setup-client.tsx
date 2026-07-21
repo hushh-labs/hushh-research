@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Building2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -19,10 +18,12 @@ import {
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 export function ConnectedSystemsOnboardingSetupClient() {
+  const router = useRouter();
   const params = useSearchParams();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -35,43 +36,59 @@ export function ConnectedSystemsOnboardingSetupClient() {
     skipActionId: "setup.skip_connected_systems",
   });
   const systemId = params.get("system")?.trim() || null;
+  const completedSetup = Boolean(
+    coordinator.isReady &&
+      user?.uid &&
+      PreVaultUserStateService.isSetupResolved(
+        PreVaultUserStateService.getCachedBootstrapState(user.uid),
+      ),
+  );
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing external systems…" />;
+  useEffect(() => {
+    if (!completedSetup) return;
+    router.replace(buildConnectedSystemRoute(systemId));
+  }, [completedSetup, router, systemId]);
+
+  if (!coordinator.isReady || completedSetup) {
+    return <SetupCapabilityLoading label="Preparing external systems…" />;
+  }
 
   return (
     <AppPageShell as="main" width="standard" className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One / Setup"
-          title="Link your record to external systems"
-          description="Choose an available CRM, find your existing record, or create one where profile creation is supported."
-          icon={Building2}
+          title="CRM"
+          description="Find your existing CRM record or approve creating one from your verified identity."
           accent="neutral"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <VaultStatusInline className="mb-3 px-1" />
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode={systemId ? "detail" : "list"}
           systemId={systemId}
           setupRouteBase={ROUTES.ONE_SETUP_CONNECTED_SYSTEMS}
           onSetupReadinessChange={setReady}
+          presentation="setup"
         />
       </AppPageContentRegion>
-      <SetupCapabilityTerminalFooter
-        capabilityId="connected-systems"
-        isOperationallyReady={ready}
-        coordinator={coordinator}
-      />
+      {!systemId ? (
+        <SetupCapabilityTerminalFooter
+          capabilityId="connected-systems"
+          isOperationallyReady={ready}
+          coordinator={coordinator}
+        />
+      ) : null}
       {user ? (
         <VaultUnlockDialog
           user={user}
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Set up your private vault"
-          description="Set up or open your private vault to inspect CRM records and approve Connected Systems actions."
+          description="Set up or open your private vault to inspect CRM records and approve CRM actions."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

@@ -182,7 +182,10 @@ export function ProfileStackNavigator({
                   data-profile-stack-scroll="true"
                   className="flex-1 overflow-y-auto overflow-x-hidden"
                 >
-                  <div className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-[var(--page-header-section-gap)] sm:pb-10">
+                  <div
+                    className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:pb-10"
+                    data-profile-stack-content="true"
+                  >
                     {entry.content}
                   </div>
                 </div>

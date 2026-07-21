@@ -23,10 +23,13 @@ import pytest
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.one_adk import agent_tree as _tree
 from hushh_mcp.one_adk.action_tools import (
+    _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
+    continue_app_goal,
     list_app_actions,
     run_app_action,
+    start_app_goal,
 )
 from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
@@ -39,6 +42,7 @@ from hushh_mcp.one_adk.agent_tree import (
     _specialist_turn,
     build_one_intro_text_agent,
     build_one_root_agent,
+    build_one_text_agent,
     get_one_runner,
     open_screen,
 )
@@ -91,7 +95,26 @@ class TestAgentTreeShape:
         )
         # ADK executes bypassed Google Search in a nested text GenerateContent
         # turn. It must never inherit One's native-audio Live model.
-        assert search_tool.model == _tree._SPECIALIST_MODEL
+        assert search_tool.agent.model.model == _tree._SPECIALIST_MODEL
+        assert search_tool.propagate_grounding_metadata is True
+
+    def test_text_runtime_propagates_turn_model_to_finance_and_investor(self):
+        from google.adk.models import Gemini
+
+        turn_model = Gemini(
+            model="gemini-turn-local",
+            client_kwargs={"api_key": "turn-local-test-key"},
+        )
+
+        agent = build_one_text_agent(model=turn_model)
+        finance_tool = next(tool for tool in agent.tools if getattr(tool, "name", "") == "finance")
+        investor_tool = next(
+            tool for tool in finance_tool.agent.tools if getattr(tool, "name", "") == "investor"
+        )
+
+        assert agent.model is turn_model
+        assert finance_tool.agent.model is turn_model
+        assert investor_tool.agent.model is turn_model
 
     def test_byok_live_registry_rejects_models_without_mid_session_content(
         self, monkeypatch: pytest.MonkeyPatch
@@ -464,7 +487,7 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
-    async def test_navigation_action_executes_even_when_not_in_screen_inventory(self):
+    async def test_navigation_action_waits_for_confirmation_even_when_not_in_screen_inventory(self):
         # Cross-screen navigation ("go to profile") must work from any
         # screen; the per-screen inventory does not bound route.* actions.
         state = {
@@ -473,7 +496,7 @@ class TestRunAppAction:
             }
         }
         result = await run_app_action("route.profile", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.profile"]["payload"]["actionId"]
             == "route.profile"
@@ -509,7 +532,7 @@ class TestRunAppAction:
             },
         }
         result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:onboarding.claim_one"]["payload"]["actionId"]
             == "onboarding.claim_one"
@@ -529,22 +552,163 @@ class TestRunAppAction:
     async def test_allow_direct_with_slots_parks_action_directive(self):
         state: dict = {}
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         directive = state[f"{_STATE_PENDING_DIRECTIVE}:analysis.start"]
         assert directive == {
             "kind": "action",
-            "payload": {"actionId": "analysis.start", "slots": {"symbol": "NVDA"}},
+            "payload": {
+                "actionId": "analysis.start",
+                "slots": {"symbol": "NVDA"},
+                "needsConfirmation": True,
+                "trustedActivationRequired": True,
+            },
         }
 
     @pytest.mark.asyncio
-    async def test_route_action_is_direct(self):
+    async def test_route_action_requires_confirmation(self):
         state: dict = {}
         result = await run_app_action("route.consents", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
             == "route.consents"
         )
+
+
+class TestSettledActionJourneys:
+    @pytest.mark.asyncio
+    async def test_same_context_revision_cannot_continue_a_claim_journey(self):
+        state = {
+            _STATE_SCREEN: "one_intro",
+            "hussh:voice_context": {
+                "route_pattern": "/",
+                "screen": "one_intro",
+                "context_revision": "root-1",
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+        await start_app_goal(
+            "onboarding.claim_one",
+            {"deferred_action_id": "auth.sign_in_google"},
+            _tool_context(state),
+        )
+        state[_STATE_SCREEN] = "login"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/login",
+            "screen": "login",
+            "context_revision": "root-1",
+            "available_action_ids": ["auth.sign_in_google", "auth.sign_in_apple"],
+        }
+
+        result = await continue_app_goal(_tool_context(state))
+
+        assert result["status"] == "settling"
+        assert state[_STATE_GOAL_RUN]["deferred_action_id"] == "auth.sign_in_google"
+        assert f"{_STATE_PENDING_DIRECTIVE}:auth.sign_in_google" not in state
+
+    @pytest.mark.asyncio
+    async def test_plain_claim_asks_for_provider_only_after_login_context(self):
+        state = {
+            _STATE_SCREEN: "one_intro",
+            "hussh:voice_context": {
+                "route_pattern": "/",
+                "screen": "one_intro",
+                "context_revision": "root-1",
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+        started = await start_app_goal("onboarding.claim_one", {}, _tool_context(state))
+        assert started["status"] == "journey_started"
+        assert state[_STATE_GOAL_RUN]["deferred_action_id"] is None
+
+        state[_STATE_SCREEN] = "login"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/login",
+            "screen": "login",
+            "context_revision": "login-2",
+            "available_action_ids": ["auth.sign_in_google", "auth.sign_in_apple"],
+        }
+        continued = await continue_app_goal(_tool_context(state))
+
+        assert continued == {
+            "status": "choice_needed",
+            "message": "The destination is ready. Ask the person to choose one available option.",
+            "action_ids": ["auth.sign_in_apple", "auth.sign_in_google"],
+        }
+        assert state[_STATE_GOAL_RUN] is None
+
+    @pytest.mark.asyncio
+    async def test_claim_one_defers_google_until_login_context_is_fresh(self):
+        state = {
+            _STATE_SCREEN: "one_intro",
+            "hussh:voice_context": {
+                "route_pattern": "/",
+                "screen": "one_intro",
+                "context_revision": "root-1",
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+
+        started = await start_app_goal(
+            "onboarding.claim_one",
+            {"deferred_action_id": "auth.sign_in_google"},
+            _tool_context(state),
+        )
+
+        assert started["status"] == "journey_started"
+        directive = state[f"{_STATE_PENDING_DIRECTIVE}:onboarding.claim_one"]
+        assert directive["payload"]["actionId"] == "onboarding.claim_one"
+        assert directive["payload"]["goalRun"]["deferred_action_id"] == "auth.sign_in_google"
+        assert "auth.sign_in_google" not in directive["payload"]["slots"]
+
+        state[_STATE_SCREEN] = "login"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/login",
+            "screen": "login",
+            "context_revision": "login-2",
+            "available_action_ids": ["auth.sign_in_google", "auth.sign_in_apple"],
+        }
+        continued = await continue_app_goal(_tool_context(state))
+
+        assert continued["status"] == "confirm_pending"
+        assert state[_STATE_GOAL_RUN] is None
+        provider_directive = state[f"{_STATE_PENDING_DIRECTIVE}:auth.sign_in_google"]
+        assert provider_directive["payload"] == {
+            "actionId": "auth.sign_in_google",
+            "slots": {},
+            "needsConfirmation": True,
+            "trustedActivationRequired": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_destination_mismatch_clears_a_carried_choice(self):
+        state = {
+            _STATE_SCREEN: "one_intro",
+            "hussh:voice_context": {
+                "route_pattern": "/",
+                "screen": "one_intro",
+                "context_revision": "root-1",
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+        await start_app_goal(
+            "onboarding.claim_one",
+            {"deferred_action_id": "auth.sign_in_google"},
+            _tool_context(state),
+        )
+        state[_STATE_SCREEN] = "one_intro"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/",
+            "screen": "one_intro",
+            "context_revision": "root-2",
+            "available_action_ids": ["onboarding.claim_one"],
+        }
+
+        result = await continue_app_goal(_tool_context(state))
+
+        assert result["status"] == "journey_interrupted"
+        assert state[_STATE_GOAL_RUN] is None
+        assert f"{_STATE_PENDING_DIRECTIVE}:auth.sign_in_google" not in state
 
 
 class TestListAppActions:

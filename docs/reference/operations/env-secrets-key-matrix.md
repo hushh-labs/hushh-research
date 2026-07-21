@@ -39,18 +39,8 @@ Profile bootstrap rule:
 | `VAULT_DATA_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_GENAI_AUTH_MODE` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | Y | env | N | env | N | required (`vertex_adc`) |
 | `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | N | none | N | none | Y | local-only developer compatibility |
-| `AGENT_GEMINI_MODEL` | `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_VOICE_ENABLED` | `consent-protocol/api/routes/kai/agent_voice.py` | Y | N | N | env | N | env | N | optional kill switch |
-| `AGENT_GEMINI_STT_MODEL` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_TTS_MODEL` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_TTS_VOICE` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
-| `HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
-| `HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
-| `NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED` | `hushh-webapp/lib/agent/agent-voice-settings.ts` | N | Y | N | N | env | N | env | optional frontend mirror |
+| `NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED` | `hushh-webapp/lib/agent/agent-voice-settings.ts` | N | Y | N | N | env | N | env | optional One Live kill switch |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |
 | `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py`, `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional |

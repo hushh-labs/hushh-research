@@ -11,7 +11,7 @@ Founder-language note: this report is evidence for `Separation of Duties`, not a
 
 ## Overall Status
 
-Current status: parity gate implemented and green against the current tracked simulator/emulator evidence.
+Current status: cold route-parity gate implemented. The dated simulator/emulator reports below are historical cold-start evidence; they are not proof of normal-session vault or route continuity.
 
 Fresh route evidence:
 
@@ -25,9 +25,11 @@ The native gate now includes:
 - `cd hushh-webapp && npm run verify:capacitor:plugins`
 - `xcodebuild -list -project ios/App/App.xcodeproj`
 - `./gradlew tasks --all`
-- `cd hushh-webapp && npm run ios:test`
-- `cd hushh-webapp && npm run android:test`
+- `cd hushh-webapp && npm run ios:cold:audit`
+- `cd hushh-webapp && npm run android:cold:audit`
 - `cd hushh-webapp && npm run verify:capacitor:reports`
+
+Continuity is separately rehearsed against an already-installed normal session with `ios:continuity:local` or `android:continuity:local`; it must not inherit evidence from a cold audit.
 
 ## Blockers
 

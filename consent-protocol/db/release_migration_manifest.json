@@ -84,7 +84,15 @@
     "103_demo_crm_response_contracts.sql",
     "104_crm_schema_mapping_cache.sql",
     "105_agentforce_mcp_compatibility.sql",
-    "106_agentforce_uat_profile.sql"
+    "106_agentforce_uat_profile.sql",
+    "107_actor_identity_custom_photo.sql",
+    "108_canonical_mcp_credentials.sql",
+    "109_oauth_client_credentials_consent_execution.sql",
+    "110_one_email_kyc_preferences.sql",
+    "111_macys_crm_response_contracts.sql",
+    "112_dynamic_crm_registry_cache.sql",
+    "113_kai_plaid_portfolio_tables.sql",
+    "114_one_action_directive_ledger.sql"
   ],
   "groups": {
     "iam": [
@@ -131,7 +139,12 @@
       "101_backfill_crm_operation_endpoints.sql",
       "102_crm_operation_response_contract.sql",
       "103_demo_crm_response_contracts.sql",
-      "104_crm_schema_mapping_cache.sql"
+      "104_crm_schema_mapping_cache.sql",
+      "107_actor_identity_custom_photo.sql",
+      "110_one_email_kyc_preferences.sql",
+      "111_macys_crm_response_contracts.sql",
+      "112_dynamic_crm_registry_cache.sql",
+      "114_one_action_directive_ledger.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -162,7 +175,9 @@
       "091_public_profile_projection_cutover.sql",
       "099_developer_oauth_pkce.sql",
       "105_agentforce_mcp_compatibility.sql",
-      "106_agentforce_uat_profile.sql"
+      "106_agentforce_uat_profile.sql",
+      "108_canonical_mcp_credentials.sql",
+      "109_oauth_client_credentials_consent_execution.sql"
     ]
   }
 }

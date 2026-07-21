@@ -59,6 +59,6 @@ This entrypoint should not duplicate:
 Before calling mobile parity complete:
 
 ```bash
-cd hushh-webapp && npm run verify:capacitor:audit
+cd hushh-webapp && npm run verify:capacitor:cold:audit
 ./bin/hushh docs verify
 ```

@@ -3,8 +3,8 @@
 import type { ReactNode } from "react";
 import { ChevronLeft, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { Button } from "@/lib/morphy-ux/button";
 
 export function OnboardingShell({
   currentStepIndex,
@@ -16,10 +16,12 @@ export function OnboardingShell({
   saving,
   isFirstStep,
   advisoryAccessReady = false,
+  hideTerminal = false,
   allowInvalidPress = false,
   heroImage,
   onBack,
   onContinue,
+  onSkip,
   children,
 }: {
   currentStepIndex: number;
@@ -32,6 +34,7 @@ export function OnboardingShell({
   isFirstStep: boolean;
   isLastStep: boolean;
   advisoryAccessReady: boolean;
+  hideTerminal?: boolean;
   // Decorative advisor photo for the step. "accent" is the shared compact
   // top-right composition used by every current RIA setup step. "hero" stays
   // available for a future full-bleed flow, but is not a special Welcome case.
@@ -53,6 +56,7 @@ export function OnboardingShell({
   // page can still pass it without a visible back control (design has none).
   onBack?: () => void;
   onContinue: () => void;
+  onSkip?: () => void | Promise<void>;
   children: ReactNode;
 }) {
   const continueDisabled = saving || (!canContinue && !allowInvalidPress);
@@ -204,17 +208,35 @@ export function OnboardingShell({
 
         <div className={cn(isHero ? "mt-[22px]" : "mt-[18px]")}>{children}</div>
 
-        <div className="mt-8">
-          <SetupCompletionFooter
-            label="Continue"
-            onComplete={onContinue}
-            busy={saving}
-            disabled={continueDisabled}
-            controlId="ria-onboarding-continue"
-            purpose="Advance to the next RIA setup step"
-            variant="blue-gradient"
-          />
-        </div>
+        {!hideTerminal ? (
+          <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+1rem)]">
+            <Button
+              type="button"
+              onClick={onContinue}
+              loading={saving}
+              disabled={continueDisabled}
+              variant="blue-gradient"
+              effect="fill"
+              size="lg"
+              fullWidth
+              className="mx-auto h-12 text-base sm:max-w-[22rem]"
+              data-voice-control-id="ria-onboarding-continue"
+              data-voice-label="Continue"
+              data-voice-purpose="Advance to the next RIA setup step"
+            >
+              Continue
+            </Button>
+            {onSkip ? (
+              <button
+                type="button"
+                className="mx-auto block min-h-11 px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => void onSkip()}
+              >
+                Skip for now
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

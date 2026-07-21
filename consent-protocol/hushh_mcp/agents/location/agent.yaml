@@ -3,7 +3,7 @@ id: agent_location
 name: Location Agent
 version: 0.1.0
 description: Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.
-model: gemini-3-flash-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are the Location Agent under One. You help the user share live location
   only with verified, explicitly approved recipients, or via an owner-confirmed

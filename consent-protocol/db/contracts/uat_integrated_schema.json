@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 106,
+  "expected_migration_version": 114,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -59,6 +59,7 @@
       "email",
       "phone_number",
       "photo_url",
+      "custom_photo_url",
       "email_verified",
       "phone_verified",
       "source",
@@ -252,6 +253,30 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "one_action_directive_ledger": [
+      "directive_id",
+      "schema_version",
+      "user_id",
+      "channel",
+      "conversation_id",
+      "session_id",
+      "action_id",
+      "context_revision",
+      "action_contract_digest",
+      "slots_hmac",
+      "resource_binding_hmac",
+      "requires_confirmation",
+      "trusted_activation_required",
+      "state",
+      "receipt_hash",
+      "settlement_status",
+      "settlement_reason_code",
+      "issued_at",
+      "expires_at",
+      "confirmed_at",
+      "consumed_at",
+      "settled_at"
     ],
     "pkm_upgrade_runs": [
       "run_id",
@@ -534,6 +559,12 @@
       "rotated_at",
       "revoked_at"
     ],
+    "one_email_kyc_preferences": [
+      "user_id",
+      "automatic_response_preparation_enabled",
+      "created_at",
+      "updated_at"
+    ],
     "one_kyc_workflows": [
       "workflow_id",
       "user_id",
@@ -758,7 +789,9 @@
       "redirect_uris",
       "created_at",
       "secret_rotated_at",
-      "revoked_at"
+      "revoked_at",
+      "allowed_grant_types",
+      "mcp_execution_mode"
     ],
     "developer_oauth_tokens": [
       "id",
@@ -773,7 +806,8 @@
       "expires_at",
       "revoked_at",
       "last_used_at",
-      "grant_type"
+      "grant_type",
+      "mcp_execution_mode"
     ],
     "developer_connector_keys": [
       "app_id",
@@ -820,7 +854,9 @@
       "crm_client_secret_blob",
       "kdf_salt",
       "kdf_iterations",
-      "crm_delete_endpoint"
+      "crm_delete_endpoint",
+      "configuration_revision",
+      "validated_at"
     ],
     "crm_operation_endpoints": [
       "crm_id",
@@ -842,6 +878,28 @@
       "failure_code",
       "refreshed_at",
       "expires_at"
+    ],
+    "crm_schema_catalog_cache": [
+      "crm_id",
+      "object_type",
+      "configuration_revision",
+      "schema_fingerprint",
+      "schema_json",
+      "refreshed_at",
+      "fresh_until",
+      "stale_until"
+    ],
+    "crm_registry_audit_events": [
+      "event_id",
+      "crm_id",
+      "action",
+      "operator_identity",
+      "configuration_fingerprint",
+      "configuration_revision",
+      "capabilities_json",
+      "validation_result",
+      "validation_summary_json",
+      "created_at"
     ],
     "trusted_connections": [
       "id",
@@ -880,6 +938,72 @@
       "created_at",
       "updated_at",
       "revoked_at"
+    ],
+    "kai_plaid_items": [
+      "item_id",
+      "user_id",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_algorithm",
+      "institution_id",
+      "institution_name",
+      "plaid_env",
+      "status",
+      "sync_status",
+      "last_sync_at",
+      "last_refresh_requested_at",
+      "last_webhook_type",
+      "last_webhook_code",
+      "last_error_code",
+      "last_error_message",
+      "latest_accounts_json",
+      "latest_holdings_json",
+      "latest_securities_json",
+      "latest_transactions_json",
+      "latest_summary_json",
+      "latest_portfolio_json",
+      "latest_metadata_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_refresh_runs": [
+      "run_id",
+      "user_id",
+      "item_id",
+      "status",
+      "trigger_source",
+      "refresh_method",
+      "fallback_reason",
+      "webhook_type",
+      "webhook_code",
+      "requested_at",
+      "started_at",
+      "completed_at",
+      "error_code",
+      "error_message",
+      "result_summary_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_link_sessions": [
+      "resume_session_id",
+      "user_id",
+      "item_id",
+      "mode",
+      "status",
+      "redirect_uri",
+      "link_token",
+      "expires_at",
+      "completed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_portfolio_source_preferences": [
+      "user_id",
+      "active_source",
+      "created_at",
+      "updated_at"
     ]
   }
 }

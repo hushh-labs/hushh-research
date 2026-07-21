@@ -55,6 +55,8 @@ Non-owned surfaces:
 4. For generated native route audit reports, treat `ok: true` as advisory until the observed status also proves `ready=1`, `found=1`, and the observed marker equals the expected marker. A passed report with a missing marker is a blocker, not release evidence.
 5. Before physical voice or route smoke, run the static native parity gate so missing microphone permission metadata, missing route-inventory entries, or unclassified legacy aliases fail before device work.
 6. Any route added to `ROUTES` must be classified in `native-route-inventory.json` in the same change. Nested route families that share one workspace may share a marker, but each canonical route still needs an explicit inventory row and static-export-safe fixture.
+7. Keep destructive cold audits and non-destructive continuity rehearsals separate. Cold fixture evidence never proves an active memory-only vault or route survives background/resume.
+8. Start with static and host-native tests. A cold audit requires explicit authority, must terminate its test app on every host terminal path, and is never a default diagnosis command for a continuity failure.
 
 ## Handoff Rules
 
@@ -66,6 +68,11 @@ Non-owned surfaces:
 
 ```bash
 cd hushh-webapp && npm run verify:capacitor:static
-cd hushh-webapp && npm run cap:build
-cd hushh-webapp && npm run ios:test
+cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon
+cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C' -derivedDataPath ios/App/build/DerivedData build-for-testing
 ```
+
+Run `npm run ios:cold:audit`, `npm run android:cold:audit`, or the UI cold-audit
+equivalent only when the task explicitly authorizes a reset. Run
+`ios:continuity:local` or `android:continuity:local` only for an intentional,
+visible normal-session rehearsal.

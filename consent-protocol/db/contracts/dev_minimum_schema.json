@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 99,
+  "expected_migration_version": 114,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -48,6 +48,7 @@
       "email",
       "phone_number",
       "photo_url",
+      "custom_photo_url",
       "email_verified",
       "phone_verified",
       "source",
@@ -239,6 +240,30 @@
       "created_at",
       "completed_at"
     ],
+    "one_action_directive_ledger": [
+      "directive_id",
+      "schema_version",
+      "user_id",
+      "channel",
+      "conversation_id",
+      "session_id",
+      "action_id",
+      "context_revision",
+      "action_contract_digest",
+      "slots_hmac",
+      "resource_binding_hmac",
+      "requires_confirmation",
+      "trusted_activation_required",
+      "state",
+      "receipt_hash",
+      "settlement_status",
+      "settlement_reason_code",
+      "issued_at",
+      "expires_at",
+      "confirmed_at",
+      "consumed_at",
+      "settled_at"
+    ],
     "pkm_upgrade_runs": [
       "run_id",
       "user_id",
@@ -277,31 +302,72 @@
       "updated_at"
     ],
     "pkm_domain_revisions": [
-      "revision_id", "user_id", "domain", "source_content_revision",
-      "source_manifest_revision", "is_origin", "archive_reason",
-      "source_commit_id", "manifest_snapshot", "path_rows_snapshot",
-      "scope_rows_snapshot", "index_domain_summary_snapshot",
-      "index_domain_present", "retention_expires_at", "restored_count",
-      "last_restored_at", "created_at"
+      "revision_id",
+      "user_id",
+      "domain",
+      "source_content_revision",
+      "source_manifest_revision",
+      "is_origin",
+      "archive_reason",
+      "source_commit_id",
+      "manifest_snapshot",
+      "path_rows_snapshot",
+      "scope_rows_snapshot",
+      "index_domain_summary_snapshot",
+      "index_domain_present",
+      "retention_expires_at",
+      "restored_count",
+      "last_restored_at",
+      "created_at"
     ],
     "pkm_domain_revision_segments": [
-      "revision_id", "segment_id", "ciphertext", "iv", "tag", "algorithm",
-      "original_content_revision", "original_manifest_revision", "size_bytes", "created_at"
+      "revision_id",
+      "segment_id",
+      "ciphertext",
+      "iv",
+      "tag",
+      "algorithm",
+      "original_content_revision",
+      "original_manifest_revision",
+      "size_bytes",
+      "created_at"
     ],
     "pkm_domain_commits": [
-      "commit_id", "user_id", "domain", "commit_kind", "request_fingerprint",
-      "run_id", "claim_id",
-      "expected_content_revision", "expected_manifest_revision",
-      "result_content_revision", "result_manifest_revision",
-      "archived_revision_id", "retention_expires_at", "created_at"
+      "commit_id",
+      "user_id",
+      "domain",
+      "commit_kind",
+      "request_fingerprint",
+      "run_id",
+      "claim_id",
+      "expected_content_revision",
+      "expected_manifest_revision",
+      "result_content_revision",
+      "result_manifest_revision",
+      "archived_revision_id",
+      "retention_expires_at",
+      "created_at"
     ],
     "pkm_upgrade_claims": [
-      "claim_id", "commit_id", "run_id", "user_id", "domain", "status",
-      "source_content_revision", "source_manifest_revision",
-      "target_domain_contract_version", "target_readable_summary_version",
-      "target_pkm_contract_version", "target_readable_projection_version",
-      "expires_at", "issued_at", "committed_at", "target_content_revision",
-      "target_manifest_revision", "archived_revision_id", "preservation_receipt"
+      "claim_id",
+      "commit_id",
+      "run_id",
+      "user_id",
+      "domain",
+      "status",
+      "source_content_revision",
+      "source_manifest_revision",
+      "target_domain_contract_version",
+      "target_readable_summary_version",
+      "target_pkm_contract_version",
+      "target_readable_projection_version",
+      "expires_at",
+      "issued_at",
+      "committed_at",
+      "target_content_revision",
+      "target_manifest_revision",
+      "archived_revision_id",
+      "preservation_receipt"
     ],
     "consent_audit": [
       "id",
@@ -462,6 +528,12 @@
       "updated_at",
       "rotated_at",
       "revoked_at"
+    ],
+    "one_email_kyc_preferences": [
+      "user_id",
+      "automatic_response_preparation_enabled",
+      "created_at",
+      "updated_at"
     ],
     "one_kyc_workflows": [
       "workflow_id",
@@ -708,7 +780,9 @@
       "crm_client_secret_blob",
       "kdf_salt",
       "kdf_iterations",
-      "crm_delete_endpoint"
+      "crm_delete_endpoint",
+      "configuration_revision",
+      "validated_at"
     ],
     "crm_operation_endpoints": [
       "crm_id",
@@ -717,7 +791,30 @@
       "http_method",
       "path",
       "description",
-      "response_contract"
+      "response_contract",
+      "mcp_endpoint"
+    ],
+    "crm_schema_catalog_cache": [
+      "crm_id",
+      "object_type",
+      "configuration_revision",
+      "schema_fingerprint",
+      "schema_json",
+      "refreshed_at",
+      "fresh_until",
+      "stale_until"
+    ],
+    "crm_registry_audit_events": [
+      "event_id",
+      "crm_id",
+      "action",
+      "operator_identity",
+      "configuration_fingerprint",
+      "configuration_revision",
+      "capabilities_json",
+      "validation_result",
+      "validation_summary_json",
+      "created_at"
     ],
     "trusted_connections": [
       "id",
@@ -735,6 +832,72 @@
     "relay_ticket_nonces": [
       "nonce",
       "expires_at"
+    ],
+    "kai_plaid_items": [
+      "item_id",
+      "user_id",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_algorithm",
+      "institution_id",
+      "institution_name",
+      "plaid_env",
+      "status",
+      "sync_status",
+      "last_sync_at",
+      "last_refresh_requested_at",
+      "last_webhook_type",
+      "last_webhook_code",
+      "last_error_code",
+      "last_error_message",
+      "latest_accounts_json",
+      "latest_holdings_json",
+      "latest_securities_json",
+      "latest_transactions_json",
+      "latest_summary_json",
+      "latest_portfolio_json",
+      "latest_metadata_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_refresh_runs": [
+      "run_id",
+      "user_id",
+      "item_id",
+      "status",
+      "trigger_source",
+      "refresh_method",
+      "fallback_reason",
+      "webhook_type",
+      "webhook_code",
+      "requested_at",
+      "started_at",
+      "completed_at",
+      "error_code",
+      "error_message",
+      "result_summary_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_link_sessions": [
+      "resume_session_id",
+      "user_id",
+      "item_id",
+      "mode",
+      "status",
+      "redirect_uri",
+      "link_token",
+      "expires_at",
+      "completed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_portfolio_source_preferences": [
+      "user_id",
+      "active_source",
+      "created_at",
+      "updated_at"
     ]
   }
 }

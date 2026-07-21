@@ -38,7 +38,21 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private var appleSignInCall: CAPPluginCall?
 
     // MARK: - Keychain Helpers
-    private let keychainService = "com.hushh.pda.auth"
+    private static let keychainServiceName = "com.hushh.pda.auth"
+    private let keychainService = HushhAuthPlugin.keychainServiceName
+
+    /// Debug-test reset authority for a genuine first-launch authentication
+    /// cadence. App uninstall does not clear iOS Keychain items, so Firebase
+    /// sign-out alone can leave this plugin's cached identity/token restorable.
+    /// Production code never calls this; user sign-out uses the instance path.
+    static func clearPersistedSessionForNativeReset() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainServiceName
+        ]
+        SecItemDelete(query as CFDictionary)
+        HusshIMessageSessionStore.shared.clearSilently()
+    }
 
     private func keychainSet(_ value: String, forKey key: String) {
         guard let data = value.data(using: .utf8) else { return }

@@ -78,7 +78,7 @@ import {
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
-import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -819,26 +819,20 @@ function SectorRotationChart({ rows }: { rows: KaiHomeSectorItem[] }) {
 }
 
 function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
-  const fallbackRows = rows.length
-    ? rows
-    : [
-        {
-          symbol: "KAI",
-          title:
-            "Defensives lead as indices slip. What it means for your portfolio",
-          url: buildKaiMarketRoute("analysis"),
-          published_at: new Date().toISOString(),
-          source_name: "Kai Wrap",
-          provider: "local",
-          degraded: false,
-        },
-      ];
+  if (!rows.length) {
+    return (
+      <div className="rounded-[18px] border border-[color:var(--one-line)] bg-[color:var(--one-card)] px-4 py-5 text-sm text-[color:var(--one-fg2)]">
+        Headlines will appear here when a market source is available.
+      </div>
+    );
+  }
+
   return (
     <div
       {...{ [SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR]: "true" }}
       className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      {fallbackRows.slice(0, 4).map((row, index) => {
+      {rows.slice(0, 4).map((row, index) => {
         const verifiedSymbol = shouldShowNewsCompanyLogo(row)
           ? normalizeMarketSymbol(row.symbol)
           : "NEWS";
@@ -2350,8 +2344,8 @@ export function KaiMarketPreviewView() {
                 title="Market news"
                 icon={Newspaper}
                 tone="teal"
-                actionLabel="More"
-                actionHref={buildKaiMarketRoute("analysis")}
+                actionLabel="All news"
+                actionHref={ROUTES.KAI_NEWS}
               />
               <OneMarketNewsCards rows={marketNewsRows} />
             </section>

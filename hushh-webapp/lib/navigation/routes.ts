@@ -135,6 +135,8 @@ export const ROUTES = {
   RIA_SETTINGS: "/ria/settings",
   RIA_PROFILE: "/ria/profile",
   KAI_HOME: buildKaiMarketRoute("market"),
+  /** Finite Market workspace. This is not a fourth Finance tab. */
+  KAI_NEWS: "/one/kai/news",
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
@@ -224,6 +226,16 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   "connected-systems": ROUTES.ONE_SETUP_CONNECTED_SYSTEMS,
 };
 
+/**
+ * Setup-owned routes that configure the root private agent but are not agent
+ * capabilities. Keep these out of `SETUP_CAPABILITY_ROUTES`: they must be
+ * admitted by the root journey without inventing capability completion or a
+ * generated voice action.
+ */
+export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  ROUTES.ONE_SETUP_CONNECTIONS,
+];
+
 /** Normal (post-setup) destinations; never use these to admit unresolved setup. */
 export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
   finance: ROUTES.KAI_HOME,
@@ -236,6 +248,13 @@ export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
 
 export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
+}
+
+/** Completed Location setup is one-time and reopens its product workspace. */
+export function resolveCompletedSetupCapabilityTarget(
+  capabilityId: string,
+): string | null {
+  return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
 }
 
 /**
@@ -285,8 +304,9 @@ export function isCapabilityOnboardingRoute(
   pathname: string,
 ): boolean {
   if (!capabilityId) return false;
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (CAPABILITY_ONBOARDING_ROUTE_PREFIXES[capabilityId] || []).some(
-    (route) => pathname === route,
+    (route) => normalizedPathname === route,
   );
 }
 
@@ -294,14 +314,30 @@ export function isCapabilityOnboardingRoute(
 export function resolveOnboardingCapabilityForRoute(
   pathname: string,
 ): string | null {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   for (const [capabilityId, prefixes] of Object.entries(
     CAPABILITY_ONBOARDING_ROUTE_PREFIXES,
   )) {
-    if (prefixes.some((route) => pathname === route)) {
+    if (prefixes.some((route) => normalizedPathname === route)) {
       return capabilityId;
     }
   }
   return null;
+}
+
+/** True when completed Location setup owns the requested workspace route. */
+export function isCompletedLocationWorkspaceRoute(
+  completedCapabilityIds: readonly string[] | null | undefined,
+  pathname: string,
+): boolean {
+  if (!completedCapabilityIds?.includes("location")) {
+    return false;
+  }
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === ROUTES.ONE_LOCATION ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/`)
+  );
 }
 
 /**
@@ -311,21 +347,22 @@ export function resolveOnboardingCapabilityForRoute(
  * signed-in user away from sign-out or account deletion.
  */
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE ||
-    pathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.LOGIN ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.PROFILE ||
+    normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
@@ -477,7 +514,7 @@ export function isOneSetupRoute(pathname: string): boolean {
  * a WebView navigation). Route admission must compare the logical app route,
  * not that transport-specific pathname shape.
  */
-function normalizeStaticExportPathname(pathname: string): string {
+export function normalizeStaticExportPathname(pathname: string): string {
   const withoutIndexDocument = String(pathname || "/").replace(
     /\/index\.html$/i,
     "",
@@ -497,6 +534,12 @@ function normalizeStaticExportPathname(pathname: string): string {
  */
 export function isOneSetupCapabilityRoute(pathname: string): boolean {
   return Object.values(SETUP_CAPABILITY_ROUTES).includes(
+    normalizeStaticExportPathname(pathname),
+  );
+}
+
+export function isOneSetupNavigationRoute(pathname: string): boolean {
+  return SETUP_NAVIGATION_ROUTES.includes(
     normalizeStaticExportPathname(pathname),
   );
 }
@@ -528,25 +571,27 @@ export function isOneSetupWizardRoute(pathname: string): boolean {
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
   return (
     isOneSetupRoute(pathname) ||
+    isOneSetupNavigationRoute(pathname) ||
     isOneSetupCapabilityRoute(pathname) ||
     isOneSetupWizardRoute(pathname)
   );
 }
 
 export function isPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.LOGIN ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
@@ -556,27 +601,31 @@ export function isPublicRoute(pathname: string): boolean {
  * phone, and public invite routes have their own security/UI contracts.
  */
 export function isFoundationPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
   );
 }
 
 export function isRiaRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)
+    normalizedPathname === ROUTES.RIA_HOME ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_HOME}/`)
   );
 }
 
 export function isRiaOnboardingRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+    normalizedPathname === ROUTES.RIA_ONBOARDING ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
   );
 }
 

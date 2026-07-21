@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT:-}" != "true" ]]; then
+  echo "ios:device:ui:test uses the reviewer fixture and is disabled by default. Use the normal app session for continuity checks, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true for an intentional cold audit." >&2
+  exit 2
+fi
+
 PROJECT="ios/App/App.xcodeproj"
 SCHEME="App"
 DERIVED_DATA_PATH="${IOS_DERIVED_DATA_PATH:-ios/App/build/DerivedData}"
@@ -105,9 +110,6 @@ run_xcodebuild_with_log() {
   fi
   if [[ -f "$log_path" ]] && grep -q "Test Suite 'Selected tests' failed" "$log_path"; then
     return 1
-  fi
-  if [[ -f "$log_path" ]] && grep -q '\*\* TEST BUILD SUCCEEDED \*\*' "$log_path"; then
-    return 0
   fi
   if [[ -f "$log_path" ]] && grep -q '\*\* TEST BUILD FAILED \*\*' "$log_path"; then
     return 1

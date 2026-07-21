@@ -121,7 +121,12 @@ export function AuthStep({
 }) {
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
-  const { user, loading: authLoading, setNativeUser } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    beginPostAuthSettlement,
+    completePostAuthSettlement,
+  } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
   const lastResolvedNavigationPathRef = useRef<string | null>(null);
@@ -237,24 +242,6 @@ export function AuthStep({
     };
   }, [updateProviderAttemptPhase, user]);
 
-  const localReviewerCredentialsAvailable = useMemo(() => {
-    return Boolean(
-      resolveLocalReviewerCredentials(
-        typeof window !== "undefined" ? window.location.hostname : null,
-      ),
-    );
-  }, []);
-  const isLocalReviewerSurface = useMemo(() => {
-    if (typeof window === "undefined") {
-      return process.env.NODE_ENV !== "production";
-    }
-    const hostname = window.location.hostname.toLowerCase();
-    return (
-      process.env.NODE_ENV !== "production" ||
-      hostname === "localhost" ||
-      hostname === "127.0.0.1"
-    );
-  }, []);
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
     // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {
@@ -348,7 +335,11 @@ export function AuthStep({
       const targetPath = resumeTarget || redirectPath;
       const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
-        return lastResolvedNavigationPathRef.current;
+        return (
+          lastResolvedNavigationPathRef.current ||
+          targetPath ||
+          ROUTES.ONE_HOME
+        );
       }
       lastNavigationKeyRef.current = navigationKey;
 
@@ -385,6 +376,7 @@ export function AuthStep({
           phase:
             nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
           callbackState: "succeeded",
+          idToken: resolvedIdToken,
         }).catch((journeyError) => {
           // The existing post-auth route remains the rollback path while the
           // additive journey migration rolls out.
@@ -463,7 +455,6 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     providerAttempt?.id,
-    setNativeUser,
     resolveAndNavigate,
   ]);
 
@@ -531,12 +522,16 @@ export function AuthStep({
             dedupeWindowMs: 5_000,
           });
         }
-        setNativeUser(authenticatedUser);
-        await resolveAndNavigate(
-          authenticatedUser.uid,
-          await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber,
-        );
+        const settlementId = beginPostAuthSettlement(authenticatedUser);
+        try {
+          await resolveAndNavigate(
+            authenticatedUser.uid,
+            await authenticatedUser.getIdToken(),
+            authenticatedUser.phoneNumber,
+          );
+        } finally {
+          completePostAuthSettlement(settlementId);
+        }
       } else {
         trackEvent("auth_failed", {
           action: "reviewer",
@@ -560,13 +555,14 @@ export function AuthStep({
       );
     }
   }, [
+    beginPostAuthSettlement,
+    completePostAuthSettlement,
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
-    setNativeUser,
   ]);
 
   useEffect(() => {
@@ -685,39 +681,44 @@ export function AuthStep({
               summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
             };
           }
-          const idToken = await authenticatedUser.getIdToken();
-          if (providerAttemptRef.current?.id !== attempt.id) {
-            return {
-              status: "blocked" as const,
-              summary: "A newer sign-in attempt replaced this one.",
-            };
-          }
-          trackEvent("auth_succeeded", {
-            action: provider,
-            result: "success",
-          });
-          if (growthJourney) {
-            trackGrowthFunnelStepCompleted({
-              journey: growthJourney,
-              step: "auth_completed",
-              entrySurface: growthEntrySurface,
-              authMethod: provider,
-              dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
-              dedupeWindowMs: 5_000,
+          const settlementId = beginPostAuthSettlement(authenticatedUser);
+          try {
+            const idToken =
+              authResult.idToken || (await authenticatedUser.getIdToken());
+            if (providerAttemptRef.current?.id !== attempt.id) {
+              return {
+                status: "blocked" as const,
+                summary: "A newer sign-in attempt replaced this one.",
+              };
+            }
+            trackEvent("auth_succeeded", {
+              action: provider,
+              result: "success",
             });
+            if (growthJourney) {
+              trackGrowthFunnelStepCompleted({
+                journey: growthJourney,
+                step: "auth_completed",
+                entrySurface: growthEntrySurface,
+                authMethod: provider,
+                dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
+                dedupeWindowMs: 5_000,
+              });
+            }
+            const routeAfter = await resolveAndNavigate(
+              authenticatedUser.uid,
+              idToken,
+              authenticatedUser.phoneNumber,
+              attempt.resumeRoute,
+            );
+            return {
+              status: "succeeded" as const,
+              summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              routeAfter,
+            };
+          } finally {
+            completePostAuthSettlement(settlementId);
           }
-          setNativeUser(authenticatedUser);
-          const routeAfter = await resolveAndNavigate(
-            authenticatedUser.uid,
-            idToken,
-            authenticatedUser.phoneNumber,
-            attempt.resumeRoute,
-          );
-          return {
-            status: "succeeded" as const,
-            summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
-            routeAfter,
-          };
         })
         .catch((error: unknown) => {
           if (providerAttemptRef.current?.id !== attempt.id) {
@@ -761,12 +762,13 @@ export function AuthStep({
       return Promise.race([settlementPromise, attentionPromise]);
     },
     [
+      beginPostAuthSettlement,
+      completePostAuthSettlement,
       growthEntrySurface,
       growthJourney,
       publishProviderAttempt,
       redirectPath,
       resolveAndNavigate,
-      setNativeUser,
       updateProviderAttemptPhase,
     ],
   );
@@ -977,11 +979,11 @@ export function AuthStep({
         },
       ];
 
-  const showReviewer =
-    reviewModeConfig.enabled ||
-    nativeReviewerVisible ||
-    localReviewerCredentialsAvailable ||
-    isLocalReviewerSurface;
+  // Reviewer credentials are a governed native-test fixture, never a normal
+  // sign-in choice. Keeping this control behind the explicit test bridge
+  // prevents local/UAT configuration from leaking a fixture account into the
+  // product UI while preserving the native runner's observable test mode.
+  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
     <main

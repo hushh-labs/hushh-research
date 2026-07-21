@@ -17,6 +17,7 @@
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
     "agent_chat_messages",
+    "one_action_directive_ledger",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -123,6 +124,21 @@
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
+    },
+    {
+      "id": "one_action_directive_authority",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_action_directive_ledger"
+      ],
+      "primary_access_path": "One action directive issuance, confirmation, exactly-once consumption, settlement, cancellation, and expiry",
+      "retention_policy": "Short-lived authority metadata only; expire terminal and abandoned directives by expires_at and compact them after the replay window.",
+      "deletion_behavior": "Delete all user rows on account deletion; otherwise remove expired rows after the bounded replay and audit window.",
+      "trust_boundary": "Stores generated action identifiers, revisions, state, timing, and keyed fingerprints only; never prompts, slots, credentials, consent exports, decrypted PKM, or protected information.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_agent_session"
     },
     {
       "id": "pkm_metadata_and_scope",
@@ -348,7 +364,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table (dropped in migration 080).",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -441,10 +457,11 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_email_mailbox_state",
+        "one_email_kyc_preferences",
         "one_kyc_workflows",
         "one_kyc_client_connectors"
       ],
-      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
+      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
       "retention_policy": "Active workflow metadata retained while open; legacy dev/UAT draft_body rows are redacted by migration and terminal metadata is compacted by retention jobs.",
       "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
       "trust_boundary": "Metadata only plus public connector metadata and send/writeback hashes; no raw full email threads, connector private keys, consent export plaintext, vault contents, broad decrypted PKM, or review draft plaintext. Approved outgoing email body may be handled transiently only for Gmail send and must not be logged or persisted.",
@@ -483,6 +500,21 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "enterprise_crm_registry_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "crm_registry_audit_events"
+      ],
+      "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail.",
+      "retention_policy": "Retain configuration fingerprints, revisions, capability names, validation outcomes, and sanitized summaries for operational and security review; never retain decrypted credentials or provider response payloads.",
+      "deletion_behavior": "Operator-managed audit evidence is not user-delete scoped; redact operator linkage only when required by access-governance or legal policy.",
+      "trust_boundary": "Metadata-only evidence for registry administration. No client credentials, access tokens, CRM records, vault material, PKM information, or raw validation responses.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_append_only"
+    },
+    {
       "id": "enterprise_crm_registry",
       "owner": "iam-consent-governance",
       "data_class": "reference",
@@ -504,10 +536,11 @@
       "data_class": "provider_cache",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "crm_schema_mapping_cache"
+        "crm_schema_mapping_cache",
+        "crm_schema_catalog_cache"
       ],
-      "primary_access_path": "Connected Systems schema-mapper cache for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
-      "retention_policy": "Retain only a ready mapping for its 24-hour TTL; invalidate it immediately when the CRM schema changes or a schema-validation retry fails. The cache is rebuilt from the active registry schema and is never durable user memory.",
+      "primary_access_path": "Connected Systems provider-schema catalogue and mapper caches for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
+      "retention_policy": "Retain catalogue rows only through their bounded fresh/stale windows and ready mappings through their 24-hour TTL; invalidate immediately when the registry revision or CRM schema changes, or when schema validation fails. These caches rebuild from the active provider and are never durable user memory.",
       "deletion_behavior": "Not user-delete scoped. Rows cascade-delete with the provisioned CRM registry row and can be invalidated without affecting CRM records or user bindings.",
       "trust_boundary": "Public CRM schema metadata and normalized field-role keys only. Never store CRM records, verified profile values, record IDs, credentials, consent/vault material, prompts, telemetry plaintext, or unvalidated model output.",
       "plaintext_posture": "public_schema_metadata_and_normalized_field_keys_only",

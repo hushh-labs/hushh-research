@@ -19,6 +19,7 @@ python3 scripts/ci/test_change_aware_verification_wiring.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
+python3 scripts/ops/generate_runtime_topology_index.py --check
 python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py

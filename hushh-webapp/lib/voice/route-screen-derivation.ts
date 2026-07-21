@@ -47,6 +47,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP) {
     return { screen: "one_setup_hub", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_SETUP_CONNECTIONS) {
+    return { screen: "one_setup_connections", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_SETUP_GMAIL) {
     return { screen: "one_setup_gmail", subview: null };
   }
@@ -82,6 +85,9 @@ export function deriveVoiceRouteScreen(
     normalizedPath === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
   ) {
     return { screen: "kai_alpaca_oauth_return", subview: null };
+  }
+  if (normalizedPath === ROUTES.KAI_NEWS) {
+    return { screen: "kai_market_news", subview: null };
   }
   if (normalizedPath === KAI_MARKET_PATH) {
     const tab = query.get("tab") || "market";

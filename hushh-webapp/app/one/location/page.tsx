@@ -1541,11 +1541,19 @@ function OneLocationInitialSkeleton() {
   );
 }
 
-export function OneLocationAgentPageContent({
-  onSetupReadinessChange,
-}: {
+type OneLocationAgentPageProps = {
+  mode?: "workspace" | "setup";
   onSetupReadinessChange?: (ready: boolean) => void;
-}) {
+  onSetupComplete?: () => void | Promise<void>;
+  onSetupSkip?: () => void | Promise<void>;
+};
+
+export function OneLocationAgentPageContent({
+  mode = "workspace",
+  onSetupReadinessChange,
+  onSetupComplete,
+  onSetupSkip,
+}: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
@@ -2383,12 +2391,23 @@ export function OneLocationAgentPageContent({
       setLocationOnboardingGate("checking");
       return;
     }
-    if (!auth.userId || loadError) {
+    if (!auth.userId) {
       setLocationOnboardingGate("hidden");
       return;
     }
     if (!vaultOwnerToken) {
       setLocationOnboardingGate("checking");
+      return;
+    }
+
+    if (mode === "setup") {
+      setLocationOnboardingStep("welcome");
+      setLocationOnboardingGate("show");
+      return;
+    }
+
+    if (loadError) {
+      setLocationOnboardingGate("hidden");
       return;
     }
 
@@ -2421,6 +2440,7 @@ export function OneLocationAgentPageContent({
     auth.userId,
     loadError,
     locationOnboardingGate,
+    mode,
     vaultOwnerToken,
   ]);
 
@@ -4744,6 +4764,10 @@ export function OneLocationAgentPageContent({
   }, []);
 
   const dismissLocationOnboarding = useCallback(() => {
+    if (mode === "setup") {
+      void onSetupComplete?.();
+      return;
+    }
     // Persist only after dismissal/completion so an interrupted first run can
     // resume next time. Once complete, the entire takeover stays dismissed.
     if (typeof window !== "undefined" && auth.userId) {
@@ -4759,7 +4783,15 @@ export function OneLocationAgentPageContent({
     }
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
-  }, [auth.userId]);
+  }, [auth.userId, mode, onSetupComplete]);
+
+  const skipLocationOnboarding = useCallback(() => {
+    if (mode === "setup") {
+      void onSetupSkip?.();
+      return;
+    }
+    dismissLocationOnboarding();
+  }, [dismissLocationOnboarding, mode, onSetupSkip]);
 
   const handleSendLocationOnboardingConnectionRequests = useCallback(
     async (userIds: string[]): Promise<ConnectionRequestResult> => {
@@ -5024,8 +5056,11 @@ export function OneLocationAgentPageContent({
   }, [notificationDeliveryMode, retryPushRegistration]);
 
   const nativeTestConfig: OneLocationNativeTestConfig = {
-    routeId: "/one/location",
-    marker: "native-route-one-location",
+    routeId: mode === "setup" ? "/one/setup/location" : "/one/location",
+    marker:
+      mode === "setup"
+        ? "native-route-one-setup-location"
+        : "native-route-one-location",
     authState: auth.loading
       ? "pending"
       : auth.isAuthenticated
@@ -5038,7 +5073,7 @@ export function OneLocationAgentPageContent({
 
   const showLocationOnboarding =
     locationOnboardingGate === "show" &&
-    !loadError &&
+    (mode === "setup" || !loadError) &&
     Boolean(auth.userId && vaultOwnerToken);
 
   if (showLocationOnboarding) {
@@ -5080,6 +5115,8 @@ export function OneLocationAgentPageContent({
           onRequestLocation={handleLocationOnboardingPermission}
           onRequestNotifications={handleLocationOnboardingNotifications}
           onComplete={dismissLocationOnboarding}
+          onSkip={skipLocationOnboarding}
+          requireLocationToComplete={mode === "setup"}
         />
       </BodyPortal>
     );
@@ -6598,13 +6635,17 @@ export function OneLocationAgentPageContent({
 }
 
 export default function OneLocationAgentPage({
+  mode = "workspace",
   onSetupReadinessChange,
-}: {
-  onSetupReadinessChange?: (ready: boolean) => void;
-} = {}) {
+  onSetupComplete,
+  onSetupSkip,
+}: OneLocationAgentPageProps = {}) {
   return (
     <OneLocationAgentPageContent
+      mode={mode}
       onSetupReadinessChange={onSetupReadinessChange}
+      onSetupComplete={onSetupComplete}
+      onSetupSkip={onSetupSkip}
     />
   );
 }

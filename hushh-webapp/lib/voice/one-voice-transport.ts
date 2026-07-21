@@ -111,12 +111,29 @@ export type OneVoiceTransportStartOptions = {
 export type OneVoiceActionSettlement = {
   directiveId: string;
   actionId: string;
+  contextRevision: string;
   status: "succeeded" | "started" | "blocked" | "invalid" | "failed" | "noop";
   summary: string;
   reason?: string | null;
   routeAfter?: string | null;
   screenAfter?: string | null;
+  /**
+   * Present only when the relay has acknowledged the redacted destination
+   * snapshot on this same socket before this settlement was sent.
+   */
+  destinationContextId?: string | null;
+  /** Memory-only one-time receipt returned after the trusted confirmation tap. */
+  receipt?: string | null;
 };
+
+export type OneVoiceActionConfirmation = {
+  receipt: string;
+  expiresAt: string;
+};
+
+export type OneVoiceContextApplyResult =
+  | { status: "acknowledged"; contextId: string }
+  | { status: "timeout" | "cancelled" | "closed"; contextId: string | null };
 
 export interface RealtimeVoiceTransport {
   readonly provider: OneVoiceProvider;
@@ -134,6 +151,15 @@ export interface RealtimeVoiceTransport {
    */
   updateContext?(context: OneVoiceContextSnapshot): boolean;
   /**
+   * Publish one redacted snapshot and wait until the relay has persisted it.
+   * Journey settlements use this barrier so destination actions never run on
+   * an outgoing screen inventory.
+   */
+  applyContextAndWait?(
+    context: OneVoiceContextSnapshot,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<OneVoiceContextApplyResult>;
+  /**
    * Refresh the vault owner consent token inside an already-open session
    * (e.g. the user signs in or unlocks the vault mid-call). Without this,
    * a session started signed-out/locked stays permanently unable to reach
@@ -142,6 +168,11 @@ export interface RealtimeVoiceTransport {
    * when no live session can accept the update.
    */
   updateConsentToken?(consentToken: string | null): boolean;
+  confirmActionDirective?(input: {
+    directiveId: string;
+    actionId: string;
+    contextRevision: string;
+  }): Promise<OneVoiceActionConfirmation>;
   /**
    * Return the browser-observed result of a One-issued action. The relay
    * correlates this with the directive before it becomes model context.

@@ -13,6 +13,8 @@ declare global {
       initialRoute?: string;
       expectedRoute?: string;
       uiFlowRunId?: string;
+      runUiFlows?: boolean;
+      _uiFlowsRoutingOwned?: boolean;
       beacon?: {
         routeId: string;
         marker: string;

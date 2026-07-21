@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import {
   SetupCapabilityLoading,
@@ -27,7 +28,7 @@ export function FinanceImportOnboardingSetupClient() {
     resumeReadinessFromCallback: true,
     // Root setup may have been skipped before Finance is opened. This is still
     // an explicit Finance task and must retain the portfolio-source terminal.
-    allowResolvedRootReentry: true,
+    journeyMode: "auto",
   });
 
   if (loading || !user || !coordinator.isReady) {
@@ -36,6 +37,12 @@ export function FinanceImportOnboardingSetupClient() {
 
   return (
     <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] ">
+      <NativeTestBeacon
+        routeId="/one/setup/finance/import"
+        marker="native-route-one-setup-finance-import"
+        authState="authenticated"
+        dataState="loaded"
+      />
       <KaiFlow
         userId={user.uid}
         mode="import"

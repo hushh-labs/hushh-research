@@ -13,7 +13,7 @@ const packageJson = require("./package.json") as {
 describe("hushh-mcp CLI config output", () => {
   it("prints the MCP config through the package entrypoint executable", async () => {
     expect(packageJson.bin["hushh-mcp"]).toBe("bin/hushh-mcp.js");
-    expect(packageJson.version).toBe("0.3.0");
+    expect(packageJson.version).toBe("0.4.0");
 
     const { stdout, stderr } = await execAsync(`node ${packageJson.bin["hushh-mcp"]} --print-config`, {
       cwd: process.cwd(),
@@ -59,11 +59,11 @@ describe("hushh-mcp CLI config output", () => {
       logging: false,
     });
     expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "search_user_scopes",
-      "prepare_campaign_context",
-      "request_consent",
-      "check_consent_status",
-      "get_encrypted_scoped_export",
+      "search-user-scopes",
+      "prepare-campaign-context",
+      "request-consent",
+      "check-consent-status",
+      "get-encrypted-scoped-export",
     ]);
     for (const tool of manifest.tools) {
       expect(Object.keys(tool).sort()).toEqual([
@@ -78,7 +78,7 @@ describe("hushh-mcp CLI config output", () => {
     expect(stdout).not.toContain("HUSHH_DEVELOPER_TOKEN");
   });
 
-  it("prints the strict four-tool Agentforce UAT manifest with mapped outputs", async () => {
+  it("prints the canonical five-tool Agentforce manifest with mapped outputs", async () => {
     const { stdout, stderr } = await execAsync(
       `node ${packageJson.bin["hushh-mcp"]} --print-agentforce-manifest`,
       { cwd: process.cwd() },
@@ -87,7 +87,7 @@ describe("hushh-mcp CLI config output", () => {
     expect(stderr).toBe("");
     const manifest = JSON.parse(stdout);
     expect(manifest.profile).toBe("agentforce-uat");
-    expect(manifest.supportStatus).toBe("schema-compatible-uat-only");
+    expect(manifest.supportStatus).toBe("agentforce-catalog-compatible");
     expect(manifest.capabilities).toEqual({
       tools: true,
       resources: false,
@@ -96,10 +96,10 @@ describe("hushh-mcp CLI config output", () => {
     });
     expect(manifest.mulesoftAgentforceHandoff).toMatchObject({
       integrationTarget: "mulesoft-agentforce",
-      supportStatus: "schema-compatible-uat-only",
+      supportStatus: "agentforce-catalog-compatible",
       upstream: {
         transport: "streamable-http",
-        authentication: "oauth2-client-credentials",
+        authentication: "bearer-or-oauth2-client-credentials",
         requestTimeoutSeconds: 55,
       },
       agentforce: {
@@ -107,8 +107,8 @@ describe("hushh-mcp CLI config output", () => {
         toolsOnly: true,
       },
       executionBoundary: {
-        personalizedToolExecution: "unsupported",
-        handlerCalls: "fail-closed",
+        consentLifecycleExecution: "enabled",
+        applicationAuthentication: "oauth2-client-credentials",
       },
     });
     expect(manifest.mulesoftAgentforceHandoff.agentforce.toolAllowlist).toEqual(
@@ -116,6 +116,7 @@ describe("hushh-mcp CLI config output", () => {
     );
     expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "search-user-scopes",
+      "prepare-campaign-context",
       "request-consent",
       "check-consent-status",
       "get-encrypted-scoped-export",
@@ -138,6 +139,50 @@ describe("hushh-mcp CLI config output", () => {
     }
   });
 
+  it("prints the Exchange upload projection without host or authentication metadata", async () => {
+    const { stdout, stderr } = await execAsync(
+      `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-exchange-manifest`,
+      { cwd: process.cwd() },
+    );
+
+    expect(stderr).toBe("");
+    const manifest = JSON.parse(stdout);
+    expect(Object.keys(manifest).sort()).toEqual([
+      "capabilities",
+      "protocolVersion",
+      "tools",
+      "transport",
+    ]);
+    expect(manifest.protocolVersion).toBe("2025-06-18");
+    expect(manifest.transport).toEqual({ kind: "streamableHttp", path: "/mcp/" });
+    expect(manifest.capabilities).toEqual({
+      tools: true,
+      resources: false,
+      prompts: false,
+      logging: false,
+    });
+    expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "search-user-scopes",
+      "prepare-campaign-context",
+      "request-consent",
+      "check-consent-status",
+      "get-encrypted-scoped-export",
+    ]);
+    for (const tool of manifest.tools) {
+      expect(Object.keys(tool).sort()).toEqual([
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema",
+      ]);
+      expect(tool.outputSchema).toEqual({ type: "object" });
+    }
+    expect(stdout).not.toContain("authentication");
+    expect(stdout).not.toContain("endpoint");
+    expect(stdout).not.toContain("hostRegistration");
+    expect(stdout).not.toContain("client_secret");
+  });
+
   it("prints the non-secret MuleSoft to Agentforce handoff without widening the UAT boundary", async () => {
     const { stdout, stderr } = await execAsync(
       `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-agentforce-handoff`,
@@ -147,7 +192,7 @@ describe("hushh-mcp CLI config output", () => {
     expect(stderr).toBe("");
     const handoff = JSON.parse(stdout);
     expect(handoff.integrationTarget).toBe("mulesoft-agentforce");
-    expect(handoff.agentforce.toolAllowlist).toHaveLength(4);
+    expect(handoff.agentforce.toolAllowlist).toHaveLength(5);
     expect(handoff.relayRequirements).toEqual({
       preserveToolNames: true,
       preserveInputOutputSchemas: true,
@@ -155,7 +200,7 @@ describe("hushh-mcp CLI config output", () => {
       allowPrompts: false,
       expandNestedFields: false,
     });
-    expect(handoff.executionBoundary.personalizedToolExecution).toBe("unsupported");
+    expect(handoff.executionBoundary.consentLifecycleExecution).toBe("enabled");
     expect(stdout).not.toContain("client_secret");
     expect(stdout).not.toContain("developer-token");
   });

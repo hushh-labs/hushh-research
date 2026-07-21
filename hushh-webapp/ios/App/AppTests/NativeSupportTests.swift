@@ -17,6 +17,40 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(config.autoReviewerLogin)
     }
 
+    func testNativeUiFlowConfigurationRequiresExplicitTestMode() {
+        let ordinaryLaunch = NativeTestConfiguration(arguments: [
+            "App",
+            "-UITestRunUiFlows", "true",
+            "-UITestUiFlowRunId", "ios-run-1",
+        ])
+        let testLaunch = NativeTestConfiguration(arguments: [
+            "App",
+            "-UITestMode",
+            "-UITestRunUiFlows", "true",
+            "-UITestUiFlowRunId", "ios-run-1",
+        ])
+
+        XCTAssertFalse(ordinaryLaunch.enabled)
+        XCTAssertFalse(ordinaryLaunch.runUiFlows)
+        XCTAssertNil(ordinaryLaunch.uiFlowRunId)
+        XCTAssertTrue(testLaunch.enabled)
+        XCTAssertTrue(testLaunch.runUiFlows)
+        XCTAssertEqual(testLaunch.uiFlowRunId, "ios-run-1")
+    }
+
+    func testNativeUiFlowRoutingOwnershipSurvivesDocumentReload() {
+        let config = NativeTestConfiguration(arguments: [
+            "App",
+            "-UITestMode",
+            "-UITestRunUiFlows", "true",
+            "-UITestUiFlowRunId", "ios-run-1",
+        ])
+
+        XCTAssertTrue(config.injectedScript.contains("hasIncompleteUiFlowSession"))
+        XCTAssertTrue(config.injectedScript.contains("bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting"))
+        XCTAssertTrue(config.statusJavaScript.contains("bridge._uiFlowsRoutingOwned === true"))
+    }
+
     func testNormalizeBackendUrlRewritesLocalhost() {
         XCTAssertEqual(
             HushhProxyClient.normalizeBackendUrl("http://localhost:8000/"),

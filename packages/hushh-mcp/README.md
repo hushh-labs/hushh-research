@@ -49,30 +49,27 @@ Use this when the host expects a local stdio MCP process.
 npx -y @hushh/mcp --help
 ```
 
-### Authenticated schema profiles
+### One canonical catalog and authentication
 
-The same `/mcp/` endpoint has one consent lifecycle and an app-configured catalog projection:
+The same `/mcp/` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, MuleSoft, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
-- `standard` is the default. It preserves this package's five-tool v0.3 catalog, Codex remote bearer setup, Codex stdio bridge, Claude OAuth PKCE setup, and existing result shapes.
-- `flat` is provisioned only for constrained generic hosts. It exposes the four core lifecycle tools with shallow, described schemas and ciphertext-only export fields. It is not a second endpoint or a plaintext adapter.
-- `agentforce` is a separate, four-tool schema-registration UAT projection. It uses Salesforce-compatible hyphenated tool aliases, explicit field titles/descriptions, flat input/output schemas, and a 55-second server timeout. It exposes tools only—never MCP resources or prompts.
+Every tool uses shallow, fully described JSON Schema and returns `structuredContent` as the canonical result. `content[0].text` mirrors the same safe JSON only for MCP clients that cannot consume structured content.
 
-OAuth client credentials are issued only to explicitly provisioned constrained partner apps. They authenticate the connector, never the user. The `flat` profile may run the consent lifecycle for compatible hosts. The `agentforce` profile is intentionally blocked from user-specific tool execution: Salesforce currently documents that its MCP client does not support user-level authentication or personalized responses. Do not represent direct Agentforce consent or encrypted export as production-supported until Salesforce removes that limitation and Hussh completes a fresh production review.
+### MuleSoft Exchange and Agentforce registration
 
-### Agentforce schema-registration UAT
+When MuleSoft publishes Hussh into Agentforce, use **Upload MCP file** and upload the generated Exchange projection:
 
-Use `hushh-mcp --print-agentforce-manifest` to inspect the exact four-tool UAT catalog. It is generated from the same runtime contract that authenticated `agentforce` apps receive from `tools/list`; it is a preflight artifact, not a replacement endpoint or a deployable Salesforce registration.
+```bash
+hushh-mcp --print-mulesoft-exchange-manifest
+```
 
-For the dedicated MuleSoft → Agentforce partner app, use the generated `hushh-mcp --print-mulesoft-agentforce-handoff` baseline. It requires two distinct app-bound OAuth client-credential hops (Agentforce → MuleSoft and MuleSoft → Hussh), an API Catalog allowlist matching exactly the four generated aliases, tools only, and exact preservation of the published flat schemas. It is an implementation handoff, not a deployable Mule flow and does not turn either app credential into a Hussh user identity.
+The saved artifact is `gateway/hushh-mulesoft-exchange-mcp-schema.json`. It contains only Exchange-supported MCP fields, the same five canonical tools, and an open object output schema. It deliberately has no endpoint URL, OAuth material, host metadata, or annotations because Exchange rejects those fields before it can authenticate to Hussh.
 
-Each tool includes a semantic machine name, client-facing title and description, strictly typed flat input fields, explicit `required` entries, and a complete `outputSchema`. Preserve the published machine field names. Salesforce currently has a Builder label-rendering defect for some data types, so an administrator must verify and, if necessary, replace input/output display labels in the Asset Library after registration. JSON Schema titles improve inspection metadata but do not claim to fix that Salesforce UI defect.
+Configure the Hussh Technologies OAuth client ID and secret separately in MuleSoft's upstream connection to `https://api.uat.hushh.ai/mcp/`. MuleSoft is then the registered Agentforce boundary. Agentforce does not receive the Hussh secret.
 
-The current UAT boundary is intentionally narrow:
+`hushh-mcp --print-agentforce-manifest` remains a diagnostic preflight view of the canonical five-tool catalog. It is not the file to upload to Exchange.
 
-- register the Streamable HTTP endpoint with OAuth client credentials;
-- allowlist only the four printed tool aliases;
-- verify names, descriptions, field counts, labels, and output mappings from `tools/list`;
-- do not invoke the personalized consent/export lifecycle from Agentforce. The server returns a documented fail-closed error instead.
+MuleSoft maps `structuredContent` into Agentforce actions and does not pass its text mirror as a second planner result. Keep the API Catalog allowlist to the five generated tools and tools only. The separate `hushh-mcp --print-mulesoft-agentforce-handoff` output is relay guidance, not a deployable Mule flow and not an application credential.
 
 Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5), and [MuleSoft MCP servers in API Catalog](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mulesoft_mcp_servers.htm&language=en_US&type=5).
 
@@ -163,7 +160,7 @@ Keep local: Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoin
 
 Use when: Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.
 
-Keep local: Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors use authorization code with S256 PKCE; create a developer OAuth client and register Claude's exact callback URI first. OAuth does not replace scoped consent.
+Keep local: Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. In Advanced settings, enter the provisioned Hussh Technologies OAuth client ID and secret from the approved secret manager. Claude uses authorization code with S256 PKCE, so the exact callback https://claude.ai/api/mcp/auth_callback must be registered. OAuth does not replace scoped consent.
 
 ```json
 https://api.uat.hushh.ai/mcp/
@@ -200,30 +197,27 @@ https://api.uat.hushh.ai/mcp/
 
 ### Public tools
 
-- `search_user_scopes`
-- `prepare_campaign_context`
-- `request_consent`
-- `check_consent_status`
-- `get_encrypted_scoped_export`
+- `search-user-scopes`
+- `prepare-campaign-context`
+- `request-consent`
+- `check-consent-status`
+- `get-encrypted-scoped-export`
 
 ### Read-only resources
 
-- `hushh://info/server`
-- `hushh://info/protocol`
-- `hushh://info/connector`
-- `hushh://info/developer-api`
-- `hushh://info/consent-lifecycle`
 
-### Four-tool core consent lifecycle
 
-1. Call `search_user_scopes(user_identifier, query?, domain?, cursor?, limit?)`. An empty query lists all available scopes with pagination. Choose the narrowest returned scope that satisfies the purpose.
-2. Call `request_consent(user_identifier, scope, purpose, ...)`. An identical pending request is reused. An active exact or covering grant returns `grant_ref`; otherwise retain the returned `request_ref`.
-3. Poll `check_consent_status(request_ref)` only at the returned interval. Stop at `granted`, `denied`, `expired`, `revoked`, or `cancelled`.
-4. After approval, call `get_encrypted_scoped_export(grant_ref, expected_scope)`. A revoked or expired grant fails closed.
+### Five-tool consent lifecycle
+
+1. Call `search-user-scopes(user_identifier, query?, domain?, cursor?, limit?)`. An empty query lists all available scopes with pagination. Choose the narrowest returned scope that satisfies the purpose.
+2. Call `prepare-campaign-context(user_identifier, ...)` when an external agent or frontend needs a safe, least-privilege offer/context before approval.
+3. Call `request-consent(user_identifier, scope, purpose, ...)`. An identical pending request is reused. An active exact or covering grant returns `grant_ref`; otherwise retain the returned `request_ref`.
+4. Poll `check-consent-status(request_ref)` only at the returned interval. Stop at `granted`, `denied`, `expired`, `revoked`, or `cancelled`.
+5. After approval, call `get-encrypted-scoped-export(grant_ref, expected_scope)`. A revoked or expired grant fails closed.
 
 MCP results never echo the supplied identity, Firebase UID, consent token, developer token, connector private key, internal URL, backend payload, or exception text.
 
-`prepare_campaign_context` remains available as a compatibility one-shot for the Hussh ADK campaign agent. It uses the same four-tool lifecycle internally and returns only bounded lifecycle/export-readiness metadata. New integrations should call the four core tools directly.
+`prepare-campaign-context` is a first-class public tool. It prepares only safe offer and lifecycle state for an external agent or frontend; it never returns internal agent names, developer identifiers, tokens, user identifiers, or raw backend data.
 
 ### Stdio versus hosted encryption
 
@@ -231,9 +225,9 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 - Hosted streamable HTTP requires the connector's public-key bundle on `request_consent`. The private key stays connector-only. The tool returns the encrypted ciphertext envelope directly over MCP; decrypt it in the connector process outside model context.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 
-### Upgrade to 0.3.0
+### Upgrade to 0.4.0
 
-Version 0.3.0 is a breaking MCP catalog replacement. It removes `discover_user_domains`, `list_scopes`, and `validate_token` from MCP while retaining a hardened `prepare_campaign_context` compatibility tool for the Hussh ADK campaign agent. Consent-token validation remains internal. Replace `user_id`/`request_id`/`consent_token` tool choreography with `user_identifier` input plus `request_ref` and `grant_ref` lifecycle references.
+Version 0.4.0 publishes hyphenated tool names, the first-class `prepare-campaign-context` tool, and one host-safe schema for every external client. The v0.3 underscore names remain accepted inbound until **2026-10-20** but are no longer listed from `tools/list`. Consent-token validation remains internal. Replace `user_id`/`request_id`/`consent_token` choreography with `user_identifier` input plus `request_ref` and `grant_ref` lifecycle references.
 
 If upgrading from npm 0.1.3 or the earlier UAT MCP server 0.2.0 catalog, remove every `?token=` URL. Authentication is bearer-header-only. Raw `/api/v1` HTTP clients remain compatible; this breaking change applies to MCP tools.
 
@@ -278,11 +272,7 @@ If no country hint is provided, national phone numbers stay ambiguous and are no
 
 Read-only self-documentation resources:
 
-- `hushh://info/server`
-- `hushh://info/protocol`
-- `hushh://info/connector`
-- `hushh://info/developer-api`
-- `hushh://info/consent-lifecycle`
+
 
 - Python 3 must be available locally.
 - The first full stdio launch creates a local cache and installs the bundled Python requirements.

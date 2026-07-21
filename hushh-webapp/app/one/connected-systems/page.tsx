@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Network } from "lucide-react";
-
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -54,13 +52,13 @@ export default function ConnectedSystemsPage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Connected systems"
-          description="Review the records linked to your CRM systems and approve each change."
-          icon={Network}
-          accent="success"
+          description="Set up and manage profiles with your connected CRM systems."
+          accent="neutral"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="list"

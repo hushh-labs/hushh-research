@@ -21,16 +21,16 @@ describe("onboarding capability copy", () => {
       actionLabel: "Set up KYC",
       resumeActionLabel: "Finish KYC",
     });
-    expect(email?.setupBlurb).toContain("responses for your approval");
+    expect(email?.setupBlurb).toContain("one@hushh.ai");
   });
 
-  it("frames connected systems as a record-linking decision", () => {
+  it("uses the canonical CRM name for record setup", () => {
     const connectedSystems = getCapabilitySetupCopy("connected-systems");
 
     expect(connectedSystems).toMatchObject({
-      setupTitle: "Link your record to external systems",
-      actionLabel: "Link your record",
+      setupTitle: "CRM",
+      actionLabel: "Set up CRM",
     });
-    expect(connectedSystems?.setupBlurb).toContain("your approval");
+    expect(connectedSystems?.setupBlurb).toContain("verified identity");
   });
 });

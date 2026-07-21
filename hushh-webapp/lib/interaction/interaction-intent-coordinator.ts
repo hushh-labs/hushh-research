@@ -24,11 +24,27 @@ export type InteractionIntentStatus =
   | "cancelled"
   | "rejected";
 
+/** A screen change crossfades; a query-owned workspace selection commits in place. */
+export type NavigationTransitionMode = "full" | "contextual";
+
+/**
+ * The sole app-shell lifecycle signal shared by React consumers. This carries
+ * no route, credential, vault, or transcript information.
+ */
+export type AppLifecycleState = "active" | "background";
+
+export type AppLifecycleSnapshot = {
+  state: AppLifecycleState;
+  revision: number;
+  occurredAtMs: number;
+};
+
 export type InteractionIntent = {
   id: string;
   source: InteractionIntentSource;
   kind: InteractionIntentKind;
   target: string | null;
+  transitionMode: NavigationTransitionMode | null;
   routeRevision: number | null;
   status: InteractionIntentStatus;
   createdAtMs: number;
@@ -83,6 +99,11 @@ export type DirectiveSettlement = {
   reason?: string | null;
   routeAfter?: string | null;
   screenAfter?: string | null;
+  /**
+   * Redacted destination-screen snapshot acknowledged on this voice session
+   * before the directive settlement was sent. It is never raw route context.
+   */
+  destinationContextId?: string | null;
 };
 
 type VoiceLeaseRecord = {
@@ -127,8 +148,14 @@ export class InteractionIntentCoordinator {
   private intents: InteractionIntent[] = [];
   private actionRuns: ActionRun[] = [];
   private listeners = new Set<() => void>();
+  private lifecycleListeners = new Set<() => void>();
   private snapshot: readonly InteractionIntent[] = immutableSnapshot([]);
   private actionRunSnapshot: readonly ActionRun[] = Object.freeze([]);
+  private lifecycleSnapshot: Readonly<AppLifecycleSnapshot> = Object.freeze({
+    state: "active",
+    revision: 0,
+    occurredAtMs: 0,
+  });
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -138,6 +165,14 @@ export class InteractionIntentCoordinator {
   getSnapshot = (): readonly InteractionIntent[] => this.snapshot;
 
   getActionRunsSnapshot = (): readonly ActionRun[] => this.actionRunSnapshot;
+
+  subscribeLifecycle = (listener: () => void): (() => void) => {
+    this.lifecycleListeners.add(listener);
+    return () => this.lifecycleListeners.delete(listener);
+  };
+
+  getLifecycleSnapshot = (): Readonly<AppLifecycleSnapshot> =>
+    this.lifecycleSnapshot;
 
   getActiveActionRun = (): ActionRun | null => {
     for (let index = this.actionRuns.length - 1; index >= 0; index -= 1) {
@@ -243,6 +278,7 @@ export class InteractionIntentCoordinator {
     target: string;
     source: InteractionIntentSource;
     routeRevision?: number | null;
+    transitionMode?: NavigationTransitionMode;
     start: (intent: InteractionIntent) => (reason: string) => void;
   }): InteractionIntent {
     const active = this.activeNavigation;
@@ -263,6 +299,7 @@ export class InteractionIntentCoordinator {
       source: input.source,
       kind: "navigation",
       target: input.target,
+      transitionMode: input.transitionMode ?? "full",
       routeRevision: input.routeRevision ?? null,
       status: "accepted",
     });
@@ -309,6 +346,7 @@ export class InteractionIntentCoordinator {
       source: "voice",
       kind: "voice_session",
       target: input.owner,
+      transitionMode: null,
       routeRevision: null,
       status: "accepted",
     });
@@ -340,7 +378,15 @@ export class InteractionIntentCoordinator {
     active.onRevoked(reason);
   }
 
-  handleLifecycle(state: "active" | "background"): void {
+  handleLifecycle(state: AppLifecycleState): void {
+    if (this.lifecycleSnapshot.state === state) return;
+    this.lifecycleSnapshot = Object.freeze({
+      state,
+      revision: this.lifecycleSnapshot.revision + 1,
+      occurredAtMs: Date.now(),
+    });
+    for (const listener of this.lifecycleListeners) listener();
+
     if (state === "active") return;
     if (this.activeNavigation) {
       this.cancelNavigation(this.activeNavigation.intent.id, "app_backgrounded");

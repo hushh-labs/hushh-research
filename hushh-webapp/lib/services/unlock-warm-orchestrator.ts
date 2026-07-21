@@ -17,6 +17,8 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
+import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
@@ -32,6 +34,7 @@ export type UnlockWarmResult = {
   consentsWarmed: boolean;
   vaultStatusWarmed: boolean;
   locationStateWarmed: boolean;
+  agentContextWarmed: boolean;
 };
 
 type WarmPriority =
@@ -370,6 +373,7 @@ export class UnlockWarmOrchestrator {
       warmPriority === "profile" ||
       warmPriority === "default";
     const statusItems = [
+      "Getting One ready for a new chat",
       shouldWarmFinancial || shouldHydrateFinancialCacheOnly ? "Getting your portfolio information ready" : null,
       shouldWarmMetadata ? "Refreshing your profile details" : null,
       shouldWarmConsents ? "Refreshing your consent list" : null,
@@ -403,7 +407,31 @@ export class UnlockWarmOrchestrator {
       consentsWarmed: false,
       vaultStatusWarmed: false,
       locationStateWarmed: false,
+      agentContextWarmed: false,
     };
+    // This entire orchestrator is already detached from the unlock UI. Start
+    // One's redacted, process-memory-only working set immediately and let the
+    // remaining route warmups continue in parallel.
+    const agentContextWarmPromise = warmAgentPkmContext({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    })
+      .then(() => true)
+      .catch((error) => {
+        console.warn("[UnlockWarmOrchestrator] Agent context warm-up failed:", error);
+        return false;
+      });
+    const runtimeConfigurationWarmPromise = warmGeminiRuntimeConnection({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      console.warn(
+        "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
+        error,
+      );
+    });
     let symbols: string[] = [];
     let prewarmedFinancialDomain: Record<string, unknown> | null = null;
     let financialHydrated = false;
@@ -658,6 +686,11 @@ export class UnlockWarmOrchestrator {
       this.queueConsentExportRefresh(params);
     }
 
+    [result.agentContextWarmed] = await Promise.all([
+      agentContextWarmPromise,
+      runtimeConfigurationWarmPromise.then(() => undefined),
+    ]);
+
     const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
     trackEvent("startup_readiness_warmup_completed", {
       result: "success",
@@ -671,6 +704,7 @@ export class UnlockWarmOrchestrator {
       dashboard_picks_warmed: result.dashboardPicksWarmed,
       consents_warmed: result.consentsWarmed,
       vault_status_warmed: result.vaultStatusWarmed,
+      agent_context_warmed: result.agentContextWarmed,
     });
     AppBackgroundTaskService.completeTask(
       taskId,
@@ -697,6 +731,7 @@ export class UnlockWarmOrchestrator {
       dashboard_picks_warmed: false,
       consents_warmed: false,
       vault_status_warmed: false,
+      agent_context_warmed: false,
     });
     AppBackgroundTaskService.failTask(
       taskId,

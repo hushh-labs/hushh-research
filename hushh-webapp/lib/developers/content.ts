@@ -20,6 +20,11 @@ export type ConsentFlowStep = {
   detail: string;
 };
 
+export type PublicMcpTool = {
+  name: string;
+  summary: string;
+};
+
 export type RestEndpoint = {
   method: "GET" | "POST";
   path: string;
@@ -155,13 +160,6 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
 
 export const PUBLIC_TOOL_NAMES = [...MCP_PUBLIC_DOCS.publicTools] as const;
 export const MCP_PROTOCOL_REVISION = MCP_PUBLIC_DOCS.mcpProtocolRevision;
-export const CORE_CONSENT_LIFECYCLE_TOOLS = [
-  "search_user_scopes",
-  "request_consent",
-  "check_consent_status",
-  "get_encrypted_scoped_export",
-] as const;
-export const STANDARD_CATALOG_COMPATIBILITY_TOOL = "prepare_campaign_context";
 export const PUBLIC_RESOURCE_URIS = [...MCP_PUBLIC_DOCS.publicResources] as const;
 export const PUBLIC_MCP_ENVIRONMENT = {
   label: MCP_PUBLIC_DOCS.promotedEnvironment.label,
@@ -181,24 +179,43 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Discover",
     detail:
-      "Call search_user_scopes with the caller-supplied user identifier to inspect the exact scopes available for this person right now.",
+      "Call search-user-scopes with the caller-supplied user identifier to inspect the exact scopes available for that person right now.",
   },
   {
     title: "Request",
     detail:
-      "Call request_consent with one returned scope and a plain-language purpose. Hosted connectors provide their X25519 public-key bundle here; local stdio manages its own keypair.",
+      "Call request-consent with one returned scope and a plain-language purpose. Hosted connectors provide their X25519 public-key bundle here; local stdio manages its own keypair.",
   },
   {
     title: "Approve",
     detail:
-      "The user reviews the request inside Kai, where your app display name and policy/support links are shown.",
+      "The person reviews the request in the Hussh Consent Center, where your app identity, purpose, and policy links are shown.",
   },
   {
     title: "Read",
     detail:
-      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns an encrypted-inline envelope and ciphertext for connector-side decryption; structuredContent is canonical and its text mirror keeps older MCP hosts compatible.",
+      "Use grant_ref with get-encrypted-scoped-export. Hosted MCP returns an encrypted envelope for connector-side decryption; structuredContent is canonical and its text mirror supports older MCP hosts.",
   },
 ];
+
+const PUBLIC_MCP_TOOL_SUMMARIES: Readonly<Record<string, string>> = {
+  "search-user-scopes":
+    "Find the least-privilege scopes currently available for one person.",
+  "prepare-campaign-context":
+    "Prepare safe offer and lifecycle state for an external agent or product surface.",
+  "request-consent":
+    "Create or reuse a consent request for one scope and purpose.",
+  "check-consent-status":
+    "Poll one consent request until it reaches a terminal state.",
+  "get-encrypted-scoped-export":
+    "Retrieve the encrypted export for an approved scoped grant.",
+};
+
+export const PUBLIC_MCP_TOOLS: readonly PublicMcpTool[] =
+  PUBLIC_TOOL_NAMES.map((name) => ({
+    name,
+    summary: PUBLIC_MCP_TOOL_SUMMARIES[name] ?? "Public Hussh consent MCP tool.",
+  }));
 
 export const REST_ENDPOINTS: RestEndpoint[] = [
   {
@@ -260,7 +277,7 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "Does developer login grant information access?",
     answer:
-      "No. Login enables your developer workspace and app token. Personal information still requires a separate consent decision inside Kai.",
+      "No. Login enables your developer workspace and app token. Personal information still requires a separate consent decision in the Hussh Consent Center.",
   },
   {
     question: "What is the one scalable read path?",
@@ -280,7 +297,7 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "Where does consent approval happen?",
     answer:
-      "Inside Kai. Your external agent requests consent, but the user approves or denies it in the Hussh product surface.",
+      "In the Hussh Consent Center. Your external agent requests consent, but the person approves or denies it in the Hussh product surface.",
   },
   {
     question: "When is a connector key required?",
@@ -295,13 +312,13 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
 ];
 
 export const DEVELOPER_ACCESS_NOTES = [
-  "One developer app is created per signed-in Kai account.",
+  "One developer app is created per signed-in Hussh account.",
   "One active developer token is kept at a time. Rotate it whenever you need a fresh credential.",
   "Consent prompts show your app identity, not a raw token or opaque agent id.",
 ];
 
 export const DEVELOPER_SCOPE_NOTES = [
-  "Scopes are still evolving as Kai adds richer PKM coverage and tighter domain metadata.",
+  "Scopes evolve as Hussh adds richer private-agent coverage and tighter domain metadata.",
   "Discover available scopes per user at runtime instead of hardcoding a fixed universal list.",
   "The current Kai test-user shape is mostly financial, so early community integrations should expect financial-first examples.",
   "A broader active grant can satisfy a narrower request, but a narrower active grant never auto-upgrades to a broader parent scope.",
@@ -349,9 +366,9 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
     },
     {
       id: "rest",
-      title: "REST API",
+      title: "Compatibility HTTP API",
       summary:
-        "Use the versioned developer API for dynamic scope discovery, consent requests, and status polling.",
+        "Use the versioned HTTP API only when you need direct lifecycle control outside an MCP host.",
     },
     {
       id: "npm",

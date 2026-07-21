@@ -134,6 +134,27 @@ async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_agent_contract_uses_minimal_thinking_for_schema_workers():
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="gemini-3.5-flash"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    config = generate_content.await_args.kwargs["config"]
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "MINIMAL"
+
+
+@pytest.mark.asyncio
 async def test_agent_contract_retries_transient_resource_exhausted(monkeypatch):
     class ResourceExhaustedError(Exception):
         status_code = 429

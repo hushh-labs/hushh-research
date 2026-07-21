@@ -12,6 +12,7 @@ vi.mock("next-themes", () => ({
 }));
 
 import { ThemeToggleLean } from "@/components/theme-toggle";
+import { nextThemePreference } from "@/lib/theme/theme-preference";
 
 describe("ThemeToggleLean", () => {
   beforeEach(() => {
@@ -49,5 +50,12 @@ describe("ThemeToggleLean", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("cycles System, Light, and Dark without losing the System preference", () => {
+    expect(nextThemePreference("system")).toBe("light");
+    expect(nextThemePreference("light")).toBe("dark");
+    expect(nextThemePreference("dark")).toBe("system");
+    expect(nextThemePreference(undefined)).toBe("light");
   });
 });

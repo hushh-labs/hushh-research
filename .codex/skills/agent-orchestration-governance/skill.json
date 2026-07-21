@@ -20,7 +20,8 @@
     "future-planner"
   ],
   "task_types": [
-    "agent-orchestration-governance"
+    "agent-orchestration-governance",
+    "runtime-topology-maintenance"
   ],
   "required_reads": [
     "AGENTS.md",

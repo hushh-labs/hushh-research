@@ -3,6 +3,7 @@ import {
   resolveTopShellTabSet,
   type TopShellTabSet,
 } from "@/lib/navigation/top-shell-tabs";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export type TopContentOffsetMode = "normal" | "fullscreen-flow";
 export type TopShellRouteProfileId =
@@ -74,13 +75,21 @@ export function isTopShellFullscreenFlowRoute(pathname: string): boolean {
 
 function splitRouteKey(routeKey: string): {
   pathname: string;
-  searchParams: URLSearchParams;
+  normalizedRouteKey: string;
 } {
   const [pathnameWithHash, query = ""] = String(routeKey ?? "").split("?", 2);
-  const pathname = (pathnameWithHash ?? "").split("#", 1)[0] || "/";
+  const rawPathname = (pathnameWithHash ?? "").split("#", 1)[0] || "/";
+  // Capacitor's static export resolves index routes with a trailing slash
+  // (`/one/`). Shell identity must use the same canonical pathname as web so
+  // the One brand and every route-derived chrome decision remain identical.
+  const pathname =
+    rawPathname === "/" ? "/" : rawPathname.replace(/\/+$/, "") || "/";
+  const normalizedQuery = query.split("#", 1)[0];
   return {
     pathname,
-    searchParams: new URLSearchParams(query.split("#", 1)[0]),
+    normalizedRouteKey: normalizedQuery
+      ? `${pathname}?${normalizedQuery}`
+      : pathname,
   };
 }
 
@@ -91,11 +100,14 @@ export function shouldShowKaiTabsInTopShell(routeKey: string): boolean {
 export function resolveTopShellRouteProfile(
   routeKey: string,
 ): TopShellRouteProfile {
-  const { pathname } = splitRouteKey(routeKey);
-  const tabs = resolveTopShellTabSet(routeKey);
+  const { pathname, normalizedRouteKey } = splitRouteKey(routeKey);
+  const tabs = resolveTopShellTabSet(normalizedRouteKey);
   const mode = resolveAppRouteLayoutMode(pathname);
-  const navigation: TopShellNavigationConfig = { pathname, routeKey };
-  const brand = pathname === "/one" ? ("one" as const) : undefined;
+  const navigation: TopShellNavigationConfig = {
+    pathname,
+    routeKey: normalizedRouteKey,
+  };
+  const brand = pathname === ROUTES.ONE_HOME ? ("one" as const) : undefined;
 
   switch (mode) {
     case "hidden":

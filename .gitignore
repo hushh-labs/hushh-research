@@ -93,6 +93,7 @@ continue-dev-tools-usage.md
 # Local temp artifacts
 temp/
 tmp/
+consent-protocol/config/crm-registry/*.json
 .playwright-artifacts/
 .playwright-mcp/
 /test-results/

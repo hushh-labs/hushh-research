@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   appInteractionCoordinator,
   type InteractionIntentSource,
+  type NavigationTransitionMode,
 } from "@/lib/interaction/interaction-intent-coordinator";
 
 /**
@@ -22,14 +23,13 @@ import {
  *
  *   1. Same-origin link clicks are intercepted directly (earliest possible
  *      exit start, before React re-renders).
- *   2. ALL programmatic navigation — `router.push` / `router.replace` from
- *      buttons, the bottom nav, tab bars, the top app bar, onboarding handlers,
- *      voice/agent runtimes, guards, anything — is caught by patching the
- *      History API (`history.pushState` / `history.replaceState`) ONCE. Next.js
- *      App Router routes every programmatic navigation through those two
- *      methods, so wrapping them is the one place that covers all ~185 call
- *      sites without editing a single one. The patch fades the outgoing page
- *      OUT, then defers the real history mutation by one exit beat.
+ *   2. Programmatic navigation that has not yet migrated to the interaction
+ *      coordinator is observed through the History API. Next.js requires its
+ *      `pushState` / `replaceState` writes to complete synchronously, so this
+ *      observer may start the visual envelope but MUST NOT defer, replay, or
+ *      become the authority for the history mutation. Deferring those writes
+ *      makes the App Router retry them and trips WebKit's 100-writes-per-10s
+ *      safety limit during native authentication.
  *   3. Browser back/forward (`popstate`) plays the ENTER beat once the route
  *      resolves (the outgoing frame is already gone on a real history pop).
  *
@@ -47,8 +47,8 @@ import {
 // Kept in sync with the route-transition motion tokens in globals.css
 // (--motion-route-exit-duration / --motion-route-enter-duration). Longer,
 // gentler beats so navigation glides instead of feeling abrupt.
-const EXIT_MS = 500;
-const ENTER_MS = 600;
+const EXIT_MS = 300;
+const ENTER_MS = 360;
 const MAX_PENDING_MS = 9_000;
 const SETTLE_MS = 200;
 
@@ -64,10 +64,9 @@ let settleTimer: number | null = null;
 let commitTimer: number | null = null;
 let activeRouteIntentId: string | null = null;
 
-// True while the exit beat is playing and we are about to perform the *real*
-// history mutation. Lets the patched pushState/replaceState recognise the
-// deferred call we issue from beginRouteTransition and pass it straight through
-// to the original method instead of starting a second envelope.
+// True while an explicitly coordinated navigation is committing. The History
+// observer recognises the router's resulting write and passes it through
+// without starting a second visual envelope.
 let transitionInFlight = false;
 
 function reducedMotion(): boolean {
@@ -110,6 +109,7 @@ export function beginRouteTransition(
   targetHref: string,
   navigate: () => void,
   source: InteractionIntentSource = "programmatic",
+  transitionMode: NavigationTransitionMode = "full",
 ): void {
   if (typeof window === "undefined") {
     navigate();
@@ -118,10 +118,11 @@ export function beginRouteTransition(
   appInteractionCoordinator.requestNavigation({
     target: targetHref,
     source,
+    transitionMode,
     start: (intent) => {
       activeRouteIntentId = intent.id;
       clearRouteTimers();
-      if (reducedMotion()) {
+      if (transitionMode === "contextual" || reducedMotion()) {
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
@@ -184,8 +185,9 @@ export function beginRouteTransition(
 }
 
 // ---------------------------------------------------------------------------
-// History API patch — the single layout-level chokepoint that gives EVERY
-// programmatic navigation the same exit -> enter envelope as link clicks.
+// History API observer — a compatibility visual chokepoint for programmatic
+// navigation that has not yet migrated to the coordinator. It must never delay
+// or replay Next.js's synchronous history mutation.
 // ---------------------------------------------------------------------------
 
 type HistoryMethod = "pushState" | "replaceState";
@@ -242,7 +244,7 @@ function patchHistory(): () => void {
       unused: string,
       url?: string | URL | null,
     ) {
-      // Already inside the deferred real navigation, or motion is disabled,
+      // Already inside an explicitly coordinated navigation, motion is disabled,
       // or this is a same-page write — perform it immediately.
       const target = transitionInFlight
         ? null
@@ -254,11 +256,18 @@ function patchHistory(): () => void {
         return original(data, unused, url ?? "");
       }
 
-      // Run the exit beat, then perform the real history mutation. replaceState
-      // keeps replace semantics; pushState keeps push semantics.
-      beginRouteTransition(target, () => original(data, unused, url ?? ""));
-      // Return synchronously; Next.js does not rely on the return value here.
-      return undefined as unknown as void;
+      // Compatibility callers did not open a coordinator intent before Next
+      // reached the History API. Start only the visual half here and preserve
+      // the native synchronous mutation contract. Deferring or replaying this
+      // call makes Next retry the write in a tight loop on WebKit.
+      clearRouteTimers();
+      setRouteState("pending");
+      maxPendingTimer = window.setTimeout(
+        () => setRouteState("idle"),
+        MAX_PENDING_MS,
+      );
+      settleTimer = window.setTimeout(playEnter, EXIT_MS + SETTLE_MS);
+      return original(data, unused, url ?? "");
     } as History[HistoryMethod];
   };
 
@@ -309,8 +318,12 @@ function setRouteState(state: RouteTransitionState) {
 
 export function useRouteTransition() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const mounted = useRef(false);
+  const routeKey = searchParams.size
+    ? `${pathname}?${searchParams.toString()}`
+    : pathname;
 
   useEffect(() => {
     function onClick(event: MouseEvent) {
@@ -336,10 +349,8 @@ export function useRouteTransition() {
     }
 
     setRouteState("idle");
-    // Patch history ONCE so every programmatic router.push/replace flows through
-    // the same exit -> enter envelope (see patchHistory). This is the layout-
-    // level chokepoint that makes the crossfade uniform without editing call
-    // sites.
+    // Observe history ONCE so compatibility router.push/replace callers receive
+    // the visual envelope without delaying or replaying Next.js's mutation.
     const restoreHistory = patchHistory();
     document.addEventListener("click", onClick, true);
     window.addEventListener("pageshow", onPageShow);
@@ -362,7 +373,7 @@ export function useRouteTransition() {
     };
   }, [router]);
 
-  // The resolved pathname change is the single, authoritative signal that the
+  // The resolved route key is the single, authoritative signal that the
   // NEW route has mounted — so this effect OWNS the enter beat for every
   // navigation path:
   //   • full envelope (link/programmatic): exit set "pending"; we now flip it to
@@ -370,27 +381,47 @@ export function useRouteTransition() {
   //     guess and no double-fire — the settle timer is now only a fallback).
   //   • browser back/forward + reduced-motion-skipped nav: state is "idle"; we
   //     still reveal the incoming frame.
-  // Reserving on pathname (not search) means shallow query/hash writes never
-  // re-trigger the enter beat, which is what made other routes feel abnormal.
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
-    if (reducedMotion()) {
-      if (activeRouteIntentId) {
+    const activeIntent = appInteractionCoordinator
+      .getSnapshot()
+      .find((intent) => intent.id === activeRouteIntentId);
+    const activeTarget = activeIntent?.target
+      ? new URL(activeIntent.target, window.location.origin)
+      : null;
+    const targetRouteKey = activeTarget
+      ? `${activeTarget.pathname}${activeTarget.search}`
+      : null;
+    const isContextualIntent = activeIntent?.transitionMode === "contextual";
+
+    if (isContextualIntent) {
+      if (targetRouteKey === routeKey && activeRouteIntentId) {
         appInteractionCoordinator.settleNavigation(
           activeRouteIntentId,
-          "pathname_settled",
+          "contextual_route_key_settled",
+        );
+        activeRouteIntentId = null;
+      }
+      return;
+    }
+
+    if (reducedMotion()) {
+      if (activeRouteIntentId && targetRouteKey === routeKey) {
+        appInteractionCoordinator.settleNavigation(
+          activeRouteIntentId,
+          "route_key_settled",
         );
         activeRouteIntentId = null;
       }
       return;
     }
     playEnter();
-    if (activeRouteIntentId) {
-      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "pathname_settled");
+    if (activeRouteIntentId && targetRouteKey === routeKey) {
+      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "route_key_settled");
       activeRouteIntentId = null;
     }
-  }, [pathname]);
+  }, [pathname, routeKey]);
 }

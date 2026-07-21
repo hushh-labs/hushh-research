@@ -10,14 +10,17 @@ import {
   buildOneSetupCapabilityRoute,
   buildWelcomeRoute,
   isCapabilityHandoffTarget,
+  isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
   isOneSetupCapabilityRoute,
+  isOneSetupNavigationRoute,
   isOneSetupSurfaceRoute,
   isOneSetupWizardRoute,
   isOneSetupRoute,
   isPublicRoute,
   isRiaRoute,
   resolveCapabilityHandoffTarget,
+  resolveCompletedSetupCapabilityTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -234,6 +237,11 @@ describe("navigation routes", () => {
     expect(isOneSetupSurfaceRoute("/one/setup/kai")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/gmail")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/gmail/")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections/")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/connections/index.html")).toBe(
+      true,
+    );
     expect(isOneSetupSurfaceRoute("/one")).toBe(false);
     expect(isOneSetupSurfaceRoute("/one/kai")).toBe(false);
   });
@@ -253,6 +261,9 @@ describe("navigation routes", () => {
     expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(
       true,
     );
+    expect(isOneSetupCapabilityRoute("/one/setup/connections")).toBe(false);
+    expect(isOneSetupNavigationRoute("/one/setup/connections")).toBe(true);
+    expect(isOneSetupNavigationRoute("/one/setup/connections/")).toBe(true);
 
     // Retired setup-only ids remain ordinary product surfaces, not account
     // setup routes.
@@ -299,5 +310,39 @@ describe("navigation routes", () => {
     expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP)).toBe(false);
     expect(isCapabilityHandoffTarget(ROUTES.ONE_HOME)).toBe(false);
     expect(isCapabilityHandoffTarget("/one/marketplace")).toBe(false);
+  });
+
+  it("admits only completed capability workspaces", () => {
+    expect(
+      isCompletedLocationWorkspaceRoute(["location"], "/one/location"),
+    ).toBe(true);
+    expect(
+      isCompletedLocationWorkspaceRoute(
+        ["location"],
+        "/one/location/index.html",
+      ),
+    ).toBe(true);
+    expect(
+      isCompletedLocationWorkspaceRoute(["location"], "/one/location/invite"),
+    ).toBe(true);
+    expect(
+      isCompletedLocationWorkspaceRoute(["gmail"], "/one/location"),
+    ).toBe(false);
+    expect(
+      isCompletedLocationWorkspaceRoute(["unknown"], "/one/location"),
+    ).toBe(false);
+    expect(isCompletedLocationWorkspaceRoute([], "/one/location")).toBe(
+      false,
+    );
+    expect(
+      isCompletedLocationWorkspaceRoute(["gmail"], "/one/gmail"),
+    ).toBe(false);
+  });
+
+  it("reopens completed Location setup on the main Location workspace", () => {
+    expect(resolveCompletedSetupCapabilityTarget("location")).toBe(
+      "/one/location",
+    );
+    expect(resolveCompletedSetupCapabilityTarget("gmail")).toBeNull();
   });
 });

@@ -38,6 +38,13 @@ class AccountService:
                 "DELETE FROM actor_verified_email_aliases WHERE user_id = :user_id"
             ),
             "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
+            "one_action_directive_ledger": text(
+                "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
+            ),
+            "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
+            "agent_chat_conversations": text(
+                "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
+            ),
             "consent_export_refresh_jobs": text(
                 "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
             ),
@@ -477,6 +484,9 @@ class AccountService:
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "one_action_directive_ledger",
+                "agent_chat_messages",
+                "agent_chat_conversations",
                 "kai_funding_trade_events",
                 "kai_funding_trade_intents",
                 "kai_funding_transfer_events",
@@ -842,6 +852,9 @@ class AccountService:
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
+                        "one_action_directive_ledger",
+                        "agent_chat_messages",
+                        "agent_chat_conversations",
                         "kai_funding_trade_events",
                         "kai_funding_trade_intents",
                         "kai_funding_transfer_events",

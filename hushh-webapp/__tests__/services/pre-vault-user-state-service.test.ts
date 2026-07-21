@@ -87,6 +87,30 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     );
   });
 
+  it("uses the settled native sign-in token without starting a second token lookup", async () => {
+    const userId = "bootstrap-native-apple-user";
+    apiJsonMock.mockResolvedValue({
+      userId,
+      hasVault: false,
+      phoneVerified: false,
+      setupCompleted: false,
+    });
+
+    await PreVaultUserStateService.bootstrapState(userId, {
+      idToken: "native-apple-id-token",
+    });
+
+    expect(getIdTokenMock).not.toHaveBeenCalled();
+    expect(apiJsonMock).toHaveBeenCalledWith(
+      "/api/vault/bootstrap-state",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer native-apple-id-token",
+        }),
+      }),
+    );
+  });
+
   it("keeps explicit force refreshes outside the session single-flight", async () => {
     const userId = "bootstrap-force-user";
     getIdTokenMock.mockResolvedValue("firebase-token");
@@ -135,5 +159,32 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       OneSetupCompletionHintService.isResolved(incompleteUserId),
     ).toBe(false);
     expect(OneSetupCompletionHintService.isResolved(unknownUserId)).toBe(true);
+  });
+
+  it("persists the explicit Connections choice without replacing capability markers", async () => {
+    const userId = "bootstrap-runtime-choice-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["finance"],
+      })
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["connections", "finance"],
+      });
+
+    const state = await PreVaultUserStateService.markOneRuntimeChoice(userId);
+
+    expect(PreVaultUserStateService.hasOneRuntimeChoice(state)).toBe(true);
+    expect(state.setupCapabilityIds).toEqual(["connections", "finance"]);
+    expect(apiJsonMock).toHaveBeenCalledTimes(2);
+    const updateOptions = apiJsonMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(updateOptions.body))).toEqual({
+      userId,
+      setupCapabilityIds: ["connections", "finance"],
+    });
   });
 });

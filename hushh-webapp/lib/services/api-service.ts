@@ -130,10 +130,18 @@ function isLocalNativeHost(host: string | null): boolean {
 
 function normalizeNativeBackendUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/$/, "");
-  if (Capacitor.getPlatform() !== "android") {
+  const platform = Capacitor.getPlatform();
+  const backendHost = hostFromUrl(trimmed);
+  // The iOS simulator prefers IPv6 for `localhost`. Our local FastAPI runtime
+  // intentionally binds IPv4 loopback, so direct WebView/Capacitor requests
+  // otherwise fail before setup can fetch its progress. Keep hosted and
+  // physical-device builds untouched; only the local loopback spelling changes.
+  if (platform === "ios" && backendHost === "localhost") {
+    return trimmed.replace("localhost", "127.0.0.1");
+  }
+  if (platform !== "android") {
     return trimmed;
   }
-  const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
   }
@@ -256,6 +264,15 @@ export class MarketInsightsEmptyError extends Error {
   constructor() {
     super("Market insights are not ready yet.");
     this.name = "MarketInsightsEmptyError";
+  }
+}
+
+export class MarketNewsSnapshotChangedError extends Error {
+  readonly status = 409;
+
+  constructor() {
+    super("Market news refreshed. Start again to see the latest headlines.");
+    this.name = "MarketNewsSnapshotChangedError";
   }
 }
 
@@ -479,15 +496,30 @@ async function apiFetch(
       }
 
       const method = (options.method || "GET").toUpperCase();
+      // CapacitorHttp has no per-request AbortSignal or default timeout, so a
+      // slow backend hangs the native request indefinitely (the web path is
+      // bounded by fetch + the Next proxy). Bound it explicitly: a generous
+      // ceiling for the RIA scrape routes, a tight one otherwise.
+      const isLongRunningRoute =
+        path.includes("/ria/onboarding/") ||
+        path.includes("/ria/profile/refresh-license");
+      // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
+      // only ever bound a genuinely hung request (native calls were previously
+      // unbounded — keep legitimately-slow uploads/downloads working).
+      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
       const request: {
         url: string;
         method: string;
         headers?: Record<string, string>;
         data?: unknown;
+        connectTimeout?: number;
+        readTimeout?: number;
       } = {
         url,
         method,
         headers: mergedHeaders,
+        connectTimeout: 15_000,
+        readTimeout: readTimeoutMs,
       };
 
         if (options.body !== undefined && options.body !== null && method !== "GET") {
@@ -541,7 +573,37 @@ async function apiFetch(
         });
       };
 
-      const nativeResponse = await CapacitorHttp.request(request);
+      // Race the native request against the caller's AbortSignal so a client
+      // timeout (e.g. the 90s licence-verify abort) actually returns control —
+      // CapacitorHttp can't cancel, so the in-flight native request is abandoned.
+      // The abort listener is removed on completion (finally) so a request that
+      // wins the race doesn't leak a listener + closure on the signal.
+      const signal = options.signal;
+      let nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>;
+      if (signal) {
+        let onAbort: (() => void) | undefined;
+        const abortPromise = new Promise<never>((_, reject) => {
+          onAbort = () =>
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+        try {
+          nativeResponse = await Promise.race([
+            CapacitorHttp.request(request),
+            abortPromise,
+          ]);
+        } finally {
+          if (onAbort) {
+            signal.removeEventListener("abort", onAbort);
+          }
+        }
+      } else {
+        nativeResponse = await CapacitorHttp.request(request);
+      }
       const response = toResponse(nativeResponse);
       await handleVaultOwnerAuthFailure(response);
       recordApiRequestMetric(response.status);
@@ -920,12 +982,28 @@ export interface KaiHomeSectorItem {
 export interface KaiHomeNewsItem {
   symbol: string;
   title: string;
+  summary?: string | null;
   url: string;
   published_at: string;
   source_name: string;
   provider: string;
   sentiment_hint?: string | null;
   degraded: boolean;
+}
+
+export interface KaiMarketNewsPage {
+  items: KaiHomeNewsItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+  snapshot_id: string;
+  generated_at: string;
+  stale: boolean;
+  cache: {
+    tier: "memory" | "postgres" | "live";
+    age_seconds: number;
+    hit: boolean;
+  };
+  provider_status: Record<string, string>;
 }
 
 export interface KaiHomeSignal {
@@ -1498,6 +1576,64 @@ export class ApiService {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
     });
+  }
+
+  /**
+   * Upload a user-chosen profile picture (small square data-URL, produced by
+   * the client). Persists an app-owned avatar that survives Firebase syncs;
+   * the returned identity's `photo_url` is the effective (custom) photo.
+   */
+  static async uploadAvatar(
+    imageDataUrl: string,
+    idToken?: string
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      body: JSON.stringify({ image_data_url: imageDataUrl }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+      detail?: unknown;
+      error?: unknown;
+    };
+    if (!response.ok) {
+      const message =
+        typeof payload.detail === "string"
+          ? payload.detail
+          : typeof payload.error === "string"
+            ? payload.error
+            : `Avatar upload failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return { success: payload.success === true, identity: payload.identity ?? null };
+  }
+
+  /** Remove the custom profile picture and revert to the Firebase photo. */
+  static async removeAvatar(
+    idToken?: string
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+    };
+    if (!response.ok) {
+      throw new Error(`Avatar removal failed with HTTP ${response.status}`);
+    }
+    return { success: payload.success === true, identity: payload.identity ?? null };
   }
 
   static async claimAccountPhone(
@@ -2631,6 +2767,112 @@ export class ApiService {
     });
   }
 
+  static async confirmAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    trustedActivation: true;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/confirm`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          trusted_activation: data.trustedActivation,
+        }),
+      },
+    );
+  }
+
+  static async consumeAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    receipt: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/consume`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          receipt: data.receipt,
+        }),
+      },
+    );
+  }
+
+  static async cancelAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    reasonCode: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/cancel`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          reason_code: data.reasonCode,
+        }),
+      },
+    );
+  }
+
+  static async settleAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    receipt: string;
+    actionId: string;
+    contextRevision: string;
+    status: "succeeded" | "failed" | "cancelled";
+    reasonCode: string;
+    routeAfter?: string | null;
+    screenAfter?: string | null;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/settle`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          receipt: data.receipt,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          status: data.status,
+          reason_code: data.reasonCode,
+          route_after: data.routeAfter || undefined,
+          screen_after: data.screenAfter || undefined,
+        }),
+      },
+    );
+  }
+
   /**
    * Pre-vault informational/navigation-only One chat.
    *
@@ -2684,7 +2926,10 @@ export class ApiService {
     return response.json();
   }
 
-  /** Validate a Gemini Developer API key before encrypted vault storage. */
+  /**
+   * Prove a Gemini key can complete a bounded generation before encrypted
+   * vault storage. The key is request-bounded and never persisted by this API.
+   */
   static async validateGeminiRuntimeCredential(input: {
     credential: string;
     transport: "developer_api" | "vertex_api_key";
@@ -2715,8 +2960,17 @@ export class ApiService {
       if (status === "invalid_key") {
         throw new Error("Gemini could not accept that API key.");
       }
-      if (status === "quota_or_billing") {
-        throw new Error("This Gemini key needs an available quota or billing setup.");
+      if (status === "quota_exhausted") {
+        throw new Error("This Gemini key has no available quota or is currently rate limited.");
+      }
+      if (status === "billing_required") {
+        throw new Error("This Gemini key needs an active billing setup.");
+      }
+      if (status === "invalid_vertex_configuration") {
+        throw new Error("Check the Google Cloud project ID and Vertex location.");
+      }
+      if (status === "unsupported_model") {
+        throw new Error("This Gemini key cannot access the model One uses.");
       }
       throw new Error("Gemini could not be reached to validate this key.");
     }
@@ -2748,52 +3002,6 @@ export class ApiService {
     const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     return url.toString();
-  }
-
-  static async transcribeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audio: Blob;
-    filename?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const formData = new FormData();
-    formData.set("user_id", data.userId);
-    formData.set(
-      "audio",
-      data.audio,
-      data.filename || "agent-voice-utterance.webm"
-    );
-
-    return apiFetch("/api/kai/agent/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: formData,
-      signal: data.signal,
-    });
-  }
-
-  static async synthesizeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    text: string;
-    voice?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return apiFetch("/api/kai/agent/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        text: data.text,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
   }
 
   static async listAgentChatConversations(data: {
@@ -3533,6 +3741,72 @@ export class ApiService {
       throw new Error(`Failed to load market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;
+  }
+
+  /**
+   * Read one page from the shared, public baseline market-news snapshot.
+   * The backend performs cursor slicing after the cached provider bundle is
+   * resolved, so paging cannot multiply provider requests.
+   */
+  static async getKaiMarketNewsBaseline(data: {
+    userId: string;
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      throw new Error("Missing Firebase ID token for market news");
+    }
+    const query = new URLSearchParams();
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number") query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(
+      `/api/kai/market/news/baseline/${data.userId}${suffix}`,
+      {
+        method: "GET",
+        signal: data.signal,
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
+  }
+
+  /** Read one vault-owner-scoped page from the selected market-news snapshot. */
+  static async getKaiMarketNews(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    symbols?: string[];
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const query = new URLSearchParams();
+    if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+      query.set("symbols", data.symbols.join(","));
+    }
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number") query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(`/api/kai/market/news/${data.userId}${suffix}`, {
+      method: "GET",
+      signal: data.signal,
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+    });
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
   }
 
   static async getKaiStockPreview(data: {

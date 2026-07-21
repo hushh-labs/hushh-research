@@ -37,10 +37,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 import logging
 import re
 import secrets
+import time
 import uuid
 from typing import Any, Literal, Optional
 
@@ -79,6 +81,11 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     build_one_live_runner,
 )
+from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
+    get_action_directive_store,
+)
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +125,27 @@ _INITIAL_GREETING_IDLE_SECONDS = 1.5
 _INITIAL_CONTEXT_WAIT_SECONDS = 2.5
 _RUNTIME_BOOTSTRAP_WAIT_SECONDS = 6.0
 _RUNTIME_BOOTSTRAP_CREDENTIAL_CAP = 12_000
+_MAX_BROWSER_FRAME_CHARS = 1_000_000
+_MAX_REALTIME_AUDIO_BYTES = 512 * 1024
+_MAX_REALTIME_AUDIO_BASE64_CHARS = ((_MAX_REALTIME_AUDIO_BYTES + 2) // 3) * 4
 _VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 _VERTEX_LOCATION_RE = re.compile(r"^(?:global|[a-z]+-[a-z]+[0-9]+)$")
+
+
+def _browser_frame_within_bounds(raw: str) -> bool:
+    return len(raw) <= _MAX_BROWSER_FRAME_CHARS
+
+
+def _decode_realtime_audio(data: str) -> bytes | None:
+    if not data or len(data) > _MAX_REALTIME_AUDIO_BASE64_CHARS:
+        return None
+    try:
+        decoded = base64.b64decode(data, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    if len(decoded) > _MAX_REALTIME_AUDIO_BYTES:
+        return None
+    return decoded
 
 
 async def _receive_runtime_bootstrap(
@@ -141,6 +167,8 @@ async def _receive_runtime_bootstrap(
     """
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), _RUNTIME_BOOTSTRAP_WAIT_SECONDS)
+        if not _browser_frame_within_bounds(raw):
+            raise ValueError("runtime_bootstrap_invalid")
         message = json.loads(raw)
     except (asyncio.TimeoutError, WebSocketDisconnect, TypeError, ValueError):
         raise ValueError("runtime_bootstrap_required") from None
@@ -444,13 +472,43 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     issued_directive_gc_tasks: dict[str, asyncio.Task[None]] = {}
     issued_goal_directives: dict[str, str] = {}
     issued_goal_runs: dict[str, dict[str, Any]] = {}
+    issued_journey_started_at: dict[str, float] = {}
     awaiting_goal_context: set[str] = set()
     initial_context_ready = asyncio.Event()
+    latest_context: dict[str, Any] = {}
+    latest_context_id = ""
+
+    async def _disarm_open_directives() -> None:
+        """Cancel proposals when fresh user intent supersedes the prior turn."""
+        for stale_directive_id, stale_action_id in list(issued_action_directives.items()):
+            try:
+                await get_action_directive_store().cancel_voice(
+                    directive_id=stale_directive_id,
+                    user_id=session_user,
+                    session_id=session_id,
+                    action_id=stale_action_id,
+                )
+            except ActionDirectiveAuthorityError:
+                # A terminal/replayed directive is already inert; the browser
+                # clears its pending card on the same user-activity event.
+                pass
+            issued_action_directives.pop(stale_directive_id, None)
+            goal_id = issued_goal_directives.pop(stale_directive_id, None)
+            if goal_id:
+                awaiting_goal_context.discard(goal_id)
+            issued_goal_runs.pop(stale_directive_id, None)
+            issued_journey_started_at.pop(stale_directive_id, None)
+            gc_task = issued_directive_gc_tasks.pop(stale_directive_id, None)
+            if gc_task is not None:
+                gc_task.cancel()
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_route_key, first_app_context_seen
+        nonlocal last_injected_route_key, first_app_context_seen, latest_context, latest_context_id
         while True:
             raw = await websocket.receive_text()
+            if not _browser_frame_within_bounds(raw):
+                await websocket.close(code=1009, reason="Voice frame is too large.")
+                return
             try:
                 message = json.loads(raw)
             except (TypeError, ValueError):
@@ -466,6 +524,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 context_payload = message.get("appContext")
                 if not isinstance(context_payload, dict):
                     context_payload = {}
+                context_id = _bounded_text(
+                    message.get("contextId") or context_payload.get("context_id"), 128
+                )
                 # Governed credentials ride in session state for tools only.
                 # The session object here is a service-returned copy, so state
                 # must be persisted through append_event (state_delta), never
@@ -481,6 +542,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # read this bounded redacted state when deciding what can be
                 # proposed or executed on the current screen.
                 sanitized_context = _sanitize_live_context(context_payload)
+                latest_context = sanitized_context
+                latest_context_id = context_id
                 state_delta[STATE_VOICE_CONTEXT] = sanitized_context
                 canonical_screen = sanitized_context.get("screen")
                 if isinstance(canonical_screen, str) and canonical_screen:
@@ -493,6 +556,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             invocation_id="app_context",
                             actions=EventActions(state_delta=state_delta),
                         ),
+                    )
+                if context_id:
+                    # An acknowledgement is a control-plane barrier only. It
+                    # confirms this bounded context has been persisted on this
+                    # authenticated socket; it never becomes model context.
+                    await websocket.send_text(
+                        json.dumps({"appContextAccepted": {"contextId": context_id}})
                     )
                 initial_context_ready.set()
                 clean_screen = canonical_screen if isinstance(canonical_screen, str) else ""
@@ -531,7 +601,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     changed = route_key != last_injected_route_key
                     last_injected_route_key = route_key
-                    if changed and not is_first:
+                    journey_waiting_for_settlement = any(
+                        isinstance(run, dict)
+                        and run.get("schema_version") == "one.settled_action_journey.v1"
+                        and run.get("status") == "awaiting_destination_context"
+                        for run in issued_goal_runs.values()
+                    )
+                    # A route-context note normally keeps One informed of a
+                    # user navigation. During an authored journey it would be
+                    # an out-of-order model turn: the originating action has
+                    # not settled yet. The correlated settlement below is the
+                    # only event allowed to make its next choice eligible.
+                    if changed and not is_first and not journey_waiting_for_settlement:
                         note_text = _compose_route_context_note(sanitized_context)
                         if note_text:
                             queue.send_content(
@@ -565,17 +646,154 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # The browser emits this once after local speech activity, not
                 # on raw microphone frames. It is transport control only: no
                 # transcript, page information, or intent is trusted here.
+                # New speech can never double as confirmation. Disarm every
+                # unconsumed proposal from the prior turn before the model
+                # receives the replacement intent.
+                await _disarm_open_directives()
                 greeting_gate.cancel_for_visitor_activity()
                 _cancel_pending_greeting()
                 queue.send_activity_start()
                 continue
-            if message.get("type") == "action_settled":
-                settlement = _sanitize_action_settlement(
-                    message.get("actionSettlement"), issued_action_directives
+            if message.get("type") == "action_confirm":
+                confirmation_payload = message.get("actionConfirmation")
+                confirmation_payload = (
+                    confirmation_payload if isinstance(confirmation_payload, dict) else {}
                 )
+                directive_id = _bounded_text(confirmation_payload.get("directiveId"), 128)
+                action_id = _bounded_text(confirmation_payload.get("actionId"), 128)
+                context_revision = _bounded_text(confirmation_payload.get("contextRevision"), 256)
+                if (
+                    not directive_id
+                    or issued_action_directives.get(directive_id) != action_id
+                    or not context_revision
+                ):
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "actionConfirmationRejected": {
+                                    "directiveId": directive_id,
+                                    "code": "binding_mismatch",
+                                }
+                            }
+                        )
+                    )
+                    continue
+                try:
+                    confirmation = await get_action_directive_store().confirm(
+                        directive_id=directive_id,
+                        user_id=session_user,
+                        session_id=session_id,
+                        action_id=action_id,
+                        context_revision=context_revision,
+                        # This frame is emitted only by the browser's explicit
+                        # confirmation control; model/tool output cannot emit
+                        # websocket client frames.
+                        trusted_activation=True,
+                    )
+                    # Consume before the browser can invoke the side effect.
+                    # A lost response requires a new directive; it is never replayed.
+                    await get_action_directive_store().consume(
+                        directive_id=directive_id,
+                        receipt=confirmation.receipt,
+                        user_id=session_user,
+                        session_id=session_id,
+                        action_id=action_id,
+                        context_revision=context_revision,
+                    )
+                except ActionDirectiveAuthorityError:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "actionConfirmationRejected": {
+                                    "directiveId": directive_id,
+                                    "code": "stale_or_replayed",
+                                }
+                            }
+                        )
+                    )
+                    continue
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "actionConfirmationAccepted": {
+                                "directiveId": directive_id,
+                                "receipt": confirmation.receipt,
+                                "expiresAt": confirmation.expires_at.isoformat(),
+                            }
+                        }
+                    )
+                )
+                continue
+            if message.get("type") == "action_settled":
+                raw_settlement = message.get("actionSettlement")
+                settlement = _sanitize_action_settlement(raw_settlement, issued_action_directives)
                 if settlement is None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
+                raw_settlement = raw_settlement if isinstance(raw_settlement, dict) else {}
+                receipt = _bounded_text(raw_settlement.get("receipt"), 256)
+                try:
+                    if receipt:
+                        await get_action_directive_store().settle(
+                            directive_id=settlement["directive_id"],
+                            receipt=receipt,
+                            user_id=session_user,
+                            action_id=settlement["action_id"],
+                            context_revision=settlement["context_revision"],
+                            status=(
+                                "succeeded"
+                                if settlement["status"] in {"succeeded", "started", "noop"}
+                                else "failed"
+                            ),
+                            reason_code=settlement.get("reason") or settlement["status"],
+                        )
+                    elif settlement["status"] in {"blocked", "invalid", "failed"}:
+                        await get_action_directive_store().cancel_voice(
+                            directive_id=settlement["directive_id"],
+                            user_id=session_user,
+                            session_id=session_id,
+                            action_id=settlement["action_id"],
+                        )
+                    else:
+                        raise ActionDirectiveAuthorityError("settlement receipt required")
+                except ActionDirectiveAuthorityError:
+                    logger.info("one_adk_live_action_settlement_authority_rejected")
+                    continue
+                goal_run_for_settlement = issued_goal_runs.get(settlement["directive_id"])
+                journey_started_at = issued_journey_started_at.pop(settlement["directive_id"], None)
+                journey_destination_rejected = False
+                if (
+                    isinstance(goal_run_for_settlement, dict)
+                    and goal_run_for_settlement.get("schema_version")
+                    == "one.settled_action_journey.v1"
+                ):
+                    expected = goal_run_for_settlement.get("settlement_target")
+                    expected = expected if isinstance(expected, dict) else {}
+                    expected_route = str(expected.get("route") or "")
+                    expected_screen = str(expected.get("screen") or "")
+                    context_matches = (
+                        bool(settlement.get("destination_context_id"))
+                        and settlement.get("destination_context_id") == latest_context_id
+                        and (
+                            not expected_route
+                            or latest_context.get("route_pattern") == expected_route
+                        )
+                        and (not expected_screen or latest_context.get("screen") == expected_screen)
+                    )
+                    if not context_matches:
+                        journey_destination_rejected = True
+                        settlement = {
+                            **settlement,
+                            "status": "blocked",
+                            "summary": "The destination screen did not finish settling.",
+                            "reason": "destination_context_unacknowledged",
+                        }
+                        issued_goal_runs.pop(settlement["directive_id"], None)
+                        logger.info(
+                            "one_adk_live_journey_destination_rejected action=%s directive=%s",
+                            settlement["action_id"],
+                            settlement["directive_id"],
+                        )
                 directive_gc_task = issued_directive_gc_tasks.pop(settlement["directive_id"], None)
                 if directive_gc_task is not None:
                     directive_gc_task.cancel()
@@ -596,7 +814,36 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     "hussh:last_action_settlement": settlement
                 }
                 goal_run = issued_goal_runs.get(settlement["directive_id"])
-                if goal_run is not None and settlement["action_id"] == "analysis.start":
+                journey_continuation_note = ""
+                if journey_destination_rejected:
+                    settlement_state_delta["hussh:goal_run"] = None
+                if (
+                    isinstance(goal_run, dict)
+                    and goal_run.get("schema_version") == "one.settled_action_journey.v1"
+                ):
+                    issued_goal_runs.pop(settlement["directive_id"], None)
+                    if settlement["status"] in {"succeeded", "started"}:
+                        settled_run = {
+                            **goal_run,
+                            "status": "destination_context_accepted",
+                            "destination_context_id": settlement.get("destination_context_id"),
+                        }
+                        settlement_state_delta["hussh:goal_run"] = settled_run
+                        if str(goal_run.get("deferred_action_id") or "").strip():
+                            journey_continuation_note = (
+                                "[Settled action journey - not user speech] The authored destination "
+                                "context is accepted. Call continue_app_goal now. It may issue only the "
+                                "already-authorized destination action; do not describe it first."
+                            )
+                        else:
+                            journey_continuation_note = (
+                                "[Settled action journey - not user speech] The authored destination "
+                                "context is accepted. Call continue_app_goal now, then ask one concise "
+                                "question using only the returned available choices."
+                            )
+                    else:
+                        settlement_state_delta["hussh:goal_run"] = None
+                elif goal_run is not None and settlement["action_id"] == "analysis.start":
                     issued_goal_runs.pop(settlement["directive_id"], None)
                     settlement_state_delta["hussh:goal_run"] = {
                         **goal_run,
@@ -607,6 +854,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             else "blocked"
                         ),
                     }
+                if (
+                    isinstance(goal_run_for_settlement, dict)
+                    and goal_run_for_settlement.get("schema_version")
+                    == "one.settled_action_journey.v1"
+                ):
+                    logger.info(
+                        "one_adk_live_journey_settlement journey=%s action=%s directive=%s "
+                        "status=%s route=%s screen=%s revision=%s elapsed_ms=%s",
+                        _bounded_text(goal_run_for_settlement.get("journey_id"), 128),
+                        settlement["action_id"],
+                        settlement["directive_id"],
+                        settlement["status"],
+                        _bounded_text(latest_context.get("route_pattern"), 128),
+                        _bounded_text(latest_context.get("screen"), 64),
+                        _bounded_text(latest_context.get("context_revision"), 128),
+                        round((time.perf_counter() - journey_started_at) * 1000, 3)
+                        if journey_started_at is not None
+                        else None,
+                    )
                 await runner.session_service.append_event(
                     session,
                     AdkEvent(
@@ -618,6 +884,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # This is an app execution report, never user speech. The
                 # wording forces a grounded follow-up rather than a fabricated
                 # success claim and provides the next link in a chained turn.
+                settlement_follow_up = (
+                    " A settled journey continuation follows this report; obey it before responding."
+                    if journey_continuation_note
+                    else ""
+                )
                 queue.send_content(
                     genai_types.Content(
                         role="user",
@@ -630,7 +901,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                     f"{settlement['summary']}. "
                                     "Acknowledge only this reported outcome. If it "
                                     "was blocked or failed, explain the next safe "
-                                    "step; do not claim the action succeeded."
+                                    f"step; do not claim the action succeeded.{settlement_follow_up}"
+                                    + (
+                                        f"\n{journey_continuation_note}"
+                                        if journey_continuation_note
+                                        else ""
+                                    )
                                 )
                             )
                         ],
@@ -659,6 +935,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # message, NOT app-composed speech.
                 text = message.get("text")
                 if isinstance(text, str) and text.strip():
+                    await _disarm_open_directives()
                     greeting_gate.cancel_for_visitor_activity()
                     _cancel_pending_greeting()
                     queue.send_content(
@@ -677,8 +954,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             data = audio.get("data")
             if not isinstance(data, str) or not data:
                 continue
-            mime = audio.get("mimeType") or _INPUT_MIME_DEFAULT
-            queue.send_realtime(genai_types.Blob(data=base64.b64decode(data), mime_type=mime))
+            audio_bytes = _decode_realtime_audio(data)
+            if audio_bytes is None:
+                continue
+            mime = _bounded_text(audio.get("mimeType") or _INPUT_MIME_DEFAULT, 128)
+            if not mime.startswith("audio/"):
+                continue
+            queue.send_realtime(genai_types.Blob(data=audio_bytes, mime_type=mime))
 
     async def pump_events_to_browser() -> None:
         # ADK evaluates a callable system instruction when run_live opens.
@@ -745,7 +1027,39 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if directive.get("kind") == "action" and isinstance(payload, dict):
                     action_id = _bounded_text(payload.get("actionId"), 128)
                     if action_id:
-                        directive_id = secrets.token_urlsafe(18)
+                        action = get_action_gateway_action(action_id)
+                        if action is None:
+                            logger.warning(
+                                "one_adk_live_unknown_action_directive action=%s", action_id
+                            )
+                            continue
+                        context_revision = (
+                            _bounded_text(latest_context.get("context_revision"), 256)
+                            or f"session:{session_id}"
+                        )
+                        try:
+                            issued = await get_action_directive_store().issue(
+                                user_id=session_user,
+                                channel="voice",
+                                session_id=session_id,
+                                action_id=action_id,
+                                context_revision=context_revision,
+                                action_contract=action,
+                                slots=(
+                                    payload.get("slots")
+                                    if isinstance(payload.get("slots"), dict)
+                                    else {}
+                                ),
+                                trusted_activation_required=True,
+                            )
+                        except Exception as error:  # fail closed on shared-store outage
+                            logger.warning(
+                                "one_adk_live_directive_authority_unavailable action=%s error=%s",
+                                action_id,
+                                error.__class__.__name__,
+                            )
+                            continue
+                        directive_id = issued.directive_id
                         issued_action_directives[directive_id] = action_id
                         goal_id = _bounded_text(payload.get("goalId"), 128)
                         if goal_id:
@@ -753,9 +1067,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         goal_run = payload.get("goalRun")
                         if isinstance(goal_run, dict):
                             issued_goal_runs[directive_id] = goal_run
+                            if goal_run.get("schema_version") == "one.settled_action_journey.v1":
+                                issued_journey_started_at[directive_id] = time.perf_counter()
                         outgoing_directive = {
                             **directive,
-                            "payload": {**payload, "directiveId": directive_id},
+                            "payload": {
+                                **payload,
+                                "directiveId": directive_id,
+                                "contextRevision": issued.context_revision,
+                                "expiresAt": issued.expires_at.isoformat(),
+                            },
                         }
                         logger.info(
                             "one_adk_live_directive_issued action=%s directive=%s",
@@ -767,10 +1088,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             try:
                                 # Client route settlement can legitimately take
                                 # longer than the former 15-second race window.
-                                await asyncio.sleep(20)
+                                await asyncio.sleep(300)
                                 if did not in issued_action_directives:
                                     return
                                 issued_action_directives.pop(did, None)
+                                issued_goal_directives.pop(did, None)
+                                expired_goal_run = issued_goal_runs.pop(did, None)
+                                issued_journey_started_at.pop(did, None)
                                 logger.warning(
                                     "one_adk_live_directive_timeout action=%s directive=%s",
                                     aid,
@@ -788,7 +1112,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                         author="system",
                                         invocation_id="action_settled",
                                         actions=EventActions(
-                                            state_delta={"hussh:last_action_settlement": settlement}
+                                            state_delta={
+                                                "hussh:last_action_settlement": settlement,
+                                                **(
+                                                    {"hussh:goal_run": None}
+                                                    if isinstance(expired_goal_run, dict)
+                                                    and expired_goal_run.get("schema_version")
+                                                    == "one.settled_action_journey.v1"
+                                                    else {}
+                                                ),
+                                            }
                                         ),
                                     ),
                                 )

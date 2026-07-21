@@ -5,6 +5,7 @@ import json
 import pytest
 from mcp.types import TextContent
 
+from mcp_modules.flat_projection import project_flat_result
 from mcp_modules.public_contract import validate_public_tool_output
 from mcp_modules.tools import campaign_context_tools as campaign
 
@@ -76,7 +77,9 @@ async def test_campaign_compatibility_uses_new_refs_without_identity_or_token_le
     assert "private@example.com" not in serialized
     assert "connector_public_key" not in serialized
     assert "consent_token" not in serialized
-    assert validate_public_tool_output("prepare_campaign_context", payload)
+    assert validate_public_tool_output(
+        "prepare_campaign_context", project_flat_result("prepare_campaign_context", payload)
+    )
 
 
 @pytest.mark.asyncio
@@ -140,7 +143,9 @@ async def test_campaign_compatibility_reports_export_readiness_without_export_pa
     assert payload["export_metadata_ready"] is True
     assert payload["export_revision"] == 4
     assert "must-not-pass-through" not in json.dumps(payload)
-    assert validate_public_tool_output("prepare_campaign_context", payload)
+    assert validate_public_tool_output(
+        "prepare_campaign_context", project_flat_result("prepare_campaign_context", payload)
+    )
 
 
 @pytest.mark.asyncio
@@ -190,4 +195,6 @@ async def test_campaign_compatibility_maps_cancelled_for_legacy_adk(monkeypatch)
     assert payload["status"] == "expired"
     assert payload["state"] == "expired"
     assert payload["request_ref"] == request_ref
-    assert validate_public_tool_output("prepare_campaign_context", payload)
+    assert validate_public_tool_output(
+        "prepare_campaign_context", project_flat_result("prepare_campaign_context", payload)
+    )

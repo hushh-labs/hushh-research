@@ -1,13 +1,14 @@
-"""Strict UAT-only Agentforce projection of the Hussh consent MCP catalog.
+"""Agentforce lint and handoff for the canonical Hussh consent MCP catalog.
 
-The canonical standard and generic ``flat`` profiles retain their existing
-machine identifiers. This projection is intentionally separate because
-Agentforce currently publishes a narrower tool-name character set and only
-handles shallow primitive fields reliably.
+Agentforce receives the same five generated tools and schemas as every other
+host. This module verifies the Salesforce-safe subset and publishes a
+non-secret MuleSoft handoff; it does not define a second endpoint or catalog.
 
-Salesforce currently does not support user-level authentication or
-personalized MCP responses. The profile is therefore for registration and
-schema UAT only; :mod:`mcp_server` fails personalized tool execution closed.
+Salesforce does not provide user-level MCP authentication. Hussh therefore
+treats the OAuth client as the partner application identity and keeps the
+person-specific authority in the explicit consent request, approval, scoped
+grant, and encrypted export. The catalog never turns client credentials into a
+synthetic user identity.
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from mcp_modules.flat_contract import get_flat_contract
+from mcp_modules.canonical_contract import canonical_tool_name, get_published_tool_names
+from mcp_modules.public_contract import get_public_contract
 
 AGENTFORCE_PROFILE = "agentforce"
 AGENTFORCE_MAX_TOOLS = 20
@@ -25,29 +27,23 @@ AGENTFORCE_MAX_REQUEST_SECONDS = 55.0
 MULESOFT_AGENTFORCE_INTEGRATION_TARGET = "mulesoft-agentforce"
 
 # Salesforce's current external-MCP documentation permits letters, numbers,
-# dots, slashes, and hyphens. Keep the existing canonical identifiers intact
-# in the standard/flat profiles and expose this non-breaking UAT alias set.
+# dots, slashes, and hyphens. The canonical v0.4 names are hyphenated.
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9./-]{1,128}$")
-_AGENTFORCE_TOOL_ALIASES = {
-    "search_user_scopes": "search-user-scopes",
-    "request_consent": "request-consent",
-    "check_consent_status": "check-consent-status",
-    "get_encrypted_scoped_export": "get-encrypted-scoped-export",
+_CANONICAL_TOOL_NAMES = {
+    published: canonical_tool_name(published) for published in get_published_tool_names()
 }
-_CANONICAL_TOOL_NAMES = {alias: canonical for canonical, alias in _AGENTFORCE_TOOL_ALIASES.items()}
-_READ_ONLY_TOOLS = {"search_user_scopes", "check_consent_status"}
 
 
 def get_agentforce_tool_names() -> tuple[str, ...]:
     """Return the Agentforce-visible aliases in lifecycle order."""
 
-    return tuple(_AGENTFORCE_TOOL_ALIASES.values())
+    return get_published_tool_names()
 
 
 def canonical_agentforce_tool_name(name: str) -> str | None:
     """Resolve one Agentforce alias to its canonical Hussh handler name."""
 
-    return _CANONICAL_TOOL_NAMES.get(str(name or "").strip())
+    return canonical_tool_name(name)
 
 
 def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
@@ -63,11 +59,11 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
     tool_allowlist = list(get_agentforce_tool_names())
     return {
         "integrationTarget": MULESOFT_AGENTFORCE_INTEGRATION_TARGET,
-        "supportStatus": "schema-compatible-uat-only",
+        "supportStatus": "agentforce-catalog-compatible",
         "upstream": {
             "transport": "streamable-http",
             "path": "/mcp/",
-            "authentication": "oauth2-client-credentials",
+            "authentication": "bearer-or-oauth2-client-credentials",
             "requestTimeoutSeconds": AGENTFORCE_MAX_REQUEST_SECONDS,
         },
         "agentforce": {
@@ -85,38 +81,21 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
             "expandNestedFields": False,
         },
         "executionBoundary": {
-            "personalizedToolExecution": "unsupported",
-            "handlerCalls": "fail-closed",
-            "errorCode": "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
+            "consentLifecycleExecution": "enabled",
+            "applicationAuthentication": "oauth2-client-credentials",
+            "userAuthority": "explicit-consent-and-scoped-grant",
+            "informationDelivery": "encrypted-export-after-approval",
         },
     }
 
 
-def _tool_annotations(canonical_name: str, title: str) -> dict[str, Any]:
-    return {
-        "title": title,
-        "readOnlyHint": canonical_name in _READ_ONLY_TOOLS,
-        "destructiveHint": False,
-        "idempotentHint": canonical_name in _READ_ONLY_TOOLS,
-        "openWorldHint": False,
-    }
-
-
 def get_agentforce_contract() -> dict[str, Any]:
-    """Project the canonical flat lifecycle into the Agentforce UAT catalog."""
+    """Return the exact canonical lifecycle after Agentforce subset linting."""
 
-    tools: list[dict[str, Any]] = []
-    for flat_tool in get_flat_contract()["tools"]:
-        canonical_name = str(flat_tool["name"])
-        agentforce_name = _AGENTFORCE_TOOL_ALIASES[canonical_name]
-        title = str(flat_tool["title"])
-        tool = deepcopy(flat_tool)
-        tool["name"] = agentforce_name
-        tool["annotations"] = _tool_annotations(canonical_name, title)
-        tool["inputSchema"]["title"] = f"{title} input"
-        tool["outputSchema"]["title"] = f"{title} output"
-        tools.append(tool)
-    return {"profile": AGENTFORCE_PROFILE, "tools": tools}
+    return {
+        "profile": AGENTFORCE_PROFILE,
+        "tools": deepcopy(get_public_contract()["tools"]),
+    }
 
 
 def agentforce_contract_errors(contract: dict[str, Any] | None = None) -> list[str]:

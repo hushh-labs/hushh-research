@@ -14,6 +14,7 @@ from typing import Any
 from db.db_client import get_db
 from hushh_mcp.consent.export_envelope import connector_key_fingerprint
 from hushh_mcp.runtime_settings import get_core_security_settings
+from mcp_modules.canonical_contract import published_tool_name
 from mcp_modules.public_contract import get_public_tool_names
 
 logger = logging.getLogger(__name__)
@@ -226,6 +227,7 @@ class DeveloperPrincipal:
     crm_id: str | None = None
     schema_profile: str = SCHEMA_PROFILE_STANDARD
     oauth_client_credentials_enabled: bool = False
+    mcp_execution_mode: str = "execute"
 
 
 def normalize_tool_groups(raw_groups: Any) -> tuple[str, ...]:
@@ -425,6 +427,15 @@ class DeveloperRegistryService:
             crm_id=cls._sanitize_optional_text(row.get("crm_id")),
             schema_profile=normalize_schema_profile(row.get("schema_profile")),
             oauth_client_credentials_enabled=bool(row.get("oauth_client_credentials_enabled")),
+            mcp_execution_mode=(
+                "catalog_only"
+                if str(row.get("mcp_execution_mode") or "").strip() == "catalog_only"
+                else (
+                    "catalog_only"
+                    if str(row.get("schema_profile") or "").strip() == "agentforce"
+                    else "execute"
+                )
+            ),
         )
 
     def ensure_tables(self) -> None:
@@ -802,11 +813,11 @@ class DeveloperRegistryService:
         app = self.get_app(app_id)
         if not app or str(app.get("kind") or "") != "partner_crm":
             raise ValueError("only partner_crm apps can be configured by this operations path")
-        if enable_client_credentials and profile not in {
-            SCHEMA_PROFILE_FLAT,
-            SCHEMA_PROFILE_AGENTFORCE,
-        }:
-            raise ValueError("client credentials require a constrained schema profile")
+        # Authentication does not choose a different public MCP catalog.
+        # Client credentials can therefore be enabled for the canonical
+        # standard profile as well as constrained legacy projections.  The
+        # OAuth client's execution mode, rather than this app-wide setting,
+        # determines whether a machine token is catalog-only or executable.
         result = self._db.execute_raw(
             """
             UPDATE developer_apps
@@ -1415,18 +1426,23 @@ class DeveloperRegistryService:
         allowed_groups = principal.allowed_tool_groups if principal else DEFAULT_PUBLIC_TOOL_GROUPS
         exposed_tools = visible_tool_names_for_groups(allowed_groups)
         visible_names = set(exposed_tools)
-        entries = [entry for entry in TOOL_CATALOG if entry["name"] in visible_names]
+        entries = [
+            {**entry, "name": published_tool_name(entry["name"])}
+            for entry in TOOL_CATALOG
+            if entry["name"] in visible_names
+        ]
 
         return {
-            "version": "v1",
+            "version": "v0.4",
             "approval_required": False,
             "allowed_tool_groups": list(allowed_groups),
             "compatibility_status": "self_serve_public_beta",
             "recommended_flow": [
-                "search_user_scopes",
-                "request_consent",
-                "check_consent_status",
-                "get_encrypted_scoped_export",
+                "search-user-scopes",
+                "prepare-campaign-context",
+                "request-consent",
+                "check-consent-status",
+                "get-encrypted-scoped-export",
             ],
             "tools": entries,
             "tool_groups": [

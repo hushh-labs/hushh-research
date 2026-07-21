@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -102,6 +103,11 @@ import {
   resolveGrowthEntrySurface,
   trackGrowthFunnelStepCompleted,
 } from "@/lib/observability/growth";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import {
+  resolveInitialTopChromeProgress,
+  resolveTopChromeScrollProgress,
+} from "@/lib/navigation/top-chrome-scroll-progress";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -314,18 +320,34 @@ function routeForPersona(params: {
   lastRiaPath: string;
   riaEntryRoute: string;
 }) {
-  return params.persona === "ria"
-    ? params.lastRiaPath || params.riaEntryRoute
-    : params.lastKaiPath || ROUTES.KAI_HOME;
+  if (params.persona !== "ria") {
+    return params.lastKaiPath || ROUTES.KAI_HOME;
+  }
+  // Defensive: never re-enter the onboarding wizard from a stale lastRiaPath —
+  // let riaEntryRoute (switch → RIA_HOME, else onboarding) decide. Pairs with the
+  // navbar guard that stops recording /ria/onboarding as lastRiaPath.
+  const lastRiaPath =
+    params.lastRiaPath === ROUTES.RIA_ONBOARDING ||
+    params.lastRiaPath.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+      ? ""
+      : params.lastRiaPath;
+  return lastRiaPath || params.riaEntryRoute;
 }
 
 function readTopShellReservedHeight(): number {
   if (typeof window === "undefined") return 0;
-  const raw = window
-    .getComputedStyle(document.documentElement)
-    .getPropertyValue("--top-shell-reserved-height");
-  const value = Number.parseFloat(raw);
-  return Number.isFinite(value) ? value : 0;
+  // Route shell variables intentionally contain `calc(...)` expressions. A
+  // custom property preserves that expression verbatim, so `parseFloat` would
+  // return NaN on device and make the compact-tab threshold fall through to
+  // zero. Measure the resolved fixed shell instead: it includes the actual
+  // iOS safe area and the active tab row.
+  const shell = document.querySelector<HTMLElement>(
+    '[data-testid="app-top-shell-layout"]',
+  );
+  const measuredHeight = shell?.getBoundingClientRect().height ?? 0;
+  return Number.isFinite(measuredHeight) && measuredHeight > 0
+    ? measuredHeight
+    : 0;
 }
 
 function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
@@ -343,6 +365,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
@@ -373,6 +396,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
   const [primaryHeaderOutOfView, setPrimaryHeaderOutOfView] = useState(false);
+  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] =
+    useState(false);
+  // A route-owned tab row stays as the compact navigation anchor once the
+  // shared top row has fully collapsed. The page heading still independently
+  // owns title handoff, but it must not prevent an upward gesture from
+  // restoring back, activity, and profile actions while mid-page.
+  const tabsOnlyChrome =
+    model.mode === "bar-with-tabs" && topChromeFullyCollapsed;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -384,10 +415,44 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       '[data-slot="page-header"][data-page-primary="true"]',
     );
     let attachedScrollRoot: HTMLElement | null = null;
+    let pageObserver: MutationObserver | null = null;
+    let refreshFrame: number | null = null;
     let retryTimer = 0;
+    let lastScrollY: number | null = null;
+    let topChromeProgress = 0;
 
     const updateHeaderVisibility = () => {
-      setPrimaryHeaderOutOfView(isPrimaryHeaderOutOfView(header));
+      const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
+      topChromeProgress =
+        lastScrollY === null
+          ? resolveInitialTopChromeProgress(scrollY)
+          : resolveTopChromeScrollProgress({
+              progress: topChromeProgress,
+              previousY: lastScrollY,
+              nextY: scrollY,
+            });
+      lastScrollY = scrollY;
+      const rowHeight =
+        document
+          .querySelector<HTMLElement>('[data-testid="top-app-bar-row"]')
+          ?.getBoundingClientRect().height ?? 0;
+      const root = document.documentElement;
+      root.style.setProperty(
+        "--top-chrome-progress",
+        String(topChromeProgress),
+      );
+      root.style.setProperty(
+        "--top-chrome-collapse-px",
+        `${Math.max(0, rowHeight * topChromeProgress)}px`,
+      );
+      const fullyCollapsed = topChromeProgress >= 0.999;
+      setTopChromeFullyCollapsed((current) =>
+        current === fullyCollapsed ? current : fullyCollapsed,
+      );
+      const outOfView = isPrimaryHeaderOutOfView(header);
+      setPrimaryHeaderOutOfView((current) =>
+        current === outOfView ? current : outOfView,
+      );
     };
 
     const detachListeners = () => {
@@ -397,17 +462,29 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       attachedScrollRoot = null;
     };
 
+    const refreshHeader = () => {
+      header = document.querySelector<HTMLElement>(
+        '[data-slot="page-header"][data-page-primary="true"]',
+      );
+      updateHeaderVisibility();
+    };
+
+    const scheduleHeaderRefresh = () => {
+      if (refreshFrame !== null) return;
+      refreshFrame = window.requestAnimationFrame(() => {
+        refreshFrame = null;
+        refreshHeader();
+      });
+    };
+
     const attach = () => {
       detachListeners();
 
       scrollRoot = document.querySelector<HTMLElement>(
         '[data-app-scroll-root="true"]',
       );
-      header = document.querySelector<HTMLElement>(
-        '[data-slot="page-header"][data-page-primary="true"]',
-      );
-
-      updateHeaderVisibility();
+      lastScrollY = null;
+      refreshHeader();
       attachedScrollRoot = scrollRoot;
       attachedScrollRoot?.addEventListener("scroll", updateHeaderVisibility, {
         passive: true,
@@ -423,15 +500,31 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           attach();
         }, 150);
       }
+
+      pageObserver?.disconnect();
+      pageObserver = new MutationObserver(scheduleHeaderRefresh);
+      pageObserver.observe(scrollRoot ?? document.body, {
+        childList: true,
+        subtree: true,
+      });
     };
 
     attach();
 
     return () => {
       detachListeners();
+      pageObserver?.disconnect();
+      if (refreshFrame !== null) {
+        window.cancelAnimationFrame(refreshFrame);
+      }
       window.clearTimeout(retryTimer);
+      document.documentElement.style.setProperty("--top-chrome-progress", "0");
+      document.documentElement.style.setProperty(
+        "--top-chrome-collapse-px",
+        "0px",
+      );
     };
-  }, [pathname]);
+  }, [model.mode, pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -585,6 +678,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   return (
     <div
       data-app-top-bar
+      data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
       className={cn(
         "ambient-chrome-top-foreground fixed inset-x-0 top-0 pointer-events-none",
@@ -598,12 +692,21 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       <div
         data-testid="app-top-shell-layout"
         className="pointer-events-none relative w-full overflow-visible"
-        style={{ minHeight: "var(--top-shell-reserved-height)" }}
+        style={{
+          minHeight: tabsOnlyChrome
+            ? "calc(var(--top-inset) + var(--top-tabs-h))"
+            : "var(--top-shell-reserved-height)",
+        }}
       >
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 overflow-visible"
-          style={{ height: "var(--top-shell-visual-height)" }}
+          style={{
+            height:
+              model.mode === "bar" || model.mode === "bar-with-tabs"
+                ? "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))"
+                : "var(--top-shell-visual-height)",
+          }}
         >
           <AmbientChromeMask
             edge="top"
@@ -624,10 +727,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         >
           <div
             data-testid="top-app-bar-header"
-            className="pointer-events-none relative w-full shrink-0 transform-gpu will-change-transform"
+            className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu transition-[max-height,opacity,transform,padding] duration-200 ease-out will-change-transform"
             style={{
-              paddingTop:
-                "calc(var(--top-inset) + var(--top-systembar-row-gap))",
+              maxHeight: tabsOnlyChrome
+                ? "0px"
+                : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
+              paddingTop: tabsOnlyChrome
+                ? "0px"
+                : "calc(var(--top-inset) + var(--top-systembar-row-gap))",
+              opacity: tabsOnlyChrome
+                ? 0
+                : "calc(1 - var(--top-chrome-progress, 0))",
+              transform: tabsOnlyChrome
+                ? "translate3d(0, -0.5rem, 0)"
+                : "translate3d(0, 0, 0)",
             }}
           >
             <div
@@ -839,12 +952,19 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="icon"
                           aria-label="Open Profile"
-                          onClick={() => router.push(ROUTES.PROFILE)}
+                          onClick={() =>
+                            requestInternalAppNavigation({
+                              href: ROUTES.PROFILE,
+                              scroll: false,
+                              source: "tap",
+                              transitionMode: "full",
+                            })
+                          }
                           className="p-0"
                         >
                           <Avatar className="h-9 w-9">
-                            {user?.photoURL ? (
-                              <AvatarImage src={user.photoURL} alt="" />
+                            {effectiveAvatarUrl ? (
+                              <AvatarImage src={effectiveAvatarUrl} alt="" />
                             ) : null}
                             <AvatarFallback className="bg-transparent text-current">
                               {user?.displayName ? (
@@ -870,7 +990,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           {model.mode === "bar-with-tabs" ? (
             <div
               data-testid="top-app-bar-tabs"
-              className="pointer-events-auto relative h-[var(--top-tabs-h)] w-full shrink-0"
+              className="pointer-events-auto relative w-full shrink-0 transition-[height,padding] duration-200 ease-out"
+              style={{
+                height: tabsOnlyChrome
+                  ? "calc(var(--top-inset) + var(--top-tabs-h))"
+                  : "var(--top-tabs-h)",
+                paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px",
+              }}
             >
               <TopShellTabs tabSet={model.tabs} />
             </div>
@@ -970,7 +1096,7 @@ function OnboardingRouteActions() {
           }),
           {
             loading: "Deleting your account...",
-            success: "Account deleted. Redirecting...",
+            success: "Account deleted.",
             error: "Failed to delete account. Please try again.",
             variant: "destructive",
           },

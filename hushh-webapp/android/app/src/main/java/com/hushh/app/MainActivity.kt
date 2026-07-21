@@ -1,6 +1,7 @@
 package com.hushh.app
 
 import android.net.Uri
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -23,7 +24,18 @@ import com.hushh.app.plugins.Kai.KaiPlugin
 import com.hushh.app.plugins.PersonalKnowledgeModel.PersonalKnowledgeModelPlugin
 import org.json.JSONObject
 import org.json.JSONTokener
+import org.json.JSONArray
 import java.io.File
+
+object NativeTestModePolicy {
+    @JvmStatic
+    fun isEnabled(isDebugBuild: Boolean, requested: Boolean): Boolean =
+        isDebugBuild && requested
+
+    @JvmStatic
+    fun uiFlowRunId(value: String?): String =
+        value.orEmpty().filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(64)
+}
 
 class MainActivity : BridgeActivity() {
     private val nativeTestHandler = Handler(Looper.getMainLooper())
@@ -50,7 +62,9 @@ class MainActivity : BridgeActivity() {
         
         super.onCreate(savedInstanceState)
 
-        val config = NativeTestConfiguration.from(intent.extras)
+        val isDebuggableBuild =
+            (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val config = NativeTestConfiguration.from(intent.extras, isDebuggableBuild)
         if (config.enabled) {
             installNativeTestBridge(config)
         }
@@ -157,8 +171,8 @@ class MainActivity : BridgeActivity() {
         val autoReviewerLogin: Boolean,
         val vaultPassphrase: String,
         val expectedUserId: String,
-        val resetAppState: Boolean,
-        val runUiFlows: Boolean
+        val runUiFlows: Boolean,
+        val uiFlowRunId: String
     ) {
         val initialStatus: String
             get() = "route=booting;ready=0;marker=${sanitizeStatusValue(expectedMarker)};auth=pending;data=booting;error="
@@ -174,6 +188,7 @@ class MainActivity : BridgeActivity() {
                     put("vaultPassphrase", vaultPassphrase)
                     put("expectedUserId", expectedUserId)
                     put("runUiFlows", runUiFlows)
+                    put("uiFlowRunId", uiFlowRunId)
                 }.toString()
 
                 return """
@@ -181,10 +196,13 @@ class MainActivity : BridgeActivity() {
                   if (window.top !== window) return;
                   var config = $payload;
                   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+                  var configuredUiFlowRunId = String(config.uiFlowRunId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+                  var uiFlowStorageKey = "__hushh_native_ui_flow_state_v1" +
+                    (configuredUiFlowRunId ? ":" + configuredUiFlowRunId : "");
                   var persistedUiFlowsOwnRouting = false;
                   try {
                     var persistedUiFlowState = JSON.parse(
-                      window.sessionStorage.getItem("__hushh_native_ui_flow_state_v1") || "null"
+                      window.sessionStorage.getItem(uiFlowStorageKey) || "null"
                     );
                     persistedUiFlowsOwnRouting = !!(
                       persistedUiFlowState &&
@@ -200,6 +218,7 @@ class MainActivity : BridgeActivity() {
                   bridge.vaultPassphrase = config.vaultPassphrase || "";
                   bridge.expectedUserId = config.expectedUserId || "";
                   bridge.runUiFlows = bridge.runUiFlows === true || config.runUiFlows === true;
+                  bridge.uiFlowRunId = configuredUiFlowRunId;
                   if (!uiFlowsOwnRouting) {
                     bridge.initialRoute = config.initialRoute || null;
                     bridge.expectedMarker = config.expectedMarker || null;
@@ -276,16 +295,12 @@ class MainActivity : BridgeActivity() {
                     }
                     var markerFound = !!(beacon && (!bridge.expectedMarker || beacon.marker === bridge.expectedMarker));
                     var reviewerButtonFound = false;
-                    var bodySnippet = "";
                     try {
                       var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
                       reviewerButtonFound = buttons.some(function(button) {
                         var text = (button.textContent || "").trim().toLowerCase();
                         return text === "continue as reviewer";
                       });
-                    } catch (_) {}
-                    try {
-                      bodySnippet = ((document.body && document.body.innerText) || "").trim().slice(0, 160);
                     } catch (_) {}
                     if (!markerFound && bridge.expectedMarker) {
                       try {
@@ -327,7 +342,7 @@ class MainActivity : BridgeActivity() {
                       reviewerButtonFound: reviewerButtonFound,
                       jsError: bridge.lastJsError || "",
                       jsRejection: bridge.lastUnhandledRejection || "",
-                      bodySnippet: bodySnippet,
+                      bodySnippet: "",
                       markerFound: markerFound,
                       bootstrapState: bridge.bootstrapState || "",
                       bootstrapUserId: bridge.bootstrapUserId || "",
@@ -341,7 +356,10 @@ class MainActivity : BridgeActivity() {
                       uiFlowCurrent: bridge.uiFlowCurrent || "",
                       uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
                       uiFlowStepType: bridge.uiFlowStepType || "",
+                      uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
                       uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+                      uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
+                      uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
                       uiFlowError: bridge.uiFlowError || "",
                       uiFlowsComplete: bridge.uiFlowsComplete === true,
                       uiFlowsOk: bridge.uiFlowsOk === true
@@ -499,7 +517,25 @@ class MainActivity : BridgeActivity() {
                   var runUiFlows = $runFlows;
                   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
                   var previousInitialRoute = bridge.initialRoute || "";
+                  function hasIncompleteUiFlowSession(runId) {
+                    try {
+                      var normalizedRunId = String(runId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+                      var storageKey = "__hushh_native_ui_flow_state_v1" +
+                        (normalizedRunId ? ":" + normalizedRunId : "");
+                      var raw = window.sessionStorage.getItem(storageKey);
+                      if (!raw) return false;
+                      var state = JSON.parse(raw);
+                      return state && state.started === true && state.complete !== true;
+                    } catch (_) {
+                      return false;
+                    }
+                  }
                   var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+                  uiFlowsOwnRouting = uiFlowsOwnRouting || (
+                    bridge.runUiFlows === true &&
+                    (bridge._uiFlowsRoutingOwned === true || hasIncompleteUiFlowSession(bridge.uiFlowRunId))
+                  );
+                  bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting;
                   if (!uiFlowsOwnRouting) {
                     bridge.expectedMarker = marker;
                     bridge.expectedRoute = expectedRoute;
@@ -581,7 +617,10 @@ class MainActivity : BridgeActivity() {
                     uiFlowCurrent: bridge.uiFlowCurrent || "",
                     uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
                     uiFlowStepType: bridge.uiFlowStepType || "",
+                    uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
                     uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+                    uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
+                    uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
                     uiFlowError: bridge.uiFlowError || "",
                     uiFlowsComplete: bridge.uiFlowsComplete === true,
                     uiFlowsOk: bridge.uiFlowsOk === true
@@ -651,33 +690,43 @@ class MainActivity : BridgeActivity() {
                 "bootstrap_error=${sanitizeStatusValue(payload.optString("bootstrapError", ""))}",
                 "jserr=${sanitizeStatusValue(payload.optString("jsError", ""))}",
                 "jsrej=${sanitizeStatusValue(payload.optString("jsRejection", ""))}",
-                "body=${sanitizeStatusValue(payload.optString("bodySnippet", ""))}",
                 "visible404=${if (visible404) "1" else "0"}",
                 "ui_complete=${if (uiFlowsComplete) "1" else "0"}",
                 "ui_ok=${if (uiFlowsOk) "1" else "0"}",
+                "ui_run=${sanitizeStatusValue(payload.optString("uiFlowAuditRunId", ""))}",
+                "ui_plan=${sanitizeStatusValue(payload.optString("uiFlowAuditPlanDigest", ""))}",
                 "ui_flow=${sanitizeStatusValue(payload.optString("uiFlowCurrent", ""))}",
                 "ui_step=${sanitizeStatusValue(payload.optString("uiFlowStepIndex", ""))}",
                 "ui_step_type=${sanitizeStatusValue(payload.optString("uiFlowStepType", ""))}",
+                "ui_checkpoint=${sanitizeStatusValue(payload.optString("uiFlowCheckpoint", ""))}",
                 "ui_error=${sanitizeStatusValue(payload.optString("uiFlowError", ""))}",
                 "error=${sanitizeStatusValue(errorCode)}"
             ).joinToString(";")
         }
 
         companion object {
-            fun from(bundle: Bundle?): NativeTestConfiguration {
+            fun from(
+                bundle: Bundle?,
+                isDebugBuild: Boolean
+            ): NativeTestConfiguration {
                 val initialRoute = bundle?.getString("HUSHH_NATIVE_TEST_INITIAL_ROUTE").orEmpty()
                 val expectedRoute = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_ROUTE")
                     ?: deriveExpectedRoute(initialRoute)
                 return NativeTestConfiguration(
-                    enabled = bundle?.getBoolean("HUSHH_NATIVE_TEST_MODE", false) ?: false,
+                    enabled = NativeTestModePolicy.isEnabled(
+                        isDebugBuild,
+                        bundle?.getBoolean("HUSHH_NATIVE_TEST_MODE", false) ?: false
+                    ),
                     initialRoute = initialRoute,
                     expectedMarker = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_MARKER").orEmpty(),
                     expectedRoute = expectedRoute,
                     autoReviewerLogin = bundle?.getBoolean("HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN", false) ?: false,
                     vaultPassphrase = bundle?.getString("HUSHH_NATIVE_TEST_VAULT_PASSPHRASE").orEmpty(),
                     expectedUserId = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_USER_ID").orEmpty(),
-                    resetAppState = bundle?.getBoolean("HUSHH_NATIVE_TEST_RESET_APP_STATE", true) ?: true,
-                    runUiFlows = bundle?.getBoolean("HUSHH_NATIVE_TEST_RUN_UI_FLOWS", false) ?: false
+                    runUiFlows = bundle?.getBoolean("HUSHH_NATIVE_TEST_RUN_UI_FLOWS", false) ?: false,
+                    uiFlowRunId = NativeTestModePolicy.uiFlowRunId(
+                        bundle?.getString("HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID")
+                    )
                 )
             }
 
@@ -714,10 +763,7 @@ class MainActivity : BridgeActivity() {
                 val report = payload.opt("uiFlowReport")
                 if (report != null && report != JSONObject.NULL) {
                     File(filesDir, "native-ui-interaction-report.json").writeText(
-                        when (report) {
-                            is JSONObject -> report.toString(2)
-                            else -> JSONObject.wrap(report)?.toString().orEmpty()
-                        }
+                        sanitizeUiFlowReport(report).toString(2)
                     )
                 }
             } catch (error: Exception) {
@@ -729,6 +775,48 @@ class MainActivity : BridgeActivity() {
             } catch (error: Exception) {
                 Log.w("MainActivity", "Failed to write native test bridge status: ${error.message}")
             }
+        }
+
+        private fun sanitizeUiFlowReport(rawReport: Any): JSONObject {
+            val report = rawReport as? JSONObject ?: return JSONObject()
+            val safe = JSONObject()
+            for (key in listOf("ok", "auditRunId", "auditPlanVersion", "auditPlanDigest", "startedAt", "completedAt", "errorClass")) {
+                if (report.has(key)) {
+                    safe.put(key, report.opt(key))
+                }
+            }
+
+            val safeFlows = JSONArray()
+            val flows = report.optJSONArray("flows") ?: JSONArray()
+            for (index in 0 until flows.length()) {
+                val flow = flows.optJSONObject(index) ?: continue
+                val safeFlow = JSONObject()
+                for (key in listOf("id", "ok", "optional", "skipped")) {
+                    if (flow.has(key)) {
+                        safeFlow.put(key, flow.opt(key))
+                    }
+                }
+                val failedStep = flow.optJSONObject("failedStep")
+                if (failedStep?.has("type") == true) {
+                    safeFlow.put("failedStep", JSONObject().put("type", failedStep.optString("type")))
+                }
+                val safeResults = JSONArray()
+                val results = flow.optJSONArray("results") ?: JSONArray()
+                for (resultIndex in 0 until results.length()) {
+                    val result = results.optJSONObject(resultIndex) ?: continue
+                    val safeResult = JSONObject()
+                    for (key in listOf("step", "type", "ok", "skipped", "skipClass", "reasonClass", "errorClass", "checkpoint")) {
+                        if (result.has(key)) {
+                            safeResult.put(key, result.opt(key))
+                        }
+                    }
+                    safeResults.put(safeResult)
+                }
+                safeFlow.put("results", safeResults)
+                safeFlows.put(safeFlow)
+            }
+            safe.put("flows", safeFlows)
+            return safe
         }
     }
 

@@ -232,7 +232,7 @@ class VaultKeysService:
     @staticmethod
     def _normalize_explored_ids(raw: Any) -> list[str]:
         """
-        Parse the JSON-encoded explore-only capability id list stored as TEXT.
+        Parse the JSON-encoded bounded root-setup marker list stored as TEXT.
 
         Tolerant of NULL, empty strings, malformed JSON, and non-string members
         so a corrupt row never breaks bootstrap; returns a de-duped, sorted list.

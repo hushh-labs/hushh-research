@@ -224,6 +224,25 @@ function normalizeGoalStep(raw, actionId) {
   if (isPlainObject(raw.slots)) normalized.slots = raw.slots;
   const settlementTarget = normalizeSettlementTarget(raw.settlement_target);
   if (settlementTarget) normalized.settlement_target = settlementTarget;
+  if (type === "action") {
+    if (!actionRef) {
+      throw new Error(`${actionId}: goal action step requires action_id`);
+    }
+    if (!settlementTarget) {
+      throw new Error(
+        `${actionId}: goal action step requires an explicit settlement_target`,
+      );
+    }
+  }
+  if (type === "choice") {
+    const actionIds = uniqueStrings(raw.action_ids);
+    if (actionIds.length === 0) {
+      throw new Error(`${actionId}: goal choice step requires action_ids`);
+    }
+    normalized.action_ids = actionIds;
+    normalized.carry_explicit_choice = raw.carry_explicit_choice === true;
+    normalized.requires_fresh_context = raw.requires_fresh_context !== false;
+  }
   return normalized;
 }
 
@@ -305,17 +324,15 @@ function createDefaultGoalWorkflowSteps(action) {
       action_id: action.action_id,
       label: action.label,
       failure_behavior: "stop",
-      settlement_target:
-        action.execution_target.status === "wired" &&
-        action.execution_target.path === "route"
-          ? {
+      ...(action.execution_target.status === "wired" &&
+      action.execution_target.path === "route"
+        ? {
+            settlement_target: {
               route: action.execution_target.target,
               screen: action.reachability.screens[0],
-            }
-          : {
-              route: action.reachability.routes[0],
-              screen: action.reachability.screens[0],
             },
+          }
+        : {}),
     },
   ];
 }
@@ -525,6 +542,20 @@ function deriveDefaultStateChanges(action) {
     action.execution_target.path === "route"
   ) {
     return [`current route becomes ${action.execution_target.target}`];
+  }
+  const firstWorkflowStep = action.goal?.workflow_steps?.find(
+    (step) => step?.type === "action" && step?.settlement_target?.route,
+  );
+  if (firstWorkflowStep?.settlement_target?.route) {
+    return [
+      `current route becomes ${firstWorkflowStep.settlement_target.route}`,
+    ];
+  }
+  // A local handler may navigate to a destination that cannot be derived from
+  // the source surface. Its authored goal must name that destination rather
+  // than letting generated output claim the current route.
+  if (action.execution_target.path === "local_handler") {
+    return ["The mounted action reports its browser-observed outcome."];
   }
   if (action.reachability.routes.length > 0) {
     return [`current route becomes ${action.reachability.routes[0]}`];

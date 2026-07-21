@@ -9,7 +9,10 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
-import { normalizeOneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
+import {
+  normalizeOneSetupCapabilityId,
+  ONE_RUNTIME_SETUP_PREREQUISITE_ID,
+} from "@/lib/onboarding/setup-capability-ids";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 export type VaultStatus = "placeholder" | "active";
@@ -204,8 +207,11 @@ function resolvePreVaultPath(
   return `/api/vault/${path}`;
 }
 
-async function getAuthHeader(): Promise<string> {
-  const token = await AuthService.getIdToken();
+async function getAuthHeader(idToken?: string): Promise<string> {
+  // A just-completed native Apple flow already owns an authoritative Firebase
+  // ID token. Reuse it during post-auth settlement instead of racing the JS
+  // SDK, FirebaseAuthentication, and the native keychain for the same token.
+  const token = idToken || (await AuthService.getIdToken());
   if (!token) {
     throw new Error(
       "Unable to authenticate request: missing Firebase ID token",
@@ -230,7 +236,7 @@ export class PreVaultUserStateService {
 
   static async bootstrapState(
     userId: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; idToken?: string },
   ): Promise<PreVaultUserState> {
     const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
     if (!options?.force) {
@@ -251,7 +257,7 @@ export class PreVaultUserStateService {
     // its own bootstrap request. Forced callers intentionally stay outside this
     // coalescing path because callback/terminal settlement requires freshness.
     const request = (async () => {
-      const authorization = await getAuthHeader();
+      const authorization = await getAuthHeader(options?.idToken);
       const payload = await apiJson<BootstrapStateResponse>(
         resolvePreVaultPath("bootstrap-state"),
         {
@@ -300,8 +306,9 @@ export class PreVaultUserStateService {
   static async updatePreVaultState(
     userId: string,
     updates: PreVaultStateUpdatePayload,
+    options?: { idToken?: string },
   ): Promise<PreVaultUserState> {
-    const authorization = await getAuthHeader();
+    const authorization = await getAuthHeader(options?.idToken);
     const payload = await apiJson<BootstrapStateResponse>(
       resolvePreVaultPath("pre-vault-state"),
       {
@@ -350,6 +357,30 @@ export class PreVaultUserStateService {
     });
   }
 
+  static hasOneRuntimeChoice(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
+    return Boolean(
+      state?.setupCapabilityIds.includes(ONE_RUNTIME_SETUP_PREREQUISITE_ID),
+    );
+  }
+
+  /**
+   * Persist the explicit, non-secret choice that makes Connections a satisfied
+   * root-setup prerequisite. The selected BYOK credential remains encrypted in
+   * the vault; this marker only records that the person made a choice.
+   */
+  static async markOneRuntimeChoice(userId: string): Promise<PreVaultUserState> {
+    const current =
+      this.getCachedBootstrapState(userId) ??
+      (await this.bootstrapState(userId));
+    if (this.hasOneRuntimeChoice(current)) return current;
+    return this.syncSetupCapabilities(userId, [
+      ...current.setupCapabilityIds,
+      ONE_RUNTIME_SETUP_PREREQUISITE_ID,
+    ]);
+  }
+
   /** Persist the minimal resumable goal; never a transcript or private content. */
   static async syncOnboardingJourney(params: {
     userId: string;
@@ -359,22 +390,27 @@ export class PreVaultUserStateService {
     callbackAttemptId?: string;
     expectedJourneyUpdatedAt?: number | null;
     expectedCallbackAttemptId?: string;
+    idToken?: string;
   }): Promise<PreVaultUserState> {
-    return this.updatePreVaultState(params.userId, {
-      onboardingJourneyVersion: 1,
-      onboardingPhase: params.phase,
-      onboardingActiveCapability: params.activeCapability ?? null,
-      onboardingResumeRoute: "/one/setup",
-      onboardingCallbackState: params.callbackState ?? "none",
-      ...(params.callbackAttemptId
-        ? { onboardingCallbackAttemptId: params.callbackAttemptId }
-        : {}),
-      expectedOnboardingJourneyUpdatedAt:
-        params.expectedJourneyUpdatedAt ?? undefined,
-      ...(params.expectedCallbackAttemptId
-        ? { expectedOnboardingCallbackAttemptId: params.expectedCallbackAttemptId }
-        : {}),
-    });
+    return this.updatePreVaultState(
+      params.userId,
+      {
+        onboardingJourneyVersion: 1,
+        onboardingPhase: params.phase,
+        onboardingActiveCapability: params.activeCapability ?? null,
+        onboardingResumeRoute: "/one/setup",
+        onboardingCallbackState: params.callbackState ?? "none",
+        ...(params.callbackAttemptId
+          ? { onboardingCallbackAttemptId: params.callbackAttemptId }
+          : {}),
+        expectedOnboardingJourneyUpdatedAt:
+          params.expectedJourneyUpdatedAt ?? undefined,
+        ...(params.expectedCallbackAttemptId
+          ? { expectedOnboardingCallbackAttemptId: params.expectedCallbackAttemptId }
+          : {}),
+      },
+      { idToken: params.idToken },
+    );
   }
 
   /** Atomically settles the active setup goal against the observed journey. */

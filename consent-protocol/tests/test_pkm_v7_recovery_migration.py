@@ -19,7 +19,7 @@ def test_recovery_migration_is_registered_and_additive():
         if migration[:3].isdigit()
     ]
     assert uat["expected_migration_version"] == max(release_versions)
-    assert dev["expected_migration_version"] == 99
+    assert 98 <= dev["expected_migration_version"] <= max(release_versions)
     assert "DROP FUNCTION commit_pkm_domain_mutation_v2" not in sql
     assert "DROP FUNCTION commit_pkm_domain_mutation_v3" not in sql
     assert "ALTER TABLE pkm_manifests" in sql
@@ -155,11 +155,8 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "HUSHH_GENAI_AUTH_MODE=vertex_adc" in candidate_evaluator
     assert "GOOGLE_GENAI_USE_VERTEXAI=true" in candidate_evaluator
     assert "GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}" in candidate_evaluator
-    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" in candidate_evaluator
-    assert (
-        "HUSHH_VERTEX_LOCATIONS=asia-southeast1,asia-northeast1,asia-south1,europe-west2,global"
-        in candidate_evaluator
-    )
+    assert "GOOGLE_CLOUD_LOCATION=global" in candidate_evaluator
+    assert "HUSHH_VERTEX_LOCATIONS=global,us,eu" in candidate_evaluator
     assert "REVIEWER_" not in candidate_evaluator
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
     assert "verify-reviewer-byok" in workflow

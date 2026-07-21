@@ -35,7 +35,7 @@ class _FakeIntroService:
         return PreparedAgentRuntime(
             mode="hushh_managed_vertex",
             provider="gemini",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
             gemini_byok_transport="developer_api",
             vertex_project=None,
@@ -85,7 +85,7 @@ def test_intro_stream_works_anonymously_and_streams_tokens(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.headers["x-agent-model"] == "gemini-2.5-flash"
+    assert response.headers["x-agent-model"] == "gemini-3.1-flash-lite"
     # Ephemeral: never advertises a conversation id header.
     assert "x-agent-conversation-id" not in {k.lower() for k in response.headers}
     assert 'event: start\ndata: {"conversation_id": null' in response.text
@@ -97,7 +97,7 @@ def test_intro_stream_works_anonymously_and_streams_tokens(monkeypatch):
         "user_id": "anonymous",
         "message": "What is Hushh?",
         "runtime_provider": "gemini",
-        "runtime_model": "gemini-2.5-flash",
+        "runtime_model": "gemini-3.1-flash-lite",
         "runtime_mode": "hushh_managed_vertex",
         "runtime_credential": None,
     }

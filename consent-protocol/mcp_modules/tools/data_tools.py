@@ -24,9 +24,11 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_api_headers
+from mcp_modules.flat_contract import LOCAL_INFORMATION_JSON_MAX_CHARS
 from mcp_modules.transport_context import is_local_stdio_transport
 
 logger = logging.getLogger("hushh-mcp-server")
+
 
 # The local stdio server decrypts+narrows locally before this ever reaches the
 # LLM, so the result is plain decrypted JSON, not base64 ciphertext - roughly
@@ -39,9 +41,16 @@ logger = logging.getLogger("hushh-mcp-server")
 # fraction of a full attr.financial.* export (~1.35MB raw ciphertext).
 # Raising this only affects the decrypted_local success path; the raw
 # ciphertext fallback (decrypt failure, remote transport, raw=true) is
-DECRYPTED_LOCAL_MAX_JSON_CHARS = int(
-    os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "") or "120000"
-)
+def _local_decrypt_result_limit() -> int:
+    raw = str(os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "")).strip()
+    try:
+        configured = int(raw) if raw else LOCAL_INFORMATION_JSON_MAX_CHARS
+    except ValueError:
+        configured = LOCAL_INFORMATION_JSON_MAX_CHARS
+    return max(1, min(configured, LOCAL_INFORMATION_JSON_MAX_CHARS))
+
+
+DECRYPTED_LOCAL_MAX_JSON_CHARS = _local_decrypt_result_limit()
 
 
 async def resolve_user_identifier_to_uid(

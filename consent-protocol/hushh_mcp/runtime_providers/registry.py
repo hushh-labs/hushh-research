@@ -48,17 +48,21 @@ class ModelEntry:
 OPENAI_REALTIME_PROVIDERS: tuple[ProviderId, ...] = ("gemini", "openai")
 
 _MODELS: tuple[ModelEntry, ...] = (
-    # Gemini -- runs on the real google-genai client; native realtime via Live API.
+    # Gemini text models use generateContent and are not valid Live transports.
+    # Native realtime is model-specific; never infer it from the provider.
     ModelEntry(
         provider="gemini",
         model=GEMINI_MODEL,
-        supports_native_realtime=True,
         supports_prompt_caching=True,
         aliases=("gemini-default", "default"),
     ),
-    ModelEntry(provider="gemini", model="gemini-3.5-flash", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite", supports_native_realtime=True),
+    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview"),
+    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-live-2.5-flash-native-audio",
+        supports_native_realtime=True,
+    ),
     # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
     ModelEntry(
         provider="anthropic",

@@ -18,6 +18,10 @@ from api.routes.one.live_context import sanitize_live_context
 from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
 from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
 from hushh_mcp.one_adk.text_runtime import OneTextDirective
+from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
+    get_action_directive_store,
+)
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.agent_chat_service import (
     AgentChatConversation,
@@ -121,6 +125,37 @@ class AgentChatDeleteResponse(BaseModel):
     deleted: bool
 
 
+class ActionConfirmationRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    action_id: str = Field(..., min_length=1, max_length=160)
+    context_revision: str = Field(..., min_length=1, max_length=256)
+    trusted_activation: bool = False
+
+
+class ActionConsumeRequest(ActionConfirmationRequest):
+    receipt: str = Field(..., min_length=32, max_length=256, exclude=True)
+
+
+class ActionCancelRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    action_id: str = Field(..., min_length=1, max_length=160)
+    context_revision: str = Field(..., min_length=1, max_length=256)
+    reason_code: str = Field(default="user_cancelled", min_length=1, max_length=64)
+
+
+class ActionSettlementRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    receipt: str = Field(..., min_length=32, max_length=256, exclude=True)
+    action_id: str = Field(..., min_length=1, max_length=160)
+    context_revision: str = Field(..., min_length=1, max_length=256)
+    status: Literal["succeeded", "failed", "cancelled"]
+    reason_code: str = Field(default="none", min_length=1, max_length=64)
+    route_after: Optional[str] = Field(default=None, max_length=256)
+    screen_after: Optional[str] = Field(default=None, max_length=128)
+
+
 def specialist_result_to_frames(
     result: SpecialistTurnResult, delegate_agent_id: str, *, include_start: bool = True
 ) -> list[tuple[str, dict]]:
@@ -193,6 +228,10 @@ def _one_directive_frames(
     directive: OneTextDirective,
     *,
     conversation_text: str,
+    directive_id: str | None = None,
+    conversation_id: str | None = None,
+    context_revision: str | None = None,
+    expires_at: str | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     """Translate One's canonical directive into the existing chat SSE frames."""
     if (
@@ -223,7 +262,7 @@ def _one_directive_frames(
     label = str(action.get("label") or action_id).strip()
     receipt = conversation_text.strip() or f"{label} in the app."
     payload: dict[str, Any] = {
-        "call_id": f"one_text_{uuid4().hex}",
+        "call_id": directive_id or f"one_text_{uuid4().hex}",
         "action_id": action_id,
         "label": label,
         "execution": "frontend",
@@ -234,9 +273,20 @@ def _one_directive_frames(
         "execution_policy": str(
             (action.get("risk") or {}).get("execution_policy") or "allow_direct"
         ),
+        "requires_confirmation": True,
+        "trusted_activation_required": bool(
+            directive.payload.get("trustedActivationRequired") is True
+            or action.get("activation_policy") == "trusted_activation_required"
+        ),
     }
-    if directive.payload.get("needsConfirmation") is True:
-        payload["requires_confirmation"] = True
+    if directive_id is not None:
+        payload["directive_id"] = directive_id
+    if conversation_id is not None:
+        payload["conversation_id"] = conversation_id
+    if context_revision is not None:
+        payload["context_revision"] = context_revision
+    if expires_at is not None:
+        payload["expires_at"] = expires_at
     return [
         ("tool_start", payload),
         (
@@ -327,8 +377,10 @@ async def stream_agent_chat(
 ):
     """Stream one One text turn through the compatibility SSE envelope."""
 
+    request_started = time.perf_counter()
     _assert_user(token_data, body.user_id)
     service = get_agent_chat_service()
+    sanitized_screen_context = sanitize_live_context(body.screen_context or {})
 
     requested_delegate_ids = {
         candidate
@@ -372,11 +424,15 @@ async def stream_agent_chat(
                     conversation_id=body.conversation_id,
                 )
                 delegated_conversation_id = delegated_turn.conversation_id
+                if body.conversation_id:
+                    await get_action_directive_store().cancel_open_for_conversation(
+                        user_id=body.user_id,
+                        conversation_id=delegated_turn.conversation_id,
+                    )
                 prepare_ms = (time.perf_counter() - prepare_started) * 1000
             except Exception as error:
                 logger.exception(
-                    "agent_chat.delegation_prepare_failed user_id=%s: %s",
-                    body.user_id,
+                    "agent_chat.delegation_prepare_failed: %s",
                     error,
                 )
                 raise HTTPException(
@@ -408,8 +464,7 @@ async def stream_agent_chat(
             except Exception as error:  # noqa: BLE001
                 dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
                 logger.exception(
-                    "agent_chat.delegation_failed user_id=%s delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f: %s",
-                    body.user_id,
+                    "agent_chat.delegation_failed delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f: %s",
                     delegate_agent_id,
                     prepare_ms,
                     dispatch_ms,
@@ -443,18 +498,107 @@ async def stream_agent_chat(
                 )
                 save_ms = (time.perf_counter() - save_started) * 1000
             logger.info(
-                "agent_chat.delegation_timing user_id=%s conversation_id=%s delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f save_ms=%.1f total_ms=%.1f",
-                body.user_id,
-                conversation_id or "",
+                "agent_chat.delegation_timing delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f save_ms=%.1f total_ms=%.1f",
                 delegate_agent_id,
                 prepare_ms,
                 dispatch_ms,
                 save_ms,
                 prepare_ms + dispatch_ms + save_ms,
             )
-            for name, data in specialist_result_to_frames(
-                result, delegate_agent_id, include_start=False
-            ):
+            frames = specialist_result_to_frames(result, delegate_agent_id, include_start=False)
+            frontend_frame = next(
+                (
+                    data
+                    for name, data in frames
+                    if name in {"tool_start", "tool_waiting"}
+                    and str(data.get("execution") or "") == "frontend"
+                    and str(data.get("action_id") or "").strip()
+                ),
+                None,
+            )
+            if frontend_frame is not None:
+                action_id = str(frontend_frame["action_id"]).strip()
+                action = get_action_gateway_action(action_id)
+                if action is None or not conversation_id:
+                    frames = [
+                        (name, data)
+                        for name, data in frames
+                        if name not in {"tool_start", "tool_waiting"}
+                    ]
+                    frames.insert(
+                        -1,
+                        (
+                            "tool_result",
+                            {
+                                **frontend_frame,
+                                "execution": "blocked",
+                                "status": "blocked",
+                                "reason": "confirmation_authority_unavailable",
+                            },
+                        ),
+                    )
+                else:
+                    context_revision = str(
+                        sanitized_screen_context.get("context_revision")
+                        or f"conversation:{conversation_id}"
+                    )
+                    try:
+                        issued = await get_action_directive_store().issue(
+                            user_id=body.user_id,
+                            channel="typed_chat",
+                            conversation_id=conversation_id,
+                            action_id=action_id,
+                            context_revision=context_revision,
+                            action_contract=action,
+                            slots=(
+                                frontend_frame.get("slots")
+                                if isinstance(frontend_frame.get("slots"), dict)
+                                else {}
+                            ),
+                            trusted_activation_required=True,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "agent_chat.specialist_confirmation_authority_unavailable action=%s",
+                            action_id,
+                        )
+                        frames = [
+                            (name, data)
+                            for name, data in frames
+                            if name not in {"tool_start", "tool_waiting"}
+                        ]
+                        frames.insert(
+                            -1,
+                            (
+                                "tool_result",
+                                {
+                                    **frontend_frame,
+                                    "execution": "blocked",
+                                    "status": "blocked",
+                                    "reason": "confirmation_authority_unavailable",
+                                },
+                            ),
+                        )
+                    else:
+                        authority = {
+                            "call_id": issued.directive_id,
+                            "directive_id": issued.directive_id,
+                            "conversation_id": conversation_id,
+                            "context_revision": issued.context_revision,
+                            "expires_at": issued.expires_at.isoformat(),
+                            "requires_confirmation": True,
+                            "trusted_activation_required": True,
+                        }
+                        frames = [
+                            (
+                                name,
+                                {**data, **authority}
+                                if name in {"tool_start", "tool_waiting"}
+                                else data,
+                            )
+                            for name, data in frames
+                        ]
+            for name, data in frames:
                 yield _event(name, data)
 
         headers = {
@@ -484,10 +628,17 @@ async def stream_agent_chat(
             message=body.message,
             conversation_id=body.conversation_id,
         )
+        # A fresh user message supersedes every older unconsumed proposal in
+        # this conversation. This is server-side; hiding the old card alone is
+        # not authority revocation.
+        if body.conversation_id:
+            await get_action_directive_store().cancel_open_for_conversation(
+                user_id=body.user_id,
+                conversation_id=turn.conversation_id,
+            )
     except AgentRuntimeContractError as error:
         logger.warning(
-            "agent_chat.runtime_contract_failed user_id=%s error_code=%s mode=%s credential_supplied=%s",
-            body.user_id,
+            "agent_chat.runtime_contract_failed error_code=%s mode=%s credential_supplied=%s",
             error.error_code,
             body.runtime_credential_mode,
             bool((body.runtime_credential or "").strip()),
@@ -501,8 +652,7 @@ async def stream_agent_chat(
         ) from error
     except AgentRuntimeProviderError as error:
         logger.warning(
-            "agent_chat.runtime_provider_failed user_id=%s error_code=%s detail=%s",
-            body.user_id,
+            "agent_chat.runtime_provider_failed error_code=%s detail=%s",
             error.error_code,
             error.detail,
         )
@@ -514,16 +664,21 @@ async def stream_agent_chat(
             },
         ) from error
     except Exception as error:
-        logger.exception("agent_chat.prepare_failed user_id=%s: %s", body.user_id, error)
+        logger.exception("agent_chat.prepare_failed: %s", error)
         raise HTTPException(status_code=500, detail="Agent chat could not be started") from error
-
-    sanitized_screen_context = sanitize_live_context(body.screen_context or {})
 
     async def generate():
         chunks: list[str] = []
         directives: list[OneTextDirective] = []
         saved = False
+        first_meaningful_logged = False
         try:
+            logger.info(
+                "agent_chat.telemetry event=sse_open latency_ms=%.1f runtime_mode=%s pkm_context=%s",
+                (time.perf_counter() - request_started) * 1000,
+                runtime.mode,
+                "provided" if bool((body.pkm_context or "").strip()) else "absent",
+            )
             yield _event(
                 "start",
                 {
@@ -558,27 +713,93 @@ async def stream_agent_chat(
                     saved = True
                     return
                 if one_event.kind == "token" and one_event.text:
+                    if not first_meaningful_logged:
+                        first_meaningful_logged = True
+                        logger.info(
+                            "agent_chat.telemetry event=first_token latency_ms=%.1f",
+                            (time.perf_counter() - request_started) * 1000,
+                        )
                     chunks.append(one_event.text)
                     yield _event("token", {"token": one_event.text})
                 elif one_event.kind == "directive" and one_event.directive is not None:
+                    if not first_meaningful_logged:
+                        first_meaningful_logged = True
+                        logger.info(
+                            "agent_chat.telemetry event=first_tool latency_ms=%.1f",
+                            (time.perf_counter() - request_started) * 1000,
+                        )
                     # One's instruction permits one action-producing tool per
                     # turn. Keep the fail-closed invariant even if a provider
                     # emits multiple state deltas.
                     if directives:
                         logger.warning(
-                            "agent_chat.extra_directive_rejected conversation_id=%s",
-                            turn.conversation_id,
+                            "agent_chat.extra_directive_rejected",
                         )
                     else:
                         directives.append(one_event.directive)
 
             text = "".join(chunks)
+            if not text.strip() and not directives:
+                raise AgentRuntimeProviderError(
+                    error_code="AGENT_RUNTIME_EMPTY_RESPONSE",
+                    message="One did not receive a response from the configured model. Please try again.",
+                    detail={"phase": "text_stream"},
+                )
+            directive_frames: list[tuple[str, dict[str, Any]]] = []
+            if directives:
+                directive = directives[0]
+                if directive.delegate_agent_id:
+                    # Specialist prompt/choice cards are not executable app
+                    # actions. Their existing specialist continuation contract
+                    # remains external to the action receipt ledger.
+                    directive_frames = _one_directive_frames(
+                        directive,
+                        conversation_text=text,
+                    )
+                else:
+                    action_id = str(directive.payload.get("actionId") or "").strip()
+                    logger.info(
+                        "agent_chat.telemetry event=tool_selected action_id=%s",
+                        action_id,
+                    )
+                    action = get_action_gateway_action(action_id)
+                    if action is None:
+                        raise ActionDirectiveAuthorityError("unknown generated action")
+                    slots = (
+                        directive.payload.get("slots")
+                        if isinstance(directive.payload.get("slots"), dict)
+                        else {}
+                    )
+                    context_revision = str(
+                        sanitized_screen_context.get("context_revision")
+                        or f"conversation:{turn.conversation_id}"
+                    )
+                    issued = await get_action_directive_store().issue(
+                        user_id=body.user_id,
+                        channel="typed_chat",
+                        conversation_id=turn.conversation_id,
+                        action_id=action_id,
+                        context_revision=context_revision,
+                        action_contract=action,
+                        slots=slots,
+                        # Every private-agent action is a proposal. There is no
+                        # low-risk bypass: even navigation needs a fresh trusted
+                        # user activation before this directive can be consumed.
+                        trusted_activation_required=True,
+                    )
+                    directive_frames = _one_directive_frames(
+                        directive,
+                        conversation_text=text,
+                        directive_id=issued.directive_id,
+                        conversation_id=turn.conversation_id,
+                        context_revision=issued.context_revision,
+                        expires_at=issued.expires_at.isoformat(),
+                    )
             if not text.strip() and directives:
-                frames = _one_directive_frames(directives[0], conversation_text="")
                 frame_message = next(
                     (
                         str(data.get("message") or "").strip()
-                        for _, data in frames
+                        for _, data in directive_frames
                         if str(data.get("message") or "").strip()
                     ),
                     "Working on that in the app.",
@@ -594,9 +815,16 @@ async def stream_agent_chat(
                 status_value="complete",
             )
             saved = True
-            for event_name, data in (
-                _one_directive_frames(directives[0], conversation_text=text) if directives else []
-            ):
+            if directives and text.strip():
+                directive_frames = _one_directive_frames(
+                    directives[0],
+                    conversation_text=text,
+                    directive_id=str(directive_frames[0][1].get("directive_id") or ""),
+                    conversation_id=turn.conversation_id,
+                    context_revision=str(directive_frames[0][1].get("context_revision") or ""),
+                    expires_at=str(directive_frames[0][1].get("expires_at") or ""),
+                )
+            for event_name, data in directive_frames:
                 yield _event(event_name, data)
             yield _event(
                 "complete",
@@ -605,6 +833,11 @@ async def stream_agent_chat(
                     "status": "complete",
                     "model": runtime.model,
                 },
+            )
+            logger.info(
+                "agent_chat.telemetry event=complete latency_ms=%.1f directive=%s",
+                (time.perf_counter() - request_started) * 1000,
+                bool(directives),
             )
         except asyncio.CancelledError:
             if not saved:
@@ -618,8 +851,7 @@ async def stream_agent_chat(
             raise
         except AgentRuntimeProviderError as error:
             logger.warning(
-                "agent_chat.stream_provider_failed user_id=%s error_code=%s detail=%s",
-                body.user_id,
+                "agent_chat.stream_provider_failed error_code=%s detail=%s",
                 error.error_code,
                 error.detail,
             )
@@ -642,7 +874,7 @@ async def stream_agent_chat(
                 },
             )
         except Exception as error:
-            logger.exception("agent_chat.stream_failed user_id=%s: %s", body.user_id, error)
+            logger.exception("agent_chat.stream_failed: %s", error)
             if not saved:
                 await _save_assistant_message(
                     service=service,
@@ -670,6 +902,127 @@ async def stream_agent_chat(
         "X-Agent-Model": runtime.model,
     }
     return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
+
+
+def _directive_conflict(error: ActionDirectiveAuthorityError) -> HTTPException:
+    # Keep cross-user and stale/replayed failures deliberately indistinguishable.
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "ACTION_CONFIRMATION_REJECTED",
+            "message": "This action is no longer confirmable. Ask One to propose it again.",
+        },
+    )
+
+
+@router.post("/agent/chat/actions/{directive_id}/confirm")
+async def confirm_agent_chat_action(
+    directive_id: str,
+    body: ActionConfirmationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _assert_user(token_data, body.user_id)
+    try:
+        confirmation = await get_action_directive_store().confirm(
+            directive_id=directive_id,
+            user_id=body.user_id,
+            conversation_id=body.conversation_id,
+            action_id=body.action_id,
+            context_revision=body.context_revision,
+            trusted_activation=body.trusted_activation,
+        )
+    except ActionDirectiveAuthorityError as error:
+        raise _directive_conflict(error) from error
+    logger.info("agent_chat.telemetry event=action_confirmed action_id=%s", body.action_id)
+    return {
+        "directive_id": confirmation.directive_id,
+        "receipt": confirmation.receipt,
+        "expires_at": confirmation.expires_at.isoformat(),
+        "confirmed_at": confirmation.confirmed_at.isoformat(),
+        "trusted_activation": confirmation.trusted_activation,
+    }
+
+
+@router.post("/agent/chat/actions/{directive_id}/consume")
+async def consume_agent_chat_action(
+    directive_id: str,
+    body: ActionConsumeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _assert_user(token_data, body.user_id)
+    try:
+        await get_action_directive_store().consume(
+            directive_id=directive_id,
+            receipt=body.receipt,
+            user_id=body.user_id,
+            conversation_id=body.conversation_id,
+            action_id=body.action_id,
+            context_revision=body.context_revision,
+        )
+    except ActionDirectiveAuthorityError as error:
+        raise _directive_conflict(error) from error
+    logger.info("agent_chat.telemetry event=action_consumed action_id=%s", body.action_id)
+    return {"directive_id": directive_id, "status": "consumed"}
+
+
+@router.post("/agent/chat/actions/{directive_id}/cancel")
+async def cancel_agent_chat_action(
+    directive_id: str,
+    body: ActionCancelRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _assert_user(token_data, body.user_id)
+    try:
+        await get_action_directive_store().cancel_typed(
+            directive_id=directive_id,
+            user_id=body.user_id,
+            conversation_id=body.conversation_id,
+            action_id=body.action_id,
+            context_revision=body.context_revision,
+            reason_code=body.reason_code,
+        )
+    except ActionDirectiveAuthorityError as error:
+        raise _directive_conflict(error) from error
+    logger.info(
+        "agent_chat.telemetry event=action_cancelled action_id=%s",
+        body.action_id,
+    )
+    return {"directive_id": directive_id, "status": "cancelled"}
+
+
+@router.post("/agent/chat/actions/{directive_id}/settle")
+async def settle_agent_chat_action(
+    directive_id: str,
+    body: ActionSettlementRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _assert_user(token_data, body.user_id)
+    try:
+        await get_action_directive_store().settle(
+            directive_id=directive_id,
+            receipt=body.receipt,
+            user_id=body.user_id,
+            action_id=body.action_id,
+            context_revision=body.context_revision,
+            status=body.status,
+            reason_code=body.reason_code,
+        )
+    except ActionDirectiveAuthorityError as error:
+        raise _directive_conflict(error) from error
+    logger.info(
+        "agent_chat.telemetry event=action_settled action_id=%s status=%s",
+        body.action_id,
+        body.status,
+    )
+    return {
+        "directive_id": directive_id,
+        "action_id": body.action_id,
+        "context_revision": body.context_revision,
+        "status": body.status,
+        "reason_code": body.reason_code,
+        "route_after": body.route_after,
+        "screen_after": body.screen_after,
+    }
 
 
 @router.get("/agent/chat/conversations/{user_id}", response_model=AgentChatConversationsResponse)

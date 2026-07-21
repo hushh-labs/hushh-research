@@ -25,7 +25,7 @@ Both users must:
 - UAT build is loaded.
 - `/one/location` opens on the Now tab.
 - Hub tabs render: Now, People, Links, Inbox.
-- `/consents` loads as Access Manager.
+- `/one/consent` loads as Consent Manager.
 - Access Manager tabs render: Requests, Active Access, History, Relationships.
 
 ## Data Path

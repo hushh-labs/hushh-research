@@ -80,8 +80,9 @@
       "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_location",
+      "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
+        "setup.open_connections",
         "setup.open_location",
         "setup.open_email",
         "setup.open_finance",
@@ -133,15 +134,8 @@
   },
   {
     "route": "/developers",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/developers/developer-docs-hub.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=developers public workspace.",
     "voicePlaybook": {
       "playbookId": "route.developers",
       "purpose": "Help the person understand and use the developers screen through its generated controls.",
@@ -934,6 +928,36 @@
     }
   },
   {
+    "route": "/one/kai/news",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-market-news-page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion", "KaiWorkspaceHeader"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.news",
+      "purpose": "Help the person read current market headlines through the visible Market News workspace.",
+      "screen": "kai_market_news",
+      "entryCue": "Your latest market headlines are ready to read.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Headlines are read only from the current Market News page; external articles open through their visible links.",
+      "nextRoute": "/one/kai?tab=market",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/kai/market",
     "mode": "redirect",
     "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
@@ -1385,7 +1409,7 @@
     "interactionLayerPolicy": {
       "allowedFamilies": ["vault_setup"]
     },
-    "shellVerification": { "file": "app/one/setup/location/page.tsx", "includes": ["OneLocationAgentPage", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": { "file": "app/one/setup/location/location-onboarding-setup-client.tsx", "includes": ["OneLocationAgentPage", "mode=\"setup\""] },
     "voicePlaybook": {
       "playbookId": "route.one.setup.location", "purpose": "Request device location permission, then explicitly finish or skip Location setup.", "screen": "one_setup_location", "entryCue": "Allow Location when you are ready, or say skip Location setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_location", "happyPathActionIds": ["setup.skip_location", "setup.finish_location"], "requiredInputs": [],
       "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Location setup open and preserve the active goal.", "failed": "Explain that permission is still needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
@@ -1395,11 +1419,11 @@
   {
     "route": "/one/setup/email",
     "mode": "standard",
-    "shellVerification": { "file": "app/one/setup/email/page.tsx", "includes": ["OneKycPage", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": { "file": "app/one/setup/email/email-onboarding-setup-client.tsx", "includes": ["PageHeader", "SettingsGroup", "SetupCapabilityTerminalFooter"] },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.email", "purpose": "Set up KYC review and the connector One uses to draft with you.", "screen": "one_setup_email", "entryCue": "Set up KYC review, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
+      "playbookId": "route.one.setup.email", "purpose": "Choose whether One automatically prepares KYC responses for review.", "screen": "one_setup_email", "entryCue": "Choose automatic response preparation, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
       "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep KYC setup open and preserve the active goal.", "failed": "Explain what remains to set up without claiming completion.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "KYC setup finishes only after KYC readiness and the client connector are ready.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "completionBoundary": "KYC setup finishes after the automatic response-preparation preference has loaded and the hub route settles.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
@@ -1435,11 +1459,11 @@
   {
     "route": "/one/setup/connected-systems",
     "mode": "standard",
-    "shellVerification": { "file": "app/one/setup/connected-systems/page.tsx", "includes": ["ConnectedSystemsPanel", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": { "file": "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx", "includes": ["ConnectedSystemsPanel", "presentation=\"setup\"", "SetupCapabilityTerminalFooter"] },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.connected.systems", "purpose": "Link an active CRM record before explicitly finishing or skipping setup.", "screen": "one_setup_connected_systems", "entryCue": "Choose a CRM to find or create your record, or say skip linking setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_connected_systems", "happyPathActionIds": ["setup.skip_connected_systems", "setup.finish_connected_systems"], "requiredInputs": [],
+      "playbookId": "route.one.setup.connected.systems", "purpose": "Connect an active CRM record before explicitly finishing or skipping setup.", "screen": "one_setup_connected_systems", "entryCue": "Choose a CRM to find or create your record, or say skip CRM setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_connected_systems", "happyPathActionIds": ["setup.skip_connected_systems", "setup.finish_connected_systems"], "requiredInputs": [],
       "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep linked systems setup open and preserve the active goal.", "failed": "Explain that an active record binding is needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to linked systems setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "completionBoundary": "CRM setup finishes only after an active CRM record binding and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
@@ -1447,7 +1471,7 @@
     "mode": "standard",
     "shellVerification": {"file": "components/connections/gemini-runtime-configuration-page.tsx", "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]},
     "voicePlaybook": {
-      "playbookId": "route.one.setup.connections", "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.", "screen": "app", "entryCue": "", "proactivity": "ambient", "primaryActionId": null, "happyPathActionIds": [], "requiredInputs": [],
+      "playbookId": "route.one.setup.connections", "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.", "screen": "one_setup_connections", "entryCue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.", "proactivity": "on_entry", "primaryActionId": "setup.finish_connections", "happyPathActionIds": ["setup.finish_connections"], "requiredInputs": [],
       "recoveries": {"blocked": "Explain the current guard and retain the goal.", "cancelled": "Respect the cancellation and retain a safe next step.", "failed": "Acknowledge the failure without claiming completion.", "timeout": "Retain the goal and offer one safe retry.", "callbackError": "Return to the verified callback recovery path without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only."},
       "completionBoundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -3038,8 +3062,8 @@
   },
   {
     "route": "/blog",
-    "mode": "standard",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=blog public workspace.",
     "voicePlaybook": {
       "playbookId": "route.blog",
       "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -3092,8 +3116,8 @@
   },
   {
     "route": "/research",
-    "mode": "standard",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=research public workspace.",
     "voicePlaybook": {
       "playbookId": "route.research",
       "purpose": "Help the person understand and use the research screen through its generated controls.",

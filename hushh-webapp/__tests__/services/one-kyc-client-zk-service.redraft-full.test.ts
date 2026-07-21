@@ -39,6 +39,7 @@ const FIXTURE_WORKFLOW = {
   id: "wf-full-1",
   required_fields: ["full_name", "date_of_birth"],
   requested_scope: "attr.identity.*",
+  selected_scopes: ["attr.identity.*"],
   subject: "Identity information",
   metadata: { account_holder_name: "Alice Test" },
 } as unknown as OneKycWorkflow;
@@ -47,6 +48,14 @@ const FIXTURE_EXPORT_PAYLOAD = {
   full_name: "Alice Test",
   date_of_birth: "1990-05-15",
 };
+
+const FIXTURE_EXPORT_PAYLOADS = [
+  {
+    scope: "attr.identity.*",
+    exportRevision: 3,
+    payload: FIXTURE_EXPORT_PAYLOAD as Record<string, unknown>,
+  },
+];
 
 async function makeLocalDraft(): Promise<
   Awaited<ReturnType<typeof OneKycClientZkService.buildDraft>>
@@ -84,6 +93,7 @@ describe("runFullRedraft", () => {
       localDraft,
       instruction: "warmer",
       workflow: FIXTURE_WORKFLOW,
+      exportPayloads: FIXTURE_EXPORT_PAYLOADS,
       input: { userId: "u1", vaultOwnerToken: "tok", workflowId: FIXTURE_WORKFLOW.workflow_id },
     });
 
@@ -110,6 +120,7 @@ describe("runFullRedraft", () => {
       localDraft,
       instruction: "be concise",
       workflow: FIXTURE_WORKFLOW,
+      exportPayloads: FIXTURE_EXPORT_PAYLOADS,
       input: { userId: "u1", vaultOwnerToken: "tok", workflowId: FIXTURE_WORKFLOW.workflow_id },
     });
 
@@ -119,6 +130,16 @@ describe("runFullRedraft", () => {
       workflowId: FIXTURE_WORKFLOW.workflow_id,
       draftBody: localDraft.body,
       instruction: "be concise",
+      approvedScopes: ["attr.identity.*"],
+      requestText: "Identity information",
+      domains: [
+        {
+          domain: "identity",
+          scope: "attr.identity.*",
+          exportRevision: 3,
+          domainData: FIXTURE_EXPORT_PAYLOAD,
+        },
+      ],
     });
   });
 
@@ -134,8 +155,26 @@ describe("runFullRedraft", () => {
         localDraft,
         instruction: "shorter",
         workflow: FIXTURE_WORKFLOW,
+        exportPayloads: FIXTURE_EXPORT_PAYLOADS,
         input: { userId: "u1", vaultOwnerToken: "tok", workflowId: FIXTURE_WORKFLOW.workflow_id },
       })
     ).rejects.toThrow("Network failure");
+  });
+
+  it("rejects an empty rewritten body", async () => {
+    const localDraft = await makeLocalDraft();
+    vi.mocked(OneKycService.redraftFull).mockResolvedValueOnce({
+      rewritten_body: "   ",
+    });
+
+    await expect(
+      runFullRedraft({
+        localDraft,
+        instruction: "shorter",
+        workflow: FIXTURE_WORKFLOW,
+        exportPayloads: FIXTURE_EXPORT_PAYLOADS,
+        input: { userId: "u1", vaultOwnerToken: "tok", workflowId: FIXTURE_WORKFLOW.workflow_id },
+      })
+    ).rejects.toThrow("empty response");
   });
 });

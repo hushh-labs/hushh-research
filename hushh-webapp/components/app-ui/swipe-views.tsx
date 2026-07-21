@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 
 import { setTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { cn } from "@/lib/utils";
 
 /**
  * Marks an element whose horizontal drag must win over the workspace pager.
@@ -33,7 +34,10 @@ interface SwipeViewsProps {
   options: readonly { label: string; value: string }[];
   tabSetId: string;
   activeValue: string;
-  onChildSwiped?: (value: string) => void;
+  /** Emits immediately when Embla selects a pane; route state remains authoritative. */
+  onSelectionChange?: (value: string) => void;
+  /** Keeps route content and surface shadows inside the canonical page gutter. */
+  panelInset?: "none" | "page";
 }
 
 export function SwipeViews({
@@ -41,7 +45,8 @@ export function SwipeViews({
   options,
   tabSetId,
   activeValue,
-  onChildSwiped,
+  onSelectionChange,
+  panelInset = "none",
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
     (_emblaApi: unknown, event: Event) =>
@@ -52,6 +57,11 @@ export function SwipeViews({
     loop: false,
     dragFree: false,
     containScroll: "trimSnaps",
+    // Query-backed panes must feel like a direct workspace selection rather
+    // than a second route transition. Embla's duration is its spring-like
+    // snap parameter (not milliseconds); 20 is deliberately quicker than
+    // the default while retaining enough motion for the live tab underline.
+    duration: 20,
     watchDrag,
   });
   const panels = useMemo(() => React.Children.toArray(children), [children]);
@@ -60,10 +70,12 @@ export function SwipeViews({
     options.findIndex((option) => option.value === activeValue),
   );
   const isDraggingRef = useRef(false);
+  const hasMovedSincePointerDownRef = useRef(false);
+  const lastReportedValueRef = useRef(activeValue);
 
   const syncTabIndicator = useCallback(
     (isDragging?: boolean) => {
-      if (!emblaApi) return;
+      if (!emblaApi) return null;
       const scrollProgress = emblaApi.scrollProgress?.();
       const position =
         typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
@@ -74,6 +86,7 @@ export function SwipeViews({
         position,
         isDragging ?? isDraggingRef.current,
       );
+      return position;
     },
     [emblaApi, options.length, tabSetId],
   );
@@ -86,38 +99,75 @@ export function SwipeViews({
     if (targetIdx !== -1 && targetIdx !== emblaApi.selectedScrollSnap()) {
       emblaApi.scrollTo(targetIdx);
     }
+    lastReportedValueRef.current = activeValue;
     setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
   }, [emblaApi, activeValue, options, tabSetId]);
 
-  // Commit the route only after Embla has settled. Selecting a snap happens
-  // while the rail is still moving; committing there mounted a heavy Finance
-  // panel (and its data/effects) in the same frame as the gesture.
-  const onSettle = useCallback(() => {
+  // Publish selection at Embla's `select` point. Waiting for `settle` made
+  // query-backed tabs look stale on iOS and delayed the visible panel state.
+  const onSelect = useCallback(() => {
     if (!emblaApi) return;
     const currentIdx = emblaApi.selectedScrollSnap();
     const newValue = options[currentIdx]?.value;
     if (newValue && newValue !== activeValue) {
-      onChildSwiped?.(newValue);
+      lastReportedValueRef.current = newValue;
+      onSelectionChange?.(newValue);
     }
-  }, [emblaApi, options, activeValue, onChildSwiped]);
+  }, [activeValue, emblaApi, onSelectionChange, options]);
+
+  // A settle can only reconcile a snap that changed after selection (for
+  // example a cancelled drag); it never owns the first route update.
+  const onSettle = useCallback(() => {
+    if (!emblaApi) return;
+    const currentIdx = emblaApi.selectedScrollSnap();
+    // Embla continues its snap after the finger lifts. Keep the tab indicator
+    // bound to the same compositor progress through that settle phase instead
+    // of letting it jump back to the route-selected index mid-pane motion.
+    isDraggingRef.current = false;
+    hasMovedSincePointerDownRef.current = false;
+    setTopShellTabSwipeState(tabSetId, currentIdx, false);
+    const newValue = options[currentIdx]?.value;
+    if (newValue && newValue !== lastReportedValueRef.current) {
+      lastReportedValueRef.current = newValue;
+      onSelectionChange?.(newValue);
+    }
+  }, [emblaApi, options, onSelectionChange, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
+    emblaApi.on("select", onSelect);
     emblaApi.on("settle", onSettle);
 
     return () => {
+      emblaApi.off("select", onSelect);
       emblaApi.off("settle", onSettle);
     };
-  }, [emblaApi, onSettle]);
+  }, [emblaApi, onSelect, onSettle]);
 
   useEffect(() => {
     if (!emblaApi) return;
-    const onScroll = () => syncTabIndicator();
+    const onScroll = () => {
+      const position = syncTabIndicator();
+      if (
+        typeof position === "number" &&
+        Math.abs(position - activeIndex) > 0.001
+      ) {
+        hasMovedSincePointerDownRef.current = true;
+      }
+    };
     const onPointerDown = () => {
       isDraggingRef.current = true;
+      hasMovedSincePointerDownRef.current = false;
       syncTabIndicator(true);
     };
     const onPointerUp = () => {
+      // Preserve the progress-driven indicator until Embla settles after a
+      // real horizontal move. A tap or vertical intent has no settle motion,
+      // so it can return to route-driven state immediately.
+      if (hasMovedSincePointerDownRef.current) {
+        syncTabIndicator(true);
+        return;
+      }
       isDraggingRef.current = false;
       syncTabIndicator(false);
     };
@@ -132,8 +182,9 @@ export function SwipeViews({
       emblaApi.off("pointerDown", onPointerDown);
       emblaApi.off("pointerUp", onPointerUp);
       isDraggingRef.current = false;
+      hasMovedSincePointerDownRef.current = false;
     };
-  }, [emblaApi, syncTabIndicator]);
+  }, [activeIndex, emblaApi, syncTabIndicator]);
 
   return (
     <div
@@ -144,7 +195,7 @@ export function SwipeViews({
       style={{ minHeight: SWIPE_VIEWPORT_MIN_HEIGHT }}
     >
       <div
-        className="flex w-full min-h-0 touch-pan-y"
+        className="flex w-full min-h-0 touch-pan-y transform-gpu will-change-transform"
         style={{ minHeight: "inherit" }}
       >
         {options.map((option, index) => {
@@ -158,7 +209,12 @@ export function SwipeViews({
               aria-labelledby={`top-shell-${tabSetId}-tab-${safeValue}`}
               aria-hidden={!isActive}
               tabIndex={isActive ? 0 : -1}
-              className="flex-[0_0_100%] min-h-0 min-w-0"
+              data-swipe-panel-inset={panelInset}
+              className={cn(
+                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                panelInset === "page" &&
+                  "px-[var(--page-inline-gutter-standard)]",
+              )}
               style={{ minHeight: "inherit" }}
             >
               {isActive ? panels[index] : null}

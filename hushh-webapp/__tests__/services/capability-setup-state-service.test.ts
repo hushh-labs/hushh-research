@@ -385,10 +385,24 @@ describe("resolveCapabilitySetupState — location (recipient key)", () => {
     expect(status.requiresUnlock).toBe(false);
   });
 
-  it("is completed when unlocked and the recipient key exists", () => {
+  it("treats a recipient key as progress until the terminal is acknowledged", () => {
     const status = resolveCapabilitySetupState(
       "location",
       baseInputs({ isVaultUnlocked: true, locationRecipientKeyReady: true }),
+    );
+    expect(status.state).toBe("in-progress");
+  });
+
+  it("is completed only from the durable Location terminal acknowledgement", () => {
+    const status = resolveCapabilitySetupState(
+      "location",
+      baseInputs({
+        isVaultUnlocked: true,
+        locationRecipientKeyReady: true,
+        preVaultState: makePreVaultState({
+          setupCapabilityIds: ["location"],
+        }),
+      }),
     );
     expect(status.state).toBe("completed");
   });

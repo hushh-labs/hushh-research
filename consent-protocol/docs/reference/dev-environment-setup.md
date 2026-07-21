@@ -54,8 +54,9 @@ Known parity notes:
 - `obs-supabase-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
   anomaly its UAT runs currently fail with (data-shape issue inherited via the clone,
   not an environment defect).
-- GitHub environment `dev` + secret `GCP_SA_KEY_DEV` still pending so the governed
-  `Deploy to Dev` workflow can take over from manual bootstrap deploys.
+- GitHub environment `dev` Workload Identity Federation variables are still pending,
+  so the governed `Deploy to Dev` workflow cannot yet take over from manual bootstrap
+  deploys.
 
 ## Identity Model (read this first)
 
@@ -203,7 +204,9 @@ python3 scripts/ops/verify-env-secrets-parity.py \
 ## Phase 4 — Deploy service account + GitHub wiring
 
 ```bash
-# Service account with the same roles as the UAT deployer
+# Service account with the narrowly scoped roles needed by the dev deploy workflow.
+# Bind GitHub's OIDC principal through Workload Identity Federation; do not create a
+# service-account key.
 gcloud iam service-accounts create github-deployer \
   --project=hushh-pda-dev --display-name="GitHub Actions dev deployer"
 
@@ -215,15 +218,18 @@ for role in roles/cloudbuild.builds.editor roles/run.admin roles/iam.serviceAcco
     --role="$role"
 done
 
-gcloud iam service-accounts keys create dev-deployer-key.json \
-  --iam-account=github-deployer@hushh-pda-dev.iam.gserviceaccount.com
+# Also grant roles/iam.serviceAccountUser on only:
+# consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com
+# Then configure the Workload Identity Pool/provider attribute condition for the
+# exact hushh-labs/hushh-research repository and governed branch/environment.
 ```
 
 In GitHub (`hushh-labs/hushh-research` → Settings → Environments):
 
 1. Create environment **`dev`** (mirror any reviewer/branch protections from `uat`).
-2. Add environment secret **`GCP_SA_KEY_DEV`** = contents of `dev-deployer-key.json`.
-3. Delete the local key file after upload.
+2. Add environment variable **`GCP_WORKLOAD_IDENTITY_PROVIDER`** = the full provider resource name.
+3. Add environment variable **`GCP_DEPLOY_SERVICE_ACCOUNT`** = `github-deployer@hushh-pda-dev.iam.gserviceaccount.com`.
+4. Do not create, download, or upload a service-account JSON key.
 
 Dispatch governance is already wired: `config/ci-governance.json` has a `dev` surface
 with the same governed actor list as UAT, enforced by

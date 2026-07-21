@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -147,6 +148,27 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/kai/news": {
+    api_dependencies: [
+      {
+        service_file: "lib/kai/kai-market-news-resource.ts",
+        service_methods: ["getStaleFirst", "refresh", "invalidateUser"],
+        nextjs_api_route: "/api/kai/{path*}",
+        nextjs_proxy_file: "app/api/kai/[...path]/route.ts",
+        backend_endpoint_family: "/api/kai/market/news/*",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      baseline_transport: "Firebase-authenticated public market snapshot",
+      personalized_transport:
+        "VAULT_OWNER token scopes tracked-symbol headlines; token stays memory-only",
+      cache_boundary:
+        "browser page cache contains only public provider headlines; server cursor slices its cached snapshot",
+    },
+  },
   "/connected-systems": {
     api_dependencies: [
       {
@@ -421,7 +443,6 @@ function buildSurfaceMap() {
 
   return {
     schema_version: "hushh.frontend_native_surface_map.v1",
-    generated_at: "2026-05-21",
     purpose:
       "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
     sources: {
@@ -529,8 +550,17 @@ function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function withContentDigest(value) {
+  return {
+    ...value,
+    content_sha256: createHash("sha256")
+      .update(JSON.stringify(value))
+      .digest("hex"),
+  };
+}
+
 const check = process.argv.includes("--check");
-const next = stableJson(buildSurfaceMap());
+const next = stableJson(withContentDigest(buildSurfaceMap()));
 
 if (check) {
   const current = fs.existsSync(outputPath) ? read(outputPath) : "";

@@ -151,6 +151,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "dashboard_picks_warmed",
     "consents_warmed",
     "vault_status_warmed",
+    "agent_context_warmed",
   ],
   one_location_foreground_retry: [
     ...BASE_ALLOWED_KEYS,

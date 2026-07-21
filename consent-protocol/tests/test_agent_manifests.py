@@ -74,3 +74,43 @@ def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> Non
     assert mapper.rollout.kill_switch == "CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED"
     assert "credential" in mapper.system_instruction.lower()
     assert "record" in mapper.system_instruction.lower()
+
+
+def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
+    agentic_manifests = (
+        "connections",
+        "connected_systems",
+        "email",
+        "financial_guard",
+        "gmail",
+        "kai",
+        "kyc",
+        "location",
+        "memory_intent",
+        "memory_merge",
+        "memory_segmentation",
+        "nav",
+        "onboarding",
+        "personal_information",
+        "pkm_structure",
+        "portfolio_import",
+    )
+    for name in agentic_manifests:
+        assert load(name).model_config_for_runtime().name == "gemini-3.5-flash", name
+
+    assert load("summary_reducer").model_config_for_runtime().name == "gemini-3.1-flash-lite"
+    one = load("one")
+    assert one.model_config_for_runtime().name == "gemini-3.5-flash"
+    assert one.capabilities["heads"] == {
+        "text": "gemini-3.5-flash",
+        "specialist_text": "gemini-3.5-flash",
+        "live": "gemini-live-2.5-flash-native-audio",
+    }
+
+
+def test_one_live_is_the_only_interactive_audio_backend() -> None:
+    assert not (ROOT / "api" / "routes" / "kai" / "agent_voice.py").exists()
+    assert not (ROOT / "hushh_mcp" / "services" / "agent_voice_service.py").exists()
+    kai_routes = (ROOT / "api" / "routes" / "kai" / "__init__.py").read_text()
+    assert "/agent/voice/stt" not in kai_routes
+    assert "/agent/voice/tts" not in kai_routes
