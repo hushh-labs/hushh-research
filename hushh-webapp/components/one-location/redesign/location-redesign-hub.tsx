@@ -606,7 +606,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
         >
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <NowHub
               vm={vm}
               hasActiveShare={hasActiveShare}
@@ -617,24 +617,23 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onPickMeUp={() => openFlow("pick-me-up")}
               onSafeArrival={() => openFlow("safe-arrival")}
               onSos={() => openFlow("sos")}
-              onOpenPrivacy={() => openFlow("privacy")}
             />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <PeopleHub
               vm={vm}
               onInvite={() => openFlow("invite")}
               onStartShare={() => openFlow("share")}
               onAsk={() => openFlow("ask")}
             />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
-          </div>
+          </LocationHubPanel>
 
-          <div className="px-[var(--page-inline-gutter-standard)]">
+          <LocationHubPanel onOpenPrivacy={() => openFlow("privacy")}>
             <InboxHub
               vm={vm}
               collapsedGrantIds={collapsedGrantIds}
@@ -658,9 +657,37 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 }
               }}
             />
-          </div>
+          </LocationHubPanel>
         </SwipeViews>
       </div>
+    </div>
+  );
+}
+
+function LocationHubPanel({
+  children,
+  onOpenPrivacy,
+}: {
+  children: ReactNode;
+  onOpenPrivacy: () => void;
+}) {
+  return (
+    <div className="space-y-5 px-[var(--page-inline-gutter-standard)]">
+      {children}
+      <button
+        type="button"
+        onClick={onOpenPrivacy}
+        data-testid="one-location-privacy-entry"
+        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      >
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
+          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+          Settings
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+      </button>
     </div>
   );
 }
@@ -679,7 +706,6 @@ function NowHub({
   onPickMeUp,
   onSafeArrival: _onSafeArrival,
   onSos,
-  onOpenPrivacy,
 }: {
   vm: LocationHubViewModel;
   hasActiveShare: boolean;
@@ -690,7 +716,6 @@ function NowHub({
   onPickMeUp: () => void;
   onSafeArrival: () => void;
   onSos: () => void;
-  onOpenPrivacy: () => void;
 }) {
   // When location permission is blocked (denied / restricted / services off),
   // surface the Device readiness card at the very TOP so the user immediately
@@ -960,20 +985,6 @@ function NowHub({
           OFF/LIVE badge on the hero card now captures your live location, so we
           no longer show a separate readiness/capture section here. */}
 
-      {/* Privacy — opens the full-screen Privacy flow (Apple Blue v2 design). */}
-      <button
-        type="button"
-        onClick={onOpenPrivacy}
-        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-      >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
-        </span>
-        <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
-          Privacy
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
-      </button>
     </div>
   );
 }
@@ -1748,22 +1759,6 @@ function SosFlow({ vm }: { vm: LocationHubViewModel }) {
         </div>
       </div>
 
-      {/* Privacy */}
-      <button
-        type="button"
-        className="flex w-full items-center gap-3 rounded-[16px] bg-white px-4 py-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
-      >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[color:var(--app-accent)]/15">
-          <Lock
-            className="h-[18px] w-[18px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
-            strokeWidth={1.6}
-          />
-        </span>
-        <span className="flex-1 text-[15px] font-medium text-foreground">
-          Privacy
-        </span>
-        <ChevronRight className="h-4 w-4 text-black/35 dark:text-white/35" />
-      </button>
     </div>
   );
 }
