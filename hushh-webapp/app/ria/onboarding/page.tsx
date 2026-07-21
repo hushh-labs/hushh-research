@@ -12,7 +12,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import {
+  NativeTestBeacon,
+  type NativeTestDataState,
+} from "@/components/app-ui/native-test-beacon";
 import { OnboardingShell } from "@/components/ria/onboarding/onboarding-shell";
 import { OnboardingStepWelcome } from "@/components/ria/onboarding/onboarding-step-welcome";
 import { OnboardingStepLicense } from "@/components/ria/onboarding/onboarding-step-license";
@@ -216,6 +219,11 @@ export default function RiaOnboardingPage({
     normalizeRiaOnboardingDraft(undefined),
   );
   const [loading, setLoading] = useState(true);
+  // Gates the branded onboarding shell until the one-shot entry decision (below)
+  // has been made, so an already-established advisor never sees the wizard flash
+  // before the redirect to their profile. Set true once we've decided the user
+  // belongs in the wizard.
+  const [entryResolved, setEntryResolved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [iamUnavailable, setIamUnavailable] = useState(false);
@@ -408,14 +416,24 @@ export default function RiaOnboardingPage({
   // not hijacked out of the review step. Skipped for an explicit edit intent
   // (e.g. re-verifying a licence from the profile).
   useEffect(() => {
+    // Undecided while persona state is still resolving — keep the neutral loader
+    // (in the render below) up rather than painting the branded wizard.
     if (personaLoading || personaRefreshing) return;
     if (onboardingEntryHandledRef.current) return;
     onboardingEntryHandledRef.current = true;
-    if (setupMode) return;
-    if (hasEditIntent) return;
-    if (riaCapability === "switch") {
+    // An established advisor (outside the embedded setup hub, with no explicit
+    // edit intent) belongs in their profile — redirect and DON'T reveal the
+    // wizard, so the loader stays up through the navigation and the welcome step
+    // never paints for a frame.
+    if (!setupMode && !hasEditIntent && riaCapability === "switch") {
       router.replace(buildProfileRoute({ panel: "regulatory" }));
+      return;
     }
+    // Setup / edit-intent / setup-hub / IAM-unavailable / signed-out → this user
+    // belongs in the wizard. One-shot: because onboardingEntryHandledRef is now
+    // set, a post-submit capability flip to "switch" cannot re-hide the review
+    // step.
+    setEntryResolved(true);
   }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router, setupMode]);
 
   useEffect(() => {
@@ -965,6 +983,18 @@ export default function RiaOnboardingPage({
           ? "error"
           : "loaded";
 
+  // Hold the branded onboarding shell until BOTH the entry decision is made and
+  // the initial data fetch has settled — otherwise the welcome branding paints
+  // around renderStep's inner spinner (a second, subtler flash). `loading` is a
+  // one-time initial fetch that never re-enters true, so this can't re-hide the
+  // page after entry.
+  const bootResolved = entryResolved && !loading;
+  const beaconDataState: NativeTestDataState = bootResolved
+    ? nativeTestDataState
+    : !setupMode && !hasEditIntent && riaCapability === "switch"
+      ? "redirect-valid"
+      : "loading";
+
   function renderStep() {
     if (loading) {
       return (
@@ -1104,7 +1134,7 @@ export default function RiaOnboardingPage({
         routeId="/ria/onboarding"
         marker="native-route-ria-onboarding"
         authState={user ? "authenticated" : "anonymous"}
-        dataState={nativeTestDataState}
+        dataState={beaconDataState}
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
@@ -1118,32 +1148,43 @@ export default function RiaOnboardingPage({
           } as CSSProperties
         }
       >
-        <OnboardingShell
-          currentStepIndex={currentStepIndex}
-          totalSteps={steps.length}
-          eyebrow={currentStep.eyebrow}
-          title={currentStep.title}
-          description={currentStep.description}
-          canContinue={canContinue}
-          saving={saving}
-          isFirstStep={currentStepIndex === 0}
-          isLastStep={currentStep.id === "review"}
-          advisoryAccessReady={advisoryAccessReady}
-          hideTerminal={setupMode && advisoryAccessReady}
-          onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
-          allowInvalidPress={currentStep.id === "services"}
-          heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
-          onBack={handleBack}
-          onContinue={handleContinue}
-        >
-          {renderStep()}
+        {bootResolved ? (
+          <OnboardingShell
+            currentStepIndex={currentStepIndex}
+            totalSteps={steps.length}
+            eyebrow={currentStep.eyebrow}
+            title={currentStep.title}
+            description={currentStep.description}
+            canContinue={canContinue}
+            saving={saving}
+            isFirstStep={currentStepIndex === 0}
+            isLastStep={currentStep.id === "review"}
+            advisoryAccessReady={advisoryAccessReady}
+            hideTerminal={setupMode && advisoryAccessReady}
+            onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
+            allowInvalidPress={currentStep.id === "services"}
+            heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
+            onBack={handleBack}
+            onContinue={handleContinue}
+          >
+            {renderStep()}
 
-          {error ? (
-            <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
-              {error}
-            </div>
-          ) : null}
-        </OnboardingShell>
+            {error ? (
+              <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+                {error}
+              </div>
+            ) : null}
+          </OnboardingShell>
+        ) : (
+          <div
+            role="status"
+            aria-label="Loading"
+            className="flex min-h-[60dvh] items-center justify-center gap-2 text-sm text-muted-foreground"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </div>
+        )}
       </FullscreenFlowShell>
     </>
   );

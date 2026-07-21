@@ -17,6 +17,10 @@ import { RiaService, type RiaHomeResponse } from "@/lib/services/ria-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { ROUTES } from "@/lib/navigation/routes";
 import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
+import {
+  NativeTestBeacon,
+  type NativeTestDataState,
+} from "@/components/app-ui/native-test-beacon";
 import { RIA_TONE_BADGE, RIA_TONE_SURFACE } from "@/lib/ria/ria-tone";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";
@@ -242,6 +246,36 @@ export default function RiaHomePage() {
     ]
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
+
+  // Hold a neutral loader instead of painting the RIA home hero while we're about
+  // to redirect a not-onboarded user (or while persona state is still resolving),
+  // so the home chrome never flashes before landing on onboarding. Mirrors the
+  // onboarding page's entry guard. A "disabled"/IAM advisor is NOT held here
+  // (handled via homeResource.error / RiaCompatibilityState below), so an
+  // established advisor is never trapped in the loader.
+  const redirectingToOnboarding =
+    riaCapability === "setup" || riaOnboardingStatus?.exists === false;
+  if (personaLoading || personaRefreshing || redirectingToOnboarding) {
+    const holdDataState: NativeTestDataState = redirectingToOnboarding
+      ? "redirect-valid"
+      : "loading";
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/ria"
+          marker="native-route-ria-home"
+          authState={user ? "authenticated" : "pending"}
+          dataState={holdDataState}
+          errorCode={null}
+          errorMessage={null}
+        />
+        <InlineLoadingState
+          label="Loading…"
+          className="min-h-[60dvh] justify-center"
+        />
+      </>
+    );
+  }
 
   return (
     <RiaPageShell

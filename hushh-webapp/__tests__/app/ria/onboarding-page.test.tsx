@@ -353,6 +353,8 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
+    // A fresh (setup) advisor reaches the branded wizard, not just the loader.
+    expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
     expect(screen.getByTestId("shell-eyebrow").textContent).toBe("Welcome");
     expect(screen.getByTestId("welcome-type").textContent).toBe("individual");
     expect(
@@ -1059,6 +1061,32 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one/profile/regulatory");
     });
+
+    // The wizard must NEVER paint for an already-onboarded advisor — the whole
+    // point of the entry guard. Regression guard for the onboarding→profile flash.
+    expect(screen.queryByTestId("onboarding-shell")).toBeNull();
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+  });
+
+  it("holds a neutral loader (no wizard chrome) while persona state is still resolving", async () => {
+    mocks.usePersonaState.mockReturnValue({
+      refresh: mocks.refreshPersonaState,
+      riaCapability: "disabled",
+      loading: true,
+      refreshing: true,
+      riaOnboardingStatus: null,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    // Until persona resolves we cannot know if the advisor is onboarded, so the
+    // branded wizard must not paint — only the neutral loader.
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("onboarding-shell")).toBeNull();
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
   it("keeps a switch advisor in the wizard when re-verifying via ?edit=license", async () => {
@@ -1080,6 +1108,8 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeTruthy();
     });
+    // Established advisor with an explicit edit intent stays in the wizard.
+    expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
