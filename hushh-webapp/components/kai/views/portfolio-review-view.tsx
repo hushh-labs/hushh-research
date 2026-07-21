@@ -266,6 +266,12 @@ function _formatPercent(value: number | undefined | null): string {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+function formatAllocationPercent(value: number | undefined | null): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(1)}%`
+    : "0.0%";
+}
+
 function compareHoldingsByNameAsc<T extends { name?: string; symbol?: string }>(
   left: T,
   right: T
@@ -2156,7 +2162,7 @@ export function PortfolioReviewView({
                     <span className="text-sm">Cash</span>
                     <div className="text-right">
                       <span className="font-medium">
-                        {displayAssetAllocation.cash_pct?.toFixed(1)}%
+                        {formatAllocationPercent(displayAssetAllocation.cash_pct)}
                       </span>
                       <span className="text-muted-foreground text-sm ml-2">
                         {formatCurrency(displayAssetAllocation.cash_value)}
@@ -2169,7 +2175,7 @@ export function PortfolioReviewView({
                     <span className="text-sm">Equities</span>
                     <div className="text-right">
                       <span className="font-medium">
-                        {displayAssetAllocation.equities_pct?.toFixed(1)}%
+                        {formatAllocationPercent(displayAssetAllocation.equities_pct)}
                       </span>
                       <span className="text-muted-foreground text-sm ml-2">
                         {formatCurrency(displayAssetAllocation.equities_value)}
@@ -2183,7 +2189,7 @@ export function PortfolioReviewView({
                       <span className="text-sm">Bonds</span>
                       <div className="text-right">
                         <span className="font-medium">
-                          {displayAssetAllocation.bonds_pct?.toFixed(1)}%
+                          {formatAllocationPercent(displayAssetAllocation.bonds_pct)}
                         </span>
                         <span className="text-muted-foreground text-sm ml-2">
                           {formatCurrency(displayAssetAllocation.bonds_value)}
@@ -2197,7 +2203,7 @@ export function PortfolioReviewView({
                       <span className="text-sm">Real Assets</span>
                       <div className="text-right">
                         <span className="font-medium">
-                          {displayAssetAllocation.real_assets_pct?.toFixed(1)}%
+                          {formatAllocationPercent(displayAssetAllocation.real_assets_pct)}
                         </span>
                         <span className="text-muted-foreground text-sm ml-2">
                           {formatCurrency(displayAssetAllocation.real_assets_value)}
@@ -2211,7 +2217,7 @@ export function PortfolioReviewView({
                       <span className="text-sm">Other</span>
                       <div className="text-right">
                         <span className="font-medium">
-                          {displayAssetAllocation.other_pct?.toFixed(1)}%
+                          {formatAllocationPercent(displayAssetAllocation.other_pct)}
                         </span>
                         <span className="text-muted-foreground text-sm ml-2">
                           {formatCurrency(displayAssetAllocation.other_value)}
