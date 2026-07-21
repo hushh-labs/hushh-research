@@ -150,6 +150,40 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
+  it("routes agent back-nav to One home once onboarding is dismissed", () => {
+    const fromSetup = new URLSearchParams();
+    fromSetup.set("from", "/one/setup");
+
+    // First onboarding (not dismissed): retrace into the hub is preserved.
+    expect(resolveTopShellBreadcrumb("/one/kai", fromSetup)?.backHref).toBe(
+      "/one/setup",
+    );
+
+    // Dismissed: an agent surface never retraces into setup, even with a stale
+    // ?from=/one/setup marker — this is the "back from every sub-agent → setup"
+    // regression.
+    expect(
+      resolveTopShellBreadcrumb("/one/kai", fromSetup, { setupDismissed: true })
+        ?.backHref,
+    ).toBe("/one");
+
+    // Setup-internal pages keep their retrace to the hub (deliberate entries
+    // like Connections stay reachable and go back to the hub).
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/connections", undefined, {
+        setupDismissed: true,
+      })?.backHref,
+    ).toBe("/one/setup");
+
+    // A non-setup ?from origin is unaffected by the dismissal rewrite.
+    const fromGmail = new URLSearchParams();
+    fromGmail.set("from", "/one/gmail");
+    expect(
+      resolveTopShellBreadcrumb("/one/kai", fromGmail, { setupDismissed: true })
+        ?.backHref,
+    ).toBe("/one/gmail");
+  });
+
   it("returns every base Finance tab to One", () => {
     for (const tab of ["market", "portfolio", "analysis"]) {
       const params = new URLSearchParams();
