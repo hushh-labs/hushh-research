@@ -4763,13 +4763,11 @@ export function OneLocationAgentPageContent({
     toast.success("Live location preview is off.");
   }, []);
 
-  const dismissLocationOnboarding = useCallback(() => {
-    if (mode === "setup") {
-      void onSetupComplete?.();
-      return;
-    }
-    // Persist only after dismissal/completion so an interrupted first run can
-    // resume next time. Once complete, the entire takeover stays dismissed.
+  const markLocationOnboardingSeen = useCallback(() => {
+    // Persist only after completion so an interrupted first run can resume next
+    // time. Explicit setup and workspace onboarding share the same authored
+    // introduction, so finishing setup must also prevent the workspace from
+    // immediately replaying it after the setup coordinator navigates there.
     if (typeof window !== "undefined" && auth.userId) {
       try {
         window.localStorage.setItem(
@@ -4781,9 +4779,17 @@ export function OneLocationAgentPageContent({
         // show again next time, which is acceptable.
       }
     }
+  }, [auth.userId]);
+
+  const dismissLocationOnboarding = useCallback(() => {
+    markLocationOnboardingSeen();
+    if (mode === "setup") {
+      void onSetupComplete?.();
+      return;
+    }
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
-  }, [auth.userId, mode, onSetupComplete]);
+  }, [markLocationOnboardingSeen, mode, onSetupComplete]);
 
   const skipLocationOnboarding = useCallback(() => {
     if (mode === "setup") {

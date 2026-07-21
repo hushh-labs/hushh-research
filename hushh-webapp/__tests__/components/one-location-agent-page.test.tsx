@@ -750,6 +750,36 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
+  it("does not replay Location onboarding after setup completes into the workspace", async () => {
+    const onSetupComplete = vi.fn();
+    const setup = render(
+      <OneLocationAgentPage
+        mode="setup"
+        onSetupComplete={onSetupComplete}
+      />,
+    );
+
+    await openLocationPermissionsStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
+    ).toBe("1");
+
+    setup.unmount();
+    render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Location" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", {
+        name: "The people you love. Always in reach.",
+      }),
+    ).toBeNull();
+  });
+
   it("does not finish web Location setup while permission is denied", async () => {
     const onSetupComplete = vi.fn();
     mockGetPermissionState.mockResolvedValue({
