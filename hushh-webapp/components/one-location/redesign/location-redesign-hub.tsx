@@ -592,6 +592,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationHubPanel>
             <PeopleHub
               vm={vm}
+              onAddConnections={() => router.push(ROUTES.CONNECT)}
               onInvite={() => openFlow("invite")}
               onStartShare={() => openFlow("share")}
               onAsk={() => openFlow("ask")}
@@ -1041,11 +1042,13 @@ function PersonRow({
 
 function PeopleHub({
   vm,
+  onAddConnections,
   onInvite,
   onStartShare,
   onAsk,
 }: {
   vm: LocationHubViewModel;
+  onAddConnections: () => void;
   onInvite: () => void;
   onStartShare: () => void;
   onAsk: () => void;
@@ -1069,8 +1072,16 @@ function PeopleHub({
         >
           <div className="grid grid-cols-1 gap-2">
             <Button
-              onClick={onInvite}
+              onClick={onAddConnections}
               className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            >
+              <UsersRound className="mr-2 h-4 w-4" />
+              Add Connections
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onInvite}
+              className="h-10 rounded-full text-sm font-semibold"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Invite trusted person
@@ -1114,6 +1125,13 @@ function PeopleHub({
       {/* Compact circle-management actions. Invite adds people; "Sync contacts"
           tags which existing connections are in your phone contacts. */}
       <div className="grid grid-cols-1 gap-2">
+        <Button
+          onClick={onAddConnections}
+          className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        >
+          <UsersRound className="mr-2 h-4 w-4" />
+          Add Connections
+        </Button>
         <Button
           variant="outline"
           onClick={onInvite}
