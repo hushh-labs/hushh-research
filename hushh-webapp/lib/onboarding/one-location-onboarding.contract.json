@@ -2,11 +2,8 @@
   "schemaVersion": "one_location_onboarding.v1",
   "screens": [
     { "key": "welcome", "testId": "one-location-onboarding-welcome" },
-    { "key": "arrival", "testId": "one-location-onboarding-arrival" },
-    { "key": "checkin", "testId": "one-location-onboarding-checkin" },
-    { "key": "sos", "testId": "one-location-onboarding-sos" },
+    { "key": "features", "testId": "one-location-onboarding-features" },
     { "key": "people", "testId": "one-location-onboarding-people" },
-    { "key": "circle", "testId": "one-location-onboarding-circle" },
-    { "key": "permissions", "testId": "one-location-onboarding-permissions" }
+    { "key": "circle", "testId": "one-location-onboarding-circle" }
   ]
 }

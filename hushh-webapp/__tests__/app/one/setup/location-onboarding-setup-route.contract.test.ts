@@ -20,12 +20,9 @@ describe("Location setup route contract", () => {
     // normal workspace or reuse that workspace's persisted first-run flag.
     expect(adapter).toContain("<OneLocationAgentPage");
     expect(adapter).toContain('mode="setup"');
-    expect(adapter).toContain(
-      "coordinator.finish({ suppressErrorToast: true })",
-    );
-    expect(adapter).toContain(
-      "coordinator.skip({ suppressErrorToast: true })",
-    );
+    expect(adapter).toContain(".finish({ suppressErrorToast: true })");
+    expect(adapter).toContain("coordinator.skip({ suppressErrorToast: true })");
+    expect(adapter).toContain('terminalPresentation: "automatic"');
     expect(adapter).not.toContain("vaultPrerequisiteRouteKey");
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });

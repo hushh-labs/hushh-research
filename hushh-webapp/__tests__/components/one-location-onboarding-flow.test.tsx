@@ -1,5 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
@@ -31,7 +37,9 @@ const connections = [
 ];
 
 function renderFlow(
-  overrides: Partial<React.ComponentProps<typeof OneLocationOnboardingFlow>> = {},
+  overrides: Partial<
+    React.ComponentProps<typeof OneLocationOnboardingFlow>
+  > = {},
 ) {
   const props: React.ComponentProps<typeof OneLocationOnboardingFlow> = {
     startAt: "welcome",
@@ -64,6 +72,7 @@ function renderFlow(
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
     onRequestNotifications: vi.fn().mockResolvedValue(undefined),
     onComplete: vi.fn(),
+    onSkip: vi.fn(),
     ...overrides,
   };
 
@@ -71,232 +80,85 @@ function renderFlow(
   return props;
 }
 
+function openPeopleScreen() {
+  fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("OneLocationOnboardingFlow", () => {
-  it("does not expose a back action on the blue welcome cover", () => {
-    renderFlow();
+  it("renders the new welcome screen and lets the user leave safely", () => {
+    const props = renderFlow();
 
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-  });
-
-  it("keeps real contact identities out of the static preview screens", () => {
-    renderFlow();
-
-    expect(screen.queryByText("Connected Person")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByText("Akshat arrived")).toBeTruthy();
-    expect(screen.queryByText("Connected Person")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByText("Ankit checked in")).toBeTruthy();
-    expect(screen.queryByText("Connected Person")).toBeNull();
-  });
-
-  it("publishes the canonical seven-screen sequence without side effects on the skip path", () => {
-    const props = renderFlow();
-    const expectScreen = (testId: string) => {
-      expect(screen.getByTestId(testId)).toBeTruthy();
-    };
-
-    expectScreen("one-location-onboarding-welcome");
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expectScreen("one-location-onboarding-arrival");
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expectScreen("one-location-onboarding-checkin");
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expectScreen("one-location-onboarding-sos");
-    fireEvent.click(screen.getByRole("button", { name: "Create my circle" }));
-    expectScreen("one-location-onboarding-people");
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expectScreen("one-location-onboarding-circle");
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expectScreen("one-location-onboarding-permissions");
-
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-  });
-
-  it("runs the complete introduction and sends only deliberate connection requests", async () => {
-    const props = renderFlow();
-
     expect(
       screen.getByRole("heading", {
         name: "The people you love. Always in reach.",
       }),
     ).toBeTruthy();
+    expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
+    const welcomeAvatar = document.querySelector(
+      'img[src="/one-location/onboarding/akshat.webp"]',
+    );
+    expect(welcomeAvatar?.parentElement?.className).toContain("rounded-[13px]");
+    expect(welcomeAvatar?.parentElement?.className).not.toContain(
+      "rounded-full",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(props.onSkip).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the old feature carousel with one supplied-art use-case screen", () => {
+    renderFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "When it matters, your people know.",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Need help fast?")).toBeTruthy();
+    expect(screen.getByText("Meeting a friend?")).toBeTruthy();
+    expect(screen.getByText("Riding home late?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("location-use-case-sos")
+        .querySelector('img[src="/one-location/onboarding/il-shield.png"]'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("location-use-case-checkin")
+        .querySelector('img[src="/one-location/onboarding/il-pin.png"]'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("location-use-case-trip")
+        .querySelector('img[src="/one-location/onboarding/il-car.png"]'),
+    ).toBeTruthy();
+    expect(screen.queryByText("Connected Person")).toBeNull();
+  });
+
+  it("requests only missing permissions as screen two opens", () => {
+    const props = renderFlow();
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("heading", { name: "Know when they arrive" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByRole("heading", { name: "Let them know you're here" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByRole("heading", { name: "Help when it matters most" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Create my circle" }));
-    expect(screen.getByRole("heading", { name: "Add people" })).toBeTruthy();
-    expect(screen.queryByText(/Share invite link/i)).toBeNull();
-
-    // Existing connections are selected by default. A new person is selected
-    // only after an explicit user action, and only that person gets a request.
-    expect(
-      screen.getByRole("button", { name: /Remove Connected Person/i }).getAttribute(
-        "aria-pressed",
-      ),
-    ).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /Add New Person/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() =>
-      expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]),
-    );
-    expect(
-      await screen.findByRole("heading", { name: "Your circle is taking shape" }),
-    ).toBeTruthy();
-    expect(screen.getByText("1 connection request sent.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(
-      screen.getByRole("heading", { name: "A few permissions. Nothing more." }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("switch", { name: "Motion Activity permission" }),
-    ).toBeNull();
-
-    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("switch", { name: "Notifications permission" }));
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(props.onComplete).toHaveBeenCalledTimes(1);
-  });
 
-  it("supports an explicit permissions-only entry", async () => {
-    const onRequestLocation = vi.fn().mockResolvedValue(undefined);
-    const onComplete = vi.fn();
-    renderFlow({
-      startAt: "permissions",
-      locationPermission: {
-        state: "denied",
-        precise: false,
-        background: "restricted",
-        locationServicesEnabled: true,
-      },
-      onRequestLocation,
-      onComplete,
-    });
-
-    expect(
-      screen.getByRole("heading", { name: "A few permissions. Nothing more." }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-    // The test environment reports the web platform, so the blocked-permission
-    // copy is the browser-specific variant (native uses "Open device Settings").
-    expect(
-      screen.getByText(/Allow it from your browser's site permissions/i),
-    ).toBeTruthy();
-
-
-    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
-    expect(onRequestLocation).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(onComplete).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps setup Skip separate and requires real location readiness to finish", () => {
-    const onComplete = vi.fn();
-    const onSkip = vi.fn();
-    renderFlow({
-      startAt: "permissions",
-      requireLocationToComplete: true,
-      onComplete,
-      onSkip,
-    });
-
-    const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(onSkip).toHaveBeenCalledTimes(1);
-    expect(onComplete).not.toHaveBeenCalled();
-  });
-
-  it("allows setup completion after foreground location is granted", () => {
-    const onComplete = vi.fn();
-    renderFlow({
-      startAt: "permissions",
-      requireLocationToComplete: true,
-      locationPermission: {
-        state: "granted",
-        precise: true,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      },
-      onComplete,
-    });
-
-    const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).not.toBeDisabled();
-    fireEvent.click(continueButton);
-    expect(onComplete).toHaveBeenCalledTimes(1);
-  });
-
-  it("continues while recommended contacts are still loading", () => {
+  it("does not re-request permissions that are already ready", () => {
     const props = renderFlow({
-      people: [],
-      connections: [],
-      peopleLoading: true,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(screen.getByRole("heading", { name: "Add people" })).toBeTruthy();
-
-    const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).not.toBeDisabled();
-    fireEvent.click(continueButton);
-
-    expect(
-      screen.getByRole("heading", { name: "Your circle, your choice" }),
-    ).toBeTruthy();
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
-  });
-
-  it("moves to the circle without waiting for connection requests", async () => {
-    let resolveRequests: (result: {
-      sentUserIds: string[];
-      failedUserIds: string[];
-    }) => void = () => undefined;
-    const onSendConnectionRequests = vi.fn(
-      () =>
-        new Promise<{ sentUserIds: string[]; failedUserIds: string[] }>(
-          (resolve) => {
-            resolveRequests = resolve;
-          },
-        ),
-    );
-    renderFlow({ onSendConnectionRequests });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    fireEvent.click(screen.getByRole("button", { name: /Add New Person/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(
-      screen.getByRole("heading", { name: "Your circle is taking shape" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Sending 1 connection request...")).toBeTruthy();
-
-    resolveRequests({ sentUserIds: ["new_user"], failedUserIds: [] });
-    expect(await screen.findByText("1 connection request sent.")).toBeTruthy();
-  });
-
-  it("keeps granted permission controls actionable", () => {
-    const onRequestLocation = vi.fn().mockResolvedValue(undefined);
-    const onRequestNotifications = vi.fn().mockResolvedValue(undefined);
-    renderFlow({
-      startAt: "permissions",
       locationPermission: {
         state: "granted",
         precise: true,
@@ -304,22 +166,169 @@ describe("OneLocationOnboardingFlow", () => {
         locationServicesEnabled: true,
       },
       notificationDeliveryMode: "push_active",
-      onRequestLocation,
-      onRequestNotifications,
     });
 
-    const locationSwitch = screen.getByRole("switch", {
-      name: "Location permission",
-    });
-    const notificationSwitch = screen.getByRole("switch", {
-      name: "Notifications permission",
-    });
-    expect(locationSwitch).not.toBeDisabled();
-    expect(notificationSwitch).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(locationSwitch);
-    fireEvent.click(notificationSwitch);
-    expect(onRequestLocation).toHaveBeenCalledTimes(1);
-    expect(onRequestNotifications).toHaveBeenCalledTimes(1);
+  it("keeps setup on screen two until required Location access is ready", () => {
+    const props = renderFlow({ requireLocationToComplete: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(screen.getByRole("button", { name: "Allow location" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
+
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
+  });
+
+  it("supports the previous permissions-only entry through the consolidated screen", async () => {
+    const props = renderFlow({ startAt: "permissions" });
+
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    await waitFor(() => {
+      expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("requires at least one selected contact before Continue is enabled", () => {
+    renderFlow({
+      people: [people[1]!],
+      connections: [],
+    });
+    openPeopleScreen();
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+    expect(
+      screen.getByText("Select at least one person to continue"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    expect(continueButton).not.toBeDisabled();
+    expect(screen.getByText("1 selected")).toBeTruthy();
+  });
+
+  it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
+    vi.useFakeTimers();
+    const props = renderFlow();
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Your circle, your choice" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.getByText("New")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3999);
+    });
+    expect(props.onComplete).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(props.onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("automatically retries a transient durable-settlement failure without adding a completion button", async () => {
+    vi.useFakeTimers();
+    const onComplete = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockResolvedValue(undefined);
+    renderFlow({ onComplete });
+    openPeopleScreen();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(onComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains contact selection and cancels completion when Back leaves the final circle", async () => {
+    vi.useFakeTimers();
+    const props = renderFlow();
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Remove New Person" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(props.onComplete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+  });
+
+  it("keeps explicit dark surfaces on every onboarding screen", () => {
+    renderFlow();
+    const welcome = screen.getByTestId("one-location-onboarding-welcome");
+    expect(welcome.firstElementChild?.className).toContain("dark:bg-[#071d39]");
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    const features = screen.getByTestId("one-location-onboarding-features");
+    expect(features.firstElementChild?.className).toContain(
+      "dark:bg-[#0c1017]",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const peopleScreen = screen.getByTestId("one-location-onboarding-people");
+    expect(peopleScreen.firstElementChild?.className).toContain(
+      "dark:bg-[#14171d]",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const circle = screen.getByTestId("one-location-onboarding-circle");
+    expect(circle.firstElementChild?.className).toContain("dark:bg-[#0c1017]");
+  });
+
+  it("keeps Continue disabled while recommended contacts are loading", () => {
+    renderFlow({ people: [], connections: [], peopleLoading: true });
+    openPeopleScreen();
+
+    expect(screen.getByText("Finding your people")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
+  it("lets the user refresh a genuinely empty recommendation list", () => {
+    const props = renderFlow({
+      people: [],
+      connections: [],
+      peopleLoading: false,
+    });
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh people" }));
+
+    expect(props.onRetryPeople).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
 });

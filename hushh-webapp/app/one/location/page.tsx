@@ -1045,6 +1045,34 @@ function displayNameFromRecipient(recipient: OneLocationRecipient): string {
   return recipientLabel(recipient);
 }
 
+function onboardingPeopleFromRecipients(
+  recipients: OneLocationRecipient[],
+): DirectoryPerson[] {
+  return recipients
+    .filter((recipient) => Boolean(recipient.userId))
+    .map((recipient) => ({
+      userId: recipient.userId,
+      displayName: displayNameFromRecipient(recipient),
+      photoUrl: null,
+      email: null,
+      relationship: "none" as const,
+    }));
+}
+
+function mergeOnboardingPeople(
+  primary: DirectoryPerson[],
+  fallback: DirectoryPerson[],
+): DirectoryPerson[] {
+  const merged = [...primary];
+  const seen = new Set(primary.map((person) => person.userId));
+  for (const person of fallback) {
+    if (!person.userId || seen.has(person.userId)) continue;
+    seen.add(person.userId);
+    merged.push(person);
+  }
+  return merged;
+}
+
 function initialsForLabel(label: string): string {
   const words = label
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
@@ -1839,6 +1867,19 @@ export function OneLocationAgentPageContent({
     () => state?.recipients ?? [],
     [state?.recipients],
   );
+  const locationOnboardingRecipientsRef = useRef(recipients);
+  useEffect(() => {
+    locationOnboardingRecipientsRef.current = recipients;
+    if (locationOnboardingGate !== "show" || recipients.length === 0) return;
+    setLocationOnboardingPeople((current) =>
+      mergeOnboardingPeople(
+        current,
+        onboardingPeopleFromRecipients(recipients),
+      ),
+    );
+    setLocationOnboardingPeopleError(null);
+    setLocationOnboardingPeopleLoading(false);
+  }, [locationOnboardingGate, recipients]);
   const contactMatchedUserIds = useMemo(
     () => new Set(contactSignal.matchedUserIds),
     [contactSignal.matchedUserIds],
@@ -2394,7 +2435,6 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (
       locationOnboardingGate !== "show" ||
-      locationOnboardingStep !== "welcome" ||
       !auth.user
     ) {
       return;
@@ -2407,36 +2447,94 @@ export function OneLocationAgentPageContent({
       setLocationOnboardingPeopleError(null);
       try {
         const idToken = await authenticatedUser.getIdToken();
-        const [directoryResult, connectionsResult] = await Promise.allSettled([
-          ConnectionsService.searchDirectory({ idToken, page: 1, limit: 12 }),
-          ConnectionsService.listConnections({ idToken }),
-        ]);
+        let directorySucceeded = false;
+        let renderedPeople = false;
+        let directoryError: unknown = null;
+        let connectionsError: unknown = null;
+
+        const directoryTask = ConnectionsService.searchDirectory({
+          idToken,
+          page: 1,
+          limit: 12,
+        })
+          .then((result) => {
+            directorySucceeded = true;
+            if (cancelled) return;
+            const items = result.items ?? [];
+            if (items.length === 0) return;
+            renderedPeople = true;
+            setLocationOnboardingPeople((current) =>
+              mergeOnboardingPeople(items, current),
+            );
+            setLocationOnboardingPeopleError(null);
+            setLocationOnboardingPeopleLoading(false);
+          })
+          .catch((error: unknown) => {
+            directoryError = error;
+          });
+
+        const connectionsTask = ConnectionsService.listConnections({ idToken })
+          .then((result) => {
+            if (cancelled) return;
+            setLocationOnboardingConnections(result);
+            if (renderedPeople || result.length === 0) return;
+            renderedPeople = true;
+            setLocationOnboardingPeople((current) =>
+              mergeOnboardingPeople(
+                result.map((connection) => ({
+                  userId: connection.userId,
+                  displayName: connection.displayName,
+                  photoUrl: connection.photoUrl,
+                  email: null,
+                  relationship: "connected" as const,
+                })),
+                current,
+              ),
+            );
+            setLocationOnboardingPeopleError(null);
+            setLocationOnboardingPeopleLoading(false);
+          })
+          .catch((error: unknown) => {
+            connectionsError = error;
+            if (!cancelled) setLocationOnboardingConnections([]);
+          });
+
+        await Promise.allSettled([directoryTask, connectionsTask]);
         if (cancelled) return;
 
-        if (directoryResult.status === "fulfilled") {
-          setLocationOnboardingPeople(directoryResult.value.items ?? []);
-        } else {
-          setLocationOnboardingPeople([]);
-          setLocationOnboardingPeopleError(
-            directoryResult.reason instanceof Error
-              ? directoryResult.reason.message
-              : "Could not load recommended people.",
+        if (!renderedPeople) {
+          const fallbackPeople = onboardingPeopleFromRecipients(
+            locationOnboardingRecipientsRef.current,
           );
-        }
-
-        if (connectionsResult.status === "fulfilled") {
-          setLocationOnboardingConnections(connectionsResult.value);
-        } else {
-          setLocationOnboardingConnections([]);
+          setLocationOnboardingPeople((current) =>
+            mergeOnboardingPeople(fallbackPeople, current),
+          );
+          if (fallbackPeople.length > 0) {
+            setLocationOnboardingPeopleError(null);
+          } else if (!directorySucceeded) {
+            const error = directoryError ?? connectionsError;
+            setLocationOnboardingPeopleError(
+              error instanceof Error
+                ? error.message
+                : "Could not load recommended people.",
+            );
+          }
         }
       } catch (error) {
         if (cancelled) return;
-        setLocationOnboardingPeople([]);
+        const fallbackPeople = onboardingPeopleFromRecipients(
+          locationOnboardingRecipientsRef.current,
+        );
+        setLocationOnboardingPeople((current) =>
+          mergeOnboardingPeople(fallbackPeople, current),
+        );
         setLocationOnboardingConnections([]);
         setLocationOnboardingPeopleError(
-          error instanceof Error
-            ? error.message
-            : "Could not load recommended people.",
+          fallbackPeople.length > 0
+            ? null
+            : error instanceof Error
+              ? error.message
+              : "Could not load recommended people.",
         );
       } finally {
         if (!cancelled) setLocationOnboardingPeopleLoading(false);
@@ -2451,7 +2549,6 @@ export function OneLocationAgentPageContent({
     auth.user,
     locationOnboardingGate,
     locationOnboardingPeopleRefresh,
-    locationOnboardingStep,
   ]);
 
   useEffect(() => {
@@ -4832,13 +4929,11 @@ export function OneLocationAgentPageContent({
     toast.success("Live location preview is off.");
   }, [setMyLocationPoint]);
 
-  const dismissLocationOnboarding = useCallback(async () => {
-    if (mode === "setup") {
-      await onSetupComplete?.();
-      return;
-    }
-    // Persist only after dismissal/completion so an interrupted first run can
-    // resume next time. Once complete, the entire takeover stays dismissed.
+  const markLocationOnboardingSeen = useCallback(() => {
+    // Persist only after completion so an interrupted first run can resume next
+    // time. Explicit setup and workspace onboarding share the same authored
+    // introduction, so finishing setup must also prevent the workspace from
+    // immediately replaying it after the setup coordinator navigates there.
     if (typeof window !== "undefined" && auth.userId) {
       try {
         window.localStorage.setItem(
@@ -4850,9 +4945,17 @@ export function OneLocationAgentPageContent({
         // show again next time, which is acceptable.
       }
     }
+  }, [auth.userId]);
+
+  const dismissLocationOnboarding = useCallback(async () => {
+    markLocationOnboardingSeen();
+    if (mode === "setup") {
+      await onSetupComplete?.();
+      return;
+    }
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
-  }, [auth.userId, mode, onSetupComplete]);
+  }, [markLocationOnboardingSeen, mode, onSetupComplete]);
 
   const skipLocationOnboarding = useCallback(async () => {
     if (mode === "setup") {
