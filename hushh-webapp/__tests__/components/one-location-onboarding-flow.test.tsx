@@ -99,6 +99,14 @@ describe("OneLocationOnboardingFlow", () => {
         name: "The people you love. Always in reach.",
       }),
     ).toBeTruthy();
+    expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
+    const welcomeAvatar = document.querySelector(
+      'img[src="/one-location/onboarding/akshat.webp"]',
+    );
+    expect(welcomeAvatar?.parentElement?.className).toContain("rounded-[13px]");
+    expect(welcomeAvatar?.parentElement?.className).not.toContain(
+      "rounded-full",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onSkip).toHaveBeenCalledTimes(1);
@@ -117,6 +125,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByText("Need help fast?")).toBeTruthy();
     expect(screen.getByText("Meeting a friend?")).toBeTruthy();
     expect(screen.getByText("Riding home late?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
       screen
         .getByTestId("location-use-case-sos")
@@ -219,7 +228,7 @@ describe("OneLocationOnboardingFlow", () => {
     ).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(screen.getByText("New")).toBeTruthy();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3999);
@@ -231,7 +240,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("automatically retries a transient durable-settlement failure without adding a button", async () => {
+  it("automatically retries a transient durable-settlement failure without adding a completion button", async () => {
     vi.useFakeTimers();
     const onComplete = vi
       .fn()
@@ -245,12 +254,60 @@ describe("OneLocationOnboardingFlow", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(onComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains contact selection and cancels completion when Back leaves the final circle", async () => {
+    vi.useFakeTimers();
+    const props = renderFlow();
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Remove New Person" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(props.onComplete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+  });
+
+  it("keeps explicit dark surfaces on every onboarding screen", () => {
+    renderFlow();
+    const welcome = screen.getByTestId("one-location-onboarding-welcome");
+    expect(welcome.firstElementChild?.className).toContain("dark:bg-[#071d39]");
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    const features = screen.getByTestId("one-location-onboarding-features");
+    expect(features.firstElementChild?.className).toContain(
+      "dark:bg-[#0c1017]",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const peopleScreen = screen.getByTestId("one-location-onboarding-people");
+    expect(peopleScreen.firstElementChild?.className).toContain(
+      "dark:bg-[#14171d]",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const circle = screen.getByTestId("one-location-onboarding-circle");
+    expect(circle.firstElementChild?.className).toContain("dark:bg-[#0c1017]");
   });
 
   it("keeps Continue disabled while recommended contacts are loading", () => {

@@ -2394,7 +2394,6 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (
       locationOnboardingGate !== "show" ||
-      locationOnboardingStep !== "welcome" ||
       !auth.user
     ) {
       return;
@@ -2407,27 +2406,66 @@ export function OneLocationAgentPageContent({
       setLocationOnboardingPeopleError(null);
       try {
         const idToken = await authenticatedUser.getIdToken();
-        const [directoryResult, connectionsResult] = await Promise.allSettled([
-          ConnectionsService.searchDirectory({ idToken, page: 1, limit: 12 }),
-          ConnectionsService.listConnections({ idToken }),
-        ]);
+        let directorySucceeded = false;
+        let renderedPeople = false;
+        let directoryError: unknown = null;
+        let connectionsError: unknown = null;
+
+        const directoryTask = ConnectionsService.searchDirectory({
+          idToken,
+          page: 1,
+          limit: 12,
+        })
+          .then((result) => {
+            directorySucceeded = true;
+            if (cancelled) return;
+            const items = result.items ?? [];
+            if (items.length === 0) return;
+            renderedPeople = true;
+            setLocationOnboardingPeople(items);
+            setLocationOnboardingPeopleError(null);
+            setLocationOnboardingPeopleLoading(false);
+          })
+          .catch((error: unknown) => {
+            directoryError = error;
+          });
+
+        const connectionsTask = ConnectionsService.listConnections({ idToken })
+          .then((result) => {
+            if (cancelled) return;
+            setLocationOnboardingConnections(result);
+            if (renderedPeople || result.length === 0) return;
+            renderedPeople = true;
+            setLocationOnboardingPeople(
+              result.map((connection) => ({
+                userId: connection.userId,
+                displayName: connection.displayName,
+                photoUrl: connection.photoUrl,
+                email: null,
+                relationship: "connected" as const,
+              })),
+            );
+            setLocationOnboardingPeopleError(null);
+            setLocationOnboardingPeopleLoading(false);
+          })
+          .catch((error: unknown) => {
+            connectionsError = error;
+            if (!cancelled) setLocationOnboardingConnections([]);
+          });
+
+        await Promise.allSettled([directoryTask, connectionsTask]);
         if (cancelled) return;
 
-        if (directoryResult.status === "fulfilled") {
-          setLocationOnboardingPeople(directoryResult.value.items ?? []);
-        } else {
+        if (!renderedPeople) {
           setLocationOnboardingPeople([]);
-          setLocationOnboardingPeopleError(
-            directoryResult.reason instanceof Error
-              ? directoryResult.reason.message
-              : "Could not load recommended people.",
-          );
-        }
-
-        if (connectionsResult.status === "fulfilled") {
-          setLocationOnboardingConnections(connectionsResult.value);
-        } else {
-          setLocationOnboardingConnections([]);
+          if (!directorySucceeded) {
+            const error = directoryError ?? connectionsError;
+            setLocationOnboardingPeopleError(
+              error instanceof Error
+                ? error.message
+                : "Could not load recommended people.",
+            );
+          }
         }
       } catch (error) {
         if (cancelled) return;
@@ -2451,7 +2489,6 @@ export function OneLocationAgentPageContent({
     auth.user,
     locationOnboardingGate,
     locationOnboardingPeopleRefresh,
-    locationOnboardingStep,
   ]);
 
   useEffect(() => {

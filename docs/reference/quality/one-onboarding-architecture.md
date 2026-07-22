@@ -205,8 +205,9 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   circle confirmation. Opening the use-case screen requests missing Location
   and notification permissions from the initiating user gesture. Location is
   required before root setup can continue; notifications remain best-effort.
-  At least one contact must be selected. The final circle has no terminal
-  button: after its four-second, reduced-motion-safe confirmation, it invokes
+  At least one contact must be selected. Every screen retains a Back control.
+  The final circle has no terminal completion button: after its four-second,
+  reduced-motion-safe confirmation, it invokes
   the coordinator's durable finish action and lands on `/one/location`.
   Settlement retries automatically on a transient failure. The first share
   remains optional. A dismissed or failed vault setup leaves Location pending.
@@ -236,8 +237,8 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   It keeps the same busy state, control metadata, and settled return-to-hub
   policy. It never presents Finish while input or a connector callback is still
   pending. Location is the bounded exception: its final circle is the terminal
-  presentation, publishes no synthetic button control, and auto-settles after
-  the fixed confirmation interval.
+  presentation, publishes only its Back navigation control, and auto-settles
+  after the fixed confirmation interval.
 - **Finance source boundary**: the three preference questions are not completion.
   Finance continues to `/one/setup/finance/import`, where the person chooses Plaid,
   statement upload, or later, and only then reaches **Finish Finance setup**.

@@ -8,11 +8,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
   Loader2,
-  LocateFixed,
   MapPin,
   ShieldCheck,
   UserPlus,
@@ -131,7 +131,13 @@ function Avatar({
     >
       {photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- Directory photos are remote user media.
-        <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={photoUrl}
+          alt=""
+          loading="eager"
+          decoding="async"
+          className="h-full w-full object-cover"
+        />
       ) : (
         initials(name)
       )}
@@ -142,15 +148,20 @@ function Avatar({
 function TeamAvatar({
   index,
   size = "sm",
+  shape = "circle",
 }: {
   index: number;
   size?: "sm" | "lg";
+  shape?: "circle" | "portrait";
 }) {
   const src = TEAM_AVATAR_SOURCES[index % TEAM_AVATAR_SOURCES.length]!;
   return (
     <span
       className={cn(
-        "block shrink-0 overflow-hidden rounded-full border-[3px] border-white bg-[#dce8f6] shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
+        "block shrink-0 overflow-hidden bg-[#dce8f6]",
+        shape === "portrait"
+          ? "rounded-[13px]"
+          : "rounded-full border-[3px] border-white shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
         size === "lg" ? "h-[58px] w-[58px]" : "h-8 w-8",
       )}
       aria-hidden="true"
@@ -161,6 +172,7 @@ function TeamAvatar({
         alt=""
         loading="eager"
         decoding="async"
+        fetchPriority="high"
         className="h-full w-full object-cover"
       />
     </span>
@@ -230,8 +242,8 @@ function WelcomeRadar() {
       </span>
       {contacts.map((position, index) => (
         <span key={position} className={cn("absolute", position)}>
-          <span className="block rounded-[18px] border-[4px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
-            <TeamAvatar index={index} size="lg" />
+          <span className="block rounded-[18px] bg-white p-1 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
+            <TeamAvatar index={index} size="lg" shape="portrait" />
           </span>
           <span className="absolute -right-1 -top-1 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
         </span>
@@ -273,7 +285,12 @@ function WelcomeScreen({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 text-center">
           <p className="inline-flex items-center gap-2 text-[19px] font-bold">
-            <LocateFixed className="h-5 w-5" /> Location Agent
+            <MapPin
+              className="h-5 w-5"
+              strokeWidth={2.5}
+              data-testid="location-agent-heading-icon"
+            />
+            Location Agent
           </p>
           <h1 className="mx-auto mt-7 max-w-[400px] text-[clamp(32px,5dvh,40px)] font-bold leading-[1.08] tracking-normal">
             The people you love.
@@ -373,6 +390,7 @@ function UseCaseCard({
           alt=""
           loading="eager"
           decoding="async"
+          fetchPriority="high"
           className={cn(
             "h-full w-full object-contain [mask-image:radial-gradient(ellipse_at_center,black_52%,transparent_96%)] dark:brightness-[0.72] dark:contrast-125 dark:saturate-125",
             imageClassName,
@@ -400,6 +418,7 @@ function FeaturesScreen({
   locationBusy,
   notificationBusy,
   requireLocationToContinue,
+  onBack,
   onSkip,
   onContinue,
 }: {
@@ -408,6 +427,7 @@ function FeaturesScreen({
   locationBusy: boolean;
   notificationBusy: boolean;
   requireLocationToContinue: boolean;
+  onBack: () => void;
   onSkip: () => void;
   onContinue: () => void;
 }) {
@@ -425,7 +445,15 @@ function FeaturesScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] dark:bg-[#0c1017]">
-      <header className="flex h-14 shrink-0 items-center justify-end">
+      <header className="flex h-14 shrink-0 items-center justify-between">
+        <button
+          type="button"
+          onClick={onBack}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
         <button
           type="button"
           onClick={onSkip}
@@ -531,19 +559,24 @@ function PeopleScreen({
   connections,
   loading,
   error,
+  initialSelectedIds,
   onRetry,
   onBack,
+  onSelectionChange,
   onContinue,
 }: {
   people: DirectoryPerson[];
   connections: ConnectionSummaryEntry[];
   loading: boolean;
   error: string | null;
+  initialSelectedIds: string[];
   onRetry: () => void;
   onBack: () => void;
+  onSelectionChange: (selectedIds: string[]) => void;
   onContinue: (selectedIds: string[]) => void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
+  const defaultsAppliedRef = useRef(false);
 
   const recommendedPeople = useMemo(() => {
     const weight = (relationship: DirectoryPerson["relationship"]) => {
@@ -557,6 +590,9 @@ function PeopleScreen({
   }, [people]);
 
   useEffect(() => {
+    if (defaultsAppliedRef.current || recommendedPeople.length === 0) return;
+    defaultsAppliedRef.current = true;
+    if (initialSelectedIds.length > 0) return;
     const connectedIds = new Set(
       connections.map((connection) => connection.userId),
     );
@@ -569,7 +605,11 @@ function PeopleScreen({
         )
         .map((person) => person.userId),
     );
-  }, [connections, recommendedPeople]);
+  }, [connections, initialSelectedIds.length, recommendedPeople]);
+
+  useEffect(() => {
+    onSelectionChange(selectedIds);
+  }, [onSelectionChange, selectedIds]);
 
   const togglePerson = (person: DirectoryPerson) => {
     if (
@@ -715,6 +755,7 @@ function CircleScreen({
   requestsSending,
   failedCount,
   settlementRetryCount,
+  onBack,
 }: {
   currentUserName: string;
   currentUserPhotoUrl?: string | null;
@@ -722,6 +763,7 @@ function CircleScreen({
   requestsSending: boolean;
   failedCount: number;
   settlementRetryCount: number;
+  onBack: () => void;
 }) {
   const [messageIndex, setMessageIndex] = useState(0);
   const shown = members.slice(0, 4);
@@ -758,7 +800,15 @@ function CircleScreen({
   }, [messages.length, settlementRetryCount]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),22px)] dark:bg-[#0c1017]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),22px)] dark:bg-[#0c1017]">
+      <button
+        type="button"
+        onClick={onBack}
+        className="press-scale absolute left-5 top-[max(env(safe-area-inset-top,0px),14px)] z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+        aria-label="Go back"
+      >
+        <ArrowLeft className="h-6 w-6" />
+      </button>
       <div className="shrink-0 text-center">
         <p className="text-[13px] font-bold uppercase text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
           Location Agent
@@ -871,10 +921,15 @@ export function OneLocationOnboardingFlow({
   onSkip = onComplete,
   requireLocationToComplete = false,
 }: OneLocationOnboardingFlowProps) {
+  for (const source of ONBOARDING_IMAGE_SOURCES) {
+    preload(source, { as: "image", fetchPriority: "high" });
+  }
+
   const [screen, setScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
   );
   const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
+  const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([]);
   const [failedRequestCount, setFailedRequestCount] = useState(0);
   const [requestsSending, setRequestsSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -915,28 +970,6 @@ export function OneLocationOnboardingFlow({
   }, [requestMissingPermissions, startAt]);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    const links: HTMLLinkElement[] = [];
-    for (const source of ONBOARDING_IMAGE_SOURCES) {
-      const link = document.createElement("link");
-      link.rel = "preload";
-      link.as = "image";
-      link.href = source;
-      link.setAttribute("fetchpriority", "high");
-      document.head.appendChild(link);
-      links.push(link);
-
-      const image = new window.Image();
-      image.decoding = "async";
-      image.setAttribute("fetchpriority", "high");
-      image.src = source;
-    }
-    return () => {
-      for (const link of links) link.remove();
-    };
-  }, []);
-
-  useEffect(() => {
     if (screen !== "circle") return;
     const delay = settlementRetryCount === 0 ? 4000 : 3000;
     const timer = window.setTimeout(() => {
@@ -975,6 +1008,7 @@ export function OneLocationOnboardingFlow({
 
   const handlePeopleContinue = (selectedIds: string[]) => {
     if (selectedIds.length === 0) return;
+    setSelectedPeopleIds(selectedIds);
     const selectedPeople = people.filter((person) =>
       selectedIds.includes(person.userId),
     );
@@ -1053,6 +1087,7 @@ export function OneLocationOnboardingFlow({
             locationBusy={locationBusy}
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
+            onBack={() => setScreen("welcome")}
             onSkip={continueFromFeatures}
             onContinue={continueFromFeatures}
           />
@@ -1063,8 +1098,10 @@ export function OneLocationOnboardingFlow({
             connections={connections}
             loading={peopleLoading}
             error={peopleError}
+            initialSelectedIds={selectedPeopleIds}
             onRetry={onRetryPeople}
             onBack={() => setScreen("features")}
+            onSelectionChange={setSelectedPeopleIds}
             onContinue={handlePeopleContinue}
           />
         ) : null}
@@ -1076,6 +1113,7 @@ export function OneLocationOnboardingFlow({
             requestsSending={requestsSending}
             failedCount={failedRequestCount}
             settlementRetryCount={settlementRetryCount}
+            onBack={() => setScreen("people")}
           />
         ) : null}
       </section>

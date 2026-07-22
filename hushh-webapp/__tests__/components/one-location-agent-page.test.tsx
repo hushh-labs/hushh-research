@@ -452,7 +452,7 @@ async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
       name: "Your circle, your choice",
     }),
   ).toBeTruthy();
-  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
@@ -800,7 +800,7 @@ describe("OneLocationAgentPage", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
 
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -849,6 +849,83 @@ describe("OneLocationAgentPage", () => {
       await screen.findByTestId("one-location-onboarding-welcome"),
     ).toBeTruthy();
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
+  });
+
+  it("keeps contact prefetch alive across steps and renders the first available source", async () => {
+    type DirectoryResult = {
+      items: Array<{
+        userId: string;
+        displayName: string;
+        photoUrl: null;
+        email: string;
+        relationship: "connected" | "none";
+      }>;
+      page: number;
+      hasMore: boolean;
+    };
+    type ConnectionResult = Array<{
+      connectionId: string;
+      userId: string;
+      displayName: string;
+      photoUrl: null;
+      createdAt: string;
+    }>;
+    let resolveDirectory!: (value: DirectoryResult) => void;
+    let resolveConnections!: (value: ConnectionResult) => void;
+    mockSearchConnectionDirectory.mockReturnValueOnce(
+      new Promise<DirectoryResult>((resolve) => {
+        resolveDirectory = resolve;
+      }),
+    );
+    mockListConnections.mockReturnValueOnce(
+      new Promise<ConnectionResult>((resolve) => {
+        resolveConnections = resolve;
+      }),
+    );
+
+    render(<OneLocationAgentPage mode="setup" />);
+    await openLocationPeopleStep();
+    expect(screen.getByText("Finding your people")).toBeTruthy();
+
+    await act(async () => {
+      resolveConnections([
+        {
+          connectionId: "connection_b",
+          userId: "user_b",
+          displayName: "Trusted B",
+          photoUrl: null,
+          createdAt: "2026-05-20T07:00:00.000Z",
+        },
+      ]);
+    });
+
+    expect(await screen.findByText("Trusted B")).toBeTruthy();
+    expect(screen.queryByText("Finding your people")).toBeNull();
+
+    await act(async () => {
+      resolveDirectory({
+        items: [
+          {
+            userId: "user_b",
+            displayName: "Trusted B",
+            photoUrl: null,
+            email: "trusted@example.com",
+            relationship: "connected",
+          },
+          {
+            userId: "user_c",
+            displayName: "Advisor C",
+            photoUrl: null,
+            email: "advisor@example.com",
+            relationship: "none",
+          },
+        ],
+        page: 1,
+        hasMore: false,
+      });
+    });
+
+    expect(await screen.findByText("Advisor C")).toBeTruthy();
   });
 
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
