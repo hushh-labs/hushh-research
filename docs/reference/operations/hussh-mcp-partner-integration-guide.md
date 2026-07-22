@@ -96,26 +96,24 @@ grant_type=client_credentials
 The returned access token belongs in `Authorization: Bearer <access-token>`.
 No refresh token is issued for the client-credentials grant.
 
-## Agentforce registration through MuleSoft
+## Agentforce registration through the Salesforce trusted connector
 
-The generated Exchange file always registers the same five-tool Hussh catalog.
-It does not mean every tool is appropriate as an Agentforce action. Tool 5 is
-secure connector delivery: it remains available to MuleSoft's internal Hussh
-client after approval, but is not an Agentforce action and is blocked at the
-Agentforce-facing MuleSoft edge.
+An installed Salesforce AgentExchange package uses its own per-org Hussh
+execute app and key bundle. It is the single decryption source. This does not
+change the five-tool catalog or make every tool an Agentforce action. Tool 5 is
+secure connector delivery: it remains available only to that trusted connector
+after approval and is blocked from the Agentforce planner.
 
-The two OAuth hops are separate: Agentforce authenticates to MuleSoft with a
-MuleSoft-owned client; MuleSoft authenticates to Hussh with an
-operations-provisioned Hussh execute application. Agentforce never receives a
-Hussh credential or connector private key.
+The trusted connector's OAuth application, the person's consent, and the
+connector key are separate authorities. The installed connector authenticates
+to Hussh using its per-org execute app. Agentforce never receives a Hussh
+credential or connector private key.
 
-Salesforce documents that Agentforce MCP does not support user-level
-authentication or personalized responses. Hussh therefore keeps its direct
-Agentforce profile catalog-only; personal tool calls return the safe terminal
-state `REQUIRES_SECURE_CONSENT_FLOW`. A MuleSoft relay does not remove that
-Salesforce limitation. The exact required design, key custody, tool policy,
-crypto procedure, UAT checks, and production gate are in the canonical
-[MuleSoft and Agentforce secure relay](../../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md)
+Hussh keeps its direct Agentforce profile catalog-only; personal tool calls
+return the safe terminal state `REQUIRES_SECURE_CONSENT_FLOW`. A trusted
+connector does not remove direct-host constraints. The exact key custody, tool
+policy, crypto procedure, UAT checks, and production gate are in the canonical
+[Salesforce AgentExchange trusted connector](../../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md)
 guide.
 
 ## Consent lifecycle
@@ -244,7 +242,7 @@ person-specific tool call.
 
 | What the host shows | Likely boundary | Correct next check |
 | --- | --- | --- |
-| No tools found | Catalog response was rejected or transformed. | Inspect the raw `tools/list` result and validate all five schemas without MuleSoft field expansion. |
+| No tools found | Catalog response was rejected or transformed. | Inspect the raw `tools/list` result and validate all five schemas without connector field expansion. |
 | `Invalid method: initialize` | The client and endpoint are not completing the MCP handshake. | Use Streamable HTTP at `/mcp/`, include the trailing slash, and negotiate revision `2025-11-25`. |
 | HTTP 401 or 403 | Credential exchange, expiry, revocation, or app entitlement. | Re-run the approved OAuth exchange or rotate the bearer credential; never move the secret into a URL. |
 | Generic `Tool execution failed` after tools load | The host hid the safe MCP error or the lifecycle handler rejected the call. | Inspect `content[0].text` for the safe error code and correlation reference, then backend metadata-only logs; do not infer failure from the host summary alone. |
@@ -254,4 +252,4 @@ person-specific tool call.
 | Decryption authentication fails | Wrong private key, wrong canonical AAD, changed envelope, or mixed ciphertext/tag ordering. | Verify the registered key ID and fingerprint, then follow the reference algorithm exactly. |
 | Manifest and live tools differ | Package/deployment drift. | Treat the live `tools/list` response as runtime evidence and stop registration until the intended v0.4 deployment is confirmed. |
 
-> **Acceptance gate.** Approve the MuleSoft-to-Hussh integration only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test the MuleSoft execute application through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context. Enable an Agentforce personalized experience only after Salesforce confirms that exact host boundary is supported.
+> **Acceptance gate.** Approve a trusted connector only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test its per-org execute app through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context. Enable an Agentforce personalized experience only after target-org UAT confirms that exact host boundary is supported.

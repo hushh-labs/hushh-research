@@ -13,6 +13,7 @@ from mcp_modules.agentforce_contract import (
     get_agentforce_contract,
     get_agentforce_tool_names,
     get_mulesoft_agentforce_handoff,
+    get_salesforce_agentexchange_handoff,
 )
 from mcp_modules.canonical_contract import get_published_tool_names
 from mcp_modules.developer_context import (
@@ -101,10 +102,10 @@ def test_agentforce_uat_contract_is_strict_and_keeps_canonical_field_ids() -> No
         assert agentforce_tool["outputSchema"]["title"] == f"{agentforce_tool['title']} output"
 
 
-def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary() -> None:
-    handoff = get_mulesoft_agentforce_handoff()
+def test_salesforce_agentexchange_handoff_preserves_the_catalog_and_boundary() -> None:
+    handoff = get_salesforce_agentexchange_handoff()
 
-    assert handoff["integrationTarget"] == "mulesoft-agentforce"
+    assert handoff["integrationTarget"] == "salesforce-agentexchange"
     assert handoff["upstream"] == {
         "transport": "streamable-http",
         "path": "/mcp/",
@@ -117,18 +118,14 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
         "catalogOnly": True,
         "directPersonalizedToolCalls": "blocked",
         "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
-        "muleControlPlaneTools": [
-            "search-user-scopes",
-            "prepare-campaign-context",
-            "request-consent",
-            "check-consent-status",
-        ],
         "agentforceActionDefault": "no-personalized-consent-actions",
-        "salesforceApprovedUatActionAllowlist": [
+        "plannerExposure": "no-personalized-hussh-tools",
+        "trustedConnectorTools": [
             "search-user-scopes",
             "prepare-campaign-context",
             "request-consent",
             "check-consent-status",
+            "get-encrypted-scoped-export",
         ],
         "connectorOnlyTool": "get-encrypted-scoped-export",
         "connectorOnlyReason": (
@@ -136,21 +133,32 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
             "must be decrypted outside the Agentforce LLM."
         ),
     }
-    assert handoff["relayRequirements"] == {
+    assert handoff["connectorRequirements"] == {
         "preserveToolNames": True,
         "preserveInputOutputSchemas": True,
         "allowResources": False,
         "allowPrompts": False,
         "expandNestedFields": False,
+        "keyCustody": "per-org-connector-runtime",
+        "privateKeyInAgentforceModel": False,
     }
     assert handoff["executionBoundary"] == {
         "directAgentforceExecution": "catalog-only",
-        "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+        "trustedConnectorExecution": "operations-provisioned-execute-principal",
         "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
         "applicationAuthentication": "oauth2-client-credentials-per-hop",
         "userAuthority": "explicit-consent-and-scoped-grant",
         "informationDelivery": "encrypted-export-after-approval",
     }
+
+
+def test_mulesoft_handoff_remains_a_compatible_implementation_view() -> None:
+    handoff = get_mulesoft_agentforce_handoff()
+    assert handoff["integrationTarget"] == "mulesoft-agentforce"
+    assert handoff["implementation"] == "mulesoft-secure-relay"
+    assert handoff["agentforce"]["agentActionPolicy"]["connectorOnlyTool"] == (
+        "get-encrypted-scoped-export"
+    )
 
 
 def test_flat_projection_preserves_lifecycle_references_and_export_envelope() -> None:

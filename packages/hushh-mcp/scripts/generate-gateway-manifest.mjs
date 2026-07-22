@@ -106,11 +106,11 @@ function loadAgentforceContract() {
       "-c",
       [
         "import json",
-        "from mcp_modules.agentforce_contract import agentforce_contract_errors, get_agentforce_contract, get_mulesoft_agentforce_handoff",
+        "from mcp_modules.agentforce_contract import agentforce_contract_errors, get_agentforce_contract, get_mulesoft_agentforce_handoff, get_salesforce_agentexchange_handoff",
         "errors = agentforce_contract_errors()",
         "if errors:",
         "    raise SystemExit('; '.join(errors))",
-        "print(json.dumps({'contract': get_agentforce_contract(), 'mulesoftAgentforceHandoff': get_mulesoft_agentforce_handoff()}, separators=(',', ':')))"
+        "print(json.dumps({'contract': get_agentforce_contract(), 'salesforceAgentExchangeHandoff': get_salesforce_agentexchange_handoff(), 'mulesoftAgentforceHandoff': get_mulesoft_agentforce_handoff()}, separators=(',', ':')))"
       ].join("\n"),
     ],
     {
@@ -143,6 +143,8 @@ const agentforceManifest = {
     prompts: false,
     logging: false,
   },
+  salesforceAgentExchangeHandoff: agentforceProjection.salesforceAgentExchangeHandoff,
+  // Retained only for deployments already using the MuleSoft relay CLI output.
   mulesoftAgentforceHandoff: agentforceProjection.mulesoftAgentforceHandoff,
   tools: agentforceContract.tools.map(
     ({ name, title, description, inputSchema, outputSchema, annotations }) => ({

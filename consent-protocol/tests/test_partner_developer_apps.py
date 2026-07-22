@@ -193,6 +193,21 @@ class TestPartnerPrincipal:
 
 
 class TestMuleSoftAgentforceProvisioning:
+    def test_agentexchange_integration_selects_executable_client_credentials(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="salesforce-agentexchange",
+            schema_profile="standard",
+            enable_client_credentials=False,
+            client_credentials_execution_mode="catalog_only",
+        )
+
+        module._apply_integration_defaults(parser, args)
+
+        assert args.enable_client_credentials is True
+        assert args.client_credentials_execution_mode == "execute"
+
     def test_named_integration_selects_executable_client_credentials(self):
         module = _partner_provisioning_module()
         parser = argparse.ArgumentParser()

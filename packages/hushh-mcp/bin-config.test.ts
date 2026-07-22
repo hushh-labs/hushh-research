@@ -94,8 +94,8 @@ describe("hushh-mcp CLI config output", () => {
       prompts: false,
       logging: false,
     });
-    expect(manifest.mulesoftAgentforceHandoff).toMatchObject({
-      integrationTarget: "mulesoft-agentforce",
+    expect(manifest.salesforceAgentExchangeHandoff).toMatchObject({
+      integrationTarget: "salesforce-agentexchange",
       supportStatus: "agentforce-catalog-compatible",
       upstream: {
         transport: "streamable-http",
@@ -108,12 +108,12 @@ describe("hushh-mcp CLI config output", () => {
       },
       executionBoundary: {
         directAgentforceExecution: "catalog-only",
-        mulesoftUpstreamExecution: "operations-provisioned-execute-principal",
+        trustedConnectorExecution: "operations-provisioned-execute-principal",
         agentforcePersonalizedExecution: "requires-salesforce-supported-host-boundary",
         applicationAuthentication: "oauth2-client-credentials-per-hop",
       },
     });
-    expect(manifest.mulesoftAgentforceHandoff.agentforce.toolAllowlist).toEqual(
+    expect(manifest.salesforceAgentExchangeHandoff.agentforce.toolAllowlist).toEqual(
       manifest.tools.map((tool: { name: string }) => tool.name),
     );
     expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
@@ -185,47 +185,45 @@ describe("hushh-mcp CLI config output", () => {
     expect(stdout).not.toContain("client_secret");
   });
 
-  it("prints the non-secret MuleSoft to Agentforce handoff without widening the UAT boundary", async () => {
+  it("prints the non-secret Salesforce AgentExchange handoff without widening the UAT boundary", async () => {
     const { stdout, stderr } = await execAsync(
-      `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-agentforce-handoff`,
+      `node ${packageJson.bin["hushh-mcp"]} --print-salesforce-agentexchange-handoff`,
       { cwd: process.cwd() },
     );
 
     expect(stderr).toBe("");
     const handoff = JSON.parse(stdout);
-    expect(handoff.integrationTarget).toBe("mulesoft-agentforce");
+    expect(handoff.integrationTarget).toBe("salesforce-agentexchange");
     expect(handoff.agentforce.toolAllowlist).toHaveLength(5);
     expect(handoff.agentforce.agentActionPolicy).toEqual({
       catalogOnly: true,
       directPersonalizedToolCalls: "blocked",
       directToolCallResult: "REQUIRES_SECURE_CONSENT_FLOW",
-      muleControlPlaneTools: [
-        "search-user-scopes",
-        "prepare-campaign-context",
-        "request-consent",
-        "check-consent-status",
-      ],
       agentforceActionDefault: "no-personalized-consent-actions",
-      salesforceApprovedUatActionAllowlist: [
+      plannerExposure: "no-personalized-hussh-tools",
+      trustedConnectorTools: [
         "search-user-scopes",
         "prepare-campaign-context",
         "request-consent",
         "check-consent-status",
+        "get-encrypted-scoped-export",
       ],
       connectorOnlyTool: "get-encrypted-scoped-export",
       connectorOnlyReason:
         "The encrypted export is delivered to the registered connector and must be decrypted outside the Agentforce LLM.",
     });
-    expect(handoff.relayRequirements).toEqual({
+    expect(handoff.connectorRequirements).toEqual({
       preserveToolNames: true,
       preserveInputOutputSchemas: true,
       allowResources: false,
       allowPrompts: false,
       expandNestedFields: false,
+      keyCustody: "per-org-connector-runtime",
+      privateKeyInAgentforceModel: false,
     });
     expect(handoff.executionBoundary).toMatchObject({
       directAgentforceExecution: "catalog-only",
-      mulesoftUpstreamExecution: "operations-provisioned-execute-principal",
+      trustedConnectorExecution: "operations-provisioned-execute-principal",
       agentforcePersonalizedExecution: "requires-salesforce-supported-host-boundary",
     });
     expect(stdout).not.toContain("client_secret");
