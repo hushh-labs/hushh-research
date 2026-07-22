@@ -66,6 +66,11 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   warmAgentPkmContext: (...a: unknown[]) => agentPkmWarmMock(...a),
 }));
 
+const agentHistoryWarmMock = vi.fn();
+vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
+  warmAgentChatHistoryCache: (...a: unknown[]) => agentHistoryWarmMock(...a),
+}));
+
 vi.mock("@/lib/services/cache-service", () => {
   const store = new Map<string, unknown>();
   return {
@@ -138,6 +143,7 @@ vi.mock("@/lib/one-location/key-bootstrap", () => ({
 }));
 
 import {
+  settleWithConcurrency,
   UnlockWarmOrchestrator,
 } from "@/lib/services/unlock-warm-orchestrator";
 
@@ -167,6 +173,7 @@ function setupDefaultMocks() {
   apiGetConsentHistoryMock.mockResolvedValue(okJsonResponse({ items: [] }));
   consentRefreshEnsureRunningMock.mockResolvedValue(undefined);
   agentPkmWarmMock.mockResolvedValue(undefined);
+  agentHistoryWarmMock.mockResolvedValue(undefined);
 }
 
 /* ---------- tests ---------- */
@@ -177,6 +184,23 @@ describe("UnlockWarmOrchestrator", () => {
     // Clear internal static state between tests
     UnlockWarmOrchestrator.invalidateForUser(BASE_PARAMS.userId);
     UnlockWarmOrchestrator.invalidateForUser("user-dedup-1");
+  });
+
+  it("caps secondary warm-up concurrency and preserves result order", async () => {
+    let active = 0;
+    let peak = 0;
+    const tasks = Array.from({ length: 8 }, (_, index) => async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      return index;
+    });
+    const results = await settleWithConcurrency(tasks, 4);
+    expect(peak).toBe(4);
+    expect(
+      results.map((result) => result.status === "fulfilled" ? result.value : null),
+    ).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
 
   describe("resolveWarmPriority (tested indirectly via run())", () => {

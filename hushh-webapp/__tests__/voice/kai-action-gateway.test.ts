@@ -127,9 +127,10 @@ describe("kai-action-gateway", () => {
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
-          action.goal.entrypoint_support.includes("voice") &&
-          action.goal.entrypoint_support.includes("chat") &&
-          action.goal.workflow_steps.length >= 1
+          action.execution_target.status !== "wired" ||
+          (action.goal.entrypoint_support.includes("voice") &&
+            action.goal.entrypoint_support.includes("chat") &&
+            action.goal.workflow_steps.length >= 1)
       )
     ).toBe(true);
     expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");

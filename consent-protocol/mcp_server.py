@@ -144,8 +144,17 @@ _PRIVATE_INPUT_SCHEMAS = {
 
 
 def _mcp_error(result: tuple[list, dict]) -> CallToolResult:
-    content, structured = result
-    return CallToolResult(content=content, structuredContent=structured, isError=True)
+    """Return a standard MCP execution error without a success-shaped payload.
+
+    Public tools declare strict success output schemas.  A safe error payload
+    deliberately has a different shape, so placing it in ``structuredContent``
+    makes strict hosts validate it as a malformed success result.  MCP models
+    tool execution errors as ``isError`` plus content; the safe JSON text is
+    retained for clients that need a machine-readable error.
+    """
+
+    content, _structured = result
+    return CallToolResult(content=content, isError=True)
 
 
 # ============================================================================

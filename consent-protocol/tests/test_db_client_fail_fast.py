@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from psycopg2.extras import Json as PsycopgJson
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from db.db_client import DatabaseClient, DatabaseExecutionError, TableQuery
@@ -154,6 +154,63 @@ def test_upsert_supports_composite_conflict_columns(sqlite_engine):
     assert row.iv == "iv-v2"
     assert row.created_at == 1000
     assert row.updated_at == 2000
+
+
+def test_bulk_insert_uses_bounded_multi_row_statements(sqlite_engine, monkeypatch):
+    monkeypatch.setenv("DB_BULK_BATCHING_ENABLED", "true")
+    with sqlite_engine.connect() as conn:
+        conn.execute(text("CREATE TABLE bulk_items (id INTEGER PRIMARY KEY, value TEXT NOT NULL)"))
+        conn.commit()
+
+    statements: list[str] = []
+
+    def _capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.startswith('INSERT INTO "bulk_items"'):
+            statements.append(statement)
+
+    event.listen(sqlite_engine, "before_cursor_execute", _capture)
+    try:
+        result = (
+            TableQuery("bulk_items", sqlite_engine)
+            .insert([{"id": index, "value": f"value-{index}"} for index in range(500)])
+            .execute()
+        )
+    finally:
+        event.remove(sqlite_engine, "before_cursor_execute", _capture)
+
+    assert result.count == 500
+    assert len(statements) == 2  # SQLite's conservative 900-parameter batches.
+
+
+def test_bulk_upsert_uses_one_statement_for_small_batch(sqlite_engine, monkeypatch):
+    monkeypatch.setenv("DB_BULK_BATCHING_ENABLED", "true")
+    with sqlite_engine.connect() as conn:
+        conn.execute(
+            text("CREATE TABLE bulk_upserts (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
+        )
+        conn.commit()
+
+    statements: list[str] = []
+
+    def _capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().startswith('INSERT INTO "bulk_upserts"'):
+            statements.append(statement)
+
+    event.listen(sqlite_engine, "before_cursor_execute", _capture)
+    try:
+        result = (
+            TableQuery("bulk_upserts", sqlite_engine)
+            .upsert(
+                [{"id": index, "value": f"value-{index}"} for index in range(100)],
+                on_conflict="id",
+            )
+            .execute()
+        )
+    finally:
+        event.remove(sqlite_engine, "before_cursor_execute", _capture)
+
+    assert result.count == 100
+    assert len(statements) == 1
 
 
 def test_execute_raw_commits_insert_returning_statements(sqlite_engine):

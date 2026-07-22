@@ -9,6 +9,8 @@ One Location page).
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
 
@@ -122,3 +124,54 @@ def test_list_state_network_connections_sourced_from_trusted():
     assert conns[0]["userAId"] == "owner"
     assert conns[0]["userBId"] == "friend"
     assert conns[0]["status"] == "active"
+
+
+def test_list_state_is_read_only_and_projects_expired_invites(monkeypatch):
+    monkeypatch.setenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED", "true")
+
+    class _ReadOnlyService(OneLocationAgentService):
+        def list_verified_recipients(self, *, owner_user_id: str, limit: int = 50):  # noqa: ARG002
+            return []
+
+        def _execute_many(self, sql: str, params=None):  # noqa: ARG002
+            normalized = sql.strip().upper()
+            assert not normalized.startswith(("UPDATE", "INSERT", "DELETE", "WITH STALE"))
+            if "FROM ONE_LOCATION_PUBLIC_INVITES" in normalized:
+                return [
+                    {
+                        "id": "invite-1",
+                        "owner_user_id": "owner",
+                        "status": "active",
+                        "expires_at": datetime.now(timezone.utc) - timedelta(minutes=1),
+                    }
+                ]
+            return []
+
+    state = _ReadOnlyService().list_state(user_id="owner")
+    assert state["publicInvites"][0]["status"] == "expired"
+
+
+def test_list_state_is_read_only_and_projects_expired_grants(monkeypatch):
+    monkeypatch.setenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED", "true")
+
+    class _ReadOnlyGrantService(OneLocationAgentService):
+        def list_verified_recipients(self, *, owner_user_id: str, limit: int = 50):  # noqa: ARG002
+            return []
+
+        def _execute_many(self, sql: str, params=None):  # noqa: ARG002
+            normalized = sql.strip().upper()
+            assert not normalized.startswith(("UPDATE", "INSERT", "DELETE", "WITH STALE"))
+            if "FROM ONE_LOCATION_SHARE_GRANTS G" in normalized:
+                return [
+                    {
+                        "id": "grant-1",
+                        "owner_user_id": "owner",
+                        "recipient_user_id": "recipient",
+                        "status": "active",
+                        "expires_at": datetime.now(timezone.utc) - timedelta(minutes=1),
+                    }
+                ]
+            return []
+
+    state = _ReadOnlyGrantService().list_state(user_id="owner")
+    assert state["ownerGrants"][0]["status"] == "expired"

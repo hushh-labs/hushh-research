@@ -6,7 +6,6 @@ Kai route-facing UI lives here. The market route is the canonical shell/layout r
 
 - `views/kai-market-preview-view.tsx`: canonical market-led shell and responsive layout reference.
 - `views/dashboard-master-view.tsx`: portfolio/dashboard internals.
-- `views/investments-master-view.tsx`: investment workspace.
 - `onboarding/`: onboarding and preferences flows.
 - `cards/`, `charts/`, `home/`: reusable Kai feature surfaces.
 - Virtual scrolling via `@tanstack/react-virtual` for large holdings lists in portfolio views.

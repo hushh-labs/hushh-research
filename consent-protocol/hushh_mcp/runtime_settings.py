@@ -66,6 +66,9 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "plaid_redirect_path": "PLAID_REDIRECT_PATH",
     "plaid_redirect_uri": "PLAID_REDIRECT_URI",
     "plaid_tx_history_days": "PLAID_TX_HISTORY_DAYS",
+    "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
+    "consent_center_summary_v2_enabled": "CONSENT_CENTER_SUMMARY_V2_ENABLED",
+    "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
 }
 
 

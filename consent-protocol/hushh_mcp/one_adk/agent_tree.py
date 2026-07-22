@@ -35,7 +35,7 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.contract import A2ATask
-from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
+from hushh_mcp.adk_bridge.dispatch import dispatch
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -50,13 +50,16 @@ from hushh_mcp.one_adk.action_tools import (
     run_app_action,
     start_app_goal,
 )
+from hushh_mcp.one_adk.specialist_availability import (
+    resolve_specialist_availability,
+    specialist_label,
+)
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
 
 logger = logging.getLogger(__name__)
 
@@ -649,50 +652,99 @@ async def _specialist_turn(
     # Importing adk_bridge registers the built-in specialists at import time.
     import hushh_mcp.adk_bridge  # noqa: F401 - side-effect registration
 
-    if not is_wired_specialist(agent_id):
-        return {
-            "status": "unavailable",
-            "message": f"The {agent_id} specialist is not available right now.",
-        }
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
-    route_family = (
-        str(voice_context.get("route_family") or "").strip()
-        if isinstance(voice_context, dict)
-        else ""
+    user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
+    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    availability = resolve_specialist_availability(
+        agent_id=agent_id,
+        user_id=user_id,
+        consent_token=consent_token,
+        voice_context=voice_context,
     )
-    admission = is_one_delegate_admitted(route_family, agent_id)
-    if admission is False:
+    availability_payload = availability.as_dict()
+    if availability.state == "setup_required":
         return {
-            "status": "route_not_admitted",
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
+            "message": (
+                "Finish Location setup and confirm device permission first. "
+                "Location sharing becomes available after setup is complete."
+            ),
+        }
+    if availability.state == "authority_required":
+        return {
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
+            "message": (
+                "The Connected Systems specialist needs an approved connection and "
+                "task-specific authority before it can work with a CRM. I can open "
+                "Connected Systems so you can choose a configured CRM."
+            )
+            if agent_id == "agent_connected_systems"
+            else f"{specialist_label(agent_id)} needs approved task-specific authority first.",
+        }
+    if availability.state == "route_not_admitted":
+        return {
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
             "message": (
                 "That specialist is not available from the current route. "
                 "Open its declared workspace first; consent and TrustLink "
                 "checks still apply after route admission."
             ),
         }
+    if availability.state in {"needs_auth", "vault_locked"}:
+        return {
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
+            "message": (
+                "This needs the user to be signed in with an unlocked vault."
+                if availability.state == "needs_auth"
+                else "Unlock the vault before asking this specialist to use protected information."
+            ),
+        }
+    if availability.state != "ready":
+        return {
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
+            "message": f"{specialist_label(agent_id)} is not available for that request right now.",
+        }
     task = _task_from_context(tool_context, request)
     if task is None:
+        # Defensive invariant: availability and task construction must agree.
         return {
-            "status": "needs_auth",
-            "message": (
-                "This needs the user to be signed in with an unlocked vault. "
-                "Invite them to sign in or unlock first."
-            ),
+            "status": "vault_locked",
+            "reason": "task_authority_unavailable",
+            "availability": availability_payload,
+            "message": "Unlock the vault before asking this specialist to use protected information.",
         }
     try:
         result = await dispatch(agent_id, task)
     except PermissionError as exc:
-        return {"status": "consent_denied", "message": str(exc)}
+        return {
+            "status": "scope_required",
+            "reason": "consent_scope_required",
+            "availability": availability_payload,
+            "message": str(exc),
+        }
     except Exception:  # noqa: BLE001 - specialist failures must not kill the session
         logger.exception("one_adk.specialist_turn_failed agent_id=%s", agent_id)
         return {
-            "status": "error",
-            "message": "The specialist hit an internal error on that request.",
+            "status": "runtime_unavailable",
+            "reason": "specialist_runtime_failed",
+            "availability": availability_payload,
+            "message": "The specialist runtime is unavailable for that request. Please try again.",
         }
     if result.conversation_id:
         tool_context.state[STATE_CONVERSATION_ID] = result.conversation_id
     payload: dict[str, Any] = {
         "status": "ok",
+        "availability": availability_payload,
         "text": result.text,
         "is_complete": result.is_complete,
     }
@@ -780,9 +832,27 @@ async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -
     return await _specialist_turn("agent_connected_systems", request, tool_context)
 
 
-async def ask_consent_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Consent Center; Nav delegates trusted-people work to Connections."""
-    return await _specialist_turn("agent_nav", request, tool_context)
+async def ask_consent_agent(
+    request: str,
+    tool_context: ToolContext,
+    target: Literal["consent", "connections"] = "consent",
+) -> dict[str, Any]:
+    """Ask Nav's Consent Center or its Connections child.
+
+    One semantically selects ``target``.  This function only validates that
+    selection and preserves the authored hierarchy: ``consent`` reaches Nav;
+    ``connections`` reaches Nav's declared Connections child.  It never
+    examines request words to choose a subagent.  Connections still requires
+    task-specific ingress authority and stays unavailable until that authority
+    is supplied.
+    """
+    agent_id = {"consent": "agent_nav", "connections": "agent_connections"}.get(target)
+    if agent_id is None:
+        return {
+            "status": "invalid_target",
+            "message": "Choose either the Consent Center or its Connections specialist.",
+        }
+    return await _specialist_turn(agent_id, request, tool_context)
 
 
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:

@@ -735,41 +735,40 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             })();
             return;
           }
-          // Specialist directive (location share/check-in/SOS, device
-          // permission re-ask, connected-systems update, etc.) rather than a
-          // run_app_action directive: these need vault-owner crypto/native
-          // calls that only exist in the chat surface's directive runtime.
-          // Without this branch the directive silently dropped (no actionId),
-          // which is why asking One over voice to re-ask location permission
-          // did nothing even though the specialist correctly proposed it.
-          const delegateAgentId =
-            typeof event.directive.payload?.delegateAgentId === "string"
-              ? event.directive.payload.delegateAgentId
-              : null;
-          const directiveType =
-            typeof event.directive.payload?.type === "string"
-              ? event.directive.payload.type
-              : "this";
-          const handoff = createHandoff({
-            reason: "action_requires_chat",
-            transcript: null,
-            assistantText: `One line this up for you: ${directiveType}. Confirm here to continue.`,
-            specialistDirective: delegateAgentId
-              ? {
-                  delegateAgentId,
-                  directive: {
-                    kind: "action",
-                    payload: event.directive.payload ?? {},
-                  },
-                  message: "",
-                  stateChanged: false,
-                }
-              : null,
-          });
-          liveClientRef.current?.interrupt?.();
-          agentPopover?.openAgent({ handoff });
+        }
+        if (event.directive.kind !== "action" && event.directive.kind !== "prompt") {
           return;
         }
+        // Specialist directive (location share/check-in/SOS, device
+        // permission re-ask, connected-systems update, or a Nav consent
+        // prompt) rather than a run_app_action directive. It needs the chat
+        // surface's audited specialist runtime; preserve the relay envelope
+        // so prompt cards retain their owning specialist and exact kind.
+        const delegateAgentId = event.directive.delegateAgentId ?? null;
+        const directiveType =
+          typeof event.directive.payload?.kind === "string"
+            ? event.directive.payload.kind
+            : typeof event.directive.payload?.type === "string"
+              ? event.directive.payload.type
+              : "this";
+        const handoff = createHandoff({
+          reason: "action_requires_chat",
+          transcript: null,
+          assistantText: `One line this up for you: ${directiveType}. Confirm here to continue.`,
+          specialistDirective: delegateAgentId
+            ? {
+                delegateAgentId,
+                directive: {
+                  kind: event.directive.kind,
+                  payload: event.directive.payload ?? {},
+                },
+                message: "",
+                stateChanged: false,
+              }
+            : null,
+        });
+        liveClientRef.current?.interrupt?.();
+        agentPopover?.openAgent({ handoff });
         return;
       }
       if (event.type === "handoff") {
@@ -887,8 +886,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       if (!pending.receipt) {
-        const confirmDirective = pending.transport?.confirmActionDirective;
-        if (!confirmDirective) {
+        const confirmationTransport = pending.transport;
+        if (!confirmationTransport?.confirmActionDirective) {
           reportPendingSettlement({
             status: "failed",
             summary: "The confirmation service was unavailable.",
@@ -897,7 +896,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           return;
         }
         setVoiceStatus("thinking", "Authorizing confirmation");
-        void confirmDirective({
+        // Invoke through its owning transport. Extracting this class method and
+        // calling it bare loses the GeminiLiveClient receiver (`this.ws`).
+        void confirmationTransport.confirmActionDirective({
           directiveId: pending.directiveId,
           actionId: pending.actionId,
           contextRevision: pending.contextRevision,

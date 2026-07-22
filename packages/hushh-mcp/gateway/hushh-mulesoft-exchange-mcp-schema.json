@@ -355,7 +355,7 @@
     },
     {
       "name": "get-encrypted-scoped-export",
-      "description": "Retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
+      "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
       "inputSchema": {
         "type": "object",
         "description": "A flat, capability-safe field set.",

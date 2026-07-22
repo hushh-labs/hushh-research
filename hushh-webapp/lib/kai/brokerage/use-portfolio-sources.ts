@@ -13,7 +13,6 @@ import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   hasPortfolioHoldings,
-  type PlaidFundingStatusResponse,
   resolveAvailableSources,
   resolvePreferredPortfolioSource,
   resolvePortfolioFreshness,
@@ -68,7 +67,6 @@ export interface UsePortfolioSourcesResult {
   isLoading: boolean;
   error: string | null;
   plaidStatus: PlaidPortfolioStatusResponse | null;
-  plaidFundingStatus: PlaidFundingStatusResponse | null;
   statementPortfolio: PortfolioData | null;
   plaidPortfolio: PortfolioData | null;
   statementSnapshots: StatementSnapshotOption[];
@@ -168,9 +166,6 @@ export function usePortfolioSources({
     initialStatementPortfolio
   );
   const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
-  const [plaidFundingStatus, setPlaidFundingStatus] = useState<PlaidFundingStatusResponse | null>(
-    null
-  );
   const [plaidPortfolio, setPlaidPortfolio] = useState<PortfolioData | null>(null);
   const [statementSnapshots, setStatementSnapshots] = useState<StatementSnapshotOption[]>([]);
   const [activeStatementSnapshotId, setActiveStatementSnapshotId] = useState<string | null>(null);
@@ -228,7 +223,6 @@ export function usePortfolioSources({
     (params: {
       financial: Record<string, unknown> | null;
       plaidStatus: PlaidPortfolioStatusResponse | null;
-      fundingStatus?: PlaidFundingStatusResponse | null;
       preferredSource?: PortfolioSource | string | null;
     }) => {
       const loadedStatement = params.financial
@@ -264,9 +258,6 @@ export function usePortfolioSources({
         setStatementSnapshots(loadedStatementSnapshots);
         setActiveStatementSnapshotId(loadedActiveStatementSnapshotId);
         setPlaidStatus(params.plaidStatus);
-        if ("fundingStatus" in params) {
-          setPlaidFundingStatus(params.fundingStatus ?? null);
-        }
         setPlaidPortfolio(loadedPlaidPortfolio);
         setActiveSource(nextActiveSource);
       });
@@ -305,7 +296,6 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken) {
         startTransition(() => {
           setPlaidStatus(null);
-          setPlaidFundingStatus(null);
           setPlaidPortfolio(null);
           setStatementSnapshots([]);
           setActiveStatementSnapshotId(null);
@@ -319,13 +309,9 @@ export function usePortfolioSources({
       }
       setError(null);
       try {
-        const [financialContext, loadedPlaidStatus, loadedFundingStatus] = await Promise.all([
+        const [financialContext, loadedPlaidStatus] = await Promise.all([
           loadFinancialContext(),
           PlaidPortfolioService.getStatus({
-            userId,
-            vaultOwnerToken,
-          }).catch(() => null),
-          PlaidPortfolioService.getFundingStatus({
             userId,
             vaultOwnerToken,
           }).catch(() => null),
@@ -425,7 +411,6 @@ export function usePortfolioSources({
         applyFinancialSnapshot({
           financial: nextFinancial,
           plaidStatus: nextPlaidStatus,
-          fundingStatus: loadedFundingStatus,
           preferredSource: desiredSource,
         });
       } catch (loadError) {
@@ -861,7 +846,6 @@ export function usePortfolioSources({
     isLoading,
     error,
     plaidStatus,
-    plaidFundingStatus,
     statementPortfolio,
     plaidPortfolio,
     statementSnapshots,

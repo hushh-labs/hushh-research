@@ -58,6 +58,23 @@ function nextJsonLine(lines, { child, stderr, label, timeoutMs = 15000 }) {
   });
 }
 
+function responseErrorCode(response) {
+  const structuredCode = response?.result?.structuredContent?.error_code;
+  if (typeof structuredCode === "string") return structuredCode;
+
+  const text = response?.result?.content?.find(
+    (item) => item?.type === "text" && typeof item.text === "string",
+  )?.text;
+  if (!text) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed?.error_code === "string" ? parsed.error_code : null;
+  } catch {
+    return null;
+  }
+}
+
 try {
   const packageSpec = String(process.env.HUSHH_MCP_PACKAGE_SPEC || "").trim();
   let installTarget = packageSpec;
@@ -146,7 +163,7 @@ try {
     })}\n`,
   );
   const called = await nextJsonLine(lines, responseOptions("tool-call"));
-  if (called?.result?.structuredContent?.error_code !== "AUTHENTICATION_REQUIRED") {
+  if (responseErrorCode(called) !== "AUTHENTICATION_REQUIRED") {
     throw new Error(`Packed MCP tool-call mismatch: ${JSON.stringify(called)}`);
   }
   if (called?.result?.isError !== true) {
@@ -170,7 +187,7 @@ try {
     })}\n`,
   );
   const rejected = await nextJsonLine(lines, responseOptions("schema-rejection"));
-  if (rejected?.result?.structuredContent?.error_code !== "INVALID_ARGUMENTS") {
+  if (responseErrorCode(rejected) !== "INVALID_ARGUMENTS") {
     throw new Error(`Packed MCP strict-schema mismatch: ${JSON.stringify(rejected)}`);
   }
   if (rejected?.result?.isError !== true) {

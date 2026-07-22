@@ -451,8 +451,15 @@ export async function loadAgentPkmContext(params: {
   message?: string;
   forceRefresh?: boolean;
   maxChars?: number;
+  /**
+   * Interactive first turns may use redacted metadata while the decrypted
+   * session working set warms in the background. This never writes or changes
+   * PKM relevance/save policy; it only avoids blocking a new conversation on
+   * a full encrypted blob.
+   */
+  metadataOnly?: boolean;
 }): Promise<AgentPkmContext> {
-  if (params.vaultKey) {
+  if (params.vaultKey && !params.metadataOnly) {
     try {
       const workingContext = await AgentPkmContextStore.load({
         userId: params.userId,

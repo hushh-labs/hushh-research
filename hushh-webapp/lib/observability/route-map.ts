@@ -52,6 +52,7 @@ export const ROUTE_ID_VALUES = [
   "one_kyc",
   "one_marketplace",
   "one_location",
+  "one_location_map",
   "one_location_public_request",
   "one_location_circle_invite",
   "portfolio_shared",
@@ -69,8 +70,6 @@ export const ROUTE_ID_VALUES = [
   "kai_plaid_oauth_return",
   "kai_alpaca_oauth_return",
   "kai_dashboard",
-  "kai_investments",
-  "kai_funding_trade",
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
@@ -163,6 +162,7 @@ export function resolveRouteId(pathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/")) return "one_location_circle_invite";
@@ -221,14 +221,13 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_dashboard";
   }
-  if (pathname === ROUTES.KAI_INVESTMENTS || pathname === ROUTES.LEGACY_KAI_INVESTMENTS) {
-    return "kai_investments";
-  }
   if (
-    pathname === ROUTES.KAI_FUNDING_TRADE ||
-    pathname === ROUTES.LEGACY_KAI_FUNDING_TRADE
+    pathname === "/kai/investments" ||
+    pathname === "/one/kai/investments" ||
+    pathname === "/kai/funding-trade" ||
+    pathname === "/one/kai/funding-trade"
   ) {
-    return "kai_funding_trade";
+    return "kai_dashboard_legacy_redirect";
   }
   if (
     pathname === ROUTES.KAI_ANALYSIS ||

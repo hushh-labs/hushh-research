@@ -1487,12 +1487,13 @@ export function ConsentNotificationProvider({
     const request = (async () => {
       const vaultOwnerToken = getVaultOwnerToken();
       if (!vaultOwnerToken) return;
-      const state = await OneLocationService.getState(vaultOwnerToken);
+      const state = await OneLocationStateResource.load(user.uid, () =>
+        OneLocationService.getState(vaultOwnerToken),
+      );
       // Location owns a single memory-only server-state resource. Publishing
       // reconciliation results here lets the Location route update instantly
       // from the same push/resume read instead of issuing a second foreground
       // request and briefly falling back to a loader.
-      OneLocationStateResource.write(user.uid, state);
       // Reconciliation is also the fallback for foreground pushes that never
       // reach the page. The persistent event record keeps a later live push
       // from presenting or creating a bell item twice.

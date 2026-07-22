@@ -44,7 +44,9 @@ export default function KaiAlpacaOauthReturnPage() {
     const session = loadAlpacaOAuthResumeSession();
     if (!session) {
       setStage("error");
-      setError("No active Alpaca OAuth session was found. Start again from funding settings.");
+      setError(
+        "No active Alpaca OAuth session was found. Start again from Portfolio connections.",
+      );
       return;
     }
     setReturnPath(session.returnPath || ROUTES.KAI_PORTFOLIO);
@@ -61,7 +63,9 @@ export default function KaiAlpacaOauthReturnPage() {
     if (session.userId !== user.uid) {
       clearAlpacaOAuthResumeSession();
       setStage("error");
-      setError("This Alpaca OAuth session belongs to a different signed-in user.");
+      setError(
+        "This Alpaca OAuth session belongs to a different signed-in user.",
+      );
       return;
     }
 
@@ -116,14 +120,19 @@ export default function KaiAlpacaOauthReturnPage() {
           routeId: "/one/kai/alpaca/oauth/return",
           marker: "native-route-kai-alpaca-return",
           authState: user?.uid ? "authenticated" : "pending",
-          dataState: stage === "redirecting" ? "redirect-valid" : "unavailable-valid",
+          dataState:
+            stage === "redirecting" ? "redirect-valid" : "unavailable-valid",
           errorCode: error ? "alpaca_connect_resume" : null,
           errorMessage: error,
         }}
       >
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
-            label={stage === "redirecting" ? "Returning to Kai..." : "Completing Alpaca login..."}
+            label={
+              stage === "redirecting"
+                ? "Returning to Kai..."
+                : "Completing Alpaca login..."
+            }
           />
         </AppPageContentRegion>
       </AppPageShell>
@@ -146,10 +155,15 @@ export default function KaiAlpacaOauthReturnPage() {
     >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">Alpaca connection needs attention</h1>
+          <h1 className="text-lg font-semibold text-foreground">
+            Alpaca connection needs attention
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
-            <Button onClick={() => router.replace(returnPath)} className="w-full">
+            <Button
+              onClick={() => router.replace(returnPath)}
+              className="w-full"
+            >
               Back to Kai
             </Button>
             <Button

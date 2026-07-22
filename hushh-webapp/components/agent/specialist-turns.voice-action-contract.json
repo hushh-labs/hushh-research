@@ -127,7 +127,6 @@
           "summary_mode": "specialist_answer"
         },
         "entrypoint_support": [
-          "voice",
           "chat",
           "typed_search",
           "command_bar",
@@ -385,7 +384,6 @@
           "summary_mode": "chat_handoff"
         },
         "entrypoint_support": [
-          "voice",
           "chat",
           "typed_search",
           "command_bar",
@@ -528,7 +526,7 @@
       "delegate_agent_id": "agent_connected_systems",
       "reachability": {
         "routes": [
-          "/connected-systems",
+          "/one/connected-systems",
           "/one"
         ],
         "screens": [

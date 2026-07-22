@@ -79,6 +79,11 @@ import {
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
+import {
+  loadAgentChatConversationHistory,
+  peekAgentChatHistoryCache,
+  warmAgentChatHistoryCache,
+} from "@/lib/agent/agent-chat-history-cache";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -93,8 +98,6 @@ import {
   confirmAgentChatAction,
   consumeAgentChatAction,
   deleteAgentChatConversation,
-  getAgentChatHistory,
-  listAgentChatConversations,
   renameAgentChatConversation,
   settleAgentChatAction,
   streamAgentChat,
@@ -1786,64 +1789,70 @@ export function AgentChatWorkspace({
     if (skipInitialHistoryLoadRef.current) {
       skipInitialHistoryLoadRef.current = false;
       historyLoadKeyRef.current = loadKey;
-      setIsLoadingHistory(false);
       return;
     }
     if (historyLoadKeyRef.current === loadKey) return;
-    historyLoadKeyRef.current = loadKey;
     const restoreEpoch = historyRestoreEpochRef.current;
     let cancelled = false;
+    const cached = peekAgentChatHistoryCache(user.uid);
+
+    const applySnapshot = (snapshot: NonNullable<typeof cached>) => {
+      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      setConversations(snapshot.conversations);
+      if (!snapshot.latestConversationId) {
+        setConversationId(null);
+        setMessages([createGreetingMessage()]);
+        return;
+      }
+      const restored = snapshot.latestMessages
+        .map(storedMessageToAgentMessage)
+        .filter((message): message is AgentMessage => Boolean(message));
+      setConversationId(snapshot.latestConversationId);
+      setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+    };
+
+    if (cached) applySnapshot(cached);
 
     const loadRecentConversation = async () => {
-      setIsLoadingHistory(true);
+      if (skipInitialHistoryLoadRef.current) {
+        skipInitialHistoryLoadRef.current = false;
+        historyLoadKeyRef.current = loadKey;
+        return;
+      }
+      historyLoadKeyRef.current = loadKey;
       try {
-        const conversations = await listAgentChatConversations({
+        const next = await warmAgentChatHistoryCache({
           userId: user.uid,
           vaultOwnerToken,
-          limit: 20,
+          force: cached ? !cached.isFresh : false,
         });
-        if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
-        setConversations(conversations);
-        const latest = conversations[0];
-        if (!latest) {
-          setConversationId(null);
-          setMessages([createGreetingMessage()]);
-          return;
-        }
-        const history = await getAgentChatHistory({
-          conversationId: latest.id,
-          vaultOwnerToken,
-          limit: 50,
-        });
-        if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
-        const restored = history
-          .map(storedMessageToAgentMessage)
-          .filter((message): message is AgentMessage => Boolean(message));
-        setConversationId(latest.id);
-        setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+        applySnapshot(next);
       } catch {
         if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
           historyLoadKeyRef.current = null;
         }
-      } finally {
-        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
-          setIsLoadingHistory(false);
-        }
       }
     };
 
-    void loadRecentConversation();
+    // History is never on the workspace's critical open/render path. Unlock
+    // warming usually makes this an immediate memory hit; cold sessions wait
+    // for an idle beat so the composer and direct Ask One handoff stay usable.
+    const timeoutId = window.setTimeout(() => {
+      void loadRecentConversation();
+    }, cached ? 0 : 250);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, [hasChatAccess, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
-      const history = await getAgentChatHistory({
+      if (!user?.uid) return;
+      const history = await loadAgentChatConversationHistory({
+        userId: user.uid,
         conversationId: nextConversationId,
         vaultOwnerToken: token,
-        limit: 50,
       });
       const restored = history
         .map(storedMessageToAgentMessage)
@@ -1856,20 +1865,20 @@ export function AgentChatWorkspace({
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
-    []
+    [user?.uid]
   );
 
-  const loadConversationList = useCallback(async () => {
+  const loadConversationList = useCallback(async (force = false) => {
     if (!user?.uid) return [];
     const token = getVaultOwnerToken();
     if (!token) return [];
-    const nextConversations = await listAgentChatConversations({
+    const next = await warmAgentChatHistoryCache({
       userId: user.uid,
       vaultOwnerToken: token,
-      limit: 20,
+      force,
     });
-    setConversations(nextConversations);
-    return nextConversations;
+    setConversations(next.conversations);
+    return next.conversations;
   }, [getVaultOwnerToken, user?.uid]);
 
   const handleSelectConversation = useCallback(
@@ -1931,7 +1940,7 @@ export function AgentChatWorkspace({
             conversation.id === targetConversationId ? renamed : conversation
           )
         );
-        void loadConversationList().catch(() => undefined);
+        void loadConversationList(true).catch(() => undefined);
         toast.success("Agent chat renamed.");
       } catch {
         toast.error("Could not rename Agent chat.");
@@ -1959,11 +1968,12 @@ export function AgentChatWorkspace({
           conversationId: targetConversationId,
           vaultOwnerToken: token,
         });
-        const nextConversations = await listAgentChatConversations({
+        const refreshed = await warmAgentChatHistoryCache({
           userId: user.uid,
           vaultOwnerToken: token,
-          limit: 20,
+          force: true,
         });
+        const nextConversations = refreshed.conversations;
         setConversations(nextConversations);
         if (conversationId === targetConversationId) {
           const nextConversation = nextConversations[0];
@@ -2088,6 +2098,9 @@ export function AgentChatWorkspace({
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+    // A person starting a new turn owns the workspace. Invalidate any ambient
+    // initial-history restoration so a late warmup cannot replace this turn.
+    historyRestoreEpochRef.current += 1;
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
@@ -2615,25 +2628,30 @@ export function AgentChatWorkspace({
         return cachedContext;
       }
 
-      upsertPkmStatusMessage("Loading your saved context…", "streaming");
-      const contextPromise = warmAgentPkmContext({
+      // Do not hold the first user turn behind a full encrypted PKM blob. The
+      // unlock warmer continues loading the richer memory-only working set;
+      // an interactive turn may use compact metadata when it arrives inside a
+      // short budget. PKM capture/review remains semantic and confirmation
+      // gated after the response, never a lexical action shortcut.
+      const fullWarmup = warmAgentPkmContext({
         userId,
         vaultOwnerToken: token,
         vaultKey,
-      }).then(
-        () =>
-          peekAgentPkmContext({ userId, message: text }) ??
-          loadAgentPkmContext({
-            userId,
-            vaultOwnerToken: token,
-            vaultKey,
-            message: text,
-          }),
-      );
-      const deadlineMs = 900;
-      const result = await withDeadline(contextPromise, deadlineMs);
+      });
+      const metadataPreflight = loadAgentPkmContext({
+        userId,
+        vaultOwnerToken: token,
+        message: text,
+        metadataOnly: true,
+      });
+      const deadlineMs = 100;
+      const result = await withDeadline(metadataPreflight, deadlineMs);
       if (!result.timedOut) {
-        upsertPkmStatusMessage("", "done");
+        appendDebugEvent(debugTurnId, "pkm_context_metadata_preflight", {
+          deadline_ms: deadlineMs,
+          domain_count: result.value.domains.length,
+          total_attributes: result.value.totalAttributes,
+        });
         return result.value;
       }
 
@@ -2641,9 +2659,11 @@ export function AgentChatWorkspace({
         deadline_ms: deadlineMs,
         turn_source: options.source,
       });
-      void contextPromise
+      void fullWarmup
         .then(() => {
-          upsertPkmStatusMessage("Saved context is ready for your next message.", "done");
+          appendDebugEvent(debugTurnId, "pkm_context_background_warm_ready", {
+            turn_source: options.source,
+          });
         })
         .catch((error) => {
           appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
@@ -2652,7 +2672,6 @@ export function AgentChatWorkspace({
                 ? error.message
                 : "Failed to refresh PKM context in the background.",
           });
-          upsertPkmStatusMessage("Saved context could not be loaded for this session.", "error");
         });
       return EMPTY_PKM_CONTEXT;
     };
@@ -2820,7 +2839,7 @@ export function AgentChatWorkspace({
           pkmAbortControllersRef.current.delete(pkmAbortController);
         });
       }
-      void loadConversationList().catch(() => undefined);
+      void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } catch (error) {
@@ -2839,7 +2858,7 @@ export function AgentChatWorkspace({
         status: "error",
         streamEvents: [],
       }));
-      void loadConversationList().catch(() => undefined);
+      void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
@@ -3022,7 +3041,7 @@ export function AgentChatWorkspace({
           status: "done",
         };
       });
-      void loadConversationList().catch(() => undefined);
+      void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } catch (error) {
@@ -3044,7 +3063,7 @@ export function AgentChatWorkspace({
           status: "error",
         }));
       }
-      void loadConversationList().catch(() => undefined);
+      void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
@@ -3424,7 +3443,8 @@ export function AgentChatWorkspace({
     historyDrawerReturnFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setIsHistoryDrawerOpen(true);
-  }, []);
+    void loadConversationList().catch(() => undefined);
+  }, [loadConversationList]);
   const handlePageMinimize = useCallback(() => {
     if (onMinimize) {
       onMinimize();

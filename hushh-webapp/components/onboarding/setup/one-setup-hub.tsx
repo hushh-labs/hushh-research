@@ -16,7 +16,6 @@ import {
 } from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
-import { Skeleton } from "@/components/ui/skeleton";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -34,7 +33,6 @@ import {
 import {
   getOneSetupCapability,
   lucideCapabilityIcon,
-  ONE_SETUP_CAPABILITIES,
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
@@ -480,40 +478,14 @@ export function OneSetupHub() {
 }
 
 function SetupHubLoadingState() {
-  const setupStepCount = ONE_SETUP_CAPABILITIES.length + 1;
   return (
     <div
       data-testid="one-setup-loading-state"
-      className="space-y-5"
+      className="rounded-[var(--app-card-radius-compact)] border border-border/55 bg-[color:var(--app-card-surface-compact)] px-4 py-5 text-sm text-muted-foreground"
       aria-busy="true"
       aria-label="Checking setup progress"
     >
-      <div
-        className="grid gap-1.5"
-        style={{ gridTemplateColumns: `repeat(${setupStepCount}, minmax(0, 1fr))` }}
-        aria-hidden="true"
-      >
-        {Array.from({ length: setupStepCount }).map((_, index) => (
-          <Skeleton key={index} className="h-1 rounded-full" />
-        ))}
-      </div>
-      <div className="space-y-3" aria-hidden="true">
-        <Skeleton className="h-3 w-24" />
-        <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/45 bg-background/45">
-          {Array.from({ length: setupStepCount }).map((_, index) => (
-            <div
-              key={index}
-              className="flex min-h-[72px] items-center gap-3 border-b border-border/45 px-4 last:border-b-0"
-            >
-              <Skeleton className="h-10 w-10 shrink-0 rounded-2xl" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-3.5 w-2/5" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      Checking your setup choices…
     </div>
   );
 }

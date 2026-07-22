@@ -338,7 +338,7 @@ export function PhoneMandatePageContent() {
             Android keyboards. Tiny screens may scroll this one form region. */}
         <div
           data-phone-mandate-input-region="true"
-          className="relative mt-auto max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain px-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="relative mt-3 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain px-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{
             paddingBottom:
               "max(calc(1rem + var(--app-safe-area-bottom-effective, 0px)), calc(1rem + var(--kb-height, 0px)))",

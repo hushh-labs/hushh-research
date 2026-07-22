@@ -457,4 +457,8 @@ export interface LocationChatResponse {
   stateChanged: boolean;
   clientAction?: ClientAction;
   clientPrompt?: ClientPrompt;
+  availability?: {
+    state: "runtime_unavailable";
+    reasonCode: "managed_runtime_unavailable";
+  };
 }

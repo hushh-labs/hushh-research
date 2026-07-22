@@ -18,6 +18,7 @@ import { OneLocationStateResource } from "@/lib/one-location/one-location-state-
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
@@ -151,6 +152,36 @@ function nowMs(): number {
     return performance.now();
   }
   return Date.now();
+}
+
+export async function settleWithConcurrency<
+  const T extends readonly (() => Promise<unknown>)[],
+>(
+  tasks: T,
+  concurrency = 4,
+): Promise<{
+  [K in keyof T]: PromiseSettledResult<Awaited<ReturnType<T[K]>>>;
+}> {
+  const results = new Array<PromiseSettledResult<unknown>>(tasks.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      const task = tasks[index];
+      if (!task) return;
+      try {
+        results[index] = { status: "fulfilled", value: await task() };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, concurrency), tasks.length) }, worker),
+  );
+  return results as {
+    [K in keyof T]: PromiseSettledResult<Awaited<ReturnType<T[K]>>>;
+  };
 }
 
 export class UnlockWarmOrchestrator {
@@ -432,6 +463,12 @@ export class UnlockWarmOrchestrator {
         error,
       );
     });
+    const agentHistoryWarmPromise = warmAgentChatHistoryCache({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      console.warn("[UnlockWarmOrchestrator] Agent history warm-up failed:", error);
+    });
     let symbols: string[] = [];
     let prewarmedFinancialDomain: Record<string, unknown> | null = null;
     let financialHydrated = false;
@@ -495,23 +532,23 @@ export class UnlockWarmOrchestrator {
       auditResult,
       financialDomainResult,
       locationStateResult,
-    ] = await Promise.allSettled([
-      shouldWarmMetadata
+    ] = await settleWithConcurrency([
+      () => shouldWarmMetadata
         ? PersonalKnowledgeModelService.getMetadata(params.userId, false, params.vaultOwnerToken)
         : Promise.resolve(null),
-      shouldWarmVaultStatus
+      () => shouldWarmVaultStatus
         ? ApiService.getVaultStatus(params.userId, params.vaultOwnerToken)
         : Promise.resolve(null),
-      shouldWarmConsents
+      () => shouldWarmConsents
         ? ApiService.getActiveConsents(params.userId, params.vaultOwnerToken)
         : Promise.resolve(null),
-      shouldWarmConsents
+      () => shouldWarmConsents
         ? ApiService.getPendingConsents(params.userId, params.vaultOwnerToken)
         : Promise.resolve(null),
-      shouldWarmConsents
+      () => shouldWarmConsents
         ? ApiService.getConsentHistory(params.userId, params.vaultOwnerToken, 1, 50)
         : Promise.resolve(null),
-      shouldWarmFinancial
+      () => shouldWarmFinancial
         ? prewarmedFinancialDomain
           ? Promise.resolve(prewarmedFinancialDomain)
           : PersonalKnowledgeModelService.loadDomainData({
@@ -525,13 +562,14 @@ export class UnlockWarmOrchestrator {
       // encrypted envelopes and is intentionally never persisted to device
       // storage. Warming it here gives the just-unlocked route an immediate
       // cache-first render while it reconciles in the background.
-      OneLocationService.getState(params.vaultOwnerToken),
-    ]);
+      () => OneLocationStateResource.load(params.userId, () =>
+        OneLocationService.getState(params.vaultOwnerToken),
+      ),
+    ] as const, 4);
 
     result.metadataWarmed = shouldWarmMetadata && metadataResult.status === "fulfilled";
 
     if (locationStateResult.status === "fulfilled") {
-      OneLocationStateResource.write(params.userId, locationStateResult.value);
       result.locationStateWarmed = true;
     }
 
@@ -689,6 +727,7 @@ export class UnlockWarmOrchestrator {
     [result.agentContextWarmed] = await Promise.all([
       agentContextWarmPromise,
       runtimeConfigurationWarmPromise.then(() => undefined),
+      agentHistoryWarmPromise.then(() => undefined),
     ]);
 
     const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));

@@ -12,7 +12,16 @@ def _build_app() -> FastAPI:
     return app
 
 
-def test_health_reports_one_led_agent_model():
+def test_health_reports_one_led_agent_model(monkeypatch):
+    monkeypatch.setattr(
+        health,
+        "_one_runtime_dependency_evidence",
+        lambda: {
+            "google_adk_expected": "2.4.0",
+            "google_adk_installed": "2.4.0",
+            "google_adk_compatible": True,
+        },
+    )
     client = TestClient(_build_app())
     response = client.get("/health")
 
@@ -23,6 +32,11 @@ def test_health_reports_one_led_agent_model():
         "agent_model": {
             "primary": "one",
             "specialists": ["kai", "nav", "kyc"],
+        },
+        "one_runtime": {
+            "google_adk_expected": "2.4.0",
+            "google_adk_installed": "2.4.0",
+            "google_adk_compatible": True,
         },
     }
 

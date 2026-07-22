@@ -34,7 +34,7 @@ describe("/register-phone safe-area shell contract", () => {
     );
     expect(source).toContain('data-phone-mandate-input-region="true"');
     expect(source).toContain("var(--kb-height, 0px)");
-    expect(source).toContain("mt-auto");
+    expect(source).not.toContain("mt-auto");
     // The active field region owns keyboard clearance; it can scroll only as a
     // compact-screen fallback instead of letting fields slip beneath iOS.
     expect(source).toContain("overflow-y-auto overscroll-contain");

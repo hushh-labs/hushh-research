@@ -262,7 +262,7 @@ def test_synthetic_evaluator_import_needs_no_core_vault_or_signing_key():
     environment.pop("VAULT_DATA_KEY", None)
     environment["PYTHONPATH"] = str(CONSENT_PROTOCOL_ROOT)
 
-    completed = subprocess.run(
+    completed = subprocess.run(  # noqa: S603 - test invokes the current interpreter with a fixed script
         [
             sys.executable,
             "-c",

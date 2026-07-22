@@ -60,6 +60,34 @@ async function selectIndiaOnce() {
 }
 
 describe("PhoneVerificationFlow country selector", () => {
+  it("filters country choices from typed names and dial codes", async () => {
+    renderPhoneVerificationFlow();
+    const countryInput = screen.getByRole("combobox", {
+      name: "Country code",
+    });
+
+    fireEvent.focus(countryInput);
+    fireEvent.change(countryInput, { target: { value: "India" } });
+    expect(await screen.findByText("India")).toBeTruthy();
+    expect(screen.queryByText("France")).toBeNull();
+
+    fireEvent.change(countryInput, { target: { value: "+33" } });
+    expect(await screen.findByText("France")).toBeTruthy();
+    expect(screen.queryByText("India")).toBeNull();
+  });
+
+  it("shows an honest empty state for an unmatched country query", async () => {
+    renderPhoneVerificationFlow();
+    const countryInput = screen.getByRole("combobox", {
+      name: "Country code",
+    });
+
+    fireEvent.focus(countryInput);
+    fireEvent.change(countryInput, { target: { value: "not-a-country" } });
+
+    expect(await screen.findByText("No country codes found.")).toBeTruthy();
+  });
+
   it("shows India immediately after the first country selection", async () => {
     renderPhoneVerificationFlow();
 

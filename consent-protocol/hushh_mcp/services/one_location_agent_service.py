@@ -2054,16 +2054,29 @@ class OneLocationAgentService:
             "events": events[:bounded_limit],
         }
 
-    def _expire_stale_grants(self, user_id: str) -> None:
+    def _expire_stale_grants(self, user_id: str | None) -> None:
         retention_cutoff = _utcnow() - timedelta(hours=LOCATION_TERMINAL_RETENTION_HOURS)
         expired = self._execute_many(
             """
-            UPDATE one_location_share_grants
+            WITH stale AS (
+              SELECT id
+              FROM one_location_share_grants
+              WHERE status = 'active'
+                AND expires_at <= NOW()
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR recipient_user_id = :user_id
+                )
+              ORDER BY expires_at
+              LIMIT 500
+              FOR UPDATE SKIP LOCKED
+            )
+            UPDATE one_location_share_grants grant
             SET status = 'expired', updated_at = NOW()
-            WHERE status = 'active'
-              AND expires_at <= NOW()
-              AND (owner_user_id = :user_id OR recipient_user_id = :user_id)
-            RETURNING id, owner_user_id, recipient_user_id, expires_at
+            FROM stale
+            WHERE grant.id = stale.id
+            RETURNING grant.id, grant.owner_user_id, grant.recipient_user_id, grant.expires_at
             """,
             {"user_id": user_id},
         )
@@ -2097,7 +2110,6 @@ class OneLocationAgentService:
                         "owner_display_label": owner_label,
                     },
                 )
-        self._purge_terminal_work(user_id=user_id)
 
     def _purge_terminal_work(
         self,
@@ -2328,6 +2340,7 @@ class OneLocationAgentService:
     def purge_terminal_work(
         self, *, older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS
     ) -> dict[str, Any]:
+        self._expire_stale_grants(None)
         return self._purge_terminal_work(user_id=None, older_than_hours=older_than_hours)
 
     def register_recipient_key(
@@ -3028,6 +3041,14 @@ class OneLocationAgentService:
         )
         return updated or {**row, "status": "expired"}
 
+    @staticmethod
+    def _project_expired(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Project wall-clock expiry for read models without mutating storage."""
+        if not row or str(row.get("status") or "") != "active":
+            return row
+        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+        return {**row, "status": "expired"} if expires_at <= _utcnow() else row
+
     def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row or str(row.get("status") or "") != "active":
             return row
@@ -3678,14 +3699,18 @@ class OneLocationAgentService:
                 )
                 return []
 
-        try:
-            self._expire_stale_grants(user_id)
-        except Exception as exc:  # noqa: BLE001 - housekeeping must not block reads
-            logger.warning(
-                "one_location.list_state.expire_stale_failed user=%s error=%s",
-                user_id,
-                exc,
-            )
+        read_only_state = str(
+            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if not read_only_state:
+            try:
+                self._expire_stale_grants(user_id)
+            except Exception as exc:  # noqa: BLE001 - compatibility housekeeping
+                logger.warning(
+                    "one_location.list_state.expire_stale_failed user=%s error=%s",
+                    user_id,
+                    exc,
+                )
         try:
             recipients = self.list_verified_recipients(owner_user_id=user_id)
         except Exception as exc:  # noqa: BLE001
@@ -3835,22 +3860,46 @@ class OneLocationAgentService:
             "recipients": recipients,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
-                payload for row in owner_grants if (payload := self._grant_payload(row))
+                payload
+                for row in owner_grants
+                if (
+                    payload := self._grant_payload(
+                        self._project_expired(row) if read_only_state else row
+                    )
+                )
             ],
             "receivedGrants": [
-                payload for row in received_grants if (payload := self._grant_payload(row))
+                payload
+                for row in received_grants
+                if (
+                    payload := self._grant_payload(
+                        self._project_expired(row) if read_only_state else row
+                    )
+                )
             ],
             "requests": [payload for row in requests if (payload := self._request_payload(row))],
             "referrals": [payload for row in referrals if (payload := self._referral_payload(row))],
             "publicInvites": [
                 payload
                 for row in public_invites
-                if (payload := self._public_invite_payload(self._expire_public_invite(row)))
+                if (
+                    payload := self._public_invite_payload(
+                        self._project_expired(row)
+                        if read_only_state
+                        else self._expire_public_invite(row)
+                    )
+                )
             ],
             "circleInvites": [
                 payload
                 for row in circle_invites
-                if (payload := self._circle_invite_payload(self._expire_circle_invite(row)))
+                if (
+                    payload := self._circle_invite_payload(
+                        self._project_expired(row)
+                        if read_only_state
+                        else self._expire_circle_invite(row)
+                    )
+                )
             ],
             "networkConnections": [
                 payload

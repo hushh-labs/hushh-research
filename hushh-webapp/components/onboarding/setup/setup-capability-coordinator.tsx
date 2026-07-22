@@ -29,13 +29,22 @@ type Settlement = {
   screenAfter?: string;
 };
 
+type SetupSettlementOptions = {
+  /**
+   * A physical setup surface may own one promise toast for the whole durable
+   * settlement. Keep the coordinator's default recovery toast for every
+   * other caller, including local action and voice pathways.
+   */
+  suppressErrorToast?: boolean;
+};
+
 export type SetupCapabilityCoordinator = {
   isReady: boolean;
   /** A verified feature result, optionally recovered from a typed callback. */
   operationallyReady: boolean;
   isSettling: boolean;
-  finish: () => Promise<Settlement>;
-  skip: () => Promise<Settlement>;
+  finish: (options?: SetupSettlementOptions) => Promise<Settlement>;
+  skip: (options?: SetupSettlementOptions) => Promise<Settlement>;
 };
 
 export type SetupCapabilityJourneyMode = "auto" | "root" | "individual";
@@ -318,7 +327,10 @@ export function useSetupCapabilityCoordinator({
   ]);
 
   const settle = useCallback(
-    async (kind: "finish" | "skip"): Promise<Settlement> => {
+    async (
+      kind: "finish" | "skip",
+      options: SetupSettlementOptions = {},
+    ): Promise<Settlement> => {
       if (!user?.uid) {
         return { status: "blocked", summary: "Sign in to continue setup." };
       }
@@ -427,11 +439,13 @@ export function useSetupCapabilityCoordinator({
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to settle setup:", error);
         const stale = isOnboardingJourneyConflict(error);
-        toast.error(
-          stale
-            ? "Setup changed in another session. Please try again."
-            : "Setup could not be saved. Please try again.",
-        );
+        if (!options.suppressErrorToast) {
+          toast.error(
+            stale
+              ? "Setup changed in another session. Please try again."
+              : "Setup could not be saved. Please try again.",
+          );
+        }
         return {
           status: stale ? "blocked" : "failed",
           summary: stale
@@ -454,8 +468,14 @@ export function useSetupCapabilityCoordinator({
     ],
   );
 
-  const finish = useCallback(() => settle("finish"), [settle]);
-  const skip = useCallback(() => settle("skip"), [settle]);
+  const finish = useCallback(
+    (options?: SetupSettlementOptions) => settle("finish", options),
+    [settle],
+  );
+  const skip = useCallback(
+    (options?: SetupSettlementOptions) => settle("skip", options),
+    [settle],
+  );
   useLocalOnboardingActionHandler(finishActionId, finish, {
     enabled: enabled && !settlementBlocked,
   });

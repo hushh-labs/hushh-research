@@ -19,9 +19,11 @@ IMPORTANT — blocking I/O:
   async asyncpg pool in db.connection for new async code paths.
 """
 
+import hashlib
 import json
 import logging
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar, Union
@@ -35,6 +37,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 
 from db.connection import format_database_unavailable_details, local_database_unavailable_hint
+from db.query_telemetry import record_query
 
 load_dotenv()
 
@@ -189,8 +192,13 @@ def _run_with_connection_retry(
 ) -> _T:
     last_error: Exception | None = None
     for attempt in range(1, _DB_RETRY_ATTEMPTS + 1):
+        wait_started = time.perf_counter()
+        pool_wait_ms = 0.0
+        sql_started = wait_started
         try:
             with engine.connect() as conn:
+                pool_wait_ms = (time.perf_counter() - wait_started) * 1000
+                sql_started = time.perf_counter()
                 return callback(conn)
         except DatabaseExecutionError:
             raise
@@ -205,6 +213,12 @@ def _run_with_connection_retry(
                 exc,
             )
             _dispose_engine_quietly(engine, reason=operation_label)
+        finally:
+            record_query(
+                operation_label,
+                sql_duration_ms=(time.perf_counter() - sql_started) * 1000,
+                pool_wait_ms=pool_wait_ms,
+            )
     if last_error is None:  # pragma: no cover - defensive fallback
         raise RuntimeError(f"Database operation failed without captured error: {operation_label}")
     raise last_error
@@ -669,18 +683,33 @@ class TableQuery:
             raise ValueError("Empty data list")
 
         columns = list(data_list[0].keys())
+        if any(list(row.keys()) != columns for row in data_list):
+            raise ValueError("All bulk insert rows must have identical ordered columns")
         col_names = ", ".join(f'"{c}"' for c in columns)
 
         dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         inserted_rows = []
-        for i, row_data in enumerate(data_list):
-            param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = _adapt_db_params(
-                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
-            )
-
+        max_parameters = (
+            (900 if dialect_name == "sqlite" else 30_000)
+            if _env_truthy("DB_BULK_BATCHING_ENABLED", False)
+            else len(columns)
+        )
+        batch_size = max(1, max_parameters // max(1, len(columns)))
+        for batch_start in range(0, len(data_list), batch_size):
+            batch = data_list[batch_start : batch_start + batch_size]
+            params: dict[str, Any] = {}
+            value_groups: list[str] = []
+            for row_index, row_data in enumerate(batch):
+                names = []
+                for column in columns:
+                    key = f"v{row_index}_{column}"
+                    names.append(f":{key}")
+                    params[key] = row_data[column]
+                value_groups.append(f"({', '.join(names)})")
+            params = _adapt_db_params(params, dialect_name=dialect_name)
             sql = (
-                f'INSERT INTO "{self.table_name}" ({col_names}) VALUES ({param_names}) RETURNING *'
+                f'INSERT INTO "{self.table_name}" ({col_names}) VALUES '
+                f"{', '.join(value_groups)} RETURNING *"
             )
             result = conn.execute(text(sql), params)
             inserted_rows.extend([dict(row._mapping) for row in result])
@@ -723,6 +752,8 @@ class TableQuery:
             raise ValueError("Empty data list")
 
         columns = list(data_list[0].keys())
+        if any(list(row.keys()) != columns for row in data_list):
+            raise ValueError("All bulk upsert rows must have identical ordered columns")
         col_names = ", ".join(f'"{c}"' for c in columns)
         conflict_cols = [
             field.strip() for field in (self._on_conflict or "id").split(",") if field.strip()
@@ -739,23 +770,35 @@ class TableQuery:
 
         dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         upserted_rows = []
-        for i, row_data in enumerate(data_list):
-            param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = _adapt_db_params(
-                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
-            )
-
+        max_parameters = (
+            (900 if dialect_name == "sqlite" else 30_000)
+            if _env_truthy("DB_BULK_BATCHING_ENABLED", False)
+            else len(columns)
+        )
+        batch_size = max(1, max_parameters // max(1, len(columns)))
+        for batch_start in range(0, len(data_list), batch_size):
+            batch = data_list[batch_start : batch_start + batch_size]
+            params: dict[str, Any] = {}
+            value_groups: list[str] = []
+            for row_index, row_data in enumerate(batch):
+                names = []
+                for column in columns:
+                    key = f"v{row_index}_{column}"
+                    names.append(f":{key}")
+                    params[key] = row_data[column]
+                value_groups.append(f"({', '.join(names)})")
+            params = _adapt_db_params(params, dialect_name=dialect_name)
             if update_clause:
                 sql = f'''
                     INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    VALUES {", ".join(value_groups)}
                     ON CONFLICT ({conflict_cols_quoted}) DO UPDATE SET {update_clause}
                     RETURNING *
                 '''
             else:
                 sql = f'''
                     INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    VALUES {", ".join(value_groups)}
                     ON CONFLICT ({conflict_cols_quoted}) DO NOTHING
                     RETURNING *
                 '''
@@ -845,7 +888,9 @@ class DatabaseClient:
 
             return _run_with_connection_retry(
                 self.engine,
-                operation_label="<raw_sql>.execute_raw",
+                operation_label=(
+                    "<raw_sql>." + hashlib.sha256(sql.encode("utf-8")).hexdigest()[:12]
+                ),
                 callback=_execute,
             )
         except DatabaseExecutionError:

@@ -53,7 +53,12 @@ def get_published_contract_tools() -> list[dict[str, Any]]:
         tool["outputSchema"]["title"] = f"{title} output"
         tool["annotations"] = {
             "title": title,
-            "readOnlyHint": internal_name in {"search_user_scopes", "check_consent_status"},
+            "readOnlyHint": internal_name
+            in {
+                "search_user_scopes",
+                "check_consent_status",
+                "get_encrypted_scoped_export",
+            },
             "destructiveHint": False,
             "idempotentHint": True,
             "openWorldHint": False,

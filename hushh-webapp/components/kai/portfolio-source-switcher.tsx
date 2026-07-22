@@ -1,9 +1,5 @@
 "use client";
 
-import {
-  SurfaceCard,
-  SurfaceCardContent,
-} from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -105,8 +101,7 @@ export function PortfolioSourceSwitcher({
   const showPlaidActions = activeSource === "plaid" && availableSources.includes("plaid");
 
   return (
-    <SurfaceCard className="max-w-full">
-      <SurfaceCardContent className="space-y-3 p-4">
+    <section className="max-w-full space-y-3 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-card/65 px-4 py-3">
         <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div className="min-w-0 space-y-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -243,7 +238,6 @@ export function PortfolioSourceSwitcher({
             </div>
           </div>
         ) : null}
-      </SurfaceCardContent>
-    </SurfaceCard>
+    </section>
   );
 }

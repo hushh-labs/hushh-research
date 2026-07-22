@@ -102,6 +102,8 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("const hubStateLoading =");
     expect(source).toContain("isLoading || isEnriching");
     expect(source).toContain("<SetupHubLoadingState />");
+    expect(source).not.toContain("<Skeleton");
+    expect(source).toContain("Checking your setup choices");
     expect(source).toContain('actions: hubStateLoading ? [] : [');
     expect(stateHook).toContain("useState(enrichVault)");
     expect(stateHook).toContain("useState(enrichOauth)");

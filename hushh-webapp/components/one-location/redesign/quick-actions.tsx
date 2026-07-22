@@ -4,11 +4,10 @@
  * Location agent redesign — Quick Actions grid (Now tab).
  *
  * PRESENTATION ONLY. A single reusable `QuickActionCard` renders every tile in
- * the "Quick actions" block so the six location shortcuts (Check-In, Alert,
- * Drive To, Pick Me Up, Meeting, Safe Arrival) stay visually identical and
- * behaviourally consistent. Each card is a 44px tinted icon circle + bold title
- * + a footer row (subtitle + circular chevron), on a 3-column grid, matching the
- * Apple Blue v2 design. Cards are prop-driven and delegate taps to the hub.
+ * the "Quick actions" block so Check-In and Alert stay equal, responsive
+ * controls. Each card is a 44px tinted icon circle + bold title + a footer row
+ * (subtitle + circular chevron). Cards are prop-driven and delegate taps to the
+ * hub.
  */
 
 import type { ReactNode } from "react";
@@ -117,9 +116,11 @@ export function QuickActionCard({
 export function QuickActionsSection({
   title = "Quick actions",
   children,
+  columns = 3,
 }: {
   title?: string;
   children: ReactNode;
+  columns?: 2 | 3;
 }) {
   return (
     <section className="space-y-3">
@@ -132,7 +133,14 @@ export function QuickActionsSection({
           </span>
         </span>
       </div>
-      <div className="grid auto-rows-fr grid-cols-3 gap-2.5">{children}</div>
+      <div
+        className={cn(
+          "grid auto-rows-fr gap-2.5",
+          columns === 2 ? "grid-cols-2" : "grid-cols-3",
+        )}
+      >
+        {children}
+      </div>
     </section>
   );
 }

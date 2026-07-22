@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 import asyncpg
+from dotenv import load_dotenv
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -32,6 +33,7 @@ DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
 DEFAULT_CONTRACT_FILE = (
     REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
 )
+load_dotenv(REPO_ROOT / "consent-protocol" / ".env")
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
 VALID_VERSION_POLICIES = {"exact", "minimum"}
 

@@ -205,6 +205,20 @@ describe("agent PKM memory helpers", () => {
     expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
   });
 
+  it("uses only redacted metadata for an interactive first-turn preflight", async () => {
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "what do you know about my preferences",
+      metadataOnly: true,
+    });
+
+    expect(context.source).toBe("metadata");
+    expect(context.text).toContain("summary metadata only");
+    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+  });
+
   it("never projects runtime secrets into an Agent Chat PKM context", async () => {
     pkmLoadFullBlobMock.mockResolvedValue({
       preferences: {

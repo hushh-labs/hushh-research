@@ -141,6 +141,47 @@ add_check() {
   printf '%s|%s|%s\n' "$key" "$status" "$detail" >>"$REPORT_FILE"
 }
 
+check_local_backend_interpreter() {
+  if [ "$PROFILE" != "local" ]; then
+    return
+  fi
+
+  local listener_pids
+  listener_pids="$(lsof -t -nP -iTCP:8000 -sTCP:LISTEN 2>/dev/null | awk '!seen[$0]++' || true)"
+  if [ -z "$listener_pids" ]; then
+    add_check "backend_runtime_interpreter" "warn" "No local backend is listening on :8000"
+    return
+  fi
+
+  # macOS resolves virtualenv symlinks to the framework Python binary in
+  # `ps`, so command-path inspection falsely rejects a correctly launched
+  # uvicorn worker. Ask the live process for the dependency-only health proof
+  # instead: an old system interpreter reports ADK 1.x (or lacks this field),
+  # while the pinned process reports the 2.4 contract without a model call.
+  local runtime_compatible
+  runtime_compatible="$(python3 - <<'PY'
+import json
+from urllib.request import urlopen
+
+try:
+    with urlopen("http://127.0.0.1:8000/health", timeout=2) as response:
+        payload = json.load(response)
+    print("true" if payload.get("one_runtime", {}).get("google_adk_compatible") is True else "false")
+except Exception:
+    print("unavailable")
+PY
+)"
+
+  if [ "$runtime_compatible" = "true" ]; then
+    add_check "backend_runtime_interpreter" "pass" "Live backend proves the pinned Google ADK 2.4 runtime contract"
+  elif [ "$runtime_compatible" = "unavailable" ]; then
+    add_check "backend_runtime_interpreter" "warn" "Backend listener exists but its runtime contract could not be read"
+  else
+    add_check "backend_runtime_interpreter" "fail" "Local backend is missing the pinned Google ADK 2.4 runtime contract; restart with ./bin/hushh backend --mode local --reload"
+    SOURCE_READY=false
+  fi
+}
+
 EXPECTED_BACKEND_ENV="$(runtime_profile_backend_environment "$PROFILE")"
 EXPECTED_FRONTEND_ENV="$(runtime_profile_frontend_environment "$PROFILE")"
 EXPECTED_BACKEND_MODE="local"
@@ -164,6 +205,8 @@ else
     add_check "backend_source_file" "warn" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}; local backend is not required for $PROFILE"
   fi
 fi
+
+check_local_backend_interpreter
 
 if [ -f "$FRONTEND_SOURCE" ]; then
   add_check "frontend_source_file" "pass" "${FRONTEND_SOURCE#$REPO_ROOT/}"

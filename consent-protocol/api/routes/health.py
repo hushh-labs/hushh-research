@@ -77,6 +77,13 @@ def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, 
     return configured_uid, "reviewer_smoke"
 
 
+def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
+    """Expose dependency-only readiness without probing a model or credentials."""
+    from hushh_mcp.runtime_readiness import runtime_dependency_evidence
+
+    return runtime_dependency_evidence()
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -90,6 +97,7 @@ def health():
         "status": "healthy",
         "agents": ["one", "kai", "nav", "kyc"],
         "agent_model": AGENT_MODEL,
+        "one_runtime": _one_runtime_dependency_evidence(),
     }
 
 

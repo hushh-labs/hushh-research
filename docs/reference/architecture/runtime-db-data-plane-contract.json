@@ -23,6 +23,56 @@
     "kai_funding_trade_events",
     "one_kyc_workflows"
   ],
+  "retention_registry": [
+    {
+      "family_id": "kai_gmail_receipts_provider_cache",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "gmail_retention_report"
+    },
+    {
+      "family_id": "kai_brokerage_provider_cache",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "plaid_retention_report"
+    },
+    {
+      "family_id": "pkm_encrypted_memory",
+      "owner": "vault-pkm-governance",
+      "mode": "report_only",
+      "job_id": "pkm_revision_retention_report"
+    },
+    {
+      "family_id": "one_action_directive_authority",
+      "owner": "kai-voice-governance",
+      "mode": "report_only",
+      "job_id": "directive_ledger_retention_report"
+    },
+    {
+      "family_id": "one_location_agent",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "location_retention_report"
+    },
+    {
+      "family_id": "information_marketplace_requests",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "marketplace_retention_report"
+    },
+    {
+      "family_id": "one_email_kyc_workflow",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "kyc_retention_report"
+    },
+    {
+      "family_id": "funding_trading_audit",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "regulated_funding_retention_report"
+    }
+  ],
   "table_families": [
     {
       "id": "vault_key_material",

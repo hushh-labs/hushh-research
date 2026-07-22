@@ -50,3 +50,14 @@ def test_generated_product_agent_registry_is_current() -> None:
     assert registry["agents"]
     assert all("system_instruction" not in agent for agent in registry["agents"])
     assert all(len(agent["system_instruction_sha256"]) == 64 for agent in registry["agents"])
+
+
+def test_agent_hierarchy_and_action_contracts_are_current() -> None:
+    result = subprocess.run(  # noqa: S603 - executes a repository-owned verifier.
+        [sys.executable, str(ROOT / "scripts" / "verify_agent_hierarchy_contract.py")],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

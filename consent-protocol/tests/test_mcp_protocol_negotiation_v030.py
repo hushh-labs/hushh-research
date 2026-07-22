@@ -114,7 +114,11 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
         process.stdin.flush()
         failed_call = _read_json_line(process)
         assert failed_call["result"]["isError"] is True
-        assert failed_call["result"]["structuredContent"]["error_code"] == "AUTHENTICATION_REQUIRED"
+        assert "structuredContent" not in failed_call["result"]
+        assert (
+            json.loads(failed_call["result"]["content"][0]["text"])["error_code"]
+            == "AUTHENTICATION_REQUIRED"
+        )
     finally:
         process.terminate()
         process.wait(timeout=5)

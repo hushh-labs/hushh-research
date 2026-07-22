@@ -33,13 +33,34 @@ function renderSidebar() {
 }
 
 describe("AgentHistorySidebar", () => {
-  it("uses glass chrome in mobile mode and omits desktop collapse controls", () => {
+  it("uses the compact Chats drawer in mobile mode and omits desktop collapse controls", () => {
     renderSidebar();
 
     const sidebar = screen.getByLabelText("Agent chat history");
     expect(sidebar).toHaveClass("chrome-glass-surface");
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create new Agent chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collapse chat history" })).not.toBeInTheDocument();
+  });
+
+  it("uses consumer-safe labels for stored conversation titles", () => {
+    render(
+      <AgentHistorySidebar
+        conversations={[{ ...conversations[0], title: "summarize my pkm" }]}
+        activeConversationId="conv_1"
+        mode="mobile"
+        onClose={vi.fn()}
+        onToggleCollapsed={vi.fn()}
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Summarize my personal details")).toBeInTheDocument();
+    expect(screen.queryByText(/pkm/i)).not.toBeInTheDocument();
   });
 });

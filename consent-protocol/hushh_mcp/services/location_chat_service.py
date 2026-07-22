@@ -112,9 +112,13 @@ _ACTION_RESULT_TEMPLATES = {
 }
 
 _UNAVAILABLE_MESSAGE = (
-    "The location assistant is temporarily unavailable. Please try again, or use "
-    "the controls on this page to manage your sharing."
+    "Location assistance is unavailable because the managed private-agent runtime "
+    "is not ready. Try again, or use the controls on this page to manage sharing."
 )
+_RUNTIME_UNAVAILABLE = {
+    "state": "runtime_unavailable",
+    "reasonCode": "managed_runtime_unavailable",
+}
 _GAVE_UP_MESSAGE = (
     "I couldn't finish that — please try rephrasing, or use the controls on this "
     "page to manage your sharing."
@@ -548,7 +552,12 @@ class LocationChatService:
 
         if self._types is None or not self._ready():
             return await self._finish(
-                turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, state_changed=False
+                turn,
+                _UNAVAILABLE_MESSAGE,
+                user_id,
+                errored=True,
+                state_changed=False,
+                availability=_RUNTIME_UNAVAILABLE,
             )
 
         types = self._types
@@ -562,7 +571,12 @@ class LocationChatService:
         except Exception:
             logger.exception("Location chat turn failed")
             return await self._finish(
-                turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, state_changed=False
+                turn,
+                _UNAVAILABLE_MESSAGE,
+                user_id,
+                errored=True,
+                state_changed=False,
+                availability=_RUNTIME_UNAVAILABLE,
             )
 
         client_prompt = self._build_client_prompt(prompts)
@@ -883,6 +897,7 @@ class LocationChatService:
                 "response": _UNAVAILABLE_MESSAGE,
                 "isComplete": False,
                 "stateChanged": False,
+                "availability": _RUNTIME_UNAVAILABLE,
             }
 
         types = self._types
@@ -964,6 +979,7 @@ class LocationChatService:
         state_changed: bool,
         client_action: dict | None = None,
         client_prompt: dict | None = None,
+        availability: dict | None = None,
     ) -> dict[str, Any]:
         await self._chat_store.add_message(
             conversation_id=turn.conversation_id,
@@ -982,4 +998,6 @@ class LocationChatService:
             out["clientAction"] = client_action
         if client_prompt is not None:
             out["clientPrompt"] = client_prompt
+        if availability is not None:
+            out["availability"] = availability
         return out

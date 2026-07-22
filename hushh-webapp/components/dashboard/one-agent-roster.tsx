@@ -22,7 +22,7 @@ import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { OneLocationState } from "@/lib/one-location/types";
-import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import type { KaiHomeInsightsV2, KaiHomeMover } from "@/lib/services/api-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
@@ -56,8 +56,8 @@ function positiveNumber(value: unknown): number | null {
 }
 
 function formatWinnerPercent(value: unknown): string | null {
-  const percent = Number(value);
-  if (!Number.isFinite(percent)) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const percent = value;
   const digits = Math.abs(percent) >= 10 ? 1 : 2;
   return `${percent >= 0 ? "+" : ""}${percent.toFixed(digits)}%`;
 }
@@ -67,20 +67,33 @@ function countCollection(value: unknown): number | null {
   return positiveNumber(value);
 }
 
-function latestMarketPayload(userId: string): KaiHomeInsightsV2 | null {
+function canonicalMarketPayload(userId: string): KaiHomeInsightsV2 | null {
   const cache = CacheService.getInstance();
-  const prefix = `kai_market_home_${userId}_`;
-  let latest: { timestamp: number; payload: KaiHomeInsightsV2 } | null = null;
+  // The roster describes the overall market leader, not the newest arbitrary
+  // symbol-scoped Finance response. A holdings/analysis cache can arrive after
+  // the baseline and contain a different, partial universe; choosing by last
+  // write made the `/one` KPI jump or show an unrelated percentage.
+  return (
+    cache.peek<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+    )?.data ??
+    cache.peek<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME(userId, "default", 7),
+    )?.data ??
+    null
+  );
+}
 
-  for (const key of cache.getStats().keys) {
-    if (!key.startsWith(prefix)) continue;
-    const snapshot = cache.peek<KaiHomeInsightsV2>(key);
-    if (!snapshot || (latest && latest.timestamp >= snapshot.timestamp))
-      continue;
-    latest = { timestamp: snapshot.timestamp, payload: snapshot.data };
-  }
-
-  return latest?.payload ?? null;
+function isPositiveMover(
+  row: KaiHomeMover,
+): row is KaiHomeMover & { change_pct: number } {
+  return (
+    typeof row?.symbol === "string" &&
+    /^[A-Z][A-Z0-9.-]{0,9}$/i.test(row.symbol.trim()) &&
+    typeof row.change_pct === "number" &&
+    Number.isFinite(row.change_pct) &&
+    row.change_pct > 0
+  );
 }
 
 /**
@@ -94,11 +107,11 @@ export function resolveCachedAgentMetrics(
   const cache = CacheService.getInstance();
   const metrics: Record<string, AgentMetric> = {};
 
-  const market = latestMarketPayload(userId);
+  const market = canonicalMarketPayload(userId);
   const topMover = (market?.movers?.gainers ?? [])
-    .filter((row) => Number(row?.change_pct) > 0)
+    .filter(isPositiveMover)
     .sort(
-      (left, right) => Number(right.change_pct) - Number(left.change_pct),
+      (left, right) => right.change_pct - left.change_pct,
     )[0];
   const moverSymbol = String(topMover?.symbol ?? "")
     .trim()
@@ -492,6 +505,7 @@ export function OneAgentRoster({
   const cachedMetrics = useCachedAgentMetrics(userId);
   const modes = buildModes(capabilityStatusById, cachedMetrics);
   const [view, setView] = useState<AgentRosterView>("grid");
+  const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
   const visibleModes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -514,13 +528,21 @@ export function OneAgentRoster({
       const persisted = window.localStorage.getItem(
         AGENT_ROSTER_VIEW_STORAGE_KEY,
       );
-      if (persisted === "grid" || persisted === "list") setView(persisted);
+      if (persisted === "grid" || persisted === "list") {
+        // Restoring a preference is hydration, not an interaction. Keeping
+        // this transition disabled prevents the grid→list animation from
+        // replaying every time `/one` mounts.
+        setAnimateViewChange(false);
+        setView(persisted);
+      }
     } catch {
       // A display preference is optional and does not affect roster access.
     }
   }, []);
 
   const selectView = (next: AgentRosterView) => {
+    if (next === view) return;
+    setAnimateViewChange(true);
     setView(next);
     try {
       window.localStorage.setItem(AGENT_ROSTER_VIEW_STORAGE_KEY, next);
@@ -559,7 +581,11 @@ export function OneAgentRoster({
           className="h-10 w-full rounded-[var(--app-radius-lg)] border border-border/70 bg-[color:var(--app-card-surface-compact)] py-2 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
         />
       </label>
-      <div key={view} className="motion-step-enter">
+      <div
+        key={view}
+        data-testid="one-agents-view-content"
+        className={animateViewChange ? "motion-step-enter" : undefined}
+      >
         {view === "grid" ? (
           <SettingsGroup
             embedded

@@ -76,9 +76,13 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
-  it("preserves receipts, gmail, support, and investments screen specificity", () => {
+  it("preserves receipts, gmail, support, and retired Finance redirect context", () => {
     expect(deriveVoiceRouteScreen("/one/location")).toEqual({
       screen: "one_location",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/location/map")).toEqual({
+      screen: "one_location_map",
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/one/gmail")).toEqual({
@@ -130,12 +134,12 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/one/kai/investments")).toEqual({
-      screen: "kai_investments",
-      subview: null,
+      screen: "kai_portfolio_dashboard",
+      subview: "portfolio",
     });
     expect(deriveVoiceRouteScreen("/one/kai/funding-trade")).toEqual({
-      screen: "kai_funding_trade",
-      subview: null,
+      screen: "kai_portfolio_dashboard",
+      subview: "portfolio",
     });
   });
 

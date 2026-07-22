@@ -101,8 +101,9 @@ describe("One Voice realtime transports", () => {
     await testTransport.handleSocketMessage(
       JSON.stringify({
         clientDirective: {
-          kind: "navigate",
-          payload: { route: "/one/kai", screen: "finance" },
+          kind: "prompt",
+          delegateAgentId: "agent_nav",
+          payload: { kind: "consent_actions", items: [] },
         },
       })
     );
@@ -126,8 +127,9 @@ describe("One Voice realtime transports", () => {
         type: "client_directive",
         provider: "gemini_live",
         directive: {
-          kind: "navigate",
-          payload: { route: "/one/kai", screen: "finance" },
+          kind: "prompt",
+          delegateAgentId: "agent_nav",
+          payload: { kind: "consent_actions", items: [] },
         },
       })
     );

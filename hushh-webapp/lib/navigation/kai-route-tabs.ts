@@ -40,11 +40,7 @@ export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
     return "analysis";
   }
   if (
-    pathname.startsWith(ROUTES.KAI_INVESTMENTS) ||
-    pathname.startsWith(ROUTES.KAI_FUNDING_TRADE) ||
     pathname.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO) ||
-    pathname.startsWith(ROUTES.LEGACY_KAI_INVESTMENTS) ||
-    pathname.startsWith(ROUTES.LEGACY_KAI_FUNDING_TRADE) ||
     pathname.startsWith("/kai/dashboard") ||
     pathname.startsWith("/one/kai/dashboard") ||
     pathname.startsWith(ROUTES.KAI_OPTIMIZE)

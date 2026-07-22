@@ -225,13 +225,15 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/investments": {
     path: "/kai/investments",
-    expectedPathname: "/one/kai/investments",
-    allowedRouteIds: ["/one/kai/investments"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/funding-trade": {
     path: "/kai/funding-trade",
-    expectedPathname: "/one/kai/funding-trade",
-    allowedRouteIds: ["/one/kai/funding-trade"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/onboarding": {
     path: "/kai/onboarding",

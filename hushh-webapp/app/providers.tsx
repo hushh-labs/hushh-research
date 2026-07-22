@@ -105,6 +105,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
+  const hidesPersistentChrome = routeLayout.persistentChrome === "none";
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -130,9 +131,9 @@ function AppShellFrame({ children }: ProvidersProps) {
     topShellModel.mode === "bar-with-tabs"
       ? `${shellPathname}:${topShellModel.tabs.id}:${topShellModel.tabs.activeValue}`
       : shellPathname;
-  const hideGlobalChrome = !topShellMetrics.shellVisible;
+  const hideGlobalChrome = !topShellMetrics.shellVisible || hidesPersistentChrome;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
-  const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
   const isPublicStandaloneRoute = isFoundationRoute && pathname !== ROUTES.HOME;
   const signedInShellContentOffset = useMemo(
@@ -152,11 +153,11 @@ function AppShellFrame({ children }: ProvidersProps) {
     () =>
       ({
         ...signedInShellContentOffset.style,
-        // A tab row is part of the fixed safe-area stack. Give the first body
-        // block an additional shared clearance so Finance/RIA content never
-        // crowds the contextual tabs on phone or desktop.
+        // The fixed tab row is already included in --top-shell-reserved-height.
+        // Do not add a second route-body spacer: it creates an obvious blank
+        // band between tabs and the primary header on every workspace.
         "--page-top-local-offset": topShellMetrics.hasTabs
-          ? `calc(${routeLayout.pageTopLocalOffset || "0px"} + 12px)`
+          ? routeLayout.pageTopLocalOffset || "0px"
           : routeLayout.pageTopLocalOffset || "0px",
         "--top-tabs-gap": "var(--kai-route-tabs-content-gap)",
         "--top-tabs-total": topShellMetrics.hasTabs
@@ -206,7 +207,9 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": isRiaRoute(pathname)
+        "--app-scroll-bottom-pad": hidesPersistentChrome
+          ? "0px"
+          : isRiaRoute(pathname)
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : hideGlobalChrome || isPublicStandaloneRoute
             ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
@@ -216,6 +219,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       chromeState.hideCommandBar,
       hideGlobalChrome,
       isPublicStandaloneRoute,
+      hidesPersistentChrome,
       routeLayout.pageTopLocalOffset,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
@@ -228,12 +232,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // routes intentionally share it with signed-in chrome; their toggles are a
   // presentation variant, never a second material implementation.
   const ambientChromeEnabled =
-    topShellMetrics.shellVisible ||
+    (topShellMetrics.shellVisible && !hidesPersistentChrome) ||
     isFoundationRoute ||
     chromeState.useOnboardingChrome;
   const bottomShellModel = {
-    ambientEnabled: ambientChromeEnabled && !isFullscreenTopFlow,
+    ambientEnabled: ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
     navigationHidden: chromeState.hideCommandBar,
+    hidden: hidesPersistentChrome,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
@@ -251,7 +256,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   // while omitting that glass, and the persistent Agent Bar must still travel
   // with it. This matches Navbar's non-onboarding scroll-hide policy.
   useKaiBottomChromeProgressCssVar(
-    !chromeState.useOnboardingChrome && !riaPinnedChrome,
+    !chromeState.useOnboardingChrome && !riaPinnedChrome && !hidesPersistentChrome,
   );
   // Add a root platform class for native-iOS specific CSS hooks.
   useEffect(() => {
@@ -396,15 +401,17 @@ function AppShellFrame({ children }: ProvidersProps) {
               <NativeTestRouteStatus />
       <InteractionRuntime />
       <FoundationPublicAmbient />
-              <AmbientChromeController enabled={ambientChromeEnabled} />
+              {!hidesPersistentChrome ? (
+                <AmbientChromeController enabled={ambientChromeEnabled} />
+              ) : null}
               {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation
                 suspends (fallback tree <-> resolved tree swap), tearing down
                 the live voice session and restarting the conversation on every
                 route switch. Both are fixed overlays, so position is unaffected. */}
-              <AgentVoiceEdgeGlow />
-              <AppEdgeBackGesture />
+              {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
+              {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
               <AppBottomShell model={bottomShellModel} />
               {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
@@ -423,12 +430,16 @@ function AppShellFrame({ children }: ProvidersProps) {
                         signedInShellContentOffset.mode
                       }
                     >
-                      <Suspense fallback={null}>
-                        <AppTopShell model={topShellModel} />
-                      </Suspense>
-                      <Suspense fallback={null}>
-                        <KaiCommandBarGlobal />
-                      </Suspense>
+                      {!hidesPersistentChrome ? (
+                        <Suspense fallback={null}>
+                          <AppTopShell model={topShellModel} />
+                        </Suspense>
+                      ) : null}
+                      {!hidesPersistentChrome ? (
+                        <Suspense fallback={null}>
+                          <KaiCommandBarGlobal />
+                        </Suspense>
+                      ) : null}
                       <div
                         data-app-scroll-root="true"
                         data-app-scroll-mode={
@@ -480,12 +491,16 @@ function AppShellFrame({ children }: ProvidersProps) {
                         signedInShellContentOffset.mode
                       }
                     >
-                      <Suspense fallback={null}>
-                        <AppTopShell model={topShellModel} />
-                      </Suspense>
-                      <Suspense fallback={null}>
-                        <KaiCommandBarGlobal />
-                      </Suspense>
+                      {!hidesPersistentChrome ? (
+                        <Suspense fallback={null}>
+                          <AppTopShell model={topShellModel} />
+                        </Suspense>
+                      ) : null}
+                      {!hidesPersistentChrome ? (
+                        <Suspense fallback={null}>
+                          <KaiCommandBarGlobal />
+                        </Suspense>
+                      ) : null}
                       {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
                       <div
                         data-app-scroll-root="true"

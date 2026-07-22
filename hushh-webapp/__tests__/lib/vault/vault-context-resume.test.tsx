@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
   clearAgentPkmContext: vi.fn(),
+  clearAgentChatHistoryCache: vi.fn(),
+  warmAgentChatHistoryCache: vi.fn(),
   invalidateVaultState: vi.fn(),
+  getIdToken: vi.fn(),
+  unlockWarmRun: vi.fn(),
   authUser: {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -37,6 +41,11 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   clearAgentPkmContext: mocks.clearAgentPkmContext,
 }));
 
+vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
+  clearAgentChatHistoryCache: mocks.clearAgentChatHistoryCache,
+  warmAgentChatHistoryCache: mocks.warmAgentChatHistoryCache,
+}));
+
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: { onVaultStateChanged: vi.fn() },
 }));
@@ -53,7 +62,7 @@ vi.mock("@/lib/observability/growth", () => ({
 }));
 
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdToken: vi.fn().mockResolvedValue("firebase-token") },
+  AuthService: { getIdToken: mocks.getIdToken },
 }));
 
 vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
@@ -77,7 +86,7 @@ vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
 }));
 
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: vi.fn().mockResolvedValue(undefined) },
+  UnlockWarmOrchestrator: { run: mocks.unlockWarmRun },
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
@@ -145,6 +154,9 @@ function setVisibility(state: DocumentVisibilityState) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.warmAgentChatHistoryCache.mockResolvedValue(undefined);
+  mocks.getIdToken.mockResolvedValue("firebase-token");
+  mocks.unlockWarmRun.mockResolvedValue(undefined);
   mocks.nativePlatform = false;
   mocks.authUser = {
     uid: "vault-owner",
@@ -158,10 +170,36 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe("VaultProvider app-resume expiry recovery", () => {
+  it("starts protected Agent Chat warming before optional Firebase token resolution", async () => {
+    vi.useFakeTimers();
+    let resolveIdToken: ((token: string) => void) | null = null;
+    mocks.getIdToken.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveIdToken = resolve;
+        }),
+    );
+
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.warmAgentChatHistoryCache).toHaveBeenCalledWith({
+      userId: "vault-owner",
+      vaultOwnerToken: "vault-token",
+    });
+    expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
+
+    resolveIdToken?.("firebase-token");
+  });
+
   it("relocks and clears memory-only credentials when an expired token resumes on web", async () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
@@ -180,6 +218,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
     expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
+    expect(mocks.clearAgentChatHistoryCache).toHaveBeenCalledWith("vault-owner");
   });
 
   it("keeps a still-valid token unlocked when the web app resumes", () => {
