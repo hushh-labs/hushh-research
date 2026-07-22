@@ -190,6 +190,24 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     ).toMatchObject({ userId, setupCompleted: true });
   });
 
+  it("does not self-heal when the backend read is unknown (null)", async () => {
+    const userId = "bootstrap-null-no-heal-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    OneSetupCompletionHintService.markResolved(userId);
+    apiJsonMock.mockResolvedValueOnce({ userId, setupCompleted: null });
+
+    await PreVaultUserStateService.bootstrapState(userId);
+    // Let any (unexpected) fire-and-forget heal have a chance to run.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // null = legacy/unknown fail-open state; it must NOT trigger a re-push
+    // (only an EXPLICIT setupCompleted===false mismatch self-heals). The sticky
+    // latch is still preserved.
+    expect(apiJsonMock).toHaveBeenCalledTimes(1);
+    expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
+  });
+
   it("persists the explicit Connections choice without replacing capability markers", async () => {
     const userId = "bootstrap-runtime-choice-user";
     getIdTokenMock.mockResolvedValue("firebase-token");
