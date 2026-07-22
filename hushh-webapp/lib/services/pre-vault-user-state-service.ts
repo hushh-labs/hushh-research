@@ -158,11 +158,43 @@ function normalizeResponse(
 function syncSetupCompletionHint(state: PreVaultUserState): void {
   if (state.setupCompleted === true) {
     OneSetupCompletionHintService.markResolved(state.userId);
-    return;
   }
-  if (state.setupCompleted === false) {
-    OneSetupCompletionHintService.clear(state.userId);
-  }
+  // Do NOT clear the latch on a `false`/null read. The completion latch is a
+  // sticky, monotonic "onboarding dismissed" signal. Clearing it on routine or
+  // racing `setupCompleted === false` reads — which happen on every forced
+  // bootstrap a sub-agent makes before a slow/failed durable write has landed —
+  // is exactly what let the onboarding guard re-force `/one/setup` on
+  // back-navigation after onboarding. The latch is cleared ONLY by an explicit
+  // sign-out / account reset via UserLocalStateService.clearForUser.
+}
+
+// Cross-device durability self-heal. If this device holds the sticky "dismissed"
+// latch but the backend has not (yet) recorded setupCompleted=true — e.g. a
+// dismissal-time write failed offline — re-push it once so every device
+// converges. Account reset clears the latch, so this never fires post-reset.
+const setupCompletionHealInFlight = new Set<string>();
+
+function maybeHealSetupCompletion(state: PreVaultUserState): void {
+  // Only heal an EXPLICIT mismatch: the backend says setupCompleted === false
+  // while this device holds the sticky "dismissed" latch. A null/unknown
+  // backend is the legacy fail-open case and must not trigger a write.
+  if (state.setupCompleted !== false) return;
+  if (!state.userId) return;
+  if (!OneSetupCompletionHintService.isResolved(state.userId)) return;
+  if (setupCompletionHealInFlight.has(state.userId)) return;
+  setupCompletionHealInFlight.add(state.userId);
+  void PreVaultUserStateService.syncKaiSetupState({
+    userId: state.userId,
+    completed: true,
+    skipped: state.setupSkipped === true,
+  })
+    .catch(() => {
+      // Best-effort: the sticky latch keeps THIS device out of setup regardless;
+      // a later bootstrap will retry the heal.
+    })
+    .finally(() => {
+      setupCompletionHealInFlight.delete(state.userId);
+    });
 }
 
 function normalizeOnboardingPhase(
@@ -271,6 +303,7 @@ export class PreVaultUserStateService {
       );
       const normalized = normalizeResponse(userId, payload);
       syncSetupCompletionHint(normalized);
+      maybeHealSetupCompletion(normalized);
       // Pre-vault bootstrap state changes infrequently and is updated by this service,
       // so keeping it warm for the session reduces repeated heavy bootstrap requests.
       CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);

@@ -92,6 +92,8 @@ import {
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   ShellActionSurface,
   SHELL_ICON_BUTTON_CLASSNAME,
@@ -376,12 +378,22 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
-  const topShellBreadcrumb = useMemo(
-    () =>
-      resolveTopShellBreadcrumb(normalizedPathname, searchParams) ??
-      resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId),
-    [lastAgentSectionId, normalizedPathname, searchParams],
-  );
+  const topShellBreadcrumb = useMemo(() => {
+    // Once onboarding is dismissed, back-navigation from any product/agent
+    // surface must never retrace into the setup funnel. Re-read on every
+    // navigation (pathname change) so a freshly-resolved user is honored.
+    const setupDismissed = Boolean(
+      user?.uid &&
+        (OneSetupCompletionHintService.isResolved(user.uid) ||
+          PreVaultUserStateService.getCachedBootstrapState(user.uid)
+            ?.setupCompleted === true),
+    );
+    return (
+      resolveTopShellBreadcrumb(normalizedPathname, searchParams, {
+        setupDismissed,
+      }) ?? resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId)
+    );
+  }, [lastAgentSectionId, normalizedPathname, searchParams, user?.uid]);
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
     [normalizedPathname],

@@ -1,6 +1,7 @@
 import {
   buildOneSetupCapabilityRoute,
   buildKaiMarketRoute,
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   normalizeInternalRouteHref,
   resolveOnboardingCapabilityForRoute,
@@ -118,7 +119,41 @@ function resolveCapabilitySetupBackHref(
     : ROUTES.ONE_SETUP;
 }
 
+export interface ResolveTopShellBreadcrumbOptions {
+  /**
+   * True once the user has dismissed onboarding (finished/skipped setup, or the
+   * backend/latch reports it). When set, a product/agent surface must never send
+   * BACK into the setup funnel — stale `?from=/one/setup` markers and hardcoded
+   * setup defaults are rewritten to ONE_HOME. Setup-internal pages keep their
+   * retrace to the hub so the first onboarding pass is unchanged.
+   */
+  setupDismissed?: boolean;
+}
+
 export function resolveTopShellBreadcrumb(
+  pathname: string,
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+  options?: ResolveTopShellBreadcrumbOptions,
+): TopShellBreadcrumbConfig | null {
+  const config = resolveTopShellBreadcrumbInner(pathname, searchParams);
+  if (!config || !options?.setupDismissed) return config;
+  // Once onboarding is dismissed, a product/agent surface must never send BACK
+  // into the setup funnel. Setup-internal pages (the hub, connections, a
+  // per-capability step) keep retracing to the hub; every other surface whose
+  // back target resolves to a setup route (stale `?from=/one/setup`, hardcoded
+  // defaults) is rerouted to home.
+  const here = normalizeBreadcrumbPathname(pathname);
+  if (isOneSetupSurfaceRoute(here)) return config;
+  const backPath = config.backHref
+    ? normalizeBreadcrumbPathname(config.backHref)
+    : null;
+  if (backPath && isOneSetupSurfaceRoute(backPath)) {
+    return { ...config, backHref: ROUTES.ONE_HOME };
+  }
+  return config;
+}
+
+function resolveTopShellBreadcrumbInner(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
