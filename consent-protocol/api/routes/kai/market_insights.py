@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -485,6 +486,21 @@ def _safe_float(value: Any) -> float | None:
         return float(text)
     except Exception:
         return None
+
+
+def _parse_percent_points(value: Any) -> float | None:
+    """Parse a provider percentage expressed in percentage points.
+
+    FMP's mover endpoints can return either a JSON number (``1.25``) or a
+    percent-suffixed string (``"1.25%"``). The public ``change_pct`` contract
+    is always percentage points, never a ratio and never a currency delta.
+    """
+    if isinstance(value, str):
+        value = value.strip().replace(",", "")
+        if value.endswith("%"):
+            value = value[:-1].strip()
+    parsed = _safe_float(value)
+    return parsed if parsed is not None and math.isfinite(parsed) else None
 
 
 def _safe_int(value: Any) -> int | None:
@@ -1544,16 +1560,25 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
     if not symbol:
         return None
 
+    # `changes` is a currency delta on FMP mover payloads, not a percentage.
+    # Do not ever coerce it into `change_pct`: downstream UI deliberately
+    # renders this field with `%`, so that fallback turns a $ move into a false
+    # return. Keep the public contract percentage-only and omit an unavailable
+    # percentage rather than inventing one.
+    change_pct = next(
+        (
+            parsed
+            for key in ("changesPercentage", "changePercentage", "change_percent")
+            if (parsed := _parse_percent_points(row.get(key))) is not None
+        ),
+        None,
+    )
+
     return {
         "symbol": symbol,
         "company_name": str(row.get("name") or row.get("companyName") or symbol),
         "price": _safe_float(row.get("price")),
-        "change_pct": _safe_float(
-            row.get("changesPercentage")
-            or row.get("changePercentage")
-            or row.get("change_percent")
-            or row.get("changes")
-        ),
+        "change_pct": change_pct,
         "volume": _safe_int(row.get("volume")),
         "source_tags": [source],
         "degraded": False,
@@ -2110,7 +2135,9 @@ async def _refresh_public_market_modules_once() -> None:
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="movers:us",
+            # v2 separates cached payloads created before ``changes`` was
+            # correctly treated as a currency delta rather than a percent.
+            key="movers:v2:us",
             fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
             fetcher=_fetch_movers_from_fmp,
@@ -2469,7 +2496,9 @@ async def _get_market_insights_payload(
             safe_public_module(
                 "movers",
                 _get_or_refresh_public_module(
-                    key="movers:us",
+                    # Keep this in lockstep with the proactive warmer above.
+                    # Existing v1 entries can contain false percentage values.
+                    key="movers:v2:us",
                     fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
                     fetcher=_fetch_movers_from_fmp,
@@ -2869,7 +2898,7 @@ async def _get_market_insights_payload(
             if isinstance(row, dict) and str(row.get("symbol") or "").strip()
         ]
         sparkline_symbol_set = sorted({"SPY", "QQQ", "DIA", "IWM", *mover_symbols})
-        # Movers itself is cached (key "movers:us"), so this symbol set is
+        # Movers itself is cached (key "movers:v2:us"), so this symbol set is
         # stable for the lifetime of that cache entry. Cache the batch series
         # fetch the same way instead of hitting FMP on every request - this is
         # the single highest-volume call site on this page (up to ~26 symbols)

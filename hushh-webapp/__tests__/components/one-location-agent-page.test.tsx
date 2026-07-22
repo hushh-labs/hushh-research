@@ -439,7 +439,7 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   if (options.expectMain !== false) {
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
   }
 }
@@ -474,7 +474,7 @@ async function openLocationPermissionsStep() {
 }
 
 async function switchLocationTab(
-  name: "Now" | "People" | "Links" | "Inbox",
+  name: "Now" | "People" | "Links",
   expectedHeading: string,
 ) {
   fireEvent.click(screen.getByRole("button", { name }));
@@ -484,7 +484,7 @@ async function switchLocationTab(
 }
 
 async function openSharePersonStep() {
-  fireEvent.click(screen.getByRole("button", { name: /Share my location/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
   expect(
     await screen.findByRole("heading", { name: "Who can see you?" }),
   ).toBeTruthy();
@@ -516,7 +516,10 @@ async function openShareReviewStep() {
 }
 
 async function openAskFlow() {
-  fireEvent.click(screen.getByRole("button", { name: /Ask someone/i }));
+  fireEvent.click(screen.getByRole("button", { name: "People" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Ask someone to share/i }),
+  );
   expect(
     await screen.findByRole("heading", { name: "Make it comfortable" }),
   ).toBeTruthy();
@@ -695,28 +698,23 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(
-      await screen.findByRole("heading", { name: "Active shares" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
-    expect(screen.queryAllByText(/Trusted B/).length).toBeGreaterThan(0);
-    // Redesign: the "Device readiness" card is surfaced only when location
-    // permission is blocked. When permission is granted (default fixture), the
-    // hero's LIVE/OFF toggle drives self-location capture instead. The default
-    // fixture has active shares, so the toggle reads as live.
+    // Now is intentionally compact: capture happens only from Your Map's
+    // explicit Locate me control, never from a dashboard toggle.
+    expect(screen.getByRole("button", { name: "Your Map" })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Live location on/i }),
+      screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Active shares/i }));
+    expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /Share my location/i }),
-    ).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       keyId: "key_a",
@@ -771,13 +769,42 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
         name: "The people you love. Always in reach.",
       }),
     ).toBeNull();
+  });
+
+  it("keeps Location setup inert while durable completion is settling", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    const onSetupComplete = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    render(
+      <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
+    );
+
+    await openLocationPermissionsStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const savingButton = screen.getByRole("button", { name: "Saving setup…" });
+    expect(savingButton).toBeDisabled();
+    expect(savingButton).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    fireEvent.click(savingButton);
+    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+
+    resolveCompletion?.();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+    );
   });
 
   it("does not finish web Location setup while permission is denied", async () => {
@@ -838,12 +865,11 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
-    const activeShares = await screen.findByRole("list", {
-      name: "Active shares",
-    });
-    expect(activeShares.className).toContain("max-h-[470px]");
-    expect(activeShares.className).toContain("overflow-y-auto");
-    expect(activeShares.querySelectorAll('[role="listitem"]')).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: /Active shares/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Active shares" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(4);
   });
 
   it("does not render the removed onboarding tour", async () => {
@@ -856,35 +882,6 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("dialog", { name: /One Location guided tour/i }),
     ).toBeNull();
-  });
-
-  it("previews my live location without creating a share, request, or public link", async () => {
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-      receivedGrants: [],
-    });
-
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    // Redesign: the hero OFF/LIVE toggle captures your live location for a
-    // self-preview without creating any share/request/public link.
-    fireEvent.click(
-      screen.getByRole("button", { name: /Turn on live location/i }),
-    );
-
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
-    );
-    const mapPreview = await screen.findByTitle("Live location map preview");
-    expect(mapPreview.getAttribute("src")).toContain(
-      "https://www.google.com/maps?q=28.613900%2C77.209000",
-    );
-    expect(mockCreateGrant).not.toHaveBeenCalled();
-    expect(mockRequestAccess).not.toHaveBeenCalled();
-    expect(mockCreatePublicInvite).not.toHaveBeenCalled();
   });
 
   it("loads One Location setup without requiring backend phone verification", async () => {
@@ -944,7 +941,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     // Completing onboarding persists the one-time intro flag so the marketing
     // intro never shows again for this user.
@@ -978,7 +975,7 @@ describe("OneLocationAgentPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Location" }),
+      await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     // Completing onboarding persists the one-time intro flag.
@@ -1004,7 +1001,7 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
 
       expect(
-        await screen.findByRole("heading", { name: "Location" }),
+        await screen.findByRole("heading", { name: "Location Agent" }),
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
@@ -1030,7 +1027,8 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    await switchLocationTab("Now", "Active shares");
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
       target: { value: "advisor" },
@@ -1077,7 +1075,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /Share my location/i }),
+        screen.getByRole("button", { name: /^Share location$/i }),
       ).toBeTruthy(),
     );
   });
@@ -1179,7 +1177,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("Inbox", "Needs your review");
+    fireEvent.click(screen.getByRole("button", { name: /Shared with me/i }));
     expect(
       screen.getByRole("heading", { name: "Shared with me" }),
     ).toBeTruthy();
@@ -1352,7 +1350,7 @@ describe("OneLocationAgentPage", () => {
     // After a successful share the flow closes and returns to the main hub.
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "Active shares" }),
+        screen.getByRole("button", { name: /Active shares/i }),
       ).toBeTruthy(),
     );
     expect(
@@ -1587,7 +1585,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy(),
+      expect(screen.getByRole("heading", { name: "Location Agent" })).toBeTruthy(),
     );
   });
 
@@ -1610,8 +1608,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("Inbox", "Needs your review");
-    expect(screen.getByRole("heading", { name: "Sent by you" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(await screen.findByRole("heading", { name: "Requests sent" })).toBeTruthy();
     expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.queryByText("user_b")).toBeNull();
     expect(screen.queryByText("request_1")).toBeNull();

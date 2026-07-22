@@ -4,11 +4,11 @@ Agentforce receives the same five generated tools and schemas as every other
 host. This module verifies the Salesforce-safe subset and publishes a
 non-secret MuleSoft handoff; it does not define a second endpoint or catalog.
 
-Salesforce does not provide user-level MCP authentication. Hussh therefore
-treats the OAuth client as the partner application identity and keeps the
-person-specific authority in the explicit consent request, approval, scoped
-grant, and encrypted export. The catalog never turns client credentials into a
-synthetic user identity.
+The direct Agentforce profile is catalog-only because Salesforce does not
+provide user-level MCP authentication. A MuleSoft secure relay uses its own
+operations-provisioned ``execute`` principal upstream, while Hussh keeps the
+person-specific authority in explicit consent, scoped grants, and encrypted
+delivery. No client credential becomes a synthetic user identity.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
     """
 
     tool_allowlist = list(get_agentforce_tool_names())
+    connector_delivery_tool = "get-encrypted-scoped-export"
     return {
         "integrationTarget": MULESOFT_AGENTFORCE_INTEGRATION_TARGET,
         "supportStatus": "agentforce-catalog-compatible",
@@ -72,6 +73,23 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
             "authentication": "oauth2-client-credentials",
             "toolsOnly": True,
             "toolAllowlist": tool_allowlist,
+            "agentActionPolicy": {
+                "catalogOnly": True,
+                "directPersonalizedToolCalls": "blocked",
+                "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
+                "muleControlPlaneTools": [
+                    tool for tool in tool_allowlist if tool != connector_delivery_tool
+                ],
+                "agentforceActionDefault": "no-personalized-consent-actions",
+                "salesforceApprovedUatActionAllowlist": [
+                    tool for tool in tool_allowlist if tool != connector_delivery_tool
+                ],
+                "connectorOnlyTool": connector_delivery_tool,
+                "connectorOnlyReason": (
+                    "The encrypted export is delivered to the registered connector and "
+                    "must be decrypted outside the Agentforce LLM."
+                ),
+            },
         },
         "relayRequirements": {
             "preserveToolNames": True,
@@ -81,8 +99,10 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
             "expandNestedFields": False,
         },
         "executionBoundary": {
-            "consentLifecycleExecution": "enabled",
-            "applicationAuthentication": "oauth2-client-credentials",
+            "directAgentforceExecution": "catalog-only",
+            "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+            "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
+            "applicationAuthentication": "oauth2-client-credentials-per-hop",
             "userAuthority": "explicit-consent-and-scoped-grant",
             "informationDelivery": "encrypted-export-after-approval",
         },

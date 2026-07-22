@@ -189,7 +189,7 @@ describe("One-Location notification surfaces (bell + consent)", () => {
 
 
 describe("One-Location workflow deep-link sections", () => {
-  it("routes an access request to the Inbox 'Needs your review' (approvals) section", () => {
+  it("routes an access request to the focused Needs my review detail", () => {
     const section = oneLocationSectionForWorkflowNotificationType(
       "location_access_request",
     );

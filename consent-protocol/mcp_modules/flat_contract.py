@@ -585,7 +585,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "get_encrypted_scoped_export",
                 "title": "Get encrypted scoped export",
-                "description": "Retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
+                "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
                 "inputSchema": _object(
                     {
                         "grant_ref": _field(
@@ -605,7 +605,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "delivery": _field(
                             "string",
-                            "Delivery mode. Hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local.",
+                            "Delivery mode. Hosted connectors, including MuleSoft and Agentforce relays, receive encrypted_inline; trusted local stdio may receive decrypted_local.",
                         ),
                         "expected_scope": _field(
                             "string", "Scope requested for this export.", maxLength=200
@@ -676,7 +676,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "information_json": _field(
                             "string",
-                            "Locally decrypted information JSON. Present only for a trusted local stdio connector; hosted responses return an empty string.",
+                            "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
                             maxLength=LOCAL_INFORMATION_JSON_MAX_CHARS,
                         ),
                     },

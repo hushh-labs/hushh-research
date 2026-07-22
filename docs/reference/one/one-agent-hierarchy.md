@@ -73,6 +73,12 @@ This page is current-state implementation truth. It does not rename runtime iden
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
+`agent_nav` is the Consent Center runtime; `consent.chat.turn` resolves to it
+directly. There is no separate `agent_consent` product head or roster entry.
+`agent_connections` is Nav's declared child and is reached only through Nav's
+authority boundary. This prevents a consent review grant from being mistaken
+for trusted-connection information or mutation authority.
+
 ## Wiring Modes
 
 The hierarchy has three current wiring modes. Do not collapse them into one claim.

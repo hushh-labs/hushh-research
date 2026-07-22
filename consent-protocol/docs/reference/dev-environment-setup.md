@@ -289,9 +289,9 @@ Ongoing schedulers to replicate (after first deploy):
 
 - One KYC retention purge (Phase 6b above; UAT runs it daily at 09:37 PT).
 - One Location retention purge: `POST /api/one/location/retention/purge?older_than_hours=12`
-  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN` (note: UAT itself has
-  no such job today — parity means matching UAT, so treat this as optional until UAT
-  adds it).
+  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN`.
+  `deploy/one-location/setup_retention_scheduler.sh` is the operator-run UAT shape;
+  use the same bounded endpoint for dev only after the UAT job is explicitly enabled.
 - `marketplace-investor-replenisher-every-8h` and `obs-supabase-data-health-every-30m`
   trigger Cloud Run *jobs* that must first be created in dev
   (`deploy/marketplace/setup_investor_replenisher_scheduler.sh`,

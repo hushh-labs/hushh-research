@@ -734,23 +734,44 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  setCountryQuery("");
+                  // Base UI owns keyboard/input events at the root. Reset the
+                  // query only while opening so the selected country restores
+                  // after a close, rather than competing with the nested
+                  // input's own value on mobile WebViews.
+                  if (open) {
+                    setCountryQuery("");
+                  }
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
+                inputValue={countryInputValue}
+                onInputValueChange={(value, eventDetails) => {
+                  // Selecting an item causes Base UI to report its internal
+                  // value (for example "IN"). That is not a search edit, and
+                  // accepting it would overwrite the selected display label
+                  // or leave the list filtered to an opaque country code.
+                  if (
+                    eventDetails.reason !== "input-change" &&
+                    eventDetails.reason !== "input-clear"
+                  ) {
+                    return;
+                  }
+                  setCountryQuery(value);
+                  if (!countryComboboxOpen) {
+                    setCountryComboboxOpen(true);
+                  }
+                }}
                 items={filteredCountryOptions}
+                // Country filtering is intentionally owned by
+                // `filteredCountryOptions`: it matches country name, ISO code,
+                // and dialing prefix. Base UI's default only sees the item
+                // value, so it cannot find "+33" from a "FR" value.
+                filter={null}
               >
                 <ComboboxInput
                   id="phone-flow-country"
                   data-voice-control-id="phone-flow-country"
                   placeholder="Search country code"
-                  value={countryInputValue}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                    setCountryQuery(event.target.value);
-                    if (!countryComboboxOpen) {
-                      setCountryComboboxOpen(true);
-                    }
-                  }}
                   onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
                     if (suppressNextCountryFocusOpenRef.current) {
                       suppressNextCountryFocusOpenRef.current = false;

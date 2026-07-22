@@ -38,7 +38,8 @@ describe("Agent command handoff contract", () => {
     );
 
     expect(loadContext).toContain("warmAgentPkmContext({");
-    expect(loadContext).toContain("peekAgentPkmContext({ userId, message: text })");
+    expect(loadContext).toContain("peekAgentPkmContext({");
+    expect(loadContext).toContain("message: text");
     expect(loadContext).toContain("loadAgentPkmContext({");
   });
 });

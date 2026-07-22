@@ -32,7 +32,7 @@ class LinkCircleInviteBody(BaseModel):
 
 
 @router.get("/connections/directory")
-async def connections_directory(
+def connections_directory(
     query: str = Query(default=""),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=50),
@@ -45,7 +45,7 @@ async def connections_directory(
 
 
 @router.get("/connections")
-async def list_connections(firebase_uid: str = Depends(require_firebase_auth)):
+def list_connections(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return {"items": _service().list_connections(firebase_uid)}
     except Exception as exc:  # noqa: BLE001
@@ -53,7 +53,7 @@ async def list_connections(firebase_uid: str = Depends(require_firebase_auth)):
 
 
 @router.get("/connections/requests")
-async def list_connection_requests(
+def list_connection_requests(
     direction: str = Query(default="incoming", pattern="^(incoming|outgoing)$"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -64,7 +64,7 @@ async def list_connection_requests(
 
 
 @router.post("/connections/requests")
-async def create_connection_request(
+def create_connection_request(
     body: CreateRequestBody,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -82,7 +82,7 @@ async def create_connection_request(
 
 
 @router.post("/connections/link-circle-invite")
-async def link_circle_invite(
+def link_circle_invite(
     body: LinkCircleInviteBody,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -95,7 +95,7 @@ async def link_circle_invite(
 
 
 @router.post("/connections/requests/{request_id}/accept")
-async def accept_connection_request(
+def accept_connection_request(
     request_id: str = Path(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -106,7 +106,7 @@ async def accept_connection_request(
 
 
 @router.post("/connections/requests/{request_id}/reject")
-async def reject_connection_request(
+def reject_connection_request(
     request_id: str = Path(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -117,7 +117,7 @@ async def reject_connection_request(
 
 
 @router.post("/connections/requests/{request_id}/cancel")
-async def cancel_connection_request(
+def cancel_connection_request(
     request_id: str = Path(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -128,7 +128,7 @@ async def cancel_connection_request(
 
 
 @router.delete("/connections/{connection_id}")
-async def remove_connection(
+def remove_connection(
     connection_id: str = Path(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):

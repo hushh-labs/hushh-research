@@ -50,7 +50,6 @@ import {
 const EXIT_MS = 300;
 const ENTER_MS = 360;
 const MAX_PENDING_MS = 9_000;
-const SETTLE_MS = 200;
 
 type RouteTransitionState = "idle" | "pending" | "entering";
 
@@ -60,7 +59,6 @@ type RouteTransitionState = "idle" | "pending" | "entering";
 // /one/* crossfade play for *every* route/component switch, not just <a> clicks.
 let clearTimer: number | null = null;
 let maxPendingTimer: number | null = null;
-let settleTimer: number | null = null;
 let commitTimer: number | null = null;
 let activeRouteIntentId: string | null = null;
 
@@ -80,11 +78,9 @@ function reducedMotion(): boolean {
 function clearRouteTimers() {
   if (clearTimer) window.clearTimeout(clearTimer);
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
-  if (settleTimer) window.clearTimeout(settleTimer);
   if (commitTimer) window.clearTimeout(commitTimer);
   clearTimer = null;
   maxPendingTimer = null;
-  settleTimer = null;
   commitTimer = null;
 }
 
@@ -147,15 +143,6 @@ export function beginRouteTransition(
         },
         MAX_PENDING_MS,
       );
-      settleTimer = window.setTimeout(() => {
-        if (
-          appInteractionCoordinator.isCurrentNavigation(intent.id) &&
-          document.documentElement.dataset.routeTransition === "pending"
-        ) {
-          playEnter();
-        }
-      }, EXIT_MS + SETTLE_MS);
-
       // This timer is intentionally owned by the navigation intent. A newer
       // destination clears it before it can mutate history; that is the native
       // rapid-tap invariant the former global timer did not provide.
@@ -257,16 +244,16 @@ function patchHistory(): () => void {
       }
 
       // Compatibility callers did not open a coordinator intent before Next
-      // reached the History API. Start only the visual half here and preserve
-      // the native synchronous mutation contract. Deferring or replaying this
-      // call makes Next retry the write in a tight loop on WebKit.
+      // reached the History API. Start only the visual exit here and preserve
+      // the native synchronous mutation contract. The route-key effect owns
+      // the enter after Next has committed the new surface; replaying the
+      // outgoing page from a timer flashes stale content on slow renders.
       clearRouteTimers();
       setRouteState("pending");
       maxPendingTimer = window.setTimeout(
         () => setRouteState("idle"),
         MAX_PENDING_MS,
       );
-      settleTimer = window.setTimeout(playEnter, EXIT_MS + SETTLE_MS);
       return original(data, unused, url ?? "");
     } as History[HistoryMethod];
   };
@@ -377,8 +364,8 @@ export function useRouteTransition() {
   // NEW route has mounted — so this effect OWNS the enter beat for every
   // navigation path:
   //   • full envelope (link/programmatic): exit set "pending"; we now flip it to
-  //     "entering" exactly when the route is ready (accurate, no fixed-delay
-  //     guess and no double-fire — the settle timer is now only a fallback).
+  //     "entering" exactly when the route is ready. A fixed enter fallback
+  //     would replay stale outgoing content before a slow route has mounted.
   //   • browser back/forward + reduced-motion-skipped nav: state is "idle"; we
   //     still reveal the incoming frame.
   useEffect(() => {

@@ -102,6 +102,8 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("const hubStateLoading =");
     expect(source).toContain("isLoading || isEnriching");
     expect(source).toContain("<SetupHubLoadingState />");
+    expect(source).not.toContain("<Skeleton");
+    expect(source).toContain("Checking your setup choices");
     expect(source).toContain('actions: hubStateLoading ? [] : [');
     expect(stateHook).toContain("useState(enrichVault)");
     expect(stateHook).toContain("useState(enrichOauth)");
@@ -137,5 +139,30 @@ describe("One setup hub terminal action contract", () => {
     expect(coordinator).toContain("if (pending) return");
     expect(coordinator).toContain("disabled={pending}");
     expect(coordinator).toContain("enabled: enabled && !settlementBlocked");
+  });
+
+  it("never sends the master exit back onto a setup surface", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    // completionTarget must drop a `return_to` that resolves to a setup route
+    // (e.g. ?return_to=/one/setup). Otherwise Skip/Finish replace()s the hub
+    // with itself and looks like a no-op (regression #4630).
+    expect(source).toContain("isOneSetupSurfaceRoute(path) ? null : raw");
+  });
+
+  it("surfaces the master action top-right on mobile and keeps the in-flow footer for desktop", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    // Mobile shows a reachable top-right Skip/Finish (the fixed agent bar would
+    // cover a bottom footer on phones); desktop keeps the in-flow footer.
+    expect(source).toContain('data-testid="one-setup-master-ack-mobile"');
+    expect(source).toContain("sm:hidden");
+    expect(source).toContain('<div className="hidden sm:block">');
   });
 });

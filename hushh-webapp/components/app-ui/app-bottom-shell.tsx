@@ -12,6 +12,8 @@ import {
 export type BottomShellModel = {
   ambientEnabled: boolean;
   navigationHidden: boolean;
+  /** An immersive route owns the full viewport and has no persistent chrome. */
+  hidden?: boolean;
 };
 
 const BOTTOM_SCROLL_TRANSFORM =
@@ -23,6 +25,13 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
+    if (model.hidden) {
+      const root = document.documentElement;
+      root.style.setProperty("--app-bottom-shell-height", "0px");
+      root.style.setProperty("--bottom-nav-travel", "0px");
+      root.style.setProperty("--bottom-chrome-hide-distance", "0px");
+      return;
+    }
     const shell = shellRef.current;
     if (!shell) return;
     const root = document.documentElement;
@@ -45,7 +54,9 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [model.navigationHidden]);
+  }, [model.hidden, model.navigationHidden]);
+
+  if (model.hidden) return null;
 
   const maskStyle = {
     height:

@@ -206,6 +206,10 @@ async def test_returns_unavailable_when_gemini_not_ready():
     assert out["isComplete"] is False
     assert out["stateChanged"] is False
     assert "unavailable" in out["response"].lower()
+    assert out["availability"] == {
+        "state": "runtime_unavailable",
+        "reasonCode": "managed_runtime_unavailable",
+    }
     assert store.added[-1]["status"] == "error"
     # the model was never called
     assert captured == []

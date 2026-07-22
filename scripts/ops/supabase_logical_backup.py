@@ -76,10 +76,10 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _pg_dump_version() -> str:
+def _pg_dump_version(pg_dump_bin: str) -> str:
     try:
         proc = subprocess.run(
-            ["pg_dump", "--version"],
+            [pg_dump_bin, "--version"],
             check=True,
             capture_output=True,
             text=True,
@@ -98,13 +98,14 @@ def _run_pg_dump(
     db_password: str,
     output_path: Path,
     timeout_seconds: int,
+    pg_dump_bin: str,
 ) -> None:
     env = os.environ.copy()
     env["PGPASSWORD"] = db_password
     env["PGSSLMODE"] = "require"
 
     cmd = [
-        "pg_dump",
+        pg_dump_bin,
         "--host",
         db_host,
         "--port",
@@ -115,7 +116,6 @@ def _run_pg_dump(
         db_name,
         "--format=custom",
         "--no-owner",
-        "--no-privileges",
         "--file",
         str(output_path),
     ]
@@ -155,11 +155,28 @@ def _upload_backup(
     backup_blob.upload_from_filename(
         str(backup_path),
         content_type="application/gzip",
+        if_generation_match=0,
     )
     return f"gs://{bucket_name}/{backup_object}"
 
 
-def _upload_json(*, project_id: str, bucket_name: str, object_name: str, payload: dict[str, Any]) -> None:
+def _verify_uploaded_backup(
+    *, project_id: str, bucket_name: str, object_name: str, expected_checksum: str
+) -> None:
+    _require_storage_lib()
+    blob = storage.Client(project=project_id or None).bucket(bucket_name).blob(object_name)
+    with tempfile.TemporaryDirectory(prefix="backup-verify-") as tmp_dir:
+        downloaded = Path(tmp_dir) / "backup.dump.gz"
+        blob.download_to_filename(str(downloaded))
+        actual = _sha256_file(downloaded)
+    if actual != expected_checksum:
+        raise RuntimeError("uploaded backup checksum verification failed")
+
+
+def _upload_json(
+    *, project_id: str, bucket_name: str, object_name: str,
+    payload: dict[str, Any], immutable: bool
+) -> None:
     _require_storage_lib()
     client = storage.Client(project=project_id or None)
     bucket = client.bucket(bucket_name)
@@ -168,6 +185,7 @@ def _upload_json(*, project_id: str, bucket_name: str, object_name: str, payload
     blob.upload_from_string(
         json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
         content_type="application/json",
+        if_generation_match=0 if immutable else None,
     )
 
 
@@ -198,6 +216,7 @@ def run(args: argparse.Namespace) -> int:
         db_port = int(args.db_port)
         dump_timeout_seconds = int(args.dump_timeout_seconds)
         gzip_level = int(args.gzip_level)
+        pg_dump_bin = str(args.pg_dump_bin or "pg_dump").strip()
 
         backup_object, manifest_object, latest_object = _build_object_paths(prefix, started_at)
 
@@ -214,6 +233,7 @@ def run(args: argparse.Namespace) -> int:
                 db_password=db_password,
                 output_path=raw_dump_path,
                 timeout_seconds=dump_timeout_seconds,
+                pg_dump_bin=pg_dump_bin,
             )
 
             _gzip_file(raw_dump_path, gzip_path, compresslevel=gzip_level)
@@ -233,6 +253,12 @@ def run(args: argparse.Namespace) -> int:
                 backup_object=backup_object,
                 checksum_sha256=checksum_sha256,
                 payload_metadata=metadata,
+            )
+            _verify_uploaded_backup(
+                project_id=project_id,
+                bucket_name=bucket_name,
+                object_name=backup_object,
+                expected_checksum=checksum_sha256,
             )
 
             completed_at = _utc_now()
@@ -256,11 +282,9 @@ def run(args: argparse.Namespace) -> int:
                 "latest_object_uri": f"gs://{bucket_name}/{latest_object}",
                 "backup_size_bytes": backup_size_bytes,
                 "checksum_sha256": checksum_sha256,
-                "db_host": db_host,
-                "db_port": db_port,
                 "db_name": db_name,
                 "retention_days": retention_days,
-                "pg_dump_version": _pg_dump_version(),
+                "pg_dump_version": _pg_dump_version(pg_dump_bin),
             }
 
             _upload_json(
@@ -268,12 +292,14 @@ def run(args: argparse.Namespace) -> int:
                 bucket_name=bucket_name,
                 object_name=manifest_object,
                 payload=payload,
+                immutable=True,
             )
             _upload_json(
                 project_id=project_id,
                 bucket_name=bucket_name,
                 object_name=latest_object,
                 payload=payload,
+                immutable=False,
             )
 
         _write_report(args.report_path, payload)
@@ -338,6 +364,11 @@ def parse_args() -> argparse.Namespace:
         "--report-path",
         default="",
         help="Optional local report output path.",
+    )
+    parser.add_argument(
+        "--pg-dump-bin",
+        default=os.getenv("PG_DUMP_BIN", "pg_dump"),
+        help="Version-matched pg_dump executable; use the same major as the source server.",
     )
     return parser.parse_args()
 

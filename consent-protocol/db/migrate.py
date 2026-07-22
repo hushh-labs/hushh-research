@@ -18,6 +18,7 @@ Environment:
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -33,6 +34,13 @@ load_dotenv()
 
 # Use same DB_* as runtime (db/connection.py)
 from db.connection import get_database_ssl, get_database_url  # noqa: E402
+from db.migration_authority import (  # noqa: E402
+    MigrationMode,
+    apply_manifest_entries,
+    build_manifest_entries,
+    establish_baseline,
+    load_preservation_evidence,
+)
 
 try:
     _database_url = get_database_url()
@@ -943,18 +951,22 @@ async def apply_migration_files(
     filenames: tuple[str, ...],
     *,
     label: str,
+    mode: MigrationMode = MigrationMode.REPLAY,
 ):
     """Apply an explicit ordered list of SQL migration files."""
-    print(f"Running {label} migration set (explicit mode)...")
+    print(f"Running {label} migration set (mode={mode.value})...")
+    entries = build_manifest_entries(MIGRATIONS_DIR, filenames)
     async with pool.acquire() as conn:
-        for filename in filenames:
-            migration_path = MIGRATIONS_DIR / filename
-            if not migration_path.exists():
-                raise FileNotFoundError(f"{label} migration file missing: {migration_path}")
-            sql = migration_path.read_text(encoding="utf-8")
-            print(f"  -> applying {filename}")
-            await conn.execute(sql)
-    print(f"{label} migration set complete!")
+        applied = await apply_manifest_entries(
+            conn,
+            entries,
+            mode=mode,
+            deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
+        )
+    for filename in applied:
+        print(f"  -> applied {filename}")
+    skipped = len(entries) - len(applied)
+    print(f"{label} migration set complete! applied={len(applied)} skipped={skipped}")
 
 
 async def run_full_migration(pool: asyncpg.Pool):
@@ -1040,19 +1052,33 @@ async def run_consent_migration(pool: asyncpg.Pool):
     print("Consent protocol tables ready!")
 
 
-async def run_iam_migration(pool: asyncpg.Pool):
+async def run_iam_migration(pool: asyncpg.Pool, *, mode: MigrationMode = MigrationMode.REPLAY):
     """Apply IAM foundation schema through explicit migration files."""
-    await apply_migration_files(pool, IAM_MIGRATION_FILES, label="IAM schema")
+    await apply_migration_files(pool, IAM_MIGRATION_FILES, label="IAM schema", mode=mode)
 
 
-async def run_pkm_migration(pool: asyncpg.Pool):
+async def run_pkm_migration(pool: asyncpg.Pool, *, mode: MigrationMode = MigrationMode.REPLAY):
     """Apply the canonical PKM evolution lane, including upgrade and strict-ZK work."""
-    await apply_migration_files(pool, PKM_MIGRATION_FILES, label="PKM schema")
+    await apply_migration_files(pool, PKM_MIGRATION_FILES, label="PKM schema", mode=mode)
 
 
-async def run_release_migration(pool: asyncpg.Pool):
+async def run_release_migration(pool: asyncpg.Pool, *, mode: MigrationMode = MigrationMode.REPLAY):
     """Apply the full canonical release schema lane used by operators and UAT automation."""
-    await apply_migration_files(pool, RELEASE_MIGRATION_FILES, label="release schema")
+    await apply_migration_files(pool, RELEASE_MIGRATION_FILES, label="release schema", mode=mode)
+
+
+async def establish_release_baseline(pool: asyncpg.Pool, evidence_path: Path) -> None:
+    """Record an explicit UAT/local baseline without replaying historical SQL."""
+    evidence = load_preservation_evidence(evidence_path)
+    entries = build_manifest_entries(MIGRATIONS_DIR, RELEASE_MIGRATION_FILES)
+    async with pool.acquire() as conn:
+        marker = await establish_baseline(
+            conn,
+            entries,
+            evidence=evidence,
+            deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
+        )
+    print(f"Release baseline established: {marker}")
 
 
 async def run_consent_evolution_migration(pool: asyncpg.Pool):
@@ -1243,6 +1269,25 @@ Examples:
         help="Apply the full canonical release lane from release_migration_manifest.json",
     )
     parser.add_argument(
+        "--migration-mode",
+        choices=[mode.value for mode in MigrationMode],
+        default=str(os.getenv("HUSHH_MIGRATION_MODE") or MigrationMode.REPLAY.value),
+        help=(
+            "Migration authority mode: replay (current behavior), observe (inspect only; no "
+            "migration bodies), or ledger (pending only after verified baseline). Defaults "
+            "to HUSSH_MIGRATION_MODE or replay."
+        ),
+    )
+    parser.add_argument(
+        "--establish-baseline",
+        type=Path,
+        metavar="PRESERVATION_REPORT",
+        help=(
+            "UAT/local only: record a release baseline from a fresh status=ok preservation "
+            "report without executing historical migrations."
+        ),
+    )
+    parser.add_argument(
         "--consent-evolution",
         action="store_true",
         help="Apply strict zero-knowledge consent export evolution",
@@ -1266,6 +1311,7 @@ Examples:
             args.pkm,
             args.consent_evolution,
             args.release,
+            args.establish_baseline,
             args.full,
             args.clear,
             args.status,
@@ -1273,6 +1319,22 @@ Examples:
     ):
         parser.print_help()
         return
+
+    migration_mode = MigrationMode.parse(args.migration_mode)
+    if args.establish_baseline and any(
+        [
+            args.init,
+            args.table,
+            args.consent,
+            args.iam,
+            args.pkm,
+            args.consent_evolution,
+            args.release,
+            args.full,
+            args.clear,
+        ]
+    ):
+        parser.error("--establish-baseline cannot be combined with schema mutation options")
 
     # Mask password in URL for display
     display_url = _database_url
@@ -1316,15 +1378,18 @@ Examples:
             await run_consent_migration(pool)
 
         if args.iam:
-            await run_iam_migration(pool)
+            await run_iam_migration(pool, mode=migration_mode)
 
         if args.pkm:
-            await run_pkm_migration(pool)
+            await run_pkm_migration(pool, mode=migration_mode)
 
         if args.consent_evolution:
             await run_consent_evolution_migration(pool)
         if args.release:
-            await run_release_migration(pool)
+            await run_release_migration(pool, mode=migration_mode)
+
+        if args.establish_baseline:
+            await establish_release_baseline(pool, args.establish_baseline)
 
         if args.clear:
             await clear_table(pool, args.clear)

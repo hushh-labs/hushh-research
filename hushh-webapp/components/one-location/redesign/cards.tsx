@@ -12,7 +12,6 @@
 
 import type { ReactNode } from "react";
 import {
-  Car,
   Clock3,
   Copy,
   ExternalLink,
@@ -172,7 +171,7 @@ export function ActiveShareCard({
 }
 
 /* ------------------------------------------------------------------ */
-/* RequestCard (Inbox: needs your review)                             */
+/* RequestCard (focused needs-review detail)                           */
 /* ------------------------------------------------------------------ */
 
 export function RequestCard({
@@ -235,7 +234,7 @@ export function RequestCard({
 }
 
 /* ------------------------------------------------------------------ */
-/* SharedWithMeCard (Inbox / Now: a received share)                   */
+/* SharedWithMeCard (focused received-share detail)                   */
 /* ------------------------------------------------------------------ */
 
 export function SharedWithMeCard({
@@ -249,9 +248,6 @@ export function SharedWithMeCard({
   previewExpanded,
   children,
   message,
-  isPickup,
-  onImOnMyWay,
-  enRoute,
 }: {
   name: string;
   statusLine: string;
@@ -263,9 +259,6 @@ export function SharedWithMeCard({
   previewExpanded?: boolean;
   children?: ReactNode;
   message?: string;
-  isPickup?: boolean;
-  onImOnMyWay?: () => void;
-  enRoute?: boolean;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const canDismissPreview = Boolean(previewExpanded && onDismiss);
@@ -286,19 +279,6 @@ export function SharedWithMeCard({
       {children}
       {message ? (
         <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
-      ) : null}
-      {isPickup && onImOnMyWay && !enRoute ? (
-        <Button
-          onClick={onImOnMyWay}
-          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-        >
-          I&apos;m on my way
-        </Button>
-      ) : null}
-      {isPickup && enRoute ? (
-        <p className={cn(MUTED_TEXT, "text-center text-sm")}>
-          En route — sharing your location
-        </p>
       ) : null}
       <div
         className={cn(
@@ -344,52 +324,6 @@ export function SharedWithMeCard({
           </Button>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* PickupEnRouteCard (Now tab: helper is driving to the requester)    */
-/* ------------------------------------------------------------------ */
-
-export function PickupEnRouteCard({
-  helperName,
-  etaText,
-  children,
-  onCancel,
-  cancelBusy,
-}: {
-  helperName: string;
-  etaText: string;
-  /** Live map preview rendered by the parent via vm.renderMapPreview(point, false). */
-  children?: ReactNode;
-  onCancel: () => void;
-  cancelBusy?: boolean;
-}) {
-  return (
-    <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
-      <div className="flex items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-          <Car className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-foreground">
-            {helperName} is on the way
-          </p>
-          <p className={cn(MUTED_TEXT, "truncate")}>{etaText}</p>
-        </div>
-        <StatusPill tone="live">Live</StatusPill>
-      </div>
-      {children}
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={onCancel}
-        isLoading={cancelBusy}
-        className="h-9 w-full rounded-full text-sm"
-      >
-        Cancel pickup
-      </Button>
     </div>
   );
 }

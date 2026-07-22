@@ -113,6 +113,29 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
     }
     assert handoff["agentforce"]["toolsOnly"] is True
     assert handoff["agentforce"]["toolAllowlist"] == list(get_agentforce_tool_names())
+    assert handoff["agentforce"]["agentActionPolicy"] == {
+        "catalogOnly": True,
+        "directPersonalizedToolCalls": "blocked",
+        "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
+        "muleControlPlaneTools": [
+            "search-user-scopes",
+            "prepare-campaign-context",
+            "request-consent",
+            "check-consent-status",
+        ],
+        "agentforceActionDefault": "no-personalized-consent-actions",
+        "salesforceApprovedUatActionAllowlist": [
+            "search-user-scopes",
+            "prepare-campaign-context",
+            "request-consent",
+            "check-consent-status",
+        ],
+        "connectorOnlyTool": "get-encrypted-scoped-export",
+        "connectorOnlyReason": (
+            "The encrypted export is delivered to the registered connector and "
+            "must be decrypted outside the Agentforce LLM."
+        ),
+    }
     assert handoff["relayRequirements"] == {
         "preserveToolNames": True,
         "preserveInputOutputSchemas": True,
@@ -121,8 +144,10 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
         "expandNestedFields": False,
     }
     assert handoff["executionBoundary"] == {
-        "consentLifecycleExecution": "enabled",
-        "applicationAuthentication": "oauth2-client-credentials",
+        "directAgentforceExecution": "catalog-only",
+        "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+        "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
+        "applicationAuthentication": "oauth2-client-credentials-per-hop",
         "userAuthority": "explicit-consent-and-scoped-grant",
         "informationDelivery": "encrypted-export-after-approval",
     }
@@ -313,5 +338,6 @@ async def test_catalog_only_agentforce_boundary_lists_schema_but_rejects_persona
         assert dumped["outputSchema"]
         assert all(field["title"] for field in dumped["outputSchema"]["properties"].values())
     assert result.isError is True
-    assert result.structuredContent["error_code"] == "REQUIRES_SECURE_CONSENT_FLOW"
+    assert result.structuredContent is None
+    assert json.loads(result.content[0].text)["error_code"] == "REQUIRES_SECURE_CONSENT_FLOW"
     assert resources_list == []

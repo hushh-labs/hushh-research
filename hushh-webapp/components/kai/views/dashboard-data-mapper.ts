@@ -8,7 +8,6 @@ import {
 export interface AllocationDatum {
   name: string;
   value: number;
-  color: string;
 }
 
 export interface HistoryDatum {
@@ -102,14 +101,6 @@ export interface DashboardViewModel {
   canonicalModel: DashboardPortfolioModel;
 }
 
-const ALLOCATION_COLORS: Record<string, string> = {
-  Equities: "#2563eb",
-  "Fixed Income": "#0ea5e9",
-  Cash: "#14b8a6",
-  "Real Assets": "#f59e0b",
-  Other: "#8b5cf6",
-};
-
 const GENERIC_SECTOR_LABELS = new Set([
   "equity",
   "equities",
@@ -152,14 +143,15 @@ function classifyNonEquityBucket(position: DashboardPosition): string {
   if (position.isCashEquivalent || position.assetBucket === "cash_equivalent") {
     return "Cash & Cash Equivalents";
   }
-  const hint = `${position.name} ${position.assetType || ""} ${position.sector || ""}`.toLowerCase();
+  const hint =
+    `${position.name} ${position.assetType || ""} ${position.sector || ""}`.toLowerCase();
   if (position.assetBucket === "fixed_income") {
     if (
-      hint.includes("tax free")
-      || hint.includes("municipal")
-      || hint.includes("muni")
-      || hint.includes("non-taxable")
-      || hint.includes("tax-exempt")
+      hint.includes("tax free") ||
+      hint.includes("municipal") ||
+      hint.includes("muni") ||
+      hint.includes("non-taxable") ||
+      hint.includes("tax-exempt")
     ) {
       return "Fixed Income Tax-Exempt";
     }
@@ -180,19 +172,23 @@ function computeDetailedAllocation(model: DashboardPortfolioModel): {
   denominator: number;
   quality: DashboardAllocationQuality;
 } {
-  const denominator = model.totals.marketValue > 0 ? model.totals.marketValue : 0;
+  const denominator =
+    model.totals.marketValue > 0 ? model.totals.marketValue : 0;
   const equityPositions = model.positions.filter(
-    (position) => !position.isCashEquivalent && position.assetBucket === "equity"
+    (position) =>
+      !position.isCashEquivalent && position.assetBucket === "equity",
   );
   const nonEquityPositions = model.positions.filter(
-    (position) => position.isCashEquivalent || position.assetBucket !== "equity"
+    (position) =>
+      position.isCashEquivalent || position.assetBucket !== "equity",
   );
 
   const equityMap = new Map<string, { value: number; count: number }>();
   for (const position of equityPositions) {
     const sector =
-      (isSpecificSectorLabel(position.sector) ? String(position.sector).trim() : "")
-      || "Other Equity";
+      (isSpecificSectorLabel(position.sector)
+        ? String(position.sector).trim()
+        : "") || "Other Equity";
     const existing = equityMap.get(sector) || { value: 0, count: 0 };
     equityMap.set(sector, {
       value: existing.value + position.marketValue,
@@ -235,15 +231,18 @@ function computeDetailedAllocation(model: DashboardPortfolioModel): {
     quality: {
       equityCoveragePct:
         equityPositions.length > 0
-          ? equityPositions.filter((position) => isSpecificSectorLabel(position.sector)).length
-            / equityPositions.length
+          ? equityPositions.filter((position) =>
+              isSpecificSectorLabel(position.sector),
+            ).length / equityPositions.length
           : 1,
       nonEquityCoveragePct: nonEquityPositions.length > 0 ? 1 : 1,
     },
   };
 }
 
-function derivePortfolioConcentrationLabel(concentration: ConcentrationDatum[]): string {
+function derivePortfolioConcentrationLabel(
+  concentration: ConcentrationDatum[],
+): string {
   if (!concentration.length) return "Unknown";
   const largestWeight = concentration[0]?.weightPct || 0;
   if (largestWeight >= 40) return "High Concentration";
@@ -251,8 +250,10 @@ function derivePortfolioConcentrationLabel(concentration: ConcentrationDatum[]):
   return "Diversified";
 }
 
-function computeHistory(data: PortfolioData, beginningValue: number, endingValue: number): HistoryDatum[] {
-  const raw = Array.isArray(data.historical_values) ? data.historical_values : [];
+function computeHistory(data: PortfolioData): HistoryDatum[] {
+  const raw = Array.isArray(data.historical_values)
+    ? data.historical_values
+    : [];
   const mapped = raw
     .map((row) => {
       if (!row || typeof row !== "object" || Array.isArray(row)) return null;
@@ -267,28 +268,25 @@ function computeHistory(data: PortfolioData, beginningValue: number, endingValue
         toNumber(entry.portfolio_value) ??
         toNumber(entry.total_value) ??
         toNumber(entry.ending_value);
-      if (!date || value === undefined) return null;
+      if (
+        !date ||
+        value === undefined ||
+        Number.isNaN(new Date(date).getTime())
+      ) {
+        return null;
+      }
       return { date, value };
     })
     .filter((row): row is HistoryDatum => Boolean(row));
 
-  if (mapped.length >= 2) {
-    return mapped;
-  }
-
-  if (beginningValue > 0 || endingValue > 0) {
-    const startLabel = data.account_info?.statement_period_start || "Start";
-    const endLabel = data.account_info?.statement_period_end || "End";
-    return [
-      { date: startLabel, value: beginningValue || endingValue },
-      { date: endLabel, value: endingValue || beginningValue },
-    ];
-  }
-
-  return [];
+  // A statement's beginning and ending values are a period summary, not a
+  // historical series. Never promote them into an invented two-point trend.
+  return mapped.length >= 2 ? mapped : [];
 }
 
-function computeRecommendations(model: DashboardPortfolioModel): DashboardRecommendation[] {
+function computeRecommendations(
+  model: DashboardPortfolioModel,
+): DashboardRecommendation[] {
   const recommendations: DashboardRecommendation[] = [];
   const totalValue = model.totals.marketValue;
   const biggest = model.positions[0];
@@ -299,7 +297,7 @@ function computeRecommendations(model: DashboardPortfolioModel): DashboardRecomm
       recommendations.push({
         title: `Reduce ${biggest.displaySymbol} concentration`,
         detail: `${biggest.displaySymbol} is ${biggestWeight.toFixed(
-          1
+          1,
         )}% of portfolio value.`,
       });
     }
@@ -319,7 +317,7 @@ function computeRecommendations(model: DashboardPortfolioModel): DashboardRecomm
     recommendations.push({
       title: "Evaluate cash-equivalent exposure",
       detail: `Cash-equivalent allocation is ${cashPct.toFixed(
-        1
+        1,
       )}% of portfolio. Validate this against your liquidity plan.`,
     });
   }
@@ -327,14 +325,17 @@ function computeRecommendations(model: DashboardPortfolioModel): DashboardRecomm
   if (recommendations.length === 0) {
     recommendations.push({
       title: "Maintain current strategy",
-      detail: "No major concentration or drawdown flags detected from current statement data.",
+      detail:
+        "No major concentration or drawdown flags detected from current statement data.",
     });
   }
 
   return recommendations.slice(0, 3);
 }
 
-export function mapPortfolioToDashboardViewModel(portfolioData: PortfolioData): DashboardViewModel {
+export function mapPortfolioToDashboardViewModel(
+  portfolioData: PortfolioData,
+): DashboardViewModel {
   const canonicalModel = buildDashboardPortfolioModel(portfolioData);
   const analytics = isRecord(portfolioData.analytics_v2)
     ? (portfolioData.analytics_v2 as Record<string, unknown>)
@@ -379,21 +380,15 @@ export function mapPortfolioToDashboardViewModel(portfolioData: PortfolioData): 
             return {
               name: label,
               value,
-              color: ALLOCATION_COLORS[label] || "#2563eb",
             };
           })
           .filter((row): row is AllocationDatum => Boolean(row))
       : canonicalModel.allocation.map((bucket) => ({
           name: bucket.label,
           value: bucket.value,
-          color: ALLOCATION_COLORS[bucket.label] || "#2563eb",
         }));
 
-  const history = computeHistory(
-    portfolioData,
-    canonicalModel.beginningValue,
-    canonicalModel.endingValue
-  );
+  const history = computeHistory(portfolioData);
 
   const concentrationRaw = Array.isArray(analytics?.concentration)
     ? (analytics?.concentration as Array<Record<string, unknown>>)
@@ -418,7 +413,8 @@ export function mapPortfolioToDashboardViewModel(portfolioData: PortfolioData): 
             marketValue: position.marketValue,
             weightPct:
               canonicalModel.totals.marketValue > 0
-                ? (position.marketValue / canonicalModel.totals.marketValue) * 100
+                ? (position.marketValue / canonicalModel.totals.marketValue) *
+                  100
                 : 0,
           }));
 
@@ -439,11 +435,13 @@ export function mapPortfolioToDashboardViewModel(portfolioData: PortfolioData): 
   const quality: DashboardQualityFlags = {
     allocationReady: allocation.length >= 2,
     sectorReady:
-      canonicalModel.counts.investablePositions > 0 && canonicalModel.quality.sectorCoveragePct >= 0.35,
+      canonicalModel.counts.investablePositions > 0 &&
+      canonicalModel.quality.sectorCoveragePct >= 0.35,
     historyReady: history.length >= 2,
     concentrationReady: concentration.length >= 3,
     gainLossReady:
-      gainLossDistribution.some((row) => row.count > 0) && canonicalModel.quality.gainLossCoveragePct >= 0.35,
+      gainLossDistribution.some((row) => row.count > 0) &&
+      canonicalModel.quality.gainLossCoveragePct >= 0.35,
     sectorCoveragePct: canonicalModel.quality.sectorCoveragePct,
     gainLossCoveragePct: canonicalModel.quality.gainLossCoveragePct,
   };
@@ -458,7 +456,8 @@ export function mapPortfolioToDashboardViewModel(portfolioData: PortfolioData): 
       holdingsCount: canonicalModel.counts.totalPositions,
       investableHoldingsCount: canonicalModel.counts.investablePositions,
       cashPositionsCount: canonicalModel.counts.cashPositions,
-      portfolioConcentrationLabel: derivePortfolioConcentrationLabel(concentration),
+      portfolioConcentrationLabel:
+        derivePortfolioConcentrationLabel(concentration),
       statementPeriod: canonicalModel.statementPeriod,
     },
     holdings,

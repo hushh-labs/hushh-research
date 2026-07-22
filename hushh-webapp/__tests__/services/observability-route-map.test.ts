@@ -76,6 +76,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");
     expect(resolveRouteId("/one/location")).toBe("one_location");
+    expect(resolveRouteId("/one/location/map")).toBe("one_location_map");
     expect(resolveRouteId("/one/location/request/sample")).toBe("one_location_public_request");
     expect(resolveRouteId("/one/location/invite/sample")).toBe("one_location_circle_invite");
     expect(resolveRouteId("/agent")).toBe("agent");
@@ -90,7 +91,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/profile")).toBe("profile_regulatory");
     expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
     expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
-    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_funding_trade");
+    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 

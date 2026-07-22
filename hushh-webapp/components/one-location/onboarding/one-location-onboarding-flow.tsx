@@ -149,10 +149,12 @@ function Avatar({
 function TopNavigation({
   onBack,
   onSkip,
+  disabled = false,
   light = false,
 }: {
   onBack?: () => void;
   onSkip?: () => void;
+  disabled?: boolean;
   light?: boolean;
 }) {
   return (
@@ -161,8 +163,10 @@ function TopNavigation({
         <button
           type="button"
           onClick={onBack}
+          disabled={disabled}
           className={cn(
             "inline-flex h-11 w-11 items-center justify-center transition-transform active:scale-95",
+            "disabled:cursor-not-allowed disabled:opacity-55",
             light
               ? "rounded-full bg-white/18 text-white shadow-[0_8px_20px_rgba(3,31,76,0.16)]"
               : "text-[#1f2b3d] dark:text-[#f4f7fb]",
@@ -179,8 +183,9 @@ function TopNavigation({
         <button
           type="button"
           onClick={onSkip}
+          disabled={disabled}
           className={cn(
-            "min-h-11 rounded-full px-4 text-[16px] font-semibold transition-opacity active:opacity-70",
+            "min-h-11 rounded-full px-4 text-[16px] font-semibold transition-opacity active:opacity-70 disabled:cursor-not-allowed disabled:opacity-55",
             light ? "text-white" : "text-[#1f2b3d] dark:text-[#f4f7fb]",
           )}
         >
@@ -197,18 +202,21 @@ function PrimaryButton({
   children,
   onClick,
   disabled = false,
+  busy = false,
   inverse = false,
 }: {
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  busy?: boolean;
   inverse?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
       className={cn(
         "flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold shadow-[0_10px_28px_rgba(0,122,255,0.24)] transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55",
         inverse
@@ -216,6 +224,7 @@ function PrimaryButton({
           : "bg-[#087cf0] text-white hover:bg-[color:var(--app-accent-hover)] dark:bg-[color:var(--app-accent)] dark:text-[#07111f] dark:hover:bg-[#94c7ff]",
       )}
     >
+      {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" /> : null}
       {children}
     </button>
   );
@@ -877,11 +886,13 @@ function PermissionSwitch({
   label,
   checked,
   busy,
+  disabled,
   onClick,
 }: {
   label: string;
   checked: boolean;
   busy?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -891,7 +902,7 @@ function PermissionSwitch({
       aria-label={label}
       aria-checked={checked}
       onClick={onClick}
-      disabled={busy}
+      disabled={busy || disabled}
       className={cn(
         "relative h-10 w-[62px] shrink-0 rounded-full transition-colors disabled:cursor-default",
         checked ? "bg-[#34c759]" : "bg-[#d9dde2] dark:bg-white/[0.16]",
@@ -915,6 +926,7 @@ function PermissionRow({
   description,
   checked,
   busy,
+  disabled,
   onClick,
 }: {
   icon: ReactNode;
@@ -922,6 +934,7 @@ function PermissionRow({
   description: string;
   checked: boolean;
   busy?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -938,6 +951,7 @@ function PermissionRow({
           label={`${title} permission`}
           checked={checked}
           busy={busy}
+          disabled={disabled}
           onClick={onClick}
         />
       </div>
@@ -970,6 +984,7 @@ function PermissionsScreen({
   onSkip: () => void | Promise<void>;
   requireLocationToComplete: boolean;
 }) {
+  const [terminalBusy, setTerminalBusy] = useState<"complete" | "skip" | null>(null);
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
@@ -984,6 +999,24 @@ function PermissionsScreen({
   // does deep-link into device Settings. Copy must match the platform so we
   // never tell a browser user to "open device Settings".
   const onWeb = isWeb();
+
+  const runTerminal = async (kind: "complete" | "skip") => {
+    if (terminalBusy) return;
+    setTerminalBusy(kind);
+    try {
+      if (kind === "complete") {
+        await onComplete();
+      } else {
+        await onSkip();
+      }
+    } catch {
+      // The owning setup coordinator presents the durable-settlement error.
+      // Keep this screen mounted so the person can retry without losing their
+      // verified permission state.
+    } finally {
+      setTerminalBusy(null);
+    }
+  };
 
   const locationDescription = locationBlocked
     ? onWeb
@@ -1003,7 +1036,8 @@ function PermissionsScreen({
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
       <TopNavigation
         onBack={canGoBack ? onBack : undefined}
-        onSkip={() => void onSkip()}
+        onSkip={() => void runTerminal("skip")}
+        disabled={terminalBusy !== null}
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <h1 className="mt-3 max-w-[390px] text-[38px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
@@ -1016,6 +1050,7 @@ function PermissionsScreen({
             description={locationDescription}
             checked={locationGranted}
             busy={locationBusy}
+            disabled={terminalBusy !== null}
             onClick={() => void onRequestLocation()}
           />
           <PermissionRow
@@ -1024,6 +1059,7 @@ function PermissionsScreen({
             description={notificationDescription}
             checked={notificationsGranted}
             busy={notificationBusy}
+            disabled={terminalBusy !== null}
             onClick={() => void onRequestNotifications()}
           />
         </div>
@@ -1035,10 +1071,14 @@ function PermissionsScreen({
           Your location is never sold. Sharing always requires your approval.
         </p>
         <PrimaryButton
-          onClick={() => void onComplete()}
-          disabled={requireLocationToComplete && !locationGranted}
+          onClick={() => void runTerminal("complete")}
+          disabled={
+            terminalBusy !== null ||
+            (requireLocationToComplete && !locationGranted)
+          }
+          busy={terminalBusy === "complete"}
         >
-          Continue
+          {terminalBusy === "complete" ? "Saving setup…" : "Continue"}
         </PrimaryButton>
       </footer>
     </div>

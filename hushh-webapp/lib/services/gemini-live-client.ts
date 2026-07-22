@@ -606,6 +606,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         directive: {
           kind: directiveKind,
           payload: readRecord(clientDirective.payload) || undefined,
+          delegateAgentId: readString(clientDirective.delegateAgentId),
         },
         sessionId: eventOptions.sessionId,
         sourceId: eventOptions.sourceId,

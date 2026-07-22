@@ -1,6 +1,11 @@
 import { ClientRedirect } from "@/components/navigation/client-redirect";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 export default function LegacyKaiInvestmentsPage() {
-  return <ClientRedirect to={ROUTES.KAI_INVESTMENTS} />;
+  return (
+    <ClientRedirect
+      to={buildKaiMarketRoute("portfolio")}
+      redirectRouteId="kai_dashboard_legacy_redirect"
+    />
+  );
 }

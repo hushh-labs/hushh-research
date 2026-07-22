@@ -44,6 +44,24 @@ _EXPECTED_STATUS_BY_ROUTE: dict[tuple[str, str], set[int]] = {
     ("POST", "/db/vault/bootstrap-state"): {404},
 }
 
+_SQL_QUERY_BUDGET_BY_ROUTE: dict[tuple[str, str], int] = {
+    ("GET", "/api/one/location/state"): 4,
+    ("GET", "/api/consent/center/summary"): 8,
+}
+
+
+def _query_budget_payload(
+    method: str, route_template: str, snapshot: dict[str, object]
+) -> dict[str, object]:
+    budget = _SQL_QUERY_BUDGET_BY_ROUTE.get((method, route_template))
+    raw_count = snapshot.get("sql_count")
+    count = raw_count if isinstance(raw_count, int) else 0
+    return {
+        **snapshot,
+        "sql_budget": budget,
+        "sql_budget_exceeded": budget is not None and count > budget,
+    }
+
 
 def _environment() -> str:
     return str(os.getenv("ENVIRONMENT", "development")).strip().lower()
@@ -153,6 +171,11 @@ def _extract_bearer_user_id(request: Request) -> str | None:
 async def observability_middleware(request: Request, call_next):
     # Inline imports match the hushh_mcp.consent.token pattern already in this file.
     # Integrated by Abdul Gaffar — hushh_mcp.consent.audit_logger canonical surface.
+    from db.query_telemetry import (
+        begin_query_telemetry,
+        query_telemetry_snapshot,
+        reset_query_telemetry,
+    )
     from hushh_mcp.consent.audit_logger import bind_trace_id, reset_trace_id
 
     request_id = _resolve_request_id(request)
@@ -178,6 +201,7 @@ async def observability_middleware(request: Request, call_next):
     )
     request.state.trace_metadata = trace_metadata
     token = _request_trace_ctx.set(trace_metadata)
+    query_token = begin_query_telemetry()
 
     # Inject the request_id as the audit trace_id so every log line emitted
     # within this request is correlatable.  Canonical attach point for
@@ -203,6 +227,7 @@ async def observability_middleware(request: Request, call_next):
             "service": _service_name(),
             "env": _environment(),
             "stream": False,
+            **_query_budget_payload(method, route_template, query_telemetry_snapshot()),
         }
         logger.exception(json.dumps(payload, separators=(",", ":")))
         error_response = JSONResponse(
@@ -213,6 +238,7 @@ async def observability_middleware(request: Request, call_next):
         reset_trace_id(_audit_token)
         error_response.headers[TRACE_ID_HEADER] = trace_id
         _request_trace_ctx.reset(token)
+        reset_query_telemetry(query_token)
         return error_response
 
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
@@ -236,11 +262,13 @@ async def observability_middleware(request: Request, call_next):
         "service": _service_name(),
         "env": _environment(),
         "stream": "text/event-stream" in content_type,
+        **_query_budget_payload(method, route_template, query_telemetry_snapshot()),
     }
     logger.info(json.dumps(payload, separators=(",", ":")))
 
     reset_trace_id(_audit_token)
     _request_trace_ctx.reset(token)
+    reset_query_telemetry(query_token)
     return response
 
 

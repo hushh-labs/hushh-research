@@ -40,6 +40,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     _one_runtime_instruction,
     _specialist_turn,
+    ask_consent_agent,
     build_one_intro_text_agent,
     build_one_root_agent,
     build_one_text_agent,
@@ -140,6 +141,8 @@ class TestAgentTreeShape:
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
         assert "Gmail receipt sync is paused" in ONE_IDENTITY_INSTRUCTION
+        assert "named CRM" in ONE_IDENTITY_INSTRUCTION
+        assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
@@ -263,6 +266,69 @@ class TestSpecialistTurn:
         assert result["status"] == "unavailable"
 
     @pytest.mark.asyncio
+    async def test_connected_systems_unavailable_result_is_user_grounded(self):
+        result = await _specialist_turn(
+            "agent_connected_systems",
+            "take me to xyz CRM",
+            _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "t1"}),
+        )
+        assert result["status"] == "authority_required"
+        assert result["reason"] == "exact_a2a_authority_required"
+        assert result["availability"] == {
+            "schema_version": "specialist_availability.v1",
+            "specialist_id": "agent_connected_systems",
+            "state": "authority_required",
+            "reason_code": "exact_a2a_authority_required",
+            "context_revision": None,
+            "admitted_action_ids": [],
+        }
+        assert "task-specific authority" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_consent_tool_uses_ones_typed_selection_for_navs_connections_child(self):
+        context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
+        with patch(
+            "hushh_mcp.one_adk.agent_tree._specialist_turn",
+            new=AsyncMock(return_value={"status": "authority_required"}),
+        ) as specialist_turn:
+            result = await ask_consent_agent(
+                "Please show my trusted people.",
+                context,
+                target="connections",
+            )
+
+        assert result["status"] == "authority_required"
+        assert specialist_turn.await_args.args[:2] == (
+            "agent_connections",
+            "Please show my trusted people.",
+        )
+
+    @pytest.mark.asyncio
+    async def test_location_setup_returns_recovery_without_specialist_dispatch(self):
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "screen": "one_setup_location",
+                        "route_family": "/one/setup/location",
+                        "context_revision": "setup:1",
+                        "onboarding": {
+                            "phase": "capability_setup",
+                            "active_capability": "location",
+                        },
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "setup_required"
+        assert result["reason"] == "location_setup_incomplete"
+        assert result["availability"]["context_revision"] == "setup:1"
+
+    @pytest.mark.asyncio
     async def test_dispatches_with_session_credentials(self):
         turn = SpecialistTurnResult(
             conversation_id="conv_1",
@@ -358,7 +424,8 @@ class TestSpecialistTurn:
                 "hello",
                 _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}),
             )
-        assert result["status"] == "error"
+        assert result["status"] == "runtime_unavailable"
+        assert result["reason"] == "specialist_runtime_failed"
         assert "boom" not in result["message"]
 
 

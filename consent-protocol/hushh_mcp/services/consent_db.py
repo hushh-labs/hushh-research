@@ -64,6 +64,9 @@ _BACKGROUND_CONSENT_COLUMNS = (
     "request_id,user_id,scope,agent_id,scope_description,action,"
     "issued_at,poll_timeout_at,expires_at,metadata"
 )
+_REVOCATION_CONSENT_COLUMNS = (
+    "id,token_id,request_id,user_id,scope,agent_id,scope_description,action,issued_at,expires_at"
+)
 
 
 def _token_fingerprint(token: str) -> str:
@@ -815,6 +818,121 @@ class ConsentDBService:
                     )
 
         return results
+
+    async def fetch_expired_consents(self):
+        """Return only currently-effective expired external grants.
+
+        The consent ledger is append-only: a later ``REVOKED`` or new grant
+        supersedes the older grant for the same user/agent/scope. The worker
+        therefore scans the bounded recent ledger, retains the latest event
+        per authority identity, and returns only expired latest grants. It
+        never reads or returns encrypted exports or consent payloads.
+        """
+        from hushh_mcp.services.revocation_worker import ExpiredConsent
+
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        response = (
+            self._get_supabase()
+            .table("consent_audit")
+            .select(_REVOCATION_CONSENT_COLUMNS)
+            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            .order("issued_at", desc=True)
+            .limit(_background_scan_limit())
+            .execute()
+        )
+        latest_by_authority: dict[tuple[str, str, str], Dict[str, Any]] = {}
+        for row in response.data or []:
+            if not self._is_external_audit_row(row):
+                continue
+            key = (
+                str(row.get("user_id") or ""),
+                str(row.get("agent_id") or ""),
+                str(row.get("scope") or ""),
+            )
+            if not all(key) or key in latest_by_authority:
+                continue
+            latest_by_authority[key] = row
+
+        expired: list[ExpiredConsent] = []
+        for row in latest_by_authority.values():
+            expires_at = row.get("expires_at")
+            if (
+                row.get("action") != "CONSENT_GRANTED"
+                or not isinstance(expires_at, (int, float))
+                or expires_at > now_ms
+                or not row.get("id")
+            ):
+                continue
+            expired.append(
+                ExpiredConsent(
+                    consent_id=str(row["id"]),
+                    token_id=str(row.get("token_id") or ""),
+                    scope=str(row["scope"]),
+                    expired_at=datetime.fromtimestamp(
+                        expires_at / 1000,
+                        tz=timezone.utc,
+                    ),
+                )
+            )
+        return expired
+
+    async def mark_consent_revoked(self, consent_id: str) -> None:
+        """Append one revocation only if this expired grant remains current."""
+        record_response = (
+            self._get_supabase()
+            .table("consent_audit")
+            .select(_REVOCATION_CONSENT_COLUMNS)
+            .eq("id", consent_id)
+            .limit(1)
+            .execute()
+        )
+        records = record_response.data or []
+        if not records:
+            return
+        record = records[0]
+        if not self._is_external_audit_row(record):
+            return
+
+        user_id = str(record.get("user_id") or "")
+        agent_id = str(record.get("agent_id") or "")
+        scope = str(record.get("scope") or "")
+        if not user_id or not agent_id or not scope:
+            return
+        latest_response = (
+            self._get_supabase()
+            .table("consent_audit")
+            .select(_REVOCATION_CONSENT_COLUMNS)
+            .eq("user_id", user_id)
+            .eq("agent_id", agent_id)
+            .eq("scope", scope)
+            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            .order("issued_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        latest_rows = latest_response.data or []
+        latest = latest_rows[0] if latest_rows else None
+        expires_at = record.get("expires_at")
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        if (
+            not latest
+            or str(latest.get("id") or "") != str(consent_id)
+            or latest.get("action") != "CONSENT_GRANTED"
+            or not isinstance(expires_at, (int, float))
+            or expires_at > now_ms
+        ):
+            return
+        await self.insert_event(
+            user_id=user_id,
+            agent_id=agent_id,
+            scope=scope,
+            action="REVOKED",
+            token_id=str(record.get("token_id") or "") or None,
+            request_id=str(record.get("request_id") or "") or None,
+            scope_description=str(record.get("scope_description") or "") or None,
+            expires_at=int(expires_at),
+            metadata={"reason": "expired", "source": "consent_revocation_worker"},
+        )
 
     async def find_covering_active_token(
         self,

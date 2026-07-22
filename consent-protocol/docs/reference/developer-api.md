@@ -89,9 +89,12 @@ Operations-provisioned client credentials may execute the consent lifecycle.
 They authenticate only the partner application and never create a synthetic
 user subject. The supplied user identifier selects the consent subject;
 explicit approval and a valid scoped grant remain mandatory before encrypted
-information delivery. Salesforce currently documents no user-level MCP
-authentication and excludes use cases requiring personalized responses, so
-partners must validate that host boundary independently. Register an exact
+information delivery. The direct Agentforce profile is catalog-only and returns
+`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. A MuleSoft execute
+application is a separate upstream principal, not a workaround for
+Salesforce's current lack of user-level MCP authentication and support for
+personalized responses. See [MuleSoft and Agentforce secure relay](./mulesoft-agentforce-secure-relay.md).
+Register an exact
 HTTPS redirect URI for PKCE first; loopback HTTP is permitted solely for local
 development. Client secrets, authorization codes, access tokens, refresh
 tokens, Firebase identifiers, and consent tokens are never returned by
@@ -307,9 +310,12 @@ const scopedExport = await fetch("/api/v1/scoped-export", {
 const ciphertext = base64ToBytes(scopedExport.encrypted_data);
 ```
 
-For the hosted MCP equivalent, the envelope is nested in the MCP tool result.
-Prefer `structuredContent`; `content[0].text` is its JSON-string mirror for
-MCP clients that do not expose structured content. Hosted MCP uses
+For a successful hosted MCP equivalent, the envelope is nested in the MCP tool
+result. Prefer `structuredContent`; `content[0].text` is its JSON-string
+mirror for MCP clients that do not expose structured content. An execution
+error uses `isError: true` plus safe text content and deliberately omits
+`structuredContent`, because it cannot satisfy the strict success schema.
+Hosted MCP uses
 `ciphertext`, where the raw HTTP API uses `encrypted_data`:
 
 ```js

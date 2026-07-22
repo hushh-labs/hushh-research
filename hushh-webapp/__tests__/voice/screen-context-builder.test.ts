@@ -304,7 +304,12 @@ describe("buildStructuredScreenContext", () => {
       context.screen_metadata as { available_action_ids: string[] }
     ).available_action_ids;
     expect(availableIds).toEqual(
-      expect.arrayContaining(["route.profile", "route.kai_home", "route.ria_home"])
+      expect.arrayContaining([
+        "route.profile",
+        "route.kai_home",
+        "route.ria_home",
+        "route.profile_connected_systems",
+      ])
     );
   });
 

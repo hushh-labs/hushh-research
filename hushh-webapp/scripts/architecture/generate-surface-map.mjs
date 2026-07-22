@@ -148,6 +148,13 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/location/map": {
+    thread_and_consent_contract: {
+      availability: "temporarily unavailable pending secure native Maps provisioning",
+      coordinate_storage: "none; the paused route does not load or decrypt coordinates",
+      location_capture: "not available while Maps is paused",
+    },
+  },
   "/one/kai/news": {
     api_dependencies: [
       {

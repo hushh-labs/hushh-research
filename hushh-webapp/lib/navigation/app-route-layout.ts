@@ -42,6 +42,12 @@ export interface AppRouteInteractionLayerPolicy {
 export interface AppRouteLayoutContractEntry {
   route: string;
   mode: AppRouteLayoutMode;
+  /**
+   * Persistent application chrome is normally shared by every signed-in
+   * route. Immersive routes opt out explicitly rather than relying on a
+   * local fixed wrapper to cover it up.
+   */
+  persistentChrome?: "standard" | "none";
   voicePlaybook: AppRouteVoicePlaybook;
   interactionLayerPolicy: AppRouteInteractionLayerPolicy;
   shellVerification?: AppRouteShellVerification;

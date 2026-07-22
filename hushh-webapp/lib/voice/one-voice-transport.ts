@@ -71,7 +71,12 @@ export type OneVoiceSessionEvent =
   | {
       type: "client_directive";
       provider: OneVoiceProvider;
-      directive: { kind: string; payload?: Record<string, unknown> };
+      directive: {
+        kind: string;
+        payload?: Record<string, unknown>;
+        /** Owning specialist from the relay envelope; never injected into model payload. */
+        delegateAgentId?: string | null;
+      };
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;

@@ -221,6 +221,76 @@ async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(
 
 
 @pytest.mark.asyncio
+async def test_local_stdio_normalizes_financial_documents_after_decryption(monkeypatch):
+    decrypted = {
+        "financial": {
+            "documents": {
+                "statements": [
+                    {
+                        "id": "statement_1",
+                        "account_info": {"brokerage": " Demo Brokerage "},
+                        "account_summary": {"ending_value": 1250.5},
+                        "holdings": [{"symbol": "ABC", "quantity": 2, "market_value": 1250.5}],
+                    }
+                ]
+            }
+        }
+    }
+    monkeypatch.setattr(
+        data_tools,
+        "get_or_create_local_connector_keypair",
+        lambda: SimpleNamespace(private_key=object(), key_id="local-key"),
+    )
+    monkeypatch.setattr(
+        data_tools,
+        "decrypt_scoped_export_package",
+        lambda **_kwargs: decrypted,
+    )
+    monkeypatch.setattr(
+        data_tools,
+        "narrow_decrypted_export",
+        lambda payload, _scope: payload,
+    )
+
+    response, error = await data_tools._try_build_local_decrypted_response(
+        {},
+        export_payload={
+            "encrypted_data": _b64(b"ciphertext"),
+            "iv": "iv",
+            "tag": "tag",
+            "wrapped_key_bundle": {"connector_key_id": "local-key"},
+            "export_envelope": {"aad": {}},
+        },
+        expected_scope="attr.financial.documents.*",
+    )
+
+    assert error is None
+    assert response is not None
+    assert response["data"] == {
+        "payload_type": "financial_statement_bundle.v1",
+        "statement_count": 1,
+        "holding_count": 1,
+        "statements": [
+            {
+                "statement_ref": "statement_1",
+                "brokerage": "Demo Brokerage",
+                "ending_value": 1250.5,
+            }
+        ],
+        "holdings": [
+            {
+                "holding_ref": "statement_1:0",
+                "statement_ref": "statement_1",
+                "position_index": 0,
+                "symbol": "ABC",
+                "quantity": 2,
+                "market_value": 1250.5,
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_local_stdio_key_mismatch_requires_rebind_without_raw_fallback(monkeypatch):
     metadata, ciphertext, keypair = _encrypted_local_fixture(key_id="approved-key")
     _install_common(monkeypatch, payload=metadata, local=True)

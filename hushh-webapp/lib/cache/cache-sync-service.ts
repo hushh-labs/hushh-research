@@ -7,6 +7,11 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import {
+  clearAllLocationWorkspaceMemory,
+  clearLocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -519,6 +524,10 @@ export class CacheSyncService {
     },
   ): void {
     const cache = CacheService.getInstance();
+    // This invalidates any in-flight Location load before it can republish a
+    // server snapshot after the vault security boundary changes.
+    OneLocationStateResource.invalidate(userId);
+    clearLocationWorkspaceMemory(userId);
     if (typeof options?.hasVault === "boolean") {
       cache.set(
         CACHE_KEYS.VAULT_CHECK(userId),
@@ -697,6 +706,8 @@ export class CacheSyncService {
   static onAuthSignedOut(userId?: string | null): void {
     const cache = CacheService.getInstance();
     if (userId) {
+      OneLocationStateResource.invalidate(userId);
+      clearLocationWorkspaceMemory(userId);
       cache.invalidateUser(userId);
       void import("@/lib/services/connected-systems-resource-service")
         .then(({ ConnectedSystemsResourceService }) =>
@@ -705,6 +716,7 @@ export class CacheSyncService {
         .catch(() => undefined);
       return;
     }
+    clearAllLocationWorkspaceMemory();
     cache.clear();
   }
 

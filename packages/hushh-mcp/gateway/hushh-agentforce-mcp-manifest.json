@@ -32,7 +32,27 @@
         "request-consent",
         "check-consent-status",
         "get-encrypted-scoped-export"
-      ]
+      ],
+      "agentActionPolicy": {
+        "catalogOnly": true,
+        "directPersonalizedToolCalls": "blocked",
+        "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
+        "muleControlPlaneTools": [
+          "search-user-scopes",
+          "prepare-campaign-context",
+          "request-consent",
+          "check-consent-status"
+        ],
+        "agentforceActionDefault": "no-personalized-consent-actions",
+        "salesforceApprovedUatActionAllowlist": [
+          "search-user-scopes",
+          "prepare-campaign-context",
+          "request-consent",
+          "check-consent-status"
+        ],
+        "connectorOnlyTool": "get-encrypted-scoped-export",
+        "connectorOnlyReason": "The encrypted export is delivered to the registered connector and must be decrypted outside the Agentforce LLM."
+      }
     },
     "relayRequirements": {
       "preserveToolNames": true,
@@ -42,8 +62,10 @@
       "expandNestedFields": false
     },
     "executionBoundary": {
-      "consentLifecycleExecution": "enabled",
-      "applicationAuthentication": "oauth2-client-credentials",
+      "directAgentforceExecution": "catalog-only",
+      "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+      "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
+      "applicationAuthentication": "oauth2-client-credentials-per-hop",
       "userAuthority": "explicit-consent-and-scoped-grant",
       "informationDelivery": "encrypted-export-after-approval"
     }
@@ -718,7 +740,7 @@
     {
       "name": "get-encrypted-scoped-export",
       "title": "Get encrypted scoped export",
-      "description": "Retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
+      "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
       "inputSchema": {
         "type": "object",
         "description": "A flat, capability-safe field set.",
@@ -759,7 +781,7 @@
           "delivery": {
             "title": "Delivery mode",
             "type": "string",
-            "description": "Delivery mode. Hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local."
+            "description": "Delivery mode. Hosted connectors, including MuleSoft and Agentforce relays, receive encrypted_inline; trusted local stdio may receive decrypted_local."
           },
           "expected_scope": {
             "title": "Expected scope",
@@ -849,7 +871,7 @@
           "information_json": {
             "title": "Locally decrypted information JSON",
             "type": "string",
-            "description": "Locally decrypted information JSON. Present only for a trusted local stdio connector; hosted responses return an empty string.",
+            "description": "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
             "maxLength": 120000
           }
         },
@@ -876,7 +898,7 @@
       },
       "annotations": {
         "title": "Get encrypted scoped export",
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false

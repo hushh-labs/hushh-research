@@ -12,7 +12,12 @@
      instead). Subtracting the reservation here makes shell + reserved
      padding equal exactly one viewport, so the page always fits without
      scrolling and the background never runs out early. */
-  min-height: calc(100dvh - var(--app-scroll-bottom-pad, 0px));
+  /* `dvh` can grow and shrink while mobile browser controls animate. The
+     welcome is a single-screen composition, so use the small viewport as its
+     stable upper bound. This prevents Safari's expanded browser chrome from
+     turning its transient top inset into extra hero whitespace. */
+  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
   overflow: hidden;
@@ -22,13 +27,18 @@
   position: relative;
   z-index: 10;
   display: grid;
-  min-height: calc(100dvh - var(--app-scroll-bottom-pad, 0px));
+  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  min-height: 0;
   width: 100%;
   max-width: 34rem;
   margin: 0 auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: calc(max(28px, var(--app-safe-area-top-effective, 0px)) + 12px) 24px
-    24px;
+  /* A hidden-shell route has no app top bar to clear. Native status areas are
+     normally 44–59px, so cap this defensive gutter at 64px. This contains a
+     stale browser/native inset without sacrificing the real status-bar
+     clearance needed by an edge-to-edge WebView. */
+  padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
+    24px 24px;
   text-align: center;
 }
 

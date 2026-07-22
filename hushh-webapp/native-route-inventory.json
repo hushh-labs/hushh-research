@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-07-19",
-  "total_routes": 99,
-  "native_required_routes": 91,
+  "total_routes": 96,
+  "native_required_routes": 88,
   "excluded_routes": 8,
   "routes": [
     {
@@ -300,58 +300,6 @@
       ]
     },
     {
-      "route": "/kai/investments",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fkai%2Finvestments",
-      "expectedMarker": "native-route-kai-investments",
-      "expectedRoute": "/one/kai/investments",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ],
-      "legacyAlias": true
-    },
-    {
-      "route": "/one/kai/investments",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Finvestments",
-      "expectedMarker": "native-route-kai-investments",
-      "expectedRoute": "/one/kai/investments",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
-      "route": "/kai/funding-trade",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fkai%2Ffunding-trade",
-      "expectedMarker": "native-route-kai-funding-trade",
-      "expectedRoute": "/one/kai/funding-trade",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "unavailable-valid"
-      ],
-      "legacyAlias": true
-    },
-    {
-      "route": "/one/kai/funding-trade",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Ffunding-trade",
-      "expectedMarker": "native-route-kai-funding-trade",
-      "expectedRoute": "/one/kai/funding-trade",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "unavailable-valid"
-      ]
-    },
-    {
       "route": "/kai/onboarding",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
@@ -557,6 +505,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Flocation",
       "expectedMarker": "native-route-one-location",
       "expectedRoute": "/one/location",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/location/map",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fmap",
+      "expectedMarker": "native-route-one-location-map",
+      "expectedRoute": "/one/location/map",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
