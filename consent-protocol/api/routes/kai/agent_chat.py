@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Chat"])
 _EXCLUDED_AGENT_CHAT_SPECIALISTS = frozenset({"agent_personal_information"})
+_AGENT_CHAT_PROGRESS_INTERVAL_SECONDS = 10.0
 
 
 class DelegateResultModel(BaseModel):
@@ -303,6 +304,38 @@ def _event(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _stream_with_progress(events):
+    """Yield ``None`` while an async event source is still doing useful work."""
+    iterator = events.__aiter__()
+    pending: asyncio.Task | None = None
+    try:
+        while True:
+            pending = asyncio.create_task(anext(iterator))
+            while True:
+                done, _ = await asyncio.wait(
+                    {pending},
+                    timeout=_AGENT_CHAT_PROGRESS_INTERVAL_SECONDS,
+                )
+                if not done:
+                    yield None
+                    continue
+                try:
+                    event = pending.result()
+                except StopAsyncIteration:
+                    pending = None
+                    return
+                pending = None
+                yield event
+                break
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        close = getattr(iterator, "aclose", None)
+        if callable(close):
+            await close()
+
+
 def _conversation_model(conversation: AgentChatConversation) -> AgentChatConversationModel:
     return AgentChatConversationModel(
         id=conversation.id,
@@ -412,6 +445,11 @@ async def stream_agent_chat(
         delegate_agent_id = body.delegate_agent_id
 
     if delegate_agent_id is not None and is_wired_specialist(delegate_agent_id):
+        persistence_owner: Literal["specialist", "caller"] = (
+            "specialist"
+            if delegate_agent_id == "agent_location" and body.delegate_result is not None
+            else "caller"
+        )
         delegated_turn: PreparedAgentChatTurn | None = None
         delegated_conversation_id = body.conversation_id
         prepare_started = time.perf_counter()
@@ -447,6 +485,7 @@ async def stream_agent_chat(
             message=body.message or None,
             delegate_result=delegate_result_payload,
             timezone=body.timezone,
+            persistence_owner=persistence_owner,
         )
 
         async def generate_delegated():
@@ -459,8 +498,28 @@ async def stream_agent_chat(
                 },
             )
             dispatch_started = time.perf_counter()
+            dispatch_task = asyncio.create_task(a2a_dispatch(delegate_agent_id, task))
             try:
-                result = await a2a_dispatch(delegate_agent_id, task)
+                while True:
+                    done, _ = await asyncio.wait(
+                        {dispatch_task},
+                        timeout=_AGENT_CHAT_PROGRESS_INTERVAL_SECONDS,
+                    )
+                    if done:
+                        result = dispatch_task.result()
+                        break
+                    yield _event(
+                        "progress",
+                        {
+                            "status": "working",
+                            "phase": "specialist",
+                            "delegate_agent_id": delegate_agent_id,
+                        },
+                    )
+            except asyncio.CancelledError:
+                dispatch_task.cancel()
+                await asyncio.gather(dispatch_task, return_exceptions=True)
+                raise
             except Exception as error:  # noqa: BLE001
                 dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
                 logger.exception(
@@ -481,7 +540,7 @@ async def stream_agent_chat(
             dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
             conversation_id = result.conversation_id or delegated_conversation_id
             save_ms = 0.0
-            if conversation_id:
+            if conversation_id and persistence_owner == "caller":
                 save_turn = PreparedAgentChatTurn(
                     conversation_id=conversation_id,
                     user_message_id=delegated_turn.user_message_id if delegated_turn else "",
@@ -686,7 +745,7 @@ async def stream_agent_chat(
                     "model": runtime.model,
                 },
             )
-            async for one_event in service.stream_one_turn(
+            one_events = service.stream_one_turn(
                 user_id=body.user_id,
                 consent_token=str(token_data.get("token") or ""),
                 conversation_id=turn.conversation_id,
@@ -700,7 +759,8 @@ async def stream_agent_chat(
                 runtime_credential_transport=runtime.gemini_byok_transport,
                 runtime_vertex_project=runtime.vertex_project,
                 runtime_vertex_location=runtime.vertex_location,
-            ):
+            )
+            async for one_event in _stream_with_progress(one_events):
                 if await request.is_disconnected():
                     text = "".join(chunks)
                     await _save_assistant_message(
@@ -712,6 +772,15 @@ async def stream_agent_chat(
                     )
                     saved = True
                     return
+                if one_event is None:
+                    yield _event(
+                        "progress",
+                        {
+                            "status": "working",
+                            "phase": "model_or_specialist",
+                        },
+                    )
+                    continue
                 if one_event.kind == "token" and one_event.text:
                     if not first_meaningful_logged:
                         first_meaningful_logged = True

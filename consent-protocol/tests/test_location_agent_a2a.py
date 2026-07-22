@@ -45,6 +45,25 @@ async def test_message_turn_maps_client_action_to_directive():
     assert svc.calls[0]["message"] == "share with Mom"
     assert svc.calls[0]["user_id"] == "u"
     assert svc.calls[0]["consent_token"] == "t"
+    assert svc.calls[0]["persist_messages"] is True
+
+
+@pytest.mark.asyncio
+async def test_caller_owned_turn_does_not_persist_inside_location_specialist():
+    svc = _FakeLocationService()
+    agent = LocationAgentA2A(service=svc)
+
+    await agent.handle(
+        A2ATask(
+            user_id="u",
+            consent_token="t",  # noqa: S106
+            conversation_id="c1",
+            message="create a public location link",
+            persistence_owner="caller",
+        )
+    )
+
+    assert svc.calls[0]["persist_messages"] is False
 
 
 @pytest.mark.asyncio

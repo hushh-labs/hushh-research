@@ -61,9 +61,12 @@ machine, or change `one_voice_context.v1` during rollout. See
 The index is not a second router, prompt bundle, consent grant, or TrustLink
 input. Playbooks guide conversation but never execute. `deriveVoiceRouteScreen` remains the browser's canonical screen mapper,
 and the action gateway remains the only executable-action authority. Before
-One dispatches an internal A2A specialist, the backend checks the redacted
-current route against this index; scoped consent remains the authority gate,
-and TrustLink validation remains separate for delegation paths that use it.
+One dispatches an internal A2A specialist from Voice or a page-contextual
+control, the backend checks the redacted current route against this index.
+Typed Agent Chat instead uses a server-owned `chat` entrypoint and requires an
+exact wired delegate action whose generated goal declares `chat` support.
+Scoped consent remains the authority gate, and TrustLink validation remains
+separate for delegation paths that use it.
 
 ### Native tools and MCP tools
 
@@ -467,6 +470,14 @@ turns to One's ADK semantic head and retains encrypted history plus explicit
 specialist continuity. It does not run a client lexical action planner. The
 Information Marketplace is intentionally rejected at this boundary; its
 standalone consent-first chat and routes remain separate.
+
+The text runtime seeds `hussh:entrypoint=chat` directly in ephemeral server
+session state. Browser screen context cannot set or widen that authority. A
+specialist call from chat is admitted only when the generated action gateway
+matches the delegate, marks its execution target wired, and lists `chat` in
+`goal.entrypoint_support`; auth, vault, consent, confirmation, and device
+permission checks still apply. This lets app-wide Agent Chat answer Location
+requests without pretending the person is already on the Location route.
 
 ## Context Snapshot
 

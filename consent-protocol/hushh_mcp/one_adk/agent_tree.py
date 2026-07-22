@@ -86,6 +86,9 @@ STATE_USER_ID = "hussh:user_id"
 STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 STATE_CONVERSATION_ID = "hussh:conversation_id"
 STATE_TIMEZONE = "hussh:timezone"
+# Server-owned runtime entrypoint. Text chat seeds this directly; browser
+# context cannot grant itself cross-route specialist admission.
+STATE_ENTRYPOINT = "hussh:entrypoint"
 # Current app screen id (from app_context frames); used to rank action search.
 STATE_SCREEN = "hussh:screen"
 # Redacted browser state used by action tools to avoid proposing controls the
@@ -271,7 +274,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "- KYC: approval-gated identity and client-request work lives in the KYC "
     "app surface. Navigate there with route.one_kyc; do not invent a direct "
     "conversational KYC tool or claim a workflow changed before the app confirms it.\n"
-    "- Location: live sharing with trusted people and local context.\n"
+    "- Location: live sharing with trusted people, public location links, "
+    "check-ins, SOS, and local context.\n"
     "- Memory: saved knowledge the user can review (PKM).\n"
     "- Consent Center (Nav): what the user has shared and with whom, approvals, "
     "and revocations. Its Connections subagent handles the trusted-people "
@@ -642,6 +646,9 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
         conversation_id=conversation_id,
         message=request,
         timezone=timezone_name,
+        persistence_owner=(
+            "caller" if str(state.get(STATE_ENTRYPOINT) or "").strip() == "chat" else "specialist"
+        ),
     )
 
 
@@ -660,6 +667,7 @@ async def _specialist_turn(
         user_id=user_id,
         consent_token=consent_token,
         voice_context=voice_context,
+        entrypoint=str(tool_context.state.get(STATE_ENTRYPOINT) or "").strip() or None,
     )
     availability_payload = availability.as_dict()
     if availability.state == "setup_required":
@@ -823,7 +831,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Location specialist about live location sharing with trusted people, check-ins, or SOS."""
+    """Ask Location about trusted-person sharing, public location links, check-ins, or SOS."""
     return await _specialist_turn("agent_location", request, tool_context)
 
 

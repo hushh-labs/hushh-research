@@ -26,9 +26,17 @@ class _Turn:
 class _FakeStore:
     def __init__(self):
         self.added = []
+        self.prepared = []
+        self.history = []
 
     async def prepare_turn(self, *, user_id, message, conversation_id=None):
+        self.prepared.append(
+            {"user_id": user_id, "message": message, "conversation_id": conversation_id}
+        )
         return _Turn(conversation_id or "conv-new", [])
+
+    async def get_recent_messages(self, conversation_id, *, user_id, limit):
+        return list(self.history[-limit:])
 
     async def add_message(
         self, *, conversation_id, user_id, role, content, status, model=None, metadata=None
@@ -80,6 +88,46 @@ def _service(store, responses, tools):
         tools=tools,
         system_prompt="test",
     )
+
+
+async def test_caller_owned_turn_reuses_history_without_duplicate_persistence():
+    store = _FakeStore()
+    store.history = [
+        SimpleNamespace(role="user", content="create a public location link"),
+    ]
+    model_calls = []
+
+    async def model_call(contents, config):
+        model_calls.append(contents)
+        return _text_response("I can prepare a public link.")
+
+    svc = LocationChatService(
+        chat_store=store,
+        model_call=model_call,
+        genai_types=types,
+        ready=lambda: True,
+        tools=[],
+        system_prompt="test",
+    )
+
+    out = await svc.handle_turn(
+        user_id="u",
+        message="create a public location link",
+        consent_token="t",  # noqa: S106
+        conversation_id="conv-1",
+        persist_messages=False,
+    )
+
+    user_texts = [
+        part.text
+        for content in model_calls[0]
+        for part in content.parts
+        if content.role == "user" and part.text
+    ]
+    assert user_texts.count("create a public location link") == 1
+    assert store.prepared == []
+    assert store.added == []
+    assert out["response"] == "I can prepare a public link."
 
 
 async def test_create_share_emits_publish_share_client_action():

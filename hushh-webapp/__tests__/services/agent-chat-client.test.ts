@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
@@ -38,9 +38,118 @@ function sseResponse(chunks: string[], headers: Record<string, string> = {}): Re
   });
 }
 
+function delayedSseResponse(frames: Array<{ at: number; frame: string }>): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const { at, frame } of frames) {
+        setTimeout(() => controller.enqueue(encoder.encode(frame)), at);
+      }
+      setTimeout(
+        () => controller.close(),
+        Math.max(...frames.map(({ at }) => at), 0) + 1,
+      );
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 describe("agent chat client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("allows a bounded backend cold start before opening the SSE stream", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(ApiService, "streamAgentChat").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(
+              sseResponse([
+                'event: start\ndata: {"conversation_id":"conversation-cold","model":"gemini-3.5-flash"}\n\n',
+                'event: complete\ndata: {"conversation_id":"conversation-cold","model":"gemini-3.5-flash"}\n\n',
+              ]),
+            );
+          }, 15_000);
+        }),
+    );
+
+    const pending = streamAgentChat({
+      userId: "user-1",
+      message: "Create a public location link",
+      vaultOwnerToken: "vault-token",
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expect(pending).resolves.toMatchObject({
+      conversationId: "conversation-cold",
+    });
+  });
+
+  it("still aborts a backend request that never opens", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(ApiService, "streamAgentChat").mockImplementation(
+      () => new Promise<Response>(() => undefined),
+    );
+
+    const pending = streamAgentChat({
+      userId: "user-1",
+      message: "Create a public location link",
+      vaultOwnerToken: "vault-token",
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      "Agent chat did not open in time. Please retry.",
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await rejection;
+  });
+
+  it("keeps a slow specialist turn alive when backend progress arrives", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      delayedSseResponse([
+        {
+          at: 0,
+          frame:
+            'event: start\ndata: {"conversation_id":"conversation-location","model":"gemini-3.5-flash"}\n\n',
+        },
+        {
+          at: 20_000,
+          frame:
+            'event: progress\ndata: {"status":"working","phase":"model_or_specialist"}\n\n',
+        },
+        {
+          at: 40_000,
+          frame: 'event: token\ndata: {"token":"Your public link is ready."}\n\n',
+        },
+        {
+          at: 40_001,
+          frame:
+            'event: complete\ndata: {"conversation_id":"conversation-location","model":"one+location"}\n\n',
+        },
+      ]),
+    );
+
+    const pending = streamAgentChat({
+      userId: "user-1",
+      message: "Create a public location link",
+      vaultOwnerToken: "vault-token",
+    });
+    await vi.advanceTimersByTimeAsync(40_010);
+
+    await expect(pending).resolves.toMatchObject({
+      conversationId: "conversation-location",
+      text: "Your public link is ready.",
+    });
   });
 
   it("streams simple token SSE frames", async () => {

@@ -61,6 +61,7 @@ class LocationAgentA2A:
             conversation_id=task.conversation_id,
             action_result=action_result,
             selection_result=selection_result,
+            persist_messages=task.persistence_owner == "specialist",
         )
 
         directive: A2ADirective | None = None

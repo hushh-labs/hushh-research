@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -57,6 +58,7 @@ class _MinimalFakeService:
         self.one_events: list[OneTextStreamEvent] = [
             OneTextStreamEvent(kind="token", text="general response")
         ]
+        self.one_event_delay_seconds = 0.0
         self.one_turn_calls: list[dict] = []
 
     async def prepare_agent_runtime(
@@ -116,6 +118,8 @@ class _MinimalFakeService:
 
     async def stream_one_turn(self, **kwargs):
         self.one_turn_calls.append(kwargs)
+        if self.one_event_delay_seconds:
+            await asyncio.sleep(self.one_event_delay_seconds)
         for event in self.one_events:
             yield event
 
@@ -194,6 +198,98 @@ def test_explicit_delegate_agent_id_is_delegated(monkeypatch):
     assert "Two threads need a reply today." in resp.text
     events = _parse_sse(resp.text)
     assert events == ["start", "token", "complete"]
+    assert len(service.saved_messages) == 1
+
+
+def test_location_delegate_result_is_not_persisted_twice(monkeypatch):
+    captured_tasks = []
+
+    async def stub(task):
+        captured_tasks.append(task)
+        return SpecialistTurnResult(
+            conversation_id="conversation-location",
+            text="Your public link is ready.",
+            directive=None,
+            is_complete=True,
+            state_changed=True,
+            model="one+location",
+        )
+
+    monkeypatch.setitem(dispatch_mod._REGISTRY, "agent_location", stub)
+    service = _MinimalFakeService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "u1",
+            "message": "",
+            "conversation_id": "conversation-location",
+            "delegate_result": {
+                "delegate_agent_id": "agent_location",
+                "kind": "action",
+                "id": "public-link-1",
+                "type": "create_public_link",
+                "status": "completed",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert _parse_sse(response.text) == ["start", "token", "complete"]
+    assert captured_tasks[0].persistence_owner == "specialist"
+    assert service.saved_messages == []
+
+
+def test_slow_explicit_location_delegate_emits_progress(monkeypatch):
+    async def stub(task):
+        await asyncio.sleep(0.02)
+        return SpecialistTurnResult(
+            conversation_id=task.conversation_id or "conversation-location",
+            text="I can prepare that public location link.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="one+location",
+        )
+
+    monkeypatch.setitem(dispatch_mod._REGISTRY, "agent_location", stub)
+    monkeypatch.setattr(agent_chat, "_AGENT_CHAT_PROGRESS_INTERVAL_SECONDS", 0.005)
+    service = _MinimalFakeService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "u1",
+            "message": "Create a public location link",
+            "delegate_agent_id": "agent_location",
+        },
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0] == "start"
+    assert "progress" in events[1:-2]
+    assert events[-2:] == ["token", "complete"]
+
+
+def test_slow_one_turn_emits_progress_until_first_token(monkeypatch):
+    service = _MinimalFakeService()
+    service.one_event_delay_seconds = 0.02
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(agent_chat, "_AGENT_CHAT_PROGRESS_INTERVAL_SECONDS", 0.005)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={"user_id": "u1", "message": "Create a public location link"},
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0] == "start"
+    assert "progress" in events[1:-2]
+    assert events[-2:] == ["token", "complete"]
 
 
 def test_non_location_turn_uses_existing_path(monkeypatch):

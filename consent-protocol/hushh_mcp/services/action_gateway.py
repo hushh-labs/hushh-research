@@ -93,6 +93,23 @@ def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
     return _action_index().get(str(action_id or "").strip())
 
 
+def is_delegate_entrypoint_admitted(agent_id: str, entrypoint: str) -> bool:
+    """Return whether generated policy wires a delegate for an entrypoint."""
+    clean_agent_id = str(agent_id or "").strip()
+    clean_entrypoint = str(entrypoint or "").strip()
+    if not clean_agent_id or not clean_entrypoint:
+        return False
+    for action in list_action_gateway_actions():
+        if str(action.get("delegate_agent_id") or "").strip() != clean_agent_id:
+            continue
+        if (action.get("execution_target") or {}).get("status") != "wired":
+            continue
+        goal = action.get("goal") if isinstance(action.get("goal"), dict) else {}
+        if clean_entrypoint in _strings(goal.get("entrypoint_support")):
+            return True
+    return False
+
+
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:
     if not entry or not str(entry.get("action_id") or "").startswith("route."):
         return False

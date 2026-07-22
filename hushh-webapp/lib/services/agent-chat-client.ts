@@ -60,7 +60,10 @@ export type AgentChatStreamHandlers = {
   onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
 };
 
-const SSE_OPEN_TIMEOUT_MS = 10_000;
+// Backend cold starts include runtime validation and the first encrypted
+// conversation write before SSE headers are available. Keep this bounded, but
+// allow the measured local/Cloud Run startup path to finish.
+const SSE_OPEN_TIMEOUT_MS = 30_000;
 const SSE_FIRST_MEANINGFUL_TIMEOUT_MS = 25_000;
 const SSE_INACTIVITY_TIMEOUT_MS = 45_000;
 
@@ -312,6 +315,9 @@ export async function consumeAgentChatStream(
         model: model || undefined,
       });
       return false;
+    }
+    if (event === "progress") {
+      return true;
     }
     if (event === "token") {
       const token = readString(payload, "token");

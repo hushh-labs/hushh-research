@@ -35,12 +35,14 @@ from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
+    STATE_ENTRYPOINT,
     STATE_PENDING_DIRECTIVE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _one_runtime_instruction,
     _specialist_turn,
     ask_consent_agent,
+    ask_location_agent,
     build_one_intro_text_agent,
     build_one_root_agent,
     build_one_text_agent,
@@ -143,6 +145,8 @@ class TestAgentTreeShape:
         assert "Gmail receipt sync is paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
+        assert "public location links" in ONE_IDENTITY_INSTRUCTION
+        assert "public location links" in (ask_location_agent.__doc__ or "")
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
@@ -379,7 +383,10 @@ class TestSpecialistTurn:
         state = {
             STATE_USER_ID: "u1",
             STATE_CONSENT_TOKEN: "tok",
-            "hussh:voice_context": {"route_family": "/profile"},
+            "hussh:voice_context": {
+                "route_family": "/profile",
+                "entrypoint": "chat",
+            },
         }
         with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock()) as dispatch:
             result = await _specialist_turn(
@@ -387,6 +394,32 @@ class TestSpecialistTurn:
             )
         assert result["status"] == "route_not_admitted"
         dispatch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_agent_chat_entrypoint_admits_location_from_an_unrelated_route(self):
+        turn = SpecialistTurnResult(
+            conversation_id="conv_agent_chat_location",
+            text="I can prepare that public location link.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="test",
+        )
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_CONSENT_TOKEN: "tok",
+            STATE_ENTRYPOINT: "chat",
+            "hussh:voice_context": {"route_family": "/one/profile"},
+        }
+        with patch(
+            "hushh_mcp.one_adk.agent_tree.dispatch",
+            new=AsyncMock(return_value=turn),
+        ) as dispatch:
+            result = await _specialist_turn(
+                "agent_location", "give me a public location link", _tool_context(state)
+            )
+        assert result["status"] == "ok"
+        dispatch.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_directive_is_forwarded(self):

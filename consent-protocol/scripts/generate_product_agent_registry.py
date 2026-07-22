@@ -29,7 +29,7 @@ def build_registry() -> dict[str, object]:
             )
         seen_ids[manifest.id] = path
         projection = manifest.model_dump(mode="json", exclude={"system_instruction"})
-        projection["manifest_path"] = str(path.relative_to(REPO_ROOT))
+        projection["manifest_path"] = path.relative_to(REPO_ROOT).as_posix()
         projection["system_instruction_sha256"] = (
             __import__("hashlib").sha256(manifest.system_instruction.encode("utf-8")).hexdigest()
         )

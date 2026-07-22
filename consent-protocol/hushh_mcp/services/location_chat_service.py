@@ -30,6 +30,7 @@ v2 additions:
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
@@ -519,6 +520,7 @@ class LocationChatService:
         conversation_id: str | None = None,
         action_result: dict | None = None,
         selection_result: dict | None = None,
+        persist_messages: bool = True,
     ) -> dict[str, Any]:
         # Branch: action-result confirmation turn (deterministic, no LLM, no coords).
         if action_result is not None:
@@ -526,6 +528,7 @@ class LocationChatService:
                 user_id=user_id,
                 conversation_id=conversation_id,
                 action_result=action_result,
+                persist_messages=persist_messages,
             )
         if selection_result is not None:
             return await self._handle_selection_result(
@@ -533,6 +536,7 @@ class LocationChatService:
                 consent_token=consent_token,
                 conversation_id=conversation_id,
                 selection_result=selection_result,
+                persist_messages=persist_messages,
             )
 
         if not message:
@@ -544,11 +548,29 @@ class LocationChatService:
                 "stateChanged": False,
             }
 
-        turn = await self._chat_store.prepare_turn(
-            user_id=user_id,
-            message=message,
-            conversation_id=conversation_id,
-        )
+        if persist_messages:
+            turn = await self._chat_store.prepare_turn(
+                user_id=user_id,
+                message=message,
+                conversation_id=conversation_id,
+            )
+        else:
+            if not conversation_id:
+                raise ValueError("caller-owned Location turns require a conversation id")
+            history = await self._chat_store.get_recent_messages(
+                conversation_id,
+                user_id=user_id,
+                limit=_MAX_HISTORY,
+            )
+            # Agent Chat already persisted the current user message. Keep it out
+            # of prior history because the Location loop appends this turn below.
+            if (
+                history
+                and str(getattr(history[-1], "role", "")) == "user"
+                and str(getattr(history[-1], "content", "")) == message
+            ):
+                history = history[:-1]
+            turn = SimpleNamespace(conversation_id=conversation_id, history=history)
 
         if self._types is None or not self._ready():
             return await self._finish(
@@ -558,6 +580,7 @@ class LocationChatService:
                 errored=True,
                 state_changed=False,
                 availability=_RUNTIME_UNAVAILABLE,
+                persist_message=persist_messages,
             )
 
         types = self._types
@@ -577,6 +600,7 @@ class LocationChatService:
                 errored=True,
                 state_changed=False,
                 availability=_RUNTIME_UNAVAILABLE,
+                persist_message=persist_messages,
             )
 
         client_prompt = self._build_client_prompt(prompts)
@@ -594,6 +618,7 @@ class LocationChatService:
             state_changed=state_changed and not errored,
             client_action=client_action,
             client_prompt=client_prompt,
+            persist_message=persist_messages,
         )
 
     async def _run_tool_loop(
@@ -823,6 +848,7 @@ class LocationChatService:
         user_id: str,
         conversation_id: str | None,
         action_result: dict,
+        persist_messages: bool = True,
     ) -> dict[str, Any]:
         """Deterministic confirmation turn for action_result payloads.
 
@@ -852,7 +878,7 @@ class LocationChatService:
             "check_in",
         )
         conv_id = conversation_id or ""
-        if conv_id:
+        if conv_id and persist_messages:
             await self._chat_store.add_message(
                 conversation_id=conv_id,
                 user_id=user_id,
@@ -874,6 +900,7 @@ class LocationChatService:
         consent_token: str,
         conversation_id: str | None,
         selection_result: dict,
+        persist_messages: bool = True,
     ) -> dict[str, Any]:
         """Seed the Gemini loop with the user's choice (resolved refs) and act."""
         conv_id = conversation_id or ""
@@ -885,13 +912,14 @@ class LocationChatService:
                 "stateChanged": False,
             }
         if self._types is None or not self._ready():
-            await self._chat_store.add_message(
-                conversation_id=conv_id,
-                user_id=user_id,
-                role="assistant",
-                content=_UNAVAILABLE_MESSAGE,
-                status="error",
-            )
+            if persist_messages:
+                await self._chat_store.add_message(
+                    conversation_id=conv_id,
+                    user_id=user_id,
+                    role="assistant",
+                    content=_UNAVAILABLE_MESSAGE,
+                    status="error",
+                )
             return {
                 "conversationId": conv_id,
                 "response": _UNAVAILABLE_MESSAGE,
@@ -913,14 +941,15 @@ class LocationChatService:
         # `content` keeps the raw seed (the LLM needs exact ids — "do not guess");
         # the UI-facing display string rides in encrypted metadata so the transcript
         # shows "Abdul Zalil", not the id dump.
-        await self._chat_store.add_message(
-            conversation_id=conv_id,
-            user_id=user_id,
-            role="user",
-            content=seed,
-            status="complete",
-            metadata={"kind": "selection", "display": display},
-        )
+        if persist_messages:
+            await self._chat_store.add_message(
+                conversation_id=conv_id,
+                user_id=user_id,
+                role="user",
+                content=seed,
+                status="complete",
+                metadata={"kind": "selection", "display": display},
+            )
         contents = _history_contents(history, types)
         contents.append(types.Content(role="user", parts=[types.Part(text=seed)]))
 
@@ -930,13 +959,14 @@ class LocationChatService:
             )
         except Exception:
             logger.exception("Location chat selection turn failed")
-            await self._chat_store.add_message(
-                conversation_id=conv_id,
-                user_id=user_id,
-                role="assistant",
-                content=_UNAVAILABLE_MESSAGE,
-                status="error",
-            )
+            if persist_messages:
+                await self._chat_store.add_message(
+                    conversation_id=conv_id,
+                    user_id=user_id,
+                    role="assistant",
+                    content=_UNAVAILABLE_MESSAGE,
+                    status="error",
+                )
             return {
                 "conversationId": conv_id,
                 "response": _UNAVAILABLE_MESSAGE,
@@ -950,13 +980,14 @@ class LocationChatService:
             state_changed = False
         if not reply:
             reply = "Done."
-        await self._chat_store.add_message(
-            conversation_id=conv_id,
-            user_id=user_id,
-            role="assistant",
-            content=reply,
-            status="error" if errored else "complete",
-        )
+        if persist_messages:
+            await self._chat_store.add_message(
+                conversation_id=conv_id,
+                user_id=user_id,
+                role="assistant",
+                content=reply,
+                status="error" if errored else "complete",
+            )
         out: dict[str, Any] = {
             "conversationId": conv_id,
             "response": reply,
@@ -980,14 +1011,16 @@ class LocationChatService:
         client_action: dict | None = None,
         client_prompt: dict | None = None,
         availability: dict | None = None,
+        persist_message: bool = True,
     ) -> dict[str, Any]:
-        await self._chat_store.add_message(
-            conversation_id=turn.conversation_id,
-            user_id=user_id,
-            role="assistant",
-            content=reply,
-            status="error" if errored else "complete",
-        )
+        if persist_message:
+            await self._chat_store.add_message(
+                conversation_id=turn.conversation_id,
+                user_id=user_id,
+                role="assistant",
+                content=reply,
+                status="error" if errored else "complete",
+            )
         out: dict[str, Any] = {
             "conversationId": turn.conversation_id,
             "response": reply,

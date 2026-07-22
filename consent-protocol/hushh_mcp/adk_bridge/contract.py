@@ -73,6 +73,7 @@ class A2ATask:
     timezone: str | None = None
     planned_action: dict | None = None
     authority: A2AAuthorityContext | None = None
+    persistence_owner: Literal["specialist", "caller"] = "specialist"
 
 
 @dataclass(frozen=True)

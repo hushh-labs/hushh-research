@@ -59,3 +59,11 @@ def test_generated_wired_specialist_actions_match_dispatch_registry():
 
     assert wired_delegate_ids == {"agent_location", "agent_nav"}
     assert all(d.is_wired_specialist(agent_id) for agent_id in wired_delegate_ids)
+
+
+def test_generated_gateway_admits_location_for_chat_entrypoint():
+    from hushh_mcp.services.action_gateway import is_delegate_entrypoint_admitted
+
+    assert is_delegate_entrypoint_admitted("agent_location", "chat") is True
+    assert is_delegate_entrypoint_admitted("agent_location", "unsupported") is False
+    assert is_delegate_entrypoint_admitted("agent_email", "chat") is False

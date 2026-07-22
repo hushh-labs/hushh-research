@@ -8,6 +8,7 @@ from hushh_mcp.one_adk import text_runtime
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
+    STATE_ENTRYPOINT,
     STATE_PKM_CONTEXT,
     STATE_VOICE_CONTEXT,
 )
@@ -98,7 +99,11 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
         message="take me to location",
         history=history,
         timezone="America/Los_Angeles",
-        screen_context={"screen": "one_home", "available_action_ids": []},
+        screen_context={
+            "screen": "one_home",
+            "available_action_ids": [],
+            "entrypoint": "voice",
+        },
         pkm_context="bounded context",
         runtime_provider="gemini",
         runtime_model="gemini-test",
@@ -113,6 +118,8 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     assert observed["message"] == "take me to location"
     assert observed["history"][0].content.parts[0].text == "Where would you like to go?"
     assert observed["state"][STATE_CONSENT_TOKEN] == opaque_token
+    assert observed["state"][STATE_ENTRYPOINT] == "chat"
+    assert observed["state"][STATE_VOICE_CONTEXT]["entrypoint"] == "voice"
     assert observed["state"][STATE_VOICE_CONTEXT]["screen"] == "one_home"
     assert observed["state"][STATE_PKM_CONTEXT] == "bounded context"
 

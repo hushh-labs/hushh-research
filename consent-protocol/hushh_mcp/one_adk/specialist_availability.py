@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
+from hushh_mcp.services.action_gateway import is_delegate_entrypoint_admitted
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
 
 SpecialistAvailabilityState = Literal[
@@ -68,6 +69,7 @@ def resolve_specialist_availability(
     user_id: str,
     consent_token: str,
     voice_context: object,
+    entrypoint: str | None = None,
 ) -> SpecialistAvailabilityV1:
     """Resolve a specialist's callable state from redacted current context."""
     context = voice_context if isinstance(voice_context, dict) else {}
@@ -117,6 +119,12 @@ def resolve_specialist_availability(
         return result("needs_auth", "signed_in_user_required")
     if not consent_token:
         return result("vault_locked", "vault_authority_required")
+
+    clean_entrypoint = str(entrypoint or "").strip()
+    if clean_entrypoint:
+        if is_delegate_entrypoint_admitted(agent_id, clean_entrypoint):
+            return result("ready", f"{clean_entrypoint}_entrypoint_admitted")
+        return result("route_not_admitted", "entrypoint_specialist_not_admitted")
 
     admission = is_one_delegate_admitted(route_family, agent_id) if route_family else None
     if admission is False:
