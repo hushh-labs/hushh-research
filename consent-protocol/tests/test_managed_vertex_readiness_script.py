@@ -26,3 +26,7 @@ def test_readiness_script_imports_from_an_uninstalled_container_checkout() -> No
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_readiness_probe_has_cold_response_headroom() -> None:
+    assert "PROBE_TIMEOUT_SECONDS = 25" in SCRIPT_PATH.read_text(encoding="utf-8")

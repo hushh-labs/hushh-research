@@ -18,6 +18,8 @@ from google.genai import types  # noqa: E402
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
 from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding  # noqa: E402
 
+PROBE_TIMEOUT_SECONDS = 25
+
 
 def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
     """Resolve probe targets from authored manifests, never a duplicate list."""
@@ -81,7 +83,7 @@ async def main() -> None:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             ),
-            timeout=10,
+            timeout=PROBE_TIMEOUT_SECONDS,
         )
 
     async def probe_adk_text(model: str, location: str) -> None:
@@ -102,14 +104,14 @@ async def main() -> None:
                 return
             raise RuntimeError("ADK managed Vertex probe returned no response")
 
-        await asyncio.wait_for(consume_first_response(), timeout=10)
+        await asyncio.wait_for(consume_first_response(), timeout=PROBE_TIMEOUT_SECONDS)
 
     async def probe_live_setup() -> None:
         manager = live_client.aio.live.connect(
             model=live_model,
             config=types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO]),
         )
-        await asyncio.wait_for(manager.__aenter__(), timeout=10)
+        await asyncio.wait_for(manager.__aenter__(), timeout=PROBE_TIMEOUT_SECONDS)
         await manager.__aexit__(None, None, None)
 
     await asyncio.gather(
