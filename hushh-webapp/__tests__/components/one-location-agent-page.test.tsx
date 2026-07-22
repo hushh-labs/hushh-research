@@ -1817,6 +1817,9 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     // The populated People tab exposes a compact "Sync contacts" circle action.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(
+      await screen.findByRole("button", { name: /Add Connections/i }),
+    ).toBeTruthy();
     fireEvent.click(
       await screen.findByRole("button", { name: /Sync contacts/i }),
     );
@@ -1942,8 +1945,11 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Trusted Circle");
-    // New empty-state: Trusted Circle SectionCard with invite/sync/share buttons
-    // + trust note. "Ask someone to share" is populated-state-only.
+    // Empty state keeps connection management, invite/sync/share actions, and
+    // the trust note visible. "Ask someone to share" is populated-state-only.
+    expect(
+      screen.getByRole("button", { name: /Add Connections/i }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Invite trusted person/i }),
     ).toBeTruthy();
@@ -1952,6 +1958,13 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: /Share to contacts/i }),
     ).toBeTruthy();
     expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+
+    mockRouterPush.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Add Connections/i }),
+    );
+    expect(mockRouterPush).toHaveBeenCalledWith("/one/connect");
+
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
       await screen.findByRole("button", { name: /Create a new link/i }),
