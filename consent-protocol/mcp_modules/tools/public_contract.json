@@ -395,21 +395,21 @@
             "type": "integer"
           },
           "connector_key_id": {
-            "description": "Optional legacy connector key identifier. When supplied, it must exactly match this app's registered key identifier.",
+            "description": "Optional connector key identifier. Supply it with the public key and wrapping algorithm for an unregistered connector; a registered app may omit it or must supply the exact registered value.",
             "maxLength": 128,
             "minLength": 1,
             "title": "Connector key identifier",
             "type": "string"
           },
           "connector_public_key": {
-            "description": "Optional legacy connector X25519 public key. When supplied, it must exactly match this app's registered key.",
+            "description": "Optional connector X25519 public key. An unregistered connector supplies the complete key bundle per request; a registered app may omit it or must supply the exact registered value.",
             "maxLength": 128,
             "minLength": 40,
             "title": "Connector public key",
             "type": "string"
           },
           "connector_wrapping_alg": {
-            "description": "Optional legacy wrapping algorithm. When supplied, it must be X25519-AES256-GCM and match this app's registered key.",
+            "description": "Optional wrapping algorithm. It must be X25519-AES256-GCM and is supplied with an unregistered connector key bundle; a registered app may omit it or must supply the exact registered value.",
             "enum": [
               "X25519-AES256-GCM"
             ],
@@ -685,10 +685,10 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "title": "Get encrypted scoped export"
       },
-      "description": "Retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
+      "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
@@ -733,7 +733,7 @@
             "type": "string"
           },
           "delivery": {
-            "description": "Delivery mode. Hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local.",
+            "description": "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context.",
             "title": "Delivery mode",
             "type": "string"
           },
@@ -768,7 +768,7 @@
             "type": "string"
           },
           "information_json": {
-            "description": "Locally decrypted information JSON. Present only for a trusted local stdio connector; hosted responses return an empty string.",
+            "description": "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
             "maxLength": 120000,
             "title": "Locally decrypted information JSON",
             "type": "string"

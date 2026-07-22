@@ -40,19 +40,23 @@ if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
 
 INTEGRATION_TARGET_GENERIC = "generic"
 INTEGRATION_TARGET_MULESOFT_AGENTFORCE = "mulesoft-agentforce"
+INTEGRATION_TARGET_SALESFORCE_AGENTEXCHANGE = "salesforce-agentexchange"
 
 
 def _apply_integration_defaults(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Apply a named partner integration without changing the global default.
 
     Every application receives the same canonical five-tool catalog. The named
-    MuleSoft → Agentforce target issues an app-bound OAuth credential that can
+    Salesforce connector targets issue an app-bound OAuth credential that can
     execute the same consent lifecycle as bearer and PKCE. Client credentials
     authenticate the partner application; user approval and the scoped grant
     remain the authority for any information release.
     """
 
-    if args.integration_target != INTEGRATION_TARGET_MULESOFT_AGENTFORCE:
+    if args.integration_target not in {
+        INTEGRATION_TARGET_MULESOFT_AGENTFORCE,
+        INTEGRATION_TARGET_SALESFORCE_AGENTEXCHANGE,
+    }:
         return
     args.enable_client_credentials = True
     args.client_credentials_execution_mode = "execute"
@@ -88,11 +92,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--integration-target",
-        choices=(INTEGRATION_TARGET_GENERIC, INTEGRATION_TARGET_MULESOFT_AGENTFORCE),
+        choices=(
+            INTEGRATION_TARGET_GENERIC,
+            INTEGRATION_TARGET_MULESOFT_AGENTFORCE,
+            INTEGRATION_TARGET_SALESFORCE_AGENTEXCHANGE,
+        ),
         default=INTEGRATION_TARGET_GENERIC,
         help=(
-            "Named partner integration. mulesoft-agentforce provisions an executable "
-            "client-credentials credential; consent approval still gates information release."
+            "Named partner integration. mulesoft-agentforce and salesforce-agentexchange "
+            "provision executable client-credentials credentials; consent approval still "
+            "gates information release."
         ),
     )
     parser.add_argument(

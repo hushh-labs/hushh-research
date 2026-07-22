@@ -119,19 +119,19 @@ _PURPOSE_INPUT = _field(
 )
 _CONNECTOR_KEY_INPUT = _field(
     "string",
-    "Optional legacy connector X25519 public key. When supplied, it must exactly match this app's registered key.",
+    "Optional connector X25519 public key. An unregistered connector supplies the complete key bundle per request; a registered app may omit it or must supply the exact registered value.",
     minLength=40,
     maxLength=128,
 )
 _CONNECTOR_KEY_ID_INPUT = _field(
     "string",
-    "Optional legacy connector key identifier. When supplied, it must exactly match this app's registered key identifier.",
+    "Optional connector key identifier. Supply it with the public key and wrapping algorithm for an unregistered connector; a registered app may omit it or must supply the exact registered value.",
     minLength=1,
     maxLength=128,
 )
 _CONNECTOR_ALGORITHM_INPUT = _field(
     "string",
-    "Optional legacy wrapping algorithm. When supplied, it must be X25519-AES256-GCM and match this app's registered key.",
+    "Optional wrapping algorithm. It must be X25519-AES256-GCM and is supplied with an unregistered connector key bundle; a registered app may omit it or must supply the exact registered value.",
     enum=["X25519-AES256-GCM"],
 )
 
@@ -605,7 +605,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "delivery": _field(
                             "string",
-                            "Delivery mode. Hosted connectors, including MuleSoft and Agentforce relays, receive encrypted_inline; trusted local stdio may receive decrypted_local.",
+                            "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context.",
                         ),
                         "expected_scope": _field(
                             "string", "Scope requested for this export.", maxLength=200

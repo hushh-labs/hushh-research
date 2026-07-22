@@ -51,29 +51,21 @@ npx -y @hushh/mcp --help
 
 ### One canonical catalog and authentication
 
-The same `/mcp/` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, MuleSoft, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
+The same `/mcp/` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
 Every tool uses shallow, fully described JSON Schema. Successful calls return `structuredContent` as the canonical result and `content[0].text` as its compatibility mirror. Execution errors return `isError: true` with safe JSON text only, so a strict client never validates an error against a success output schema.
 
-### MuleSoft Exchange and Agentforce registration
+### Salesforce AgentExchange trusted connector
 
-When MuleSoft publishes Hussh into Agentforce, use **Upload MCP file** and upload the generated Exchange projection:
-
-```bash
-hushh-mcp --print-mulesoft-exchange-manifest
-```
-
-The saved artifact is `gateway/hushh-mulesoft-exchange-mcp-schema.json`. It contains only Exchange-supported MCP fields, the same five canonical tools, and an open object output schema. It deliberately has no endpoint URL, OAuth material, host metadata, or annotations because Exchange rejects those fields before it can authenticate to Hussh.
-
-Configure a dedicated Hussh execute application's OAuth client ID and secret separately in MuleSoft's upstream connection to `https://api.uat.hushh.ai/mcp/`. MuleSoft is then the registered Agentforce boundary. Agentforce does not receive the Hussh secret.
+An installed Salesforce package uses a dedicated Hussh execute app per Salesforce org. Its trusted connector runtime is the single decryption source: it generates/imports an X25519 key pair after installation, retains the private key outside Agentforce, and supplies or registers only the public key with Hussh. Agentforce does not receive the Hussh secret or a connector private key.
 
 `hushh-mcp --print-agentforce-manifest` remains a diagnostic preflight view of the canonical five-tool catalog. It is not the file to upload to Exchange.
 
-MuleSoft maps successful `structuredContent` into Agentforce actions and does not pass its text mirror as a second planner result. The Exchange registration keeps the five generated tools, while MuleSoft MCP Global Access hides and blocks `get-encrypted-scoped-export` at the Agentforce-facing edge; it is a secure Mule connector subflow, not an LLM action. The separate `hushh-mcp --print-mulesoft-agentforce-handoff` output is relay guidance, not a deployable Mule flow and not an application credential.
+The trusted connector uses all five tools internally. Agentforce receives the connector's single deterministic action result, not individual personalized Hussh tools; Hussh does not publish a four-tool variant. `get-encrypted-scoped-export` stays in the single trusted connector runtime and out of the Agentforce planner/LLM. Successful MCP calls use `structuredContent`; `content[0].text` is only its compatibility mirror. Use `hushh-mcp --print-salesforce-agentexchange-handoff` for the current package-boundary guidance.
 
-Direct Agentforce profiles are catalog-only because Salesforce documents no user-level authentication or personalized MCP responses. A MuleSoft upstream execute application does not remove that host-product limitation. Implement the exact two-hop OAuth, key custody, crypto, tool policy, and UAT gate in [MuleSoft and Agentforce secure relay](../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md).
+Direct Agentforce profiles are catalog-only. A trusted connector execute application does not remove direct-host limits; validate the installed package in the target org before enabling personal-information delivery. Implement key custody, crypto, tool policy, and the UAT gate in [Salesforce AgentExchange trusted connector](../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md).
 
-Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5), and [MuleSoft MCP servers in API Catalog](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mulesoft_mcp_servers.htm&language=en_US&type=5).
+Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&type=5), and [API Catalog MCP servers](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mcp_servers.htm&language=en_US&type=5).
 
 Minimal env for stdio hosts:
 

@@ -1,14 +1,15 @@
-"""Agentforce lint and handoff for the canonical Hussh consent MCP catalog.
+"""Agentforce lint and trusted-connector handoff for Hussh Consent MCP.
 
 Agentforce receives the same five generated tools and schemas as every other
 host. This module verifies the Salesforce-safe subset and publishes a
-non-secret MuleSoft handoff; it does not define a second endpoint or catalog.
+non-secret Salesforce trusted-connector handoff; it does not define a second
+endpoint or catalog.
 
-The direct Agentforce profile is catalog-only because Salesforce does not
-provide user-level MCP authentication. A MuleSoft secure relay uses its own
-operations-provisioned ``execute`` principal upstream, while Hussh keeps the
-person-specific authority in explicit consent, scoped grants, and encrypted
-delivery. No client credential becomes a synthetic user identity.
+The direct Agentforce profile is catalog-only. The Salesforce-side
+AgentExchange trusted connector uses its own operations-provisioned ``execute``
+principal upstream. Hussh keeps person-specific authority in explicit consent,
+scoped grants, and encrypted delivery. No client credential becomes a synthetic
+user identity.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ AGENTFORCE_PROFILE = "agentforce"
 AGENTFORCE_MAX_TOOLS = 20
 AGENTFORCE_MAX_PROPERTY_CHARS = 255
 AGENTFORCE_MAX_REQUEST_SECONDS = 55.0
+SALESFORCE_AGENTEXCHANGE_INTEGRATION_TARGET = "salesforce-agentexchange"
 MULESOFT_AGENTFORCE_INTEGRATION_TARGET = "mulesoft-agentforce"
 
 # Salesforce's current external-MCP documentation permits letters, numbers,
@@ -46,20 +48,19 @@ def canonical_agentforce_tool_name(name: str) -> str | None:
     return canonical_tool_name(name)
 
 
-def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
-    """Return the non-secret relay contract for MuleSoft to Agentforce.
+def get_salesforce_agentexchange_handoff() -> dict[str, Any]:
+    """Return the non-secret contract for a Salesforce trusted connector.
 
-    This is an integration handoff, not a deployable Mule configuration. It
-    deliberately captures the constraints MuleSoft must preserve when it
-    publishes Hussh into Salesforce API Catalog. MuleSoft changes discovery,
-    routing, and policy ownership; it does not relax Agentforce MCP-client
-    limits or turn its app credentials into an end-user identity.
+    This is implementation guidance, not a deployable Salesforce package,
+    Mule flow, credential, or key. The installed connector runtime is the
+    decryption boundary. AgentExchange distributes that runtime; it does not
+    hold a universal connector private key.
     """
 
     tool_allowlist = list(get_agentforce_tool_names())
     connector_delivery_tool = "get-encrypted-scoped-export"
     return {
-        "integrationTarget": MULESOFT_AGENTFORCE_INTEGRATION_TARGET,
+        "integrationTarget": SALESFORCE_AGENTEXCHANGE_INTEGRATION_TARGET,
         "supportStatus": "agentforce-catalog-compatible",
         "upstream": {
             "transport": "streamable-http",
@@ -77,13 +78,9 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
                 "catalogOnly": True,
                 "directPersonalizedToolCalls": "blocked",
                 "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
-                "muleControlPlaneTools": [
-                    tool for tool in tool_allowlist if tool != connector_delivery_tool
-                ],
                 "agentforceActionDefault": "no-personalized-consent-actions",
-                "salesforceApprovedUatActionAllowlist": [
-                    tool for tool in tool_allowlist if tool != connector_delivery_tool
-                ],
+                "plannerExposure": "no-personalized-hussh-tools",
+                "trustedConnectorTools": tool_allowlist,
                 "connectorOnlyTool": connector_delivery_tool,
                 "connectorOnlyReason": (
                     "The encrypted export is delivered to the registered connector and "
@@ -91,22 +88,38 @@ def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
                 ),
             },
         },
-        "relayRequirements": {
+        "connectorRequirements": {
             "preserveToolNames": True,
             "preserveInputOutputSchemas": True,
             "allowResources": False,
             "allowPrompts": False,
             "expandNestedFields": False,
+            "keyCustody": "per-org-connector-runtime",
+            "privateKeyInAgentforceModel": False,
         },
         "executionBoundary": {
             "directAgentforceExecution": "catalog-only",
-            "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+            "trustedConnectorExecution": "operations-provisioned-execute-principal",
             "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
             "applicationAuthentication": "oauth2-client-credentials-per-hop",
             "userAuthority": "explicit-consent-and-scoped-grant",
             "informationDelivery": "encrypted-export-after-approval",
         },
     }
+
+
+def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
+    """Return the retained MuleSoft implementation view of the generic handoff.
+
+    Kept for existing CLI consumers. New integrations should consume
+    :func:`get_salesforce_agentexchange_handoff` and select MuleSoft only when
+    it is their trusted connector runtime.
+    """
+
+    handoff = get_salesforce_agentexchange_handoff()
+    handoff["integrationTarget"] = MULESOFT_AGENTFORCE_INTEGRATION_TARGET
+    handoff["implementation"] = "mulesoft-secure-relay"
+    return handoff
 
 
 def get_agentforce_contract() -> dict[str, Any]:

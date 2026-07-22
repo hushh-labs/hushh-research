@@ -90,10 +90,12 @@ They authenticate only the partner application and never create a synthetic
 user subject. The supplied user identifier selects the consent subject;
 explicit approval and a valid scoped grant remain mandatory before encrypted
 information delivery. The direct Agentforce profile is catalog-only and returns
-`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. A MuleSoft execute
-application is a separate upstream principal, not a workaround for
-Salesforce's current lack of user-level MCP authentication and support for
-personalized responses. See [MuleSoft and Agentforce secure relay](./mulesoft-agentforce-secure-relay.md).
+`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. A Salesforce
+AgentExchange trusted connector is a separate upstream principal, not a
+workaround for direct-host limitations: it performs the consent lifecycle and
+decryption outside the Agentforce model with its own per-org app and connector
+key. See [Salesforce AgentExchange trusted
+connector](./mulesoft-agentforce-secure-relay.md).
 Register an exact
 HTTPS redirect URI for PKCE first; loopback HTTP is permitted solely for local
 development. Client secrets, authorization codes, access tokens, refresh
@@ -165,10 +167,11 @@ Authorization: Bearer <developer-token>
 ```
 
 For the raw HTTP developer API, the connector fields are required unless the
-developer app has an active registered connector bundle. Registered apps may
-omit the fields; any supplied legacy bundle must match the app's public key,
-key id, and wrapping algorithm exactly. This prevents one app from rebinding a
-grant to another connector key. Hussh never manages the connector private key.
+developer app has an active registered connector bundle. An unregistered
+standard/flat execute app supplies the complete bundle per request. Registered
+apps may omit it; any supplied bundle must match the app's public key, key ID,
+and wrapping algorithm exactly. This prevents one app from rebinding a grant to
+another connector key. Hussh never manages the connector private key.
 
 ### 3. Poll status
 
@@ -419,8 +422,11 @@ async function decryptScopedExport(
 The connector private key must correspond to the exact public key and
 `connector_key_id` supplied in the approved consent request. If that private
 key is unavailable, create and securely retain a new connector key pair, then
-request fresh consent and fetch a new export. Never send a connector private
-key in a request, chat, log, or support ticket.
+request fresh consent and fetch a new export. For a Salesforce AgentExchange
+connector, key generation/import happens after installation in that org's
+trusted connector runtime; the package, Agentforce model, and Hussh never
+receive the private key. Never send a connector private key in a request,
+chat, log, or support ticket.
 
 If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON locally to the requested subtree before using it.
 
