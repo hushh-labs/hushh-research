@@ -138,6 +138,8 @@ type UseSetupCapabilityCoordinatorParams = {
   journeyMode?: SetupCapabilityJourneyMode;
   /** Feature-owned terminals may use a stable authored control id. */
   terminalControlId?: (ready: boolean) => string;
+  /** Auto-settling experiences publish the action without inventing a button. */
+  terminalPresentation?: "explicit" | "automatic";
 };
 
 const SETUP_CAPABILITY_SCREEN: Record<OneSetupCapabilityId, string> = {
@@ -182,6 +184,7 @@ export function useSetupCapabilityCoordinator({
   screenId,
   journeyMode = "auto",
   terminalControlId,
+  terminalPresentation = "explicit",
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -505,7 +508,7 @@ export function useSetupCapabilityCoordinator({
                   : "Leave this capability pending and return to setup.",
               },
             ],
-            controls: settlementBlocked ? [] : [
+            controls: settlementBlocked || terminalPresentation === "automatic" ? [] : [
               {
                 id:
                   terminalControlId?.(operationallyReady) ||
@@ -528,6 +531,7 @@ export function useSetupCapabilityCoordinator({
       settlementBlocked,
       screenId,
       terminalControlId,
+      terminalPresentation,
       visibleActionId,
       visibleLabel,
     ],

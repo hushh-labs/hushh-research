@@ -17,6 +17,7 @@ export function LocationOnboardingSetupClient() {
     isOperationallyReady: ready,
     finishActionId: "setup.finish_location",
     skipActionId: "setup.skip_location",
+    terminalPresentation: "automatic",
   });
 
   if (!coordinator.isReady)
