@@ -3569,6 +3569,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/location/map",
+      "page_file": "app/one/location/map/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": null,
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.location.map",
+          "purpose": "Show authorized shared locations on an immersive map without proposing unavailable controls.",
+          "screen": "one_location_map",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that a shared location is unavailable.",
+            "cancelled": "Return to the Location hub.",
+            "failed": "Keep the map state safe and offer a retry.",
+            "timeout": "Keep the current map visible and offer a retry.",
+            "callback_error": "Return to the Location hub.",
+            "route_mismatch": "Use the verified current route."
+          },
+          "completion_boundary": "No location is captured until the person taps Locate me.",
+          "next_route": "/one/location",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally without inventing a map control."
+        }
+      },
+      "native": {
+        "route": "/one/location/map",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fmap",
+        "expectedMarker": "native-route-one-location-map",
+        "expectedRoute": "/one/location/map",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "availability": "temporarily unavailable pending secure native Maps provisioning",
+        "coordinate_storage": "none; the paused route does not load or decrypt coordinates",
+        "location_capture": "not available while Maps is paused"
+      }
+    },
+    {
       "route": "/one/location/request/[token]",
       "page_file": "app/one/location/request/[token]/page.tsx",
       "physical_page_exists": true,
@@ -7237,5 +7303,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8daedd88eb6818aec3c0070d28fe5d6a9c0e98441083d1475591f78d5f16db7a"
+  "content_sha256": "edd59857b7aef3a1d30eabf945b9d335b9ca8f1d2136f7b2f6c4443c4f6b4013"
 }

@@ -117,6 +117,11 @@ own sandbox typically does not have. On this transport only:
   returning only a bounded `information` object. Ciphertext and wrapped-key metadata
   never enter the LLM host's context. Results that exceed
   the model-result limit require a narrower semantic scope.
+- For the exact `attr.financial.documents.*` scope, the local connector applies
+  the fixed linear-time `financial_statement_bundle.v1` projection after
+  decryption. The `information` object contains top-level `statements` and
+  `holdings` arrays joined by `statement_ref`; no LLM or caller-provided schema
+  participates in the projection.
 - `request_consent` no longer requires `connector_public_key`,
   `connector_key_id`, or `connector_wrapping_alg`: the local server generates
   and persists its own X25519 keypair on first use (default

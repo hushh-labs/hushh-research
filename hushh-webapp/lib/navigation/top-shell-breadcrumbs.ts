@@ -54,9 +54,9 @@ function oneLocationActionLabel(action: string): string {
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
-    "drive-to": "Drive To",
-    "pick-me-up": "Pick Me Up",
-    "safe-arrival": "Safe Arrival",
+    "active-shares": "Active shares",
+    "shared-with-me": "Shared with me",
+    "needs-review": "Needs my review",
     sos: "Safety",
     privacy: "Privacy",
   };
@@ -547,11 +547,24 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.ONE_LOCATION_MAP) {
+    return {
+      backHref: ROUTES.ONE_LOCATION,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Location", href: ROUTES.ONE_LOCATION },
+        { label: "Your Map" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
-    // A Location quick-action flow (Check-In, Drive To, Pick Me Up, Safe
-    // Arrival, SOS/Alert, Share, Ask, Invite, Privacy, Temp link) is a
+    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // temporary link, or a focused detail view) is a
     // sub-screen of the Location hub, tracked via `?action=…`. While one is
     // open, the SINGLE top-left back button must return to the Location hub
     // (strip the action param) rather than leaving to /one. This is the only

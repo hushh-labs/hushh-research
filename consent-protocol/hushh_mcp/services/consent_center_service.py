@@ -53,6 +53,15 @@ def _one_location_consent_center_enabled() -> bool:
     return True
 
 
+def _consent_summary_v2_enabled() -> bool:
+    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 class ConsentCenterService:
     """Compose investor + RIA consent surfaces into one UI/MCP read model."""
 
@@ -1787,31 +1796,108 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
-        # Fetch the three surface counts concurrently instead of serially. Each
-        # count does its own DB work (and identity hydration), so running them
-        # one-after-another tripled the request latency and held pool
-        # connections far longer than needed, which exhausted the pool under
-        # load and produced cascading connection-acquire timeouts.
-        pending_count, active_count, previous_count = await asyncio.gather(
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="pending",
-                mode=normalized_mode,
-            ),
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="active",
-                mode=normalized_mode,
-            ),
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="previous",
-                mode=normalized_mode,
-            ),
-        )
+        if not _consent_summary_v2_enabled():
+            pending_count, active_count, previous_count = await asyncio.gather(
+                *(
+                    self._get_surface_count(
+                        user_id,
+                        actor=normalized_actor,
+                        surface=surface,
+                        mode=normalized_mode,
+                    )
+                    for surface in ("pending", "active", "previous")
+                )
+            )
+        elif normalized_mode == "connections":
+            entries = await self._load_connection_entries_for_actor(user_id, actor=normalized_actor)
+            pending_count, active_count, previous_count = (
+                sum(
+                    1
+                    for entry in entries
+                    if self._connection_surface_for_status(
+                        str(entry.get("relationship_state") or entry.get("status") or "")
+                    )
+                    == surface
+                )
+                for surface in ("pending", "active", "previous")
+            )
+        elif normalized_actor == "investor":
+            (
+                location_buckets,
+                marketplace_buckets,
+                pending_entries,
+                active_entries,
+                previous_entries,
+                connection_count,
+            ) = await asyncio.gather(
+                self._location_buckets_async(user_id),
+                self._marketplace_buckets_async(user_id),
+                self._load_investor_pending_entries(user_id),
+                self._load_investor_active_entries(user_id),
+                self._load_investor_previous_entries(user_id),
+                self._incoming_connection_request_count(user_id),
+            )
+
+            def contributor_count(surface: str) -> int:
+                bucket = {
+                    "pending": "incoming_requests",
+                    "active": "active_grants",
+                    "previous": "history",
+                }[surface]
+                return len(location_buckets[bucket]) + len(marketplace_buckets[bucket])
+
+            pending_count = (
+                len(
+                    self._collapse_consent_chains(
+                        self._filter_mode_entries(
+                            pending_entries,
+                            actor=normalized_actor,
+                            mode=normalized_mode,
+                        )
+                    )
+                )
+                + contributor_count("pending")
+                + connection_count
+            )
+            active_count = len(
+                self._collapse_consent_chains(
+                    self._filter_mode_entries(
+                        active_entries,
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
+            ) + contributor_count("active")
+            previous_count = len(
+                self._group_history_identifier_trails(
+                    self._filter_mode_entries(
+                        previous_entries,
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
+            ) + contributor_count("previous")
+        else:
+            pending_count, active_count, previous_count = await asyncio.gather(
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="pending",
+                    mode=normalized_mode,
+                ),
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="active",
+                    mode=normalized_mode,
+                ),
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="previous",
+                    mode=normalized_mode,
+                ),
+            )
         return {
             "user_id": user_id,
             "actor": normalized_actor,

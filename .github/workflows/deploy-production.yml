@@ -302,7 +302,7 @@ jobs:
 
           (
             cd consent-protocol
-            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
+            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
           )
 
       - name: Migration governance and DB drift gate

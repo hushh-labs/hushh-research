@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-07-19",
-  "total_routes": 95,
-  "native_required_routes": 87,
+  "total_routes": 96,
+  "native_required_routes": 88,
   "excluded_routes": 8,
   "routes": [
     {
@@ -505,6 +505,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Flocation",
       "expectedMarker": "native-route-one-location",
       "expectedRoute": "/one/location",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/location/map",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fmap",
+      "expectedMarker": "native-route-one-location-map",
+      "expectedRoute": "/one/location/map",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

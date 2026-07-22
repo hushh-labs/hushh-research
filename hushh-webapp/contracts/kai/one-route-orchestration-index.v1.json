@@ -2283,6 +2283,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/location/map",
+      "page_file": "app/one/location/map/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.location.map",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.location.map",
+        "purpose": "Show authorized shared locations on an immersive map without proposing unavailable controls.",
+        "screen": "one_location_map",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that a shared location is unavailable.",
+          "cancelled": "Return to the Location hub.",
+          "failed": "Keep the map state safe and offer a retry.",
+          "timeout": "Keep the current map visible and offer a retry.",
+          "callback_error": "Return to the Location hub.",
+          "route_mismatch": "Use the verified current route."
+        },
+        "completion_boundary": "No location is captured until the person taps Locate me.",
+        "next_route": "/one/location",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally without inventing a map control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_location_map",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-location-map"
+    },
+    {
       "route_pattern": "/one/location/request/[token]",
       "page_file": "app/one/location/request/[token]/page.tsx",
       "route_mode": "hidden",

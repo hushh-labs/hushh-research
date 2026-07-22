@@ -29,6 +29,12 @@ DROP_TABLE_RE = re.compile(
     r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-zA-Z_][\w]*)",
     re.IGNORECASE,
 )
+TABLE_EVENT_RE = re.compile(
+    r"\b(?:(?:CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"
+    r"(?P<create>[a-zA-Z_][\w]*))|(?:DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"
+    r"(?:public\.)?(?P<drop>[a-zA-Z_][\w]*)))",
+    re.IGNORECASE,
+)
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
 SUPABASE_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
 
@@ -54,11 +60,13 @@ def _migration_tables() -> OrderedDict[str, list[str]]:
     tables: OrderedDict[str, list[str]] = OrderedDict()
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
         text = migration.read_text(encoding="utf-8", errors="ignore")
-        for match in CREATE_TABLE_RE.finditer(text):
-            table_name = match.group(1)
-            tables.setdefault(table_name, []).append(migration.name)
-        for match in DROP_TABLE_RE.finditer(text):
-            tables.pop(match.group(1), None)
+        for match in TABLE_EVENT_RE.finditer(text):
+            created = match.group("create")
+            dropped = match.group("drop")
+            if created:
+                tables.setdefault(created, []).append(migration.name)
+            elif dropped:
+                tables.pop(dropped, None)
     return tables
 
 
@@ -123,6 +131,34 @@ def _validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"{family_id}:invalid_data_class:{family.get('data_class')}")
         if not family.get("exact_tables") and not family.get("glob_tables"):
             errors.append(f"{family_id}:missing_table_matcher")
+    required_retention_families = {
+        "kai_gmail_receipts_provider_cache",
+        "kai_brokerage_provider_cache",
+        "pkm_encrypted_memory",
+        "one_action_directive_authority",
+        "one_location_agent",
+        "information_marketplace_requests",
+        "one_email_kyc_workflow",
+        "funding_trading_audit",
+    }
+    retention_registry = contract.get("retention_registry", [])
+    registered_families: set[str] = set()
+    seen_jobs: set[str] = set()
+    for entry in retention_registry:
+        family_id = str(entry.get("family_id") or "").strip()
+        job_id = str(entry.get("job_id") or "").strip()
+        if family_id not in seen_ids:
+            errors.append(f"retention_registry:unknown_family:{family_id or 'missing'}")
+        if family_id in registered_families:
+            errors.append(f"retention_registry:duplicate_family:{family_id}")
+        if not job_id or job_id in seen_jobs:
+            errors.append(f"retention_registry:invalid_job:{job_id or 'missing'}")
+        if entry.get("mode") != "report_only":
+            errors.append(f"retention_registry:non_report_only:{family_id}")
+        registered_families.add(family_id)
+        seen_jobs.add(job_id)
+    for missing in sorted(required_retention_families - registered_families):
+        errors.append(f"retention_registry:missing_family:{missing}")
     return errors
 
 

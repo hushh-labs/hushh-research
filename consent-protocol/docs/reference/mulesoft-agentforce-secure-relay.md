@@ -243,6 +243,16 @@ For a successful Hussh tool result, MuleSoft treats `structuredContent` as the
 one canonical result. `content[0].text` is the serialized compatibility mirror
 and must not be sent to Agentforce as a second answer.
 
+After validating and decrypting a financial-documents export, the trusted
+connector can apply Hussh's fixed `financial_statement_bundle.v1` projection.
+It produces top-level `statements` and `holdings` arrays joined by
+`statement_ref`, omits unavailable optional values, and performs no LLM call or
+request-time schema mapping. The connector's separate Agentforce-facing action
+returns that normalized object as `structuredContent` and an exact compact JSON
+mirror in `content[0].text`. This projection is connector output; it does not
+change the encrypted `get-encrypted-scoped-export` result or the five-tool
+consent lifecycle.
+
 For a tool execution error, Hussh returns `isError: true` and one safe JSON
 text content item. It intentionally omits `structuredContent`: error fields
 such as `error_code` and `next_action` cannot conform to a tool's strict

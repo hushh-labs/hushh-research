@@ -416,24 +416,24 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one");
   });
 
-  it("returns the single top-bar back button to the Location hub while a quick-action flow is open", () => {
-    // Location quick-action screens (Check-In, Drive To, Pick Me Up, Safe
-    // Arrival, SOS/Alert, Share, Ask, Invite, Privacy, Temp link) are tracked
+  it("returns the single top-bar back button to the Location hub while a focused flow is open", () => {
+    // Location focused screens (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // Temp link, and share details) are tracked
     // via /one/location?action=<slug>. The one top-left back button must return
     // to the Location hub (strip the action param) rather than leaving to /one —
     // this is the fix for the "two back buttons" UX. The in-content back arrows
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
-      ["drive-to", "Drive To"],
-      ["pick-me-up", "Pick Me Up"],
-      ["safe-arrival", "Safe Arrival"],
       ["sos", "Safety"],
       ["share", "Share location"],
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["privacy", "Privacy"],
+      ["active-shares", "Active shares"],
+      ["shared-with-me", "Shared with me"],
+      ["needs-review", "Needs my review"],
     ];
 
     for (const [action, label] of cases) {

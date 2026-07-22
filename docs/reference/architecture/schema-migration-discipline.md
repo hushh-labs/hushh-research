@@ -34,6 +34,15 @@ Each step is independently deployable and reversible: if step 4 misbehaves, roll
 4. **Large indexes build without blocking writes** (`CREATE INDEX CONCURRENTLY`).
 5. **Risky cutovers decouple from code by feature flag** so the read-switch can be reverted without a deploy.
 6. **Scale-plane seam noted per mechanism** (AGENTS.md doctrine #4): every new Postgres-backed shared-state mechanism documents its Redis/Memorystore upgrade path in code comments or the owning doc — the expand/contract discipline applies to that future swap too.
+7. **Applied history is immutable.** Accepted migration IDs, filenames, and
+   SHA-256 checksums are ledgered under a Postgres advisory lock. Never edit a
+   baselined migration; add a new migration.
+8. **Ledger mode requires preservation evidence.** An environment cannot enter
+   pending-only execution until a checksummed backup has been restored to an
+   isolated clone and the exact/additive zero-loss comparisons have passed.
+9. **Runtime credentials do not own schema.** Runtime `ensure_table` calls are
+   temporary compatibility assertions only; migrate equivalent DDL into the
+   canonical baseline before removing DDL privilege from the runtime role.
 
 ## Rationalizations, rebutted
 

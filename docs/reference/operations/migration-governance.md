@@ -13,6 +13,54 @@ The only canonical release lane is:
 
 Everything else is supporting material, not release authority.
 
+Migration execution authority is implemented by:
+
+- `consent-protocol/db/migration_authority.py`
+- `consent-protocol/db/foundations/schema_migrations_v2.sql`
+
+The SQL migration files remain the authored schema history. The ledger records
+which immutable checksums an environment has accepted; it is not a second
+authored manifest.
+
+## Execution Modes
+
+- `replay` preserves the historical replay-all behavior. It remains the repo
+  and production default until a separately approved production cutover.
+- `observe` acquires the migration advisory lock, creates/reads the additive
+  ledger authority, and validates any recorded checksums. It executes no
+  migration bodies.
+- `ledger` requires a verified baseline marker and executes only pending
+  migrations. It fails closed when the baseline is absent or an accepted
+  checksum changes.
+
+UAT mode is controlled independently from production. Turning on `ledger` is
+not a normal deploy flag change: it requires the zero-loss baseline procedure
+below.
+
+## UAT Zero-Loss Baseline Gate
+
+Before establishing a UAT baseline:
+
+1. capture the read-only preservation manifest with
+   `scripts/ops/db_preservation_manifest.py`;
+2. create and independently checksum a fresh immutable logical backup;
+3. restore that exact checksum into a named isolated clone using
+   `scripts/ops/restore_logical_backup_clone.py`;
+4. prove exact clone parity, then run the additive preservation comparison;
+5. complete the PKM zero-loss and reviewer readback gates;
+6. enter the approved bounded UAT write-freeze and capture final evidence;
+7. establish the baseline marker against the same database identity;
+8. switch UAT to `ledger`, re-enable writes, and verify a second run executes
+   zero migration bodies.
+
+Evidence is accepted only when the source identity, clone comparison, backup
+checksum, catalog digest, information digests, and freshness window all match.
+The dump and restore clients must use the source PostgreSQL major version;
+operators set `PG_DUMP_BIN` and `PG_RESTORE_BIN` explicitly when the host
+default differs.
+Reports remain under ignored `tmp/` and never contain plaintext protected
+information. Production is explicitly outside this cutover.
+
 ## Environment Contract Model
 
 - `uat_integrated_schema.json`
@@ -102,6 +150,7 @@ Do not use as:
 ./bin/hushh db verify-uat-schema
 ./bin/hushh db report-prod-posture
 ./bin/hushh codex data-model-audit
+python3 consent-protocol/db/migrate.py --release --migration-mode observe
 ```
 
 Meaning:

@@ -179,6 +179,9 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_path": args.plaid_redirect_path,
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
+        "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
+        "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
     }
     return _drop_empty(config)
 
@@ -222,6 +225,9 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-path", default="")
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
+    parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--consent-center-summary-v2-enabled", default="false")
+    parser.add_argument("--db-bulk-batching-enabled", default="false")
     args = parser.parse_args()
 
     sync_summary: list[str] = []

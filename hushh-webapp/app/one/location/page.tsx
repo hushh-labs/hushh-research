@@ -9,6 +9,7 @@ import {
   type ComponentProps,
   type MutableRefObject,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -139,7 +140,14 @@ import {
   LocationRedesignHub,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
+import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+import {
+  clearLocationWorkspaceMemory,
+  readLocationWorkspaceMemory,
+  writeLocationWorkspaceMemory,
+  type LocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
 
 import {
   clearSosIncident,
@@ -169,11 +177,11 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   addRecentDestination,
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
-import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheService } from "@/lib/services/cache-service";
 import {
   loadPersistedDriveSession,
@@ -237,14 +245,14 @@ const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
 const SHOW_REFERRAL_SECTION = false;
 
-// The mobile-first redesign hub (Now | People | Links | Inbox) is the active UI.
+// The mobile-first redesign hub (Now | People | Links) is the active UI.
 // The legacy compose/activity sections only render as a fallback when the page
 // hits a hard load error. Deep-link focus (from notification "Open" buttons)
 // must therefore be handled by the hub's own searchParams-driven tab switching,
 // NOT the legacy scroll-to-section path — which switched to a non-existent
 // "activity" page tab and, worse, clobbered the deep-link query params via a
 // stale `searchParams` closure inside `setLocationTab`, so the hub never saw the
-// `section`/`grantId`/`requestId` and never switched to Inbox.
+// `section`/`grantId`/`requestId` and never switch to a mixed inbox surface.
 // Typed as `boolean` (not the inferred literal `true`) so the redesign-mode
 // early-return inside `focusOneLocationSection` does not make the legacy
 // scroll-to-section path statically unreachable code.
@@ -1543,6 +1551,8 @@ function OneLocationInitialSkeleton() {
 
 type OneLocationAgentPageProps = {
   mode?: "workspace" | "setup";
+  /** Nested map route retains the same in-memory, vault-scoped workspace. */
+  surface?: "hub" | "map";
   onSetupReadinessChange?: (ready: boolean) => void;
   onSetupComplete?: () => void | Promise<void>;
   onSetupSkip?: () => void | Promise<void>;
@@ -1550,6 +1560,7 @@ type OneLocationAgentPageProps = {
 
 export function OneLocationAgentPageContent({
   mode = "workspace",
+  surface = "hub",
   onSetupReadinessChange,
   onSetupComplete,
   onSetupSkip,
@@ -1698,15 +1709,71 @@ export function OneLocationAgentPageContent({
   >({});
   const [publicInviteUrl, setPublicInviteUrl] = useState("");
   const [circleInviteUrl, setCircleInviteUrl] = useState("");
-  const [myLocationPoint, setMyLocationPoint] =
-    useState<PlainLocationPoint | null>(null);
+  const [locationWorkspace, setLocationWorkspace] =
+    useState<LocationWorkspaceMemory>(() =>
+      readLocationWorkspaceMemory(auth.userId),
+    );
+  useEffect(() => {
+    setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
+  }, [auth.userId]);
+  const previousWorkspaceUserId = useRef<string | null>(auth.userId ?? null);
+  useEffect(() => {
+    const previousUserId = previousWorkspaceUserId.current;
+    if (previousUserId && previousUserId !== auth.userId) {
+      clearLocationWorkspaceMemory(previousUserId);
+    }
+    previousWorkspaceUserId.current = auth.userId ?? null;
+  }, [auth.userId]);
+  useEffect(() => {
+    if (!vaultOwnerToken) {
+      clearLocationWorkspaceMemory(auth.userId);
+      setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
+    }
+  }, [auth.userId, vaultOwnerToken]);
+  const updateLocationWorkspace = useCallback(
+    (updater: (current: LocationWorkspaceMemory) => LocationWorkspaceMemory) => {
+      setLocationWorkspace((current) => {
+        const next = updater(current);
+        writeLocationWorkspaceMemory(auth.userId, next);
+        return next;
+      });
+    },
+    [auth.userId],
+  );
+  const myLocationPoint = locationWorkspace.myLocationPoint;
+  const setMyLocationPoint = useCallback(
+    (next: SetStateAction<PlainLocationPoint | null>) => {
+      updateLocationWorkspace((current) => ({
+        ...current,
+        myLocationPoint:
+          typeof next === "function"
+            ? (next as (value: PlainLocationPoint | null) => PlainLocationPoint | null)(
+                current.myLocationPoint,
+              )
+            : next,
+      }));
+    },
+    [updateLocationWorkspace],
+  );
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
   // True once the owner taps "Show my location" — keeps their own preview
   // streaming live (foreground) even before any share exists.
   const [selfPreviewStreaming, setSelfPreviewStreaming] = useState(false);
-  const [decryptedPoints, setDecryptedPoints] = useState<
-    Record<string, PlainLocationPoint>
-  >({});
+  const decryptedPoints = locationWorkspace.decryptedPoints;
+  const setDecryptedPoints = useCallback(
+    (next: SetStateAction<Record<string, PlainLocationPoint>>) => {
+      updateLocationWorkspace((current) => ({
+        ...current,
+        decryptedPoints:
+          typeof next === "function"
+            ? (next as (
+                value: Record<string, PlainLocationPoint>,
+              ) => Record<string, PlainLocationPoint>)(current.decryptedPoints)
+            : next,
+      }));
+    },
+    [updateLocationWorkspace],
+  );
   // Per-grant, recipient-facing message shown when a received share can't be
   // decrypted because the on-device key no longer matches (e.g. the key rotated
   // after WKWebView storage loss). Drives the inline "ask them to share again"
@@ -1764,7 +1831,7 @@ export function OneLocationAgentPageContent({
   // Me Up" request no longer overwrites the first grant's fixed spot, which
   // would otherwise cause it to drift back to live GPS.
   const pickupSessionRef = useRef<Map<string, PlainLocationPoint>>(new Map());
-  const [recentDestinations, setRecentDestinations] = useState<
+  const [_recentDestinations, setRecentDestinations] = useState<
     DriveDestination[]
   >([]);
 
@@ -1876,8 +1943,8 @@ export function OneLocationAgentPageContent({
     [state?.ownerGrants],
   );
 
-  // All quick actions (SOS, check-in, drive-to, pick-me-up, safe-arrival) share
-  // the same recipients: your connections that are ready for private sharing.
+  // The remaining location actions (Alert and Check-In) share the same
+  // recipients: connections ready for private sharing.
   // Recipients are already scoped to the connections graph server-side.
   const sosActionRecipients = useMemo(
     () => selectShareReadyRecipients(rankedRecipients),
@@ -1907,7 +1974,7 @@ export function OneLocationAgentPageContent({
     }
   }, [state, activeOwnerGrants]);
 
-  // The redesigned Inbox keeps every active share live-refreshing even when a
+  // The focused shared-with-me view keeps every active share live-refreshing when a
   // legacy build previously persisted an "unwatched" id. In the redesigned
   // UX, Dismiss owns preview presentation only and never changes grant reachability.
   const activeVisibleReceivedGrants = USE_LOCATION_REDESIGN
@@ -1972,17 +2039,17 @@ export function OneLocationAgentPageContent({
     (target: OneLocationFocusTarget | null) => {
       if (!target || typeof window === "undefined") return;
       // REDESIGN MODE (active): the legacy compose/activity sections below are
-      // NOT rendered — the LocationRedesignHub (Now | People | Links | Inbox)
+      // NOT rendered — the LocationRedesignHub (Now | People | Links)
       // is. The hub consumes the deep-link query params (`section`, `grantId`,
       // `requestId`, `submissionId`) itself and switches to the correct swipe
-      // tab (Inbox for shared/approvals/my_requests/grant/request, Links for
+      // tab (focused detail for shared/approvals/my_requests/grant/request, Links for
       // public_responses, People for people). We MUST NOT run the legacy
       // scroll-to-section path here, because it calls `setLocationTab("activity")`
       // which does a `router.replace` built from a STALE `searchParams` closure —
       // that strips the very `grantId`/`section`/`locationNotification` params
       // the notification just pushed, so the hub's own effect never sees them and
       // the user is stranded on the wrong tab. Returning early keeps the pushed
-      // deep-link URL intact so the hub can route to Inbox / Shared-with-me.
+      // deep-link URL intact so the hub can route to its focused detail view.
       if (USE_LOCATION_REDESIGN) return;
 
       const sectionRefs: Record<
@@ -2138,10 +2205,11 @@ export function OneLocationAgentPageContent({
             precise: false,
             background: "unavailable" as const,
           })),
-          OneLocationService.getState(activeVaultOwnerToken),
+          OneLocationStateResource.load(activeUserId, () =>
+            OneLocationService.getState(activeVaultOwnerToken),
+          ),
         ]);
         setPermission(nextPermission);
-        OneLocationStateResource.write(activeUserId, nextState);
         const rankedNextRecipients = rankRecipientsForRecommendation(
           enrichRecipientsWithContactSignal(
             nextState.recipients,
@@ -2590,7 +2658,7 @@ export function OneLocationAgentPageContent({
         handleGrantUnwatched,
       );
     };
-  }, [auth.userId]);
+  }, [auth.userId, setDecryptedPoints]);
 
   const recipientForGrant = useCallback(
     (grant: OneLocationGrant) =>
@@ -3019,7 +3087,7 @@ export function OneLocationAgentPageContent({
         if (!silent) setBusy(null);
       }
     },
-    [auth.userId, vaultOwnerToken, vaultKey, state?.myRecipientKey],
+    [auth.userId, vaultOwnerToken, vaultKey, state?.myRecipientKey, setDecryptedPoints],
   );
 
   // Recipient-side "ask them to share again": re-request access from the owner
@@ -3084,7 +3152,7 @@ export function OneLocationAgentPageContent({
         `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
       );
     },
-    [auth.userId],
+    [auth.userId, setDecryptedPoints],
   );
 
   // When a received grant is revoked or expires, immediately drop its decrypted
@@ -3119,7 +3187,7 @@ export function OneLocationAgentPageContent({
       }
       return changed ? next : current;
     });
-  }, [state?.receivedGrants]);
+  }, [state?.receivedGrants, setDecryptedPoints]);
 
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
@@ -3292,6 +3360,7 @@ export function OneLocationAgentPageContent({
     recipientForGrant,
     drivePointForGrant,
     pickupPointForGrant,
+    setMyLocationPoint,
     vaultOwnerToken,
   ]);
 
@@ -3365,7 +3434,7 @@ export function OneLocationAgentPageContent({
         void OneLocationService.clearLocationWatch(watchId).catch(() => null);
       }
     };
-  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state]);
+  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state, setMyLocationPoint]);
 
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
@@ -4368,7 +4437,7 @@ export function OneLocationAgentPageContent({
   // Pick Me Up grant they tap "I'm on my way" which drives this handler. It
   // creates a drive-style grant back to the requester (the grant owner) so the
   // requester can watch the helper approaching their pickup point in real time.
-  const handleImOnMyWay = useCallback(
+  const _handleImOnMyWay = useCallback(
     async (grant: OneLocationGrant) => {
       // grant.ownerUserId is the REQUESTER (who asked for the pickup); we (the
       // helper) share our live drive to their pickup point.
@@ -4401,7 +4470,7 @@ export function OneLocationAgentPageContent({
   // sharing auto-expires when the timer ends. The pickup message rides along as
   // the grant reason so it surfaces in the recipient's notification
   // ("<You>: I need a ride now — please pick me up ASAP.").
-  const handlePickMeUp = useCallback(
+  const _handlePickMeUp = useCallback(
     async (
       recipientIds: string[],
       durationHoursValue: string,
@@ -4517,7 +4586,7 @@ export function OneLocationAgentPageContent({
   // INSIDE the encrypted envelope, and the drive session drives live ETA
   // recomputation via the foreground watch) — it is the same proven live-share
   // pipeline with an arrival-focused framing and its own busy key + note.
-  const handleSafeArrival = useCallback(
+  const _handleSafeArrival = useCallback(
     async (
       destination: DriveDestination,
       recipientIds: string[],
@@ -4751,7 +4820,7 @@ export function OneLocationAgentPageContent({
     } finally {
       setBusy(null);
     }
-  }, [ensureForegroundLocationReady]);
+  }, [ensureForegroundLocationReady, setMyLocationPoint]);
 
   // LIVE badge toggle-off: stop the self-preview stream and clear the local
   // preview point. Purely local state; never touches active share grants
@@ -4761,7 +4830,7 @@ export function OneLocationAgentPageContent({
     setMyLocationPoint(null);
     setMyLocationError(null);
     toast.success("Live location preview is off.");
-  }, []);
+  }, [setMyLocationPoint]);
 
   const dismissLocationOnboarding = useCallback(async () => {
     if (mode === "setup") {
@@ -5056,9 +5125,16 @@ export function OneLocationAgentPageContent({
   }, [notificationDeliveryMode, retryPushRegistration]);
 
   const nativeTestConfig: OneLocationNativeTestConfig = {
-    routeId: mode === "setup" ? "/one/setup/location" : "/one/location",
+    routeId:
+      surface === "map"
+        ? "/one/location/map"
+        : mode === "setup"
+          ? "/one/setup/location"
+          : "/one/location",
     marker:
-      mode === "setup"
+      surface === "map"
+        ? "native-route-one-location-map"
+        : mode === "setup"
         ? "native-route-one-setup-location"
         : "native-route-one-location",
     authState: auth.loading
@@ -5150,9 +5226,8 @@ export function OneLocationAgentPageContent({
     recipients: rankedRecipients,
     visibleRecipients,
     activeOwnerGrants,
-    // The redesigned Inbox always keeps active received grants reachable.
-    // Its Dismiss action collapses only the decrypted map preview; legacy
-    // recipient-side "unwatch" state must not remove the durable row.
+    // Received grants stay reachable in their focused detail view. Dismissing
+    // a preview never mutates the durable grant or its revocation state.
     receivedGrants: activeReceivedGrants,
     pendingOwnerRequests,
     requestedByMe,
@@ -5225,42 +5300,6 @@ export function OneLocationAgentPageContent({
     onStopSos: handleStopSos,
     onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
       void handleCheckIn(recipientIds, durationHoursValue, messageValue),
-    vaultOwnerToken: vaultOwnerToken ?? null,
-    driveBusy: busy === "driveTo",
-    recentDestinations,
-    onDriveTo: (destination, recipientIds, durationHoursValue) =>
-      void handleDriveTo(destination, recipientIds, durationHoursValue),
-    onPickMeUp: (recipientIds, durationHoursValue, messageValue, pickupPoint) =>
-      void handlePickMeUp(
-        recipientIds,
-        durationHoursValue,
-        messageValue,
-        pickupPoint,
-      ),
-    recipientLivePoint: (userId: string) => {
-      const grant = (state?.receivedGrants ?? []).find(
-        (g) => String(g.ownerUserId || "").trim() === userId,
-      );
-      if (!grant) return null;
-      return decryptedPoints[grant.id] ?? null;
-    },
-    /** Resolve the current user's pickup point for one of their outbound pick_me_up grants. */
-    pickupPointForOwnerGrant: (grantId: string): PlainLocationPoint | null =>
-      pickupSessionRef.current.get(grantId) ?? myLocationPoint ?? null,
-    safeArrivalBusy: busy === "safeArrival",
-    onSafeArrival: (
-      destination,
-      recipientIds,
-      durationHoursValue,
-      messageValue,
-    ) =>
-      void handleSafeArrival(
-        destination,
-        recipientIds,
-        durationHoursValue,
-        messageValue,
-      ),
-    onImOnMyWay: (grant) => void handleImOnMyWay(grant),
   };
 
   // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in
@@ -5272,6 +5311,14 @@ export function OneLocationAgentPageContent({
   // only as a compile-time fallback (guarded by the `boolean`-typed flag) and is
   // unreachable at runtime.
   if (USE_LOCATION_REDESIGN) {
+    if (surface === "map") {
+      return (
+        <>
+          <NativeTestBeacon {...nativeTestConfig} />
+          <LocationImmersiveMap />
+        </>
+      );
+    }
     return (
       <AppPageShell
         width="reading"
@@ -6636,6 +6683,7 @@ export function OneLocationAgentPageContent({
 
 export default function OneLocationAgentPage({
   mode = "workspace",
+  surface = "hub",
   onSetupReadinessChange,
   onSetupComplete,
   onSetupSkip,
@@ -6643,6 +6691,7 @@ export default function OneLocationAgentPage({
   return (
     <OneLocationAgentPageContent
       mode={mode}
+      surface={surface}
       onSetupReadinessChange={onSetupReadinessChange}
       onSetupComplete={onSetupComplete}
       onSetupSkip={onSetupSkip}

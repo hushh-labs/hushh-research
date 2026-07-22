@@ -230,9 +230,7 @@ describe("OneDashboardPage", () => {
 
   it("restores a saved list view without replaying a view-change animation", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "list");
-    const { container } = render(
-      <OneDashboardPage displayName="Kushal Trivedi" />,
-    );
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(screen.getByTestId("one-agents-view-content")).not.toHaveClass(

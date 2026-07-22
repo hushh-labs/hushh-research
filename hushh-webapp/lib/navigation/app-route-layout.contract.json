@@ -347,6 +347,36 @@
     }
   },
   {
+    "route": "/one/location/map",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.location.map",
+      "purpose": "Show authorized shared locations on an immersive map without proposing unavailable controls.",
+      "screen": "one_location_map",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that a shared location is unavailable.",
+        "cancelled": "Return to the Location hub.",
+        "failed": "Keep the map state safe and offer a retry.",
+        "timeout": "Keep the current map visible and offer a retry.",
+        "callbackError": "Return to the Location hub.",
+        "routeMismatch": "Use the verified current route."
+      },
+      "completionBoundary": "No location is captured until the person taps Locate me.",
+      "nextRoute": "/one/location",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally without inventing a map control."
+    }
+  },
+  {
     "route": "/one/location/request/[token]",
     "mode": "hidden",
     "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",

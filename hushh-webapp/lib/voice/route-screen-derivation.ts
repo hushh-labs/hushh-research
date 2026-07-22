@@ -204,6 +204,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_KYC) {
     return { screen: "one_kyc", subview: query.get("panel") || null };
   }
+  if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
+    return { screen: "one_location_map", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_LOCATION) {
     return { screen: "one_location", subview: query.get("tab") || null };
   }

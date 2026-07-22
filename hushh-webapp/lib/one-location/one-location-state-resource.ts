@@ -6,6 +6,16 @@ import {
   type CacheSnapshot,
 } from "@/lib/services/cache-service";
 
+const inFlightByUser = new Map<
+  string,
+  { revision: number; request: Promise<OneLocationState> }
+>();
+const revisionByUser = new Map<string, number>();
+
+function revisionFor(userId: string): number {
+  return revisionByUser.get(userId) ?? 0;
+}
+
 /**
  * A memory-only presentation snapshot for the Location workspace.
  *
@@ -31,7 +41,31 @@ export const OneLocationStateResource = {
     );
   },
 
+  load(
+    userId: string,
+    loader: () => Promise<OneLocationState>,
+  ): Promise<OneLocationState> {
+    const revision = revisionFor(userId);
+    const existing = inFlightByUser.get(userId);
+    if (existing?.revision === revision) return existing.request;
+
+    const request = loader()
+      .then((state) => {
+        if (revisionFor(userId) === revision) this.write(userId, state);
+        return state;
+      })
+      .finally(() => {
+        if (inFlightByUser.get(userId)?.request === request) {
+          inFlightByUser.delete(userId);
+        }
+      });
+    inFlightByUser.set(userId, { revision, request });
+    return request;
+  },
+
   invalidate(userId: string): void {
+    revisionByUser.set(userId, revisionFor(userId) + 1);
+    inFlightByUser.delete(userId);
     CacheService.getInstance().invalidate(this.key(userId));
   },
 };

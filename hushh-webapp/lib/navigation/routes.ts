@@ -110,6 +110,8 @@ export const ROUTES = {
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
   ONE_LOCATION: "/one/location",
+  /** Immersive, consented multi-person Location map. */
+  ONE_LOCATION_MAP: "/one/location/map",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",

@@ -13,9 +13,12 @@ describe("top shell contextual tabs", () => {
       activeValue: "now",
     });
     expect(resolveTopShellTabSet("/one/location?view=inbox")).toMatchObject({
-      activeValue: "inbox",
+      // Legacy Inbox links land on the canonical Now tab; focused action
+      // parameters are resolved by the Location hub after route settlement.
+      activeValue: "now",
     });
     expect(resolveTopShellTabSet("/one/location?action=share")).toBeNull();
+    expect(resolveTopShellTabSet("/one/location/map")).toBeNull();
   });
 
   it("uses route state as the selection authority for Finance", () => {
@@ -151,7 +154,7 @@ describe("top shell contextual tabs", () => {
       resolveTopShellRouteProfile("/one/location/?view=inbox").model,
     ).toMatchObject({
       mode: "bar-with-tabs",
-      tabs: { id: "location", activeValue: "inbox" },
+      tabs: { id: "location", activeValue: "now" },
     });
   });
 

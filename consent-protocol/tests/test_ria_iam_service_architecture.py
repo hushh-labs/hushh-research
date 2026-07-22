@@ -1042,7 +1042,9 @@ def test_consent_center_history_keeps_different_subjects_separate():
 
 @pytest.mark.asyncio
 async def test_consent_center_summary_uses_surface_loaders_without_get_center(monkeypatch):
+    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "true")
     service = ConsentCenterService()
+    contributor_calls = {"location": 0, "marketplace": 0, "connections": 0}
 
     async def _unexpected_get_center(*_args, **_kwargs):  # noqa: ANN002,ANN003
         raise AssertionError("get_center should not be used for summary counts")
@@ -1060,14 +1062,68 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
             {"id": "history_3", "counterpart_id": "developer:three"},
         ]
 
+    async def _location(_user_id: str):
+        contributor_calls["location"] += 1
+        return {
+            "incoming_requests": [],
+            "active_grants": [],
+            "history": [],
+        }
+
+    async def _marketplace(_user_id: str):
+        contributor_calls["marketplace"] += 1
+        return {
+            "incoming_requests": [],
+            "active_grants": [],
+            "history": [],
+        }
+
+    async def _connections(_user_id: str):
+        contributor_calls["connections"] += 1
+        return 0
+
     monkeypatch.setattr(service, "get_center", _unexpected_get_center)
     monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
     monkeypatch.setattr(service, "_load_investor_active_entries", _active)
     monkeypatch.setattr(service, "_load_investor_previous_entries", _previous)
+    monkeypatch.setattr(service, "_location_buckets_async", _location)
+    monkeypatch.setattr(service, "_marketplace_buckets_async", _marketplace)
+    monkeypatch.setattr(service, "_incoming_connection_request_count", _connections)
 
     payload = await service.get_center_summary("investor_1", actor="investor")
 
     assert payload["counts"] == {"pending": 2, "active": 1, "previous": 3}
+    assert contributor_calls == {"location": 1, "marketplace": 1, "connections": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("actor", ["investor", "ria"])
+async def test_consent_center_summary_defaults_to_legacy_surface_counts(monkeypatch, actor):
+    """The optimization is opt-in; default UAT behavior must retain scalar counts."""
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
+    service = ConsentCenterService()
+    calls: list[tuple[str, str, str]] = []
+
+    async def _surface_count(user_id: str, *, actor: str, surface: str, mode: str) -> int:
+        calls.append((user_id, actor, surface))
+        return {"pending": 3, "active": 2, "previous": 1}[surface]
+
+    async def _unexpected(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("V2 loaders must not run while the feature flag is disabled")
+
+    monkeypatch.setattr(service, "_get_surface_count", _surface_count)
+    monkeypatch.setattr(service, "_location_buckets_async", _unexpected)
+    monkeypatch.setattr(service, "_marketplace_buckets_async", _unexpected)
+    monkeypatch.setattr(service, "_incoming_connection_request_count", _unexpected)
+
+    payload = await service.get_center_summary("user_1", actor=actor)
+
+    assert payload["counts"] == {"pending": 3, "active": 2, "previous": 1}
+    assert calls == [
+        ("user_1", actor, "pending"),
+        ("user_1", actor, "active"),
+        ("user_1", actor, "previous"),
+    ]
 
 
 @pytest.mark.asyncio

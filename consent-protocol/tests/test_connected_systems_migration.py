@@ -105,7 +105,11 @@ def test_active_macys_registry_row_has_verified_response_contract_backfill():
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
 
     assert migration.exists()
-    assert manifest["ordered_migrations"][-2] == "111_macys_crm_response_contracts.sql"
+    ordered = manifest["ordered_migrations"]
+    assert "111_macys_crm_response_contracts.sql" in ordered
+    assert ordered.index("111_macys_crm_response_contracts.sql") < ordered.index(
+        "112_dynamic_crm_registry_cache.sql"
+    )
     assert "111_macys_crm_response_contracts.sql" in manifest["groups"]["iam"]
     sql = migration.read_text()
     assert "crm_id = 'crm_001'" in sql
@@ -122,7 +126,7 @@ def test_dynamic_crm_registry_cache_is_platform_migration():
     )
 
     sql = migration.read_text()
-    assert manifest["ordered_migrations"][-1] == migration.name
+    assert migration.name in manifest["ordered_migrations"]
     assert migration.name in manifest["groups"]["iam"]
     assert "configuration_revision BIGINT NOT NULL DEFAULT 1" in sql
     assert "CREATE TABLE IF NOT EXISTS crm_schema_catalog_cache" in sql

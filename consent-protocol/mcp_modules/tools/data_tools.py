@@ -16,6 +16,7 @@ import httpx
 from cryptography.exceptions import InvalidTag
 from mcp.types import TextContent
 
+from hushh_mcp.consent.connector_projection import normalize_financial_statement_bundle
 from hushh_mcp.consent.export_projection import (
     decrypt_scoped_export_package,
     narrow_decrypted_export,
@@ -309,6 +310,8 @@ async def _try_build_local_decrypted_response(
             export_envelope=export_envelope,
         )
         narrowed = narrow_decrypted_export(decrypted_payload, expected_scope)
+        if expected_scope == "attr.financial.documents.*":
+            narrowed = normalize_financial_statement_bundle(narrowed)
         # __export_metadata carries internal bookkeeping (e.g. every scope path
         # ever approved for this user's whole export manifest) that can dwarf
         # the actual narrowed data and is not meant for the LLM; the tool

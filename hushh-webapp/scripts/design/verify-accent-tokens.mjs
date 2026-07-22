@@ -70,9 +70,6 @@ const ALLOWLIST = new Set([
   // var(--app-accent); the remaining rainbow stops (incl. one warm gold) are
   // atmosphere, not the accent identity.
   "components/agent/agent-voice-edge-glow.tsx",
-  // Google Maps JS API needs a concrete color; the file resolves the live
-  // --app-accent at runtime and only uses #007aff as the SSR fallback.
-  "components/one-location/redesign/drive-route-map.tsx",
 ]);
 
 function isAllowed(repoPath) {

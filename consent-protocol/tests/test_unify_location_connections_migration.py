@@ -240,6 +240,10 @@ async def _run_079_db_test() -> None:
 
 
 @pytest.mark.db
+@pytest.mark.skipif(
+    os.getenv("RUN_DB_MIGRATION_TESTS") != "1",
+    reason="requires an explicitly enabled disposable Postgres/proxy session",
+)
 def test_079_migrates_real_pairs_both_directions_and_drops_seeds():
     """DB-backed end-to-end test for migration 079.
 

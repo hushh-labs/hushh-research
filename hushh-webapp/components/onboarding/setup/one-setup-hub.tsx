@@ -33,7 +33,6 @@ import {
 import {
   getOneSetupCapability,
   lucideCapabilityIcon,
-  ONE_SETUP_CAPABILITIES,
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";

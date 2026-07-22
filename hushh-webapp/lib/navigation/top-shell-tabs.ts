@@ -96,7 +96,6 @@ export const TOP_SHELL_TAB_REGISTRY = {
         href: "/one/location?view=people",
       },
       { value: "links", label: "Links", href: "/one/location?view=links" },
-      { value: "inbox", label: "Inbox", href: "/one/location?view=inbox" },
     ],
   },
   finance: {

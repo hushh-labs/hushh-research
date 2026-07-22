@@ -181,7 +181,7 @@ def _require_retention_auth(request: Request) -> None:
 
 
 @router.get("/location/state")
-async def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
+def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
     except Exception as exc:
@@ -189,7 +189,7 @@ async def get_location_state(token_data: dict = Depends(require_vault_owner_toke
 
 
 @router.get("/location/activity")
-async def get_location_activity(
+def get_location_activity(
     range_key: str = Query(default="30d", alias="range", pattern="^(7d|30d|90d|all)$"),
     limit: int = Query(default=40, ge=1, le=100),
     token_data: dict = Depends(require_vault_owner_token),
@@ -205,7 +205,7 @@ async def get_location_activity(
 
 
 @router.post("/location/retention/purge")
-async def purge_location_retention(request: Request, older_than_hours: float = 12):
+def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
     try:
         return _service().purge_terminal_work(older_than_hours=older_than_hours)
@@ -214,7 +214,7 @@ async def purge_location_retention(request: Request, older_than_hours: float = 1
 
 
 @router.get("/location/recipients")
-async def list_verified_location_recipients(
+def list_verified_location_recipients(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -226,7 +226,7 @@ async def list_verified_location_recipients(
 
 
 @router.post("/location/public-invites")
-async def create_public_location_invite(
+def create_public_location_invite(
     payload: CreatePublicInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -241,7 +241,7 @@ async def create_public_location_invite(
 
 
 @router.get("/location/public-invites/{public_token}")
-async def resolve_public_location_invite(public_token: _PublicToken):
+def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
     except Exception as exc:
@@ -249,7 +249,7 @@ async def resolve_public_location_invite(public_token: _PublicToken):
 
 
 @router.post("/location/public-invites/{public_token}/submit")
-async def submit_public_location_invite(
+def submit_public_location_invite(
     public_token: _PublicToken,
     payload: SubmitPublicInviteRequest,
     request: Request,
@@ -267,7 +267,7 @@ async def submit_public_location_invite(
 
 
 @router.delete("/location/public-invites/{invite_id}")
-async def revoke_public_location_invite(
+def revoke_public_location_invite(
     invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -283,7 +283,7 @@ async def revoke_public_location_invite(
 
 
 @router.post("/location/circle-invites")
-async def create_circle_location_invite(
+def create_circle_location_invite(
     payload: CreateCircleInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -298,7 +298,7 @@ async def create_circle_location_invite(
 
 
 @router.get("/location/circle-invites/{public_token}")
-async def resolve_circle_location_invite(public_token: _PublicToken):
+def resolve_circle_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_circle_invite(invite_token=public_token)
     except Exception as exc:
@@ -306,7 +306,7 @@ async def resolve_circle_location_invite(public_token: _PublicToken):
 
 
 @router.post("/location/circle-invites/{public_token}/claim")
-async def claim_circle_location_invite(
+def claim_circle_location_invite(
     public_token: _PublicToken,
     payload: ClaimCircleInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -322,7 +322,7 @@ async def claim_circle_location_invite(
 
 
 @router.delete("/location/circle-invites/{invite_id}")
-async def revoke_circle_location_invite(
+def revoke_circle_location_invite(
     invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -338,7 +338,7 @@ async def revoke_circle_location_invite(
 
 
 @router.post("/location/recipient-keys")
-async def register_location_recipient_key(
+def register_location_recipient_key(
     payload: RecipientKeyRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -432,7 +432,7 @@ async def maps_route_eta(
 
 
 @router.post("/location/grants")
-async def create_location_grant(
+def create_location_grant(
     payload: CreateGrantRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -453,7 +453,7 @@ async def create_location_grant(
 
 
 @router.post("/location/grants/{grant_id}/envelopes")
-async def store_location_envelope(
+def store_location_envelope(
     grant_id: _GrantId,
     payload: StoreEnvelopeRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -471,7 +471,7 @@ async def store_location_envelope(
 
 
 @router.get("/location/grants/{grant_id}/envelope")
-async def view_latest_location_envelope(
+def view_latest_location_envelope(
     grant_id: _GrantId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -485,7 +485,7 @@ async def view_latest_location_envelope(
 
 
 @router.delete("/location/grants/{grant_id}")
-async def revoke_location_grant(
+def revoke_location_grant(
     grant_id: _GrantId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -501,7 +501,7 @@ async def revoke_location_grant(
 
 
 @router.post("/location/requests")
-async def request_location_access(
+def request_location_access(
     payload: CreateAccessRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -518,7 +518,7 @@ async def request_location_access(
 
 
 @router.post("/location/requests/{request_id}/approve")
-async def approve_location_access_request(
+def approve_location_access_request(
     request_id: str,
     payload: ResolveAccessRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -534,7 +534,7 @@ async def approve_location_access_request(
 
 
 @router.post("/location/requests/{request_id}/deny")
-async def deny_location_access_request(
+def deny_location_access_request(
     request_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -550,7 +550,7 @@ async def deny_location_access_request(
 
 
 @router.post("/location/grants/{grant_id}/refer")
-async def refer_location_access(
+def refer_location_access(
     grant_id: str,
     payload: ReferralRequest,
     token_data: dict = Depends(require_vault_owner_token),

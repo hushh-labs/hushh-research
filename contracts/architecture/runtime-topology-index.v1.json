@@ -2608,6 +2608,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-location-map",
+      "page_file": "app/one/location/map/page.tsx",
+      "pathname": "/one/location/map",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.map"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": null,
       "page_file": "app/one/location/request/[token]/page.tsx",
       "pathname": "/one/location/request/[token]",
@@ -4056,13 +4079,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "3f982e6ed3859a48f1f7fd61b9de7119f233d9cc8dad073a8f40b3a537d14a73",
     "agent_registry": "277e07bfd16d70760bd47c197521a6844239e76eb454e0e91633f71310307c86",
-    "cache_manifest": "991a2817597c0682ea91d0fe84526233706993293d37e4d762d0a5ea8fb5ff3c",
-    "data_plane": "8c737de2775fb032e82a1b030e93507e12e562bd230336c61bac3c89d8386d33",
+    "cache_manifest": "b7584a0c98febbdd104b0aa20ace6a4889da27f8867da423a6175a60de85deb7",
+    "data_plane": "a1a2a500c7103122d25c811f94a7d4faa82615c659a7e9de2c4ea917c1e8bd02",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "4b924c314c763470ad5051602b44371c101dadbee314152c37692c98770763bc",
-    "route_layout": "0381b248ae2f38bb4f5edeb956be9145d7d6590b513546101c8c29a39d2cc868",
-    "surface_map": "c6eebacfe9ec41606fd4721083c33a09f5173aaba6305da3a5845e6cc51a0c66",
+    "route_index": "f09909abd11c55ceae914d2bf53f0b2c80acbd96f9ca1287943aaa42465434ba",
+    "route_layout": "c1dca109e91acc911c9aca8fd344fba5788e02250cfd2125174b4e39124ffed1",
+    "surface_map": "65fe0631edb9735e15a40c9a1f88edca239f144e5664f4e53a1502bc70abcdcb",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4074,7 +4097,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 107,
+    "physical_routes": 108,
     "semantic_routes": 14,
     "table_families": 32
   }

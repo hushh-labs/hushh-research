@@ -4,7 +4,7 @@ Canonical attach points:
   GET  /api/consent/center/summary   actor, mode           max_length=50
   GET  /api/consent/center/list      actor, surface, mode  max_length=50, q max_length=200
   GET  /api/consent/handshake/history  counterpart_id      max_length=128
-  GET  /api/consent/data             consent_token         max_length=500
+  GET  /api/consent/data             Authorization bearer only; query tokens rejected
 
 Tests drive the actual consent router through TestClient with auth deps
 overridden, then assert 422 for one-over-limit and non-422 for at-limit.
@@ -95,19 +95,22 @@ def test_counterpart_id_at_cap_accepted(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/consent/data -- consent_token (max_length=500)
+# GET /api/consent/data -- bearer-only token transport
 # ---------------------------------------------------------------------------
 
 
-def test_data_consent_token_too_long_rejected(client: TestClient) -> None:
-    """501-char token must be rejected before any backend I/O."""
+def test_data_query_token_is_not_accepted(client: TestClient) -> None:
+    """Consent tokens are bearer-only and must never be accepted from a URL."""
     resp = client.get(f"/api/consent/data?consent_token={'t' * 501}")
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 401, resp.text
 
 
 def test_data_consent_token_at_cap_accepted(client: TestClient) -> None:
-    """Exactly 500-char token passes the bound (token itself will be invalid, not 422)."""
+    """A bearer token reaches token validation rather than query parsing."""
     with patch.object(consent_routes, "ConsentDBService") as mock_svc:
         mock_svc.return_value.get_export_payload = AsyncMock(return_value=None)
-        resp = client.get(f"/api/consent/data?consent_token={'t' * 500}")
+        resp = client.get(
+            "/api/consent/data",
+            headers={"Authorization": f"Bearer {'t' * 500}"},
+        )
     assert resp.status_code != 422, resp.text

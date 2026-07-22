@@ -81,6 +81,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "one_location",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/location/map")).toEqual({
+      screen: "one_location_map",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/one/gmail")).toEqual({
       screen: "gmail",
       subview: null,

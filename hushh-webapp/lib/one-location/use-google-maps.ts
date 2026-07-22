@@ -52,11 +52,15 @@ function loadGoogleMaps(): Promise<void> {
   return loadPromise;
 }
 
-export function useGoogleMaps(): { status: MapsLoadStatus } {
+export function useGoogleMaps({ enabled = true }: { enabled?: boolean } = {}): {
+  status: MapsLoadStatus;
+} {
   const [status, setStatus] = useState<MapsLoadStatus>("loading");
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!enabled) return;
 
     // A prior map instance may have already tripped auth failure.
     if (authFailed) {
@@ -81,7 +85,7 @@ export function useGoogleMaps(): { status: MapsLoadStatus } {
       cancelled = true;
       authListeners.delete(onAuthFailure);
     };
-  }, []);
+  }, [enabled]);
 
   return { status };
 }
