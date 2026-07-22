@@ -872,6 +872,10 @@ describe("OneLocationAgentPage", () => {
     }>;
     let resolveDirectory!: (value: DirectoryResult) => void;
     let resolveConnections!: (value: ConnectionResult) => void;
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      recipients: [],
+    });
     mockSearchConnectionDirectory.mockReturnValueOnce(
       new Promise<DirectoryResult>((resolve) => {
         resolveDirectory = resolve;
@@ -926,6 +930,23 @@ describe("OneLocationAgentPage", () => {
     });
 
     expect(await screen.findByText("Advisor C")).toBeTruthy();
+  });
+
+  it("uses Location recipients when the Connections directory is empty", async () => {
+    mockSearchConnectionDirectory.mockResolvedValueOnce({
+      items: [],
+      page: 1,
+      hasMore: false,
+    });
+    mockListConnections.mockResolvedValueOnce([]);
+
+    render(<OneLocationAgentPage mode="setup" />);
+    await openLocationPeopleStep();
+
+    expect(await screen.findByText("Trusted B")).toBeTruthy();
+    expect(screen.getByText("Advisor C")).toBeTruthy();
+    expect(screen.getByText("Investor D")).toBeTruthy();
+    expect(screen.queryByText(/No recommendations yet/)).toBeNull();
   });
 
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {

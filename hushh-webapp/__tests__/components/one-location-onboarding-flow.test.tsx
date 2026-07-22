@@ -317,4 +317,18 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByText("Finding your people")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
+
+  it("lets the user refresh a genuinely empty recommendation list", () => {
+    const props = renderFlow({
+      people: [],
+      connections: [],
+      peopleLoading: false,
+    });
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh people" }));
+
+    expect(props.onRetryPeople).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
 });

@@ -1045,6 +1045,34 @@ function displayNameFromRecipient(recipient: OneLocationRecipient): string {
   return recipientLabel(recipient);
 }
 
+function onboardingPeopleFromRecipients(
+  recipients: OneLocationRecipient[],
+): DirectoryPerson[] {
+  return recipients
+    .filter((recipient) => Boolean(recipient.userId))
+    .map((recipient) => ({
+      userId: recipient.userId,
+      displayName: displayNameFromRecipient(recipient),
+      photoUrl: null,
+      email: null,
+      relationship: "none" as const,
+    }));
+}
+
+function mergeOnboardingPeople(
+  primary: DirectoryPerson[],
+  fallback: DirectoryPerson[],
+): DirectoryPerson[] {
+  const merged = [...primary];
+  const seen = new Set(primary.map((person) => person.userId));
+  for (const person of fallback) {
+    if (!person.userId || seen.has(person.userId)) continue;
+    seen.add(person.userId);
+    merged.push(person);
+  }
+  return merged;
+}
+
 function initialsForLabel(label: string): string {
   const words = label
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
@@ -1839,6 +1867,19 @@ export function OneLocationAgentPageContent({
     () => state?.recipients ?? [],
     [state?.recipients],
   );
+  const locationOnboardingRecipientsRef = useRef(recipients);
+  useEffect(() => {
+    locationOnboardingRecipientsRef.current = recipients;
+    if (locationOnboardingGate !== "show" || recipients.length === 0) return;
+    setLocationOnboardingPeople((current) =>
+      mergeOnboardingPeople(
+        current,
+        onboardingPeopleFromRecipients(recipients),
+      ),
+    );
+    setLocationOnboardingPeopleError(null);
+    setLocationOnboardingPeopleLoading(false);
+  }, [locationOnboardingGate, recipients]);
   const contactMatchedUserIds = useMemo(
     () => new Set(contactSignal.matchedUserIds),
     [contactSignal.matchedUserIds],
@@ -2422,7 +2463,9 @@ export function OneLocationAgentPageContent({
             const items = result.items ?? [];
             if (items.length === 0) return;
             renderedPeople = true;
-            setLocationOnboardingPeople(items);
+            setLocationOnboardingPeople((current) =>
+              mergeOnboardingPeople(items, current),
+            );
             setLocationOnboardingPeopleError(null);
             setLocationOnboardingPeopleLoading(false);
           })
@@ -2436,14 +2479,17 @@ export function OneLocationAgentPageContent({
             setLocationOnboardingConnections(result);
             if (renderedPeople || result.length === 0) return;
             renderedPeople = true;
-            setLocationOnboardingPeople(
-              result.map((connection) => ({
-                userId: connection.userId,
-                displayName: connection.displayName,
-                photoUrl: connection.photoUrl,
-                email: null,
-                relationship: "connected" as const,
-              })),
+            setLocationOnboardingPeople((current) =>
+              mergeOnboardingPeople(
+                result.map((connection) => ({
+                  userId: connection.userId,
+                  displayName: connection.displayName,
+                  photoUrl: connection.photoUrl,
+                  email: null,
+                  relationship: "connected" as const,
+                })),
+                current,
+              ),
             );
             setLocationOnboardingPeopleError(null);
             setLocationOnboardingPeopleLoading(false);
@@ -2457,8 +2503,15 @@ export function OneLocationAgentPageContent({
         if (cancelled) return;
 
         if (!renderedPeople) {
-          setLocationOnboardingPeople([]);
-          if (!directorySucceeded) {
+          const fallbackPeople = onboardingPeopleFromRecipients(
+            locationOnboardingRecipientsRef.current,
+          );
+          setLocationOnboardingPeople((current) =>
+            mergeOnboardingPeople(fallbackPeople, current),
+          );
+          if (fallbackPeople.length > 0) {
+            setLocationOnboardingPeopleError(null);
+          } else if (!directorySucceeded) {
             const error = directoryError ?? connectionsError;
             setLocationOnboardingPeopleError(
               error instanceof Error
@@ -2469,12 +2522,19 @@ export function OneLocationAgentPageContent({
         }
       } catch (error) {
         if (cancelled) return;
-        setLocationOnboardingPeople([]);
+        const fallbackPeople = onboardingPeopleFromRecipients(
+          locationOnboardingRecipientsRef.current,
+        );
+        setLocationOnboardingPeople((current) =>
+          mergeOnboardingPeople(fallbackPeople, current),
+        );
         setLocationOnboardingConnections([]);
         setLocationOnboardingPeopleError(
-          error instanceof Error
-            ? error.message
-            : "Could not load recommended people.",
+          fallbackPeople.length > 0
+            ? null
+            : error instanceof Error
+              ? error.message
+              : "Could not load recommended people.",
         );
       } finally {
         if (!cancelled) setLocationOnboardingPeopleLoading(false);

@@ -671,8 +671,16 @@ function PeopleScreen({
             <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center text-[#73777f]">
               <UserPlus className="h-8 w-8 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
               <p className="max-w-[260px] text-sm leading-5">
-                No recommendations yet. You can add people later from Connect.
+                No recommendations yet. Refresh after your people open One
+                Location.
               </p>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+              >
+                Refresh people
+              </button>
             </div>
           ) : (
             recommendedPeople.map((person, index) => {
