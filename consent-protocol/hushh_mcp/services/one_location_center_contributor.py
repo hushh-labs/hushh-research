@@ -48,11 +48,13 @@ _SHARE_KIND_LABEL = {
     "sos": "SOS",
     "check_in": "Check-In",
     "share": "Share",
+    "connections_visibility": "Friends Map",
 }
 _SHARE_KIND_SCOPE_DESCRIPTION = {
     "sos": "SOS emergency live location",
     "check_in": "Check-in live location",
     "share": "Live location sharing",
+    "connections_visibility": "Friends Map location visibility",
 }
 
 
@@ -275,10 +277,11 @@ class OneLocationCenterContributor:
         # Distinguish an emergency SOS share from a friendly Check-In from a plain
         # location share so the Consent Manager can tag + describe each row
         # accurately (instead of every location grant reading the same). The share
-        # kind + optional human message are already coordinate-free on the grant
-        # payload (see OneLocationAgentService._grant_payload).
+        # kind is coordinate-free on the grant payload (see
+        # OneLocationAgentService._grant_payload). Free-form share text is
+        # intentionally excluded because it can contain an address or coordinates.
         share_kind = _safe_str(grant.get("shareKind")) or "share"
-        share_message = _safe_str(grant.get("shareMessage"))
+        access_origin = _safe_str(grant.get("accessOrigin")) or "direct"
         scope_description = _SHARE_KIND_SCOPE_DESCRIPTION.get(
             share_kind, _SHARE_KIND_SCOPE_DESCRIPTION["share"]
         )
@@ -289,8 +292,8 @@ class OneLocationCenterContributor:
                 "grant_id": grant_id,
                 "requester_label": counterpart_label,
                 "share_kind": share_kind,
+                "access_origin": access_origin,
                 "share_kind_label": _SHARE_KIND_LABEL.get(share_kind, _SHARE_KIND_LABEL["share"]),
-                **({"share_message": share_message} if share_message else {}),
                 **({"duration_label": _duration_label(duration_hours)} if duration_hours else {}),
             }
         )

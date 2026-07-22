@@ -29,7 +29,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  Check,
   ChevronRight,
+  EyeOff,
   Link as LinkIcon,
   Lock,
   Map,
@@ -55,6 +57,7 @@ import type {
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationRecipient,
+  OneLocationVisibility,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 
@@ -88,6 +91,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
 import { LocalEmergencyDialerRow } from "./local-emergency-dialer-row";
+import { FriendsMap, type FriendsMapEntry } from "./friends-map";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -130,6 +134,12 @@ export type LocationHubViewModel = {
   permissionIsPrompt: boolean;
   myLocationPoint: PlainLocationPoint | null;
   myLocationError: string | null;
+  locationPermission: {
+    state: string;
+    background: string;
+    precise: boolean | null;
+  } | null;
+  visibility: OneLocationVisibility;
 
   /* data lists */
   recipients: OneLocationRecipient[];
@@ -141,6 +151,7 @@ export type LocationHubViewModel = {
   latestActivePublicInvite: OneLocationPublicInvite | null;
   latestActiveCircleInvite: OneLocationCircleInvite | null;
   activityReceipts: { id: string; title: string; detail: string }[];
+  friendsMapEntries: FriendsMapEntry[];
 
   /* composer state */
   recipientSearch: string;
@@ -168,6 +179,12 @@ export type LocationHubViewModel = {
   onHideMyLocation: () => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
+  onOpenAppSettings: () => void;
+  onUpdateConnectionVisibility: (params: {
+    enabled: boolean;
+    precision: "precise" | "approximate";
+    excludedUserIds: string[];
+  }) => Promise<boolean>;
   onSyncContacts: () => void;
   onShareToContacts: () => void;
   onOpenShareReview: () => void;
@@ -527,7 +544,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "privacy" ? (
-          <PrivacyFlow onManageSharing={() => closeFlow("people")} />
+          <PrivacyFlow vm={vm} onManageSharing={() => closeFlow("people")} />
         ) : (
           <TemporaryLinkFlow
             vm={vm}
@@ -862,10 +879,12 @@ function LocationToggle({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -873,9 +892,11 @@ function LocationToggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
+        disabled && "cursor-not-allowed opacity-60",
         checked ? "bg-[#34c759]" : "bg-black/15 dark:bg-white/20",
       )}
     >
@@ -889,17 +910,58 @@ function LocationToggle({
   );
 }
 
-function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
-  // Inert local state for now — real auto-share / pause wiring comes later.
-  const [autoShare, setAutoShare] = useState(false);
-  const [paused, setPaused] = useState(false);
+function PrivacyFlow({
+  vm,
+  onManageSharing,
+}: {
+  vm: LocationHubViewModel;
+  onManageSharing: () => void;
+}) {
+  const [showSetup, setShowSetup] = useState(false);
+  const [draftPrecision, setDraftPrecision] = useState<
+    "precise" | "approximate"
+  >(vm.visibility.precision);
+  const [draftExclusions, setDraftExclusions] = useState<string[]>(
+    vm.visibility.excludedUserIds,
+  );
+
+  useEffect(() => {
+    setDraftPrecision(vm.visibility.precision);
+    setDraftExclusions(vm.visibility.excludedUserIds);
+  }, [vm.visibility.excludedUserIds, vm.visibility.precision]);
+
+  const readyConnections = vm.recipients.filter(
+    (recipient) => recipient.canReceiveLocation,
+  );
+  const effectiveCount = readyConnections.filter(
+    (recipient) => !draftExclusions.includes(recipient.userId),
+  ).length;
+  const backgroundAvailable = vm.locationPermission?.background === "available";
+
+  const updateVisibility = async (
+    enabled: boolean,
+    precision = draftPrecision,
+    excludedUserIds = draftExclusions,
+  ) =>
+    vm.onUpdateConnectionVisibility({ enabled, precision, excludedUserIds });
+
+  const toggleConnection = async (userId: string) => {
+    if (vm.busy === "visibility") return;
+    const previous = draftExclusions;
+    const next = draftExclusions.includes(userId)
+      ? draftExclusions.filter((candidate) => candidate !== userId)
+      : [...draftExclusions, userId];
+    setDraftExclusions(next);
+    const updated = await updateVisibility(true, draftPrecision, next);
+    if (!updated) setDraftExclusions(previous);
+  };
 
   return (
     <div>
       <TaskFlowHeader
         eyebrow="Location"
-        title="Privacy"
-        description="You control who sees your location and when. Change this anytime."
+        title="Settings"
+        description="Control who can see you on Friends Map and how your location updates."
       />
 
       <p className="mt-6 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
@@ -909,46 +971,192 @@ function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
         <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
           <div className="flex-1">
             <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Auto-share my location
+              Visible to connections
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — your circle sees you live, no approval needed. Off — every
-              request needs your approval first.
+              {vm.visibility.enabled
+                ? `${vm.visibility.readyConnectionCount} connections can see you on Friends Map.`
+                : "Off by default. Only accepted mutual connections can be included."}
             </p>
           </div>
           <LocationToggle
-            checked={autoShare}
-            onChange={setAutoShare}
-            label="Auto-share my location"
+            checked={vm.visibility.enabled}
+            onChange={(next) => {
+              if (next) setShowSetup(true);
+              else void updateVisibility(false);
+            }}
+            label="Visible to connections"
+            disabled={vm.busy === "visibility"}
           />
         </div>
-        <div className="flex items-center gap-3.5 py-4">
-          <div className="flex-1">
-            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Pause my location
-            </p>
-            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Go invisible to everyone until you turn this off.
-            </p>
-          </div>
-          <LocationToggle
-            checked={paused}
-            onChange={setPaused}
-            label="Pause my location"
-          />
+        <div className="py-4">
+          <p className="text-[14px] font-semibold text-[#1c1c2e] dark:text-foreground">
+            {backgroundAvailable
+              ? "Always updating"
+              : "Updates while One is open"}
+          </p>
+          <p className="mt-1 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+            {backgroundAvailable
+              ? "Background location is allowed. Sharing continues until you turn it off."
+              : "Allow Always location in system settings for background updates. Sharing remains on and resumes whenever One is open."}
+          </p>
+          {!backgroundAvailable && vm.visibility.enabled ? (
+            <Button
+              variant="outline"
+              onClick={vm.onOpenAppSettings}
+              isLoading={vm.busy === "locationSettings"}
+              className="mt-3 h-9 rounded-full px-4 text-[13px]"
+            >
+              Open app settings
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      {vm.visibility.enabled ? (
+        <div className="mt-4">
+          <p className="px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+            Location precision
+          </p>
+          <div className="mt-2 grid grid-cols-2 rounded-xl bg-black/[0.05] p-1 dark:bg-white/[0.07]">
+            {(["precise", "approximate"] as const).map((precision) => (
+              <button
+                key={precision}
+                type="button"
+                disabled={vm.busy === "visibility"}
+                onClick={() => {
+                  setDraftPrecision(precision);
+                  void updateVisibility(true, precision);
+                }}
+                className={cn(
+                  "h-10 rounded-lg text-sm font-semibold capitalize",
+                  vm.busy === "visibility" && "cursor-not-allowed opacity-60",
+                  draftPrecision === precision
+                    ? "bg-white text-foreground shadow-sm dark:bg-white/15"
+                    : "text-muted-foreground",
+                )}
+              >
+                {precision}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {showSetup && !vm.visibility.enabled ? (
+        <div className="mt-4 space-y-4 rounded-2xl border border-[color:var(--app-accent)]/20 bg-white p-4 shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+          <div>
+            <p className="text-[16px] font-semibold text-foreground">
+              {effectiveCount
+                ? `Share with ${effectiveCount} connections?`
+                : "Turn on Friends Map visibility?"}
+            </p>
+            <p className="mt-1 text-[13px] leading-[1.5] text-muted-foreground">
+              Current and future accepted connections are included unless you
+              exclude them. One notification is sent when a person first
+              receives access.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 rounded-xl bg-black/[0.05] p-1 dark:bg-white/[0.07]">
+            {(["precise", "approximate"] as const).map((precision) => (
+              <button
+                key={precision}
+                type="button"
+                disabled={vm.busy === "visibility"}
+                onClick={() => setDraftPrecision(precision)}
+                className={cn(
+                  "h-10 rounded-lg text-sm font-semibold capitalize",
+                  vm.busy === "visibility" && "cursor-not-allowed opacity-60",
+                  draftPrecision === precision
+                    ? "bg-white text-foreground shadow-sm dark:bg-white/15"
+                    : "text-muted-foreground",
+                )}
+              >
+                {precision}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowSetup(false)}
+              disabled={vm.busy === "visibility"}
+              className="h-11 rounded-full"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const updated = await updateVisibility(true);
+                if (updated) setShowSetup(false);
+              }}
+              isLoading={vm.busy === "visibility"}
+              className="h-11 rounded-full"
+            >
+              Turn on
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
-          Your location is never shared outside your circle. You can revoke
-          access to anyone at any time.
+          Coordinates remain encrypted separately for each connection. Turning
+          this off or removing a connection ends access immediately.
         </p>
       </div>
 
+      {vm.visibility.enabled && readyConnections.length ? (
+        <div className="mt-6">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+              Friends Map audience
+            </p>
+            <span className="text-[12px] font-semibold text-[color:var(--app-accent)]">
+              {vm.visibility.readyConnectionCount} visible
+            </span>
+          </div>
+          <div className="mt-2.5 overflow-hidden rounded-2xl bg-white px-4 shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+            {readyConnections.map((recipient, index) => {
+              const excluded = draftExclusions.includes(recipient.userId);
+              return (
+                <button
+                  key={recipient.userId}
+                  type="button"
+                  disabled={vm.busy === "visibility"}
+                  onClick={() => void toggleConnection(recipient.userId)}
+                  className={cn(
+                    "flex w-full items-center gap-3 py-3.5 text-left",
+                    index > 0 &&
+                      "border-t border-black/[0.06] dark:border-white/10",
+                  )}
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-accent)]/10 text-sm font-bold text-[color:var(--app-accent)]">
+                    {personInitials(vm.recipientLabel(recipient))}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold text-foreground">
+                      {vm.recipientLabel(recipient)}
+                    </span>
+                    <span className="block text-[12px] text-muted-foreground">
+                      {excluded ? "Excluded" : "Can see your location"}
+                    </span>
+                  </span>
+                  {excluded ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Check className="h-4 w-4 text-emerald-600" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Who can see you
+        Temporary sharing
       </p>
       <button
         type="button"
@@ -957,10 +1165,10 @@ function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
       >
         <div className="min-w-0 flex-1">
           <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-            Manage sharing
+            Manage direct shares
           </p>
           <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
-            See and change who has your live location
+            See temporary shares and stop individual access
           </p>
         </div>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
@@ -1063,6 +1271,15 @@ function PeopleHub({
   if (!showPeopleList) {
     return (
       <div className="space-y-5">
+        <section className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+          <div className="px-4 pb-3 pt-4">
+            <p className="text-[17px] font-bold text-foreground">Friends Map</p>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              Live locations shared by your connections
+            </p>
+          </div>
+          <FriendsMap entries={vm.friendsMapEntries} />
+        </section>
         <SectionCard
           title="Trusted Circle"
           description="Only your connections can receive private live location."
@@ -1106,6 +1323,15 @@ function PeopleHub({
 
   return (
     <div className="space-y-4">
+      <section className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className="px-4 pb-3 pt-4">
+          <p className="text-[17px] font-bold text-foreground">Friends Map</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            Live locations shared by your connections
+          </p>
+        </div>
+        <FriendsMap entries={vm.friendsMapEntries} />
+      </section>
       <PersonSearchInput
         value={vm.recipientSearch}
         onChange={vm.setRecipientSearch}
@@ -1146,7 +1372,9 @@ function PeopleHub({
         <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
           {filtered.map((r, i) => {
             const grant = vm.activeOwnerGrants.find(
-              (g) => g.recipientUserId === r.userId,
+              (g) =>
+                g.recipientUserId === r.userId &&
+                g.accessOrigin !== "connections_visibility",
             );
             const sharing = Boolean(grant);
             const receiving = vm.receivedGrants.some(
@@ -1495,7 +1723,6 @@ function SosFlow({ vm }: { vm: LocationHubViewModel }) {
           <LocalEmergencyDialerRow />
         </div>
       </div>
-
     </div>
   );
 }

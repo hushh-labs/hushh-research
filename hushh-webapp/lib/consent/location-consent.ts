@@ -14,7 +14,6 @@ import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 
 type MetadataLike = Record<string, unknown> | null | undefined;
 
-
 function readString(metadata: MetadataLike, key: string): string {
   const value = metadata?.[key];
   return typeof value === "string" ? value.trim() : "";
@@ -30,7 +29,9 @@ export function isLocationConsent(
 ): boolean {
   const requestSource = readString(metadata, "request_source");
   if (requestSource.startsWith("one_location")) return true;
-  const normalizedScope = String(scope || "").trim().toLowerCase();
+  const normalizedScope = String(scope || "")
+    .trim()
+    .toLowerCase();
   return (
     normalizedScope.startsWith("cap.location.") ||
     normalizedScope.startsWith("attr.location.")
@@ -42,6 +43,9 @@ export function isLocationConsent(
  * relevant section (mirrors the in-app notification deep links).
  */
 export function locationConsentWorkflowHref(metadata: MetadataLike): string {
+  if (readString(metadata, "access_origin") === "connections_visibility") {
+    return "/one/location?action=privacy";
+  }
   const section = readString(metadata, "section");
   const grantId = readString(metadata, "grant_id");
   const requestId = readString(metadata, "request_id");
@@ -66,7 +70,6 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   });
 }
 
-
 /**
  * Short human tag for a location consent row's share kind (SOS / Check-In /
  * Share). Returns "" for rows that carry no share_kind (e.g. access requests,
@@ -77,6 +80,7 @@ export function locationConsentShareKindLabel(metadata: MetadataLike): string {
   if (kind === "sos") return "SOS";
   if (kind === "check_in" || kind === "checkin") return "Check-In";
   if (kind === "share") return "Share";
+  if (kind === "connections_visibility") return "Friends Map";
   return "";
 }
 
@@ -105,6 +109,9 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   }
   if (shareKind === "share") {
     return `${who} is sharing their location with you${durationSuffix}.`;
+  }
+  if (shareKind === "connections_visibility") {
+    return `${who} is sharing their location with connections on Friends Map.`;
   }
   if (durationLabel) {
     return `${who} wants to see your location for ${durationLabel}.`;
@@ -175,7 +182,6 @@ export function parseLocationConsentEntry(
     _LOCATION_SOURCE_KINDS[readString(entry.metadata, "request_source")] ??
     "unknown";
 
-
   const metadataGrantId = readString(entry.metadata, "grant_id");
   const metadataRequestId =
     readString(entry.metadata, "request_id") ||
@@ -196,4 +202,3 @@ export function parseLocationConsentEntry(
 
   return { kind, id, requestId };
 }
-

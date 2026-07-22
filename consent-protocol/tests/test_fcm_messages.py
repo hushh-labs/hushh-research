@@ -176,8 +176,27 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     assert android.notification.body == body
     assert web.notification.body == body
     assert web.webpush.notification.body == body
+    assert web.webpush.fcm_options is None
     assert ios.notification.body == body
     assert ios.apns.payload.aps.alert.body == body
+
+
+def test_build_push_message_for_local_web_omits_https_only_fcm_link() -> None:
+    device_token = "web-device-id"
+    message = build_push_message(
+        _MessagingStub,
+        token=device_token,
+        platform="web",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body="A connection is visible on Friends Map.",
+        request_url="http://127.0.0.1:3000/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+
+    assert message.webpush.fcm_options is None
+    assert message.webpush.notification.data == {"url": "http://127.0.0.1:3000/one/location"}
 
 
 def test_build_push_message_without_alert_is_data_only():

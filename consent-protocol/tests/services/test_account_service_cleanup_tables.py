@@ -101,6 +101,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_referrals",
+        "DELETE FROM one_location_visibility_exclusions",
+        "DELETE FROM one_location_visibility_preferences",
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
         "DELETE FROM one_location_circle_invites",
@@ -143,6 +145,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert executed_sql.index("DELETE FROM one_location_events") < executed_sql.index(
         "DELETE FROM one_location_share_grants"
     )
+    assert executed_sql.index(
+        "DELETE FROM one_location_visibility_exclusions"
+    ) < executed_sql.index("DELETE FROM actor_identity_cache")
     assert executed_sql.index("DELETE FROM one_location_share_grants") < executed_sql.index(
         "DELETE FROM actor_identity_cache"
     )
@@ -209,6 +214,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_visibility_exclusions",
+        "DELETE FROM one_location_visibility_preferences",
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql

@@ -259,6 +259,9 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     conn_update_indices = [i for i, (sql, _) in enumerate(db.calls) if "UPDATE connections" in sql]
     assert len(trusted_update_indices) >= 1, "UPDATE trusted_connections was not called"
     assert len(conn_update_indices) >= 1, "UPDATE connections was not called"
+    location_updates = [sql for sql, _ in db.calls if "UPDATE one_location_share_grants" in sql]
+    assert len(location_updates) == 1
+    assert "access_origin = 'connections_visibility'" in location_updates[0]
     # Trusted-edge revoke must happen BEFORE the connection revoke.
     assert trusted_update_indices[0] < conn_update_indices[0], (
         "UPDATE trusted_connections must precede UPDATE connections"

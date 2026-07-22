@@ -1,9 +1,5 @@
 export type LocationSourcePlatform =
-  | "web"
-  | "ios"
-  | "android"
-  | "native"
-  | "unknown";
+  "web" | "ios" | "android" | "native" | "unknown";
 
 export type OneLocationRecommendationTier =
   | "needs_action"
@@ -151,6 +147,8 @@ export type OneLocationGrant = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   latestEnvelopeId?: string | null;
+  accessOrigin?:
+    "direct" | "request_approved" | "connections_visibility" | string;
   /**
    * Share intent surfaced by the backend so the recipient's notification, bell,
    * and Consent Manager can distinguish an emergency SOS from a friendly
@@ -162,6 +160,25 @@ export type OneLocationGrant = {
    * coordinate-free and bounded by the backend; shown verbatim to the recipient.
    */
   shareMessage?: string | null;
+};
+
+export type OneLocationVisibility = {
+  enabled: boolean;
+  audience: "private" | "connections";
+  precision: "precise" | "approximate";
+  enabledAt?: string | null;
+  disabledAt?: string | null;
+  updatedAt?: string | null;
+  excludedUserIds: string[];
+  eligibleConnectionCount: number;
+  readyConnectionCount: number;
+  unavailableConnectionCount: number;
+};
+
+export type OneLocationPublishTarget = {
+  grant: OneLocationGrant;
+  precision: "precise" | "approximate";
+  recipient: OneLocationRecipient;
 };
 
 export type OneLocationAccessRequest = {
@@ -278,6 +295,7 @@ export type OneLocationMyRecipientKey = {
 
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
+  visibility?: OneLocationVisibility;
   myRecipientKey?: OneLocationMyRecipientKey | null;
   kaiCircleCandidates?: KaiCircleCandidate[];
   viewerCapabilities?: OneLocationViewerCapabilities;
@@ -398,7 +416,12 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic" | "check_in";
+export type ClientActionType =
+  | "publish_share"
+  | "view_envelope"
+  | "create_public_link"
+  | "sos_panic"
+  | "check_in";
 
 export interface ClientAction {
   id: string;

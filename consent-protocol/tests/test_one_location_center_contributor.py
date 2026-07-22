@@ -51,6 +51,32 @@ def test_active_owner_grant_maps_to_active_access():
     assert entry["metadata"]["section"] == "people"
 
 
+def test_connection_visibility_grant_is_labeled_and_coordinate_free():
+    state = {
+        "ownerGrants": [
+            {
+                "id": "grant_friends_map",
+                "status": "active",
+                "recipientUserId": "user_b",
+                "recipientDisplayName": "Bob",
+                "shareKind": "connections_visibility",
+                "accessOrigin": "connections_visibility",
+                "shareMessage": "Meet at 12.9716, 77.5946 near Main Street",
+                "durationHours": 24,
+            }
+        ]
+    }
+    entry = _contributor(state).collect("user_a")["active_grants"][0]
+    assert entry["scope_description"] == "Friends Map location visibility"
+    assert entry["metadata"]["share_kind_label"] == "Friends Map"
+    assert entry["metadata"]["access_origin"] == "connections_visibility"
+    assert "share_message" not in entry["metadata"]
+    assert "12.9716" not in str(entry)
+    assert "main street" not in str(entry).lower()
+    assert "latitude" not in str(entry).lower()
+    assert "longitude" not in str(entry).lower()
+
+
 def test_pending_owner_request_maps_to_requests():
     state = {
         "requests": [

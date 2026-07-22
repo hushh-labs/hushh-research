@@ -36,7 +36,7 @@ import {
   FirebaseAuthentication,
   ProviderId,
 } from "@capacitor-firebase/authentication";
-import { HushhAuth, type AuthUser } from "@/lib/capacitor";
+import { HushhAuth, HushhLocation, type AuthUser } from "@/lib/capacitor";
 import { toast } from "sonner";
 
 export interface AuthResult {
@@ -867,6 +867,7 @@ export class AuthService {
     // Capacitor WebView. Always attempt both; a failure in one must never
     // short-circuit cleanup of the other.
     const results = await Promise.allSettled([
+      HushhLocation.stopBackgroundShare(),
       HushhAuth.signOut(),
       firebaseSignOut(auth),
     ]);

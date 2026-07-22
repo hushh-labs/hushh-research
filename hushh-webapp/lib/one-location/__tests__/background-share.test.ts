@@ -39,6 +39,7 @@ describe("buildBackgroundShareSession", () => {
           grantId: "g1",
           recipientKeyId: "k1",
           recipientPublicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+          precision: "precise",
         },
       ],
     });

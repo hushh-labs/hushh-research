@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
 CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW"
@@ -26,6 +27,12 @@ def build_push_message(
 
     webpush = None
     if show_alert and normalized_platform == "web":
+        parsed_request_url = urlparse(request_url)
+        webpush_fcm_options = (
+            messaging.WebpushFCMOptions(link=request_url)
+            if parsed_request_url.scheme == "https"
+            else None
+        )
         webpush = messaging.WebpushConfig(
             headers={"Urgency": "high"},
             notification=messaging.WebpushNotification(
@@ -35,7 +42,7 @@ def build_push_message(
                 require_interaction=True,
                 data={"url": request_url},
             ),
-            fcm_options=messaging.WebpushFCMOptions(link=request_url),
+            fcm_options=webpush_fcm_options,
         )
 
     apns = None

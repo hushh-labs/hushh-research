@@ -54,6 +54,14 @@ class CreateGrantRequest(_CamelModel):
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
 
+class UpdateConnectionVisibilityRequest(_CamelModel):
+    enabled: bool
+    precision: str = Field(default="precise", pattern="^(precise|approximate)$")
+    excluded_user_ids: list[str] = Field(
+        default_factory=list, alias="excludedUserIds", max_length=100
+    )
+
+
 class StoreEnvelopeRequest(_CamelModel):
     envelope: dict[str, Any]
 
@@ -184,6 +192,37 @@ def _require_retention_auth(request: Request) -> None:
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/visibility")
+async def update_location_visibility(
+    payload: UpdateConnectionVisibilityRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().set_connection_visibility(
+            owner_user_id=_user_id(token_data),
+            enabled=payload.enabled,
+            precision=payload.precision,
+            excluded_user_ids=payload.excluded_user_ids,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/publish-targets")
+async def get_location_publish_targets(
+    limit: int = Query(default=500, ge=1, le=500),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "targets": _service().list_publish_targets(
+                owner_user_id=_user_id(token_data), limit=limit
+            )
+        }
     except Exception as exc:
         raise _handle_error(exc) from exc
 

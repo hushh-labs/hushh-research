@@ -777,6 +777,7 @@ export type BackgroundShareGrant = {
   grantId: string;
   recipientKeyId: string;
   recipientPublicKeyJwk: JsonWebKey;
+  precision?: "precise" | "approximate";
 };
 
 export type BackgroundShareSession = {
@@ -790,7 +791,7 @@ export type BackgroundShareSession = {
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
-  /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
+  /** Prompt for background location where the platform supports it. */
   requestAlwaysAuthorization(): Promise<HushhLocationPermissionState>;
   openAppSettings(): Promise<{
     opened: boolean;
@@ -835,10 +836,8 @@ export interface HushhLocationPlugin {
   /** Stop a `watchPosition` subscription started with the returned id. */
   clearWatch(options: { id: string }): Promise<void>;
   /**
-   * Start native background publishing for the given share session. iOS only:
-   * requires Always authorization. Returns { started:false, reason } when
-   * unavailable (web, missing permission). Foreground JS keeps publishing too;
-   * native takes over while the app is backgrounded.
+   * Start native background publishing for the given share session. iOS and
+   * Android require background authorization; web remains foreground-only.
    */
   startBackgroundShare(
     session: BackgroundShareSession,
@@ -847,10 +846,13 @@ export interface HushhLocationPlugin {
   stopBackgroundShare(): Promise<void>;
 }
 
-
-export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
-  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
-});
+export const HushhLocation = registerPlugin<HushhLocationPlugin>(
+  "HushhLocation",
+  {
+    web: () =>
+      import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+  },
+);
 
 // ==================== HushhContactsPlugin ====================
 // Contact-book permission and read-only contact lookup for Connect matching.
@@ -874,9 +876,13 @@ export interface HushhContactsPlugin {
   }>;
 }
 
-export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
-  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
-});
+export const HushhContacts = registerPlugin<HushhContactsPlugin>(
+  "HushhContacts",
+  {
+    web: () =>
+      import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+  },
+);
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management

@@ -11,9 +11,12 @@ def test_action_directive_ledger_is_in_release_and_schema_contracts():
     uat = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
     dev = json.loads((ROOT / "db/contracts/dev_minimum_schema.json").read_text())
 
-    assert manifest["ordered_migrations"][-1] == "114_one_action_directive_ledger.sql"
-    assert uat["expected_migration_version"] == 114
-    assert dev["expected_migration_version"] == 114
+    ordered = manifest["ordered_migrations"]
+    assert ordered.index("114_one_action_directive_ledger.sql") < ordered.index(
+        "115_one_location_connection_visibility.sql"
+    )
+    assert uat["expected_migration_version"] == 115
+    assert dev["expected_migration_version"] == 115
     assert "one_action_directive_ledger" in uat["required_tables"]
     assert "one_action_directive_ledger" in dev["required_tables"]
 

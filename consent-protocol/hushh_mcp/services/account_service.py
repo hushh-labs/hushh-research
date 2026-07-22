@@ -217,6 +217,16 @@ class AccountService:
                    OR recipient_user_id = :user_id
                 """
             ),
+            "one_location_visibility_exclusions": text(
+                """
+                DELETE FROM one_location_visibility_exclusions
+                WHERE owner_user_id = :user_id
+                   OR excluded_user_id = :user_id
+                """
+            ),
+            "one_location_visibility_preferences": text(
+                "DELETE FROM one_location_visibility_preferences WHERE owner_user_id = :user_id"
+            ),
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
@@ -662,6 +672,8 @@ class AccountService:
         for table_name in (
             "one_location_events",
             "one_location_referrals",
+            "one_location_visibility_exclusions",
+            "one_location_visibility_preferences",
             "one_location_public_invite_submissions",
             "one_location_public_invites",
             "one_location_circle_invites",
@@ -841,6 +853,8 @@ class AccountService:
             "trusted_connections": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
+            "one_location_visibility_exclusions": False,
+            "one_location_visibility_preferences": False,
             "runtime_persona_state": False,
             "vault_key_wrappers": False,
             "vault_keys": False,
@@ -1052,6 +1066,8 @@ class AccountService:
                 for table_name in (
                     "one_location_events",
                     "one_location_referrals",
+                    "one_location_visibility_exclusions",
+                    "one_location_visibility_preferences",
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",

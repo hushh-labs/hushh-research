@@ -4,12 +4,14 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -28,10 +30,8 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Foreground-only location capture for One Location Agent.
- *
- * Coordinates are returned only to the local web layer. The web layer encrypts
- * before calling the backend.
+ * Foreground capture plus explicitly authorized native background publishing.
+ * Coordinates are encrypted locally before any background network request.
  */
 @CapacitorPlugin(
     name = "HushhLocation",
@@ -42,6 +42,10 @@ import java.util.TimeZone
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ]
+        ),
+        Permission(
+            alias = "backgroundLocation",
+            strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]
         )
     ]
 )
@@ -130,24 +134,81 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod
     fun requestAlwaysAuthorization(call: PluginCall) {
-        // Android background publishing is not implemented yet. Return the
-        // truthful foreground state so the web layer can keep the opt-in off.
-        call.resolve(permissionPayload())
-    }
-
-    @PluginMethod
-    fun startBackgroundShare(call: PluginCall) {
-        call.resolve(
-            JSObject()
-                .put("started", false)
-                .put("reason", "android_background_share_unavailable")
+        if (!hasLocationPermission()) {
+            call.resolve(permissionPayload())
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || hasBackgroundLocationPermission()) {
+            call.resolve(permissionPayload())
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                call.resolve(permissionPayload().put("settingsOpened", true))
+            } catch (error: Exception) {
+                call.reject("Could not open app settings: ${error.message}")
+            }
+            return
+        }
+        requestPermissionForAlias(
+            "backgroundLocation",
+            call,
+            "backgroundLocationPermissionCallback"
         )
     }
 
     @PluginMethod
+    fun startBackgroundShare(call: PluginCall) {
+        if (!hasBackgroundLocationPermission()) {
+            call.resolve(
+                JSObject()
+                    .put("started", false)
+                    .put("reason", "always-permission-required")
+            )
+            return
+        }
+        val grants = call.getArray("grants")
+        if (grants == null || grants.length() == 0) {
+            call.resolve(JSObject().put("started", false).put("reason", "no-grants"))
+            return
+        }
+        val backendBaseUrl = call.getString("backendBaseUrl")
+        if (backendBaseUrl.isNullOrBlank() || !isAllowedBackendBaseUrl(backendBaseUrl)) {
+            call.resolve(JSObject().put("started", false).put("reason", "backend-origin-not-allowed"))
+            return
+        }
+        BackgroundLocationService.prepareSession(call.data.toString())
+        val intent = Intent(context, BackgroundLocationService::class.java).apply {
+            action = BackgroundLocationService.ACTION_START
+        }
+        try {
+            ContextCompat.startForegroundService(context, intent)
+            call.resolve(JSObject().put("started", true))
+        } catch (error: Exception) {
+            BackgroundLocationService.clearPendingSession()
+            call.resolve(
+                JSObject()
+                    .put("started", false)
+                    .put("reason", "background-service-unavailable")
+            )
+        }
+    }
+
+    @PluginMethod
     fun stopBackgroundShare(call: PluginCall) {
-        // Safe idempotent no-op while Android background publishing is absent.
+        BackgroundLocationService.clearPendingSession()
+        context.stopService(Intent(context, BackgroundLocationService::class.java))
         call.resolve()
+    }
+
+    @PermissionCallback
+    private fun backgroundLocationPermissionCallback(call: PluginCall) {
+        call.resolve(permissionPayload())
     }
 
     @PermissionCallback
@@ -187,7 +248,10 @@ class HushhLocationPlugin : Plugin() {
         return JSObject()
             .put("state", state)
             .put("precise", fineGranted)
-            .put("background", "foreground-only")
+            .put(
+                "background",
+                if (hasBackgroundLocationPermission()) "available" else "foreground-only"
+            )
             .put("locationServicesEnabled", locationServicesEnabled)
     }
 
@@ -200,10 +264,33 @@ class HushhLocationPlugin : Plugin() {
             hasAndroidPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
+    private fun hasBackgroundLocationPermission(): Boolean {
+        if (!hasLocationPermission()) return false
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+
     private fun locationServicesEnabled(): Boolean {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .any { provider -> locationManager.isProviderEnabled(provider) }
+    }
+
+    private fun isAllowedBackendBaseUrl(value: String): Boolean {
+        val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase(Locale.US) ?: return false
+        val cleanPath = uri.path.isNullOrEmpty() || uri.path == "/"
+        if (!cleanPath || uri.userInfo != null || uri.query != null || uri.fragment != null) return false
+        val hosted = uri.scheme == "https" && uri.port == -1 && host in setOf(
+            "api.hushh.ai",
+            "api.uat.hushh.ai",
+            "api.uat.one.hushh.ai"
+        )
+        if (hosted) return true
+        val isDebuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        return isDebuggable &&
+            uri.scheme in setOf("http", "https") &&
+            host in setOf("127.0.0.1", "localhost", "10.0.2.2")
     }
 
     @SuppressLint("MissingPermission")

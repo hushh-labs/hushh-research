@@ -16,6 +16,7 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    MAX_LOCATION_SHARE_HOURS,
     normalize_duration_hours,
     normalize_source_platform,
 )
@@ -184,7 +185,8 @@ def _redact_location_metadata(value: Any) -> Any:
 
 
 def _json_param(value: dict[str, Any] | list[Any] | None) -> str:
-    return json.dumps(_redact_location_metadata(value or {}), separators=(",", ":"))
+    normalized = {} if value is None else value
+    return json.dumps(_redact_location_metadata(normalized), separators=(",", ":"))
 
 
 def _json_param_with_public_location(value: dict[str, Any] | None) -> str:
@@ -682,16 +684,18 @@ class OneLocationAgentService:
         display_name = str(row.get("display_name") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        public_key_jwk = _loads_json(row.get("public_key_jwk"))
+        phone_verified = bool(row.get("phone_verified"))
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
             "maskedPhone": masked_phone,
-            "phoneVerified": bool(row.get("phone_verified")),
+            "phoneVerified": phone_verified,
             "keyId": str(row.get("key_id") or "") or None,
-            "publicKeyJwk": _loads_json(row.get("public_key_jwk")),
+            "publicKeyJwk": public_key_jwk,
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at") or row.get("created_at")),
-            "canReceiveLocation": bool(row.get("key_id")),
+            "canReceiveLocation": bool(phone_verified and row.get("key_id") and public_key_jwk),
         }
 
     def _optional_signal_rows(
@@ -1544,6 +1548,7 @@ class OneLocationAgentService:
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
+            "accessOrigin": str(row.get("access_origin") or "direct"),
             "shareKind": share_kind,
             "shareMessage": share_message,
         }
@@ -2063,6 +2068,7 @@ class OneLocationAgentService:
               FROM one_location_share_grants
               WHERE status = 'active'
                 AND expires_at <= NOW()
+                AND access_origin <> 'connections_visibility'
                 AND (
                   :user_id IS NULL
                   OR owner_user_id = :user_id
@@ -2072,11 +2078,16 @@ class OneLocationAgentService:
               LIMIT 500
               FOR UPDATE SKIP LOCKED
             )
-            UPDATE one_location_share_grants grant
+            UPDATE one_location_share_grants share_grant
             SET status = 'expired', updated_at = NOW()
             FROM stale
-            WHERE grant.id = stale.id
-            RETURNING grant.id, grant.owner_user_id, grant.recipient_user_id, grant.expires_at
+            WHERE share_grant.id = stale.id
+            RETURNING
+              share_grant.id,
+              share_grant.owner_user_id,
+              share_grant.recipient_user_id,
+              share_grant.expires_at,
+              share_grant.access_origin
             """,
             {"user_id": user_id},
         )
@@ -2448,6 +2459,44 @@ class OneLocationAgentService:
             event_type="location_recipient_key_registered",
             metadata={"key_id": normalized_key_id, "algorithm": algorithm},
         )
+        try:
+            waiting_owners = self._execute_many(
+                """
+                SELECT preference.owner_user_id, preference.precision
+                FROM one_location_visibility_preferences preference
+                JOIN connections connection
+                  ON connection.status = 'active'
+                 AND (
+                   (connection.user_a_id = preference.owner_user_id AND connection.user_b_id = :user_id)
+                   OR
+                   (connection.user_b_id = preference.owner_user_id AND connection.user_a_id = :user_id)
+                 )
+                WHERE preference.audience = 'connections'
+                  AND preference.owner_user_id <> :user_id
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM one_location_visibility_exclusions exclusion
+                    WHERE exclusion.owner_user_id = preference.owner_user_id
+                      AND exclusion.excluded_user_id = :user_id
+                  )
+                """,
+                {"user_id": user_id},
+            )
+            for owner in waiting_owners:
+                owner_user_id = str(owner.get("owner_user_id") or "")
+                exclusions = self._visibility_excluded_user_ids(owner_user_id=owner_user_id)
+                self.set_connection_visibility(
+                    owner_user_id=owner_user_id,
+                    enabled=True,
+                    precision=str(owner.get("precision") or "precise"),
+                    excluded_user_ids=sorted(exclusions),
+                )
+        except Exception as exc:  # noqa: BLE001 - key registration remains authoritative
+            logger.warning(
+                "one_location.visibility_key_reconcile_failed user=%s error=%s",
+                redact_log_field("user_id", user_id),
+                exc,
+            )
         return self._recipient_payload(row) or {}
 
     def list_verified_recipients(
@@ -2488,6 +2537,36 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+
+    def _list_connection_visibility_recipients(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        """Return the complete accepted-connection audience without UI pagination."""
+        rows = self._execute_many(
+            """
+            SELECT
+              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
+            FROM connections c
+            JOIN actor_identity_cache a
+              ON a.user_id = CASE
+                   WHEN c.user_a_id = :owner_user_id THEN c.user_b_id
+                   ELSE c.user_a_id
+                 END
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk, algorithm, created_at
+              FROM one_location_recipient_keys
+              WHERE user_id = a.user_id
+                AND status = 'active'
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) k ON TRUE
+            WHERE c.status = 'active'
+              AND (c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id)
+              AND a.user_id <> :owner_user_id
+            ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._recipient_payload(row))]
 
     def list_directory_candidates(
         self, *, owner_user_id: str, limit: int = 50
@@ -2677,6 +2756,399 @@ class OneLocationAgentService:
         )
         return row is not None
 
+    def _visibility_preference_row(self, *, owner_user_id: str) -> dict[str, Any] | None:
+        return self._execute_one(
+            """
+            SELECT *
+            FROM one_location_visibility_preferences
+            WHERE owner_user_id = :owner_user_id
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+
+    def _visibility_excluded_user_ids(self, *, owner_user_id: str) -> set[str]:
+        rows = self._execute_many(
+            """
+            SELECT excluded_user_id
+            FROM one_location_visibility_exclusions
+            WHERE owner_user_id = :owner_user_id
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return {
+            str(row.get("excluded_user_id") or "") for row in rows if row.get("excluded_user_id")
+        }
+
+    @staticmethod
+    def _visibility_payload(
+        row: dict[str, Any] | None,
+        *,
+        excluded_user_ids: set[str] | None = None,
+        eligible_connection_count: int = 0,
+        ready_connection_count: int = 0,
+    ) -> dict[str, Any]:
+        audience = str((row or {}).get("audience") or "private")
+        return {
+            "enabled": audience == "connections",
+            "audience": audience,
+            "precision": str((row or {}).get("precision") or "precise"),
+            "enabledAt": _iso((row or {}).get("enabled_at")),
+            "disabledAt": _iso((row or {}).get("disabled_at")),
+            "updatedAt": _iso((row or {}).get("updated_at")),
+            "excludedUserIds": sorted(excluded_user_ids or set()),
+            "eligibleConnectionCount": eligible_connection_count,
+            "readyConnectionCount": ready_connection_count,
+            "unavailableConnectionCount": max(
+                0, eligible_connection_count - ready_connection_count
+            ),
+        }
+
+    def _managed_visibility_authorized(self, *, owner_user_id: str, recipient_user_id: str) -> bool:
+        row = self._execute_one(
+            """
+            SELECT 1
+            FROM one_location_visibility_preferences preference
+            JOIN connections connection
+              ON connection.status = 'active'
+             AND (
+               (connection.user_a_id = :owner_user_id AND connection.user_b_id = :recipient_user_id)
+               OR
+               (connection.user_a_id = :recipient_user_id AND connection.user_b_id = :owner_user_id)
+             )
+            WHERE preference.owner_user_id = :owner_user_id
+              AND preference.audience = 'connections'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM one_location_visibility_exclusions exclusion
+                WHERE exclusion.owner_user_id = :owner_user_id
+                  AND exclusion.excluded_user_id = :recipient_user_id
+              )
+            LIMIT 1
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+            },
+        )
+        return row is not None
+
+    def _renew_managed_visibility_grant(self, row: dict[str, Any]) -> dict[str, Any]:
+        if str(row.get("access_origin") or "direct") != "connections_visibility":
+            return row
+        owner_user_id = str(row.get("owner_user_id") or "")
+        recipient_user_id = str(row.get("recipient_user_id") or "")
+        if not self._managed_visibility_authorized(
+            owner_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_VISIBILITY_NOT_AUTHORIZED",
+                "Connection visibility is no longer authorized.",
+                status_code=403,
+            )
+        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+        if str(row.get("status") or "") == "active" and expires_at > _utcnow() + timedelta(hours=6):
+            return row
+        capability = self._mint_grant_capability_token(
+            owner_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            duration_hours=MAX_LOCATION_SHARE_HOURS,
+        )
+        metadata = _loads_json(row.get("metadata")) or {}
+        metadata.update(
+            {
+                "reason": "connections_visibility",
+                "share_kind": "connections_visibility",
+                "access_origin": "connections_visibility",
+                "capability_token": capability["token"],
+                "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+            }
+        )
+        renewed = self._execute_one(
+            """
+            UPDATE one_location_share_grants
+            SET status = 'active',
+                duration_hours = :duration_hours,
+                expires_at = :expires_at,
+                revoked_at = NULL,
+                updated_at = NOW(),
+                metadata = CAST(:metadata_json AS JSONB)
+            WHERE id = CAST(:grant_id AS UUID)
+            RETURNING *
+            """,
+            {
+                "grant_id": str(row.get("id") or ""),
+                "duration_hours": MAX_LOCATION_SHARE_HOURS,
+                "expires_at": _utcnow() + timedelta(hours=MAX_LOCATION_SHARE_HOURS),
+                "metadata_json": _json_param(metadata),
+            },
+        )
+        return renewed or row
+
+    def _revoke_managed_visibility_grants(
+        self, *, owner_user_id: str, keep_recipient_ids: set[str] | None = None
+    ) -> list[dict[str, Any]]:
+        rows = self._execute_many(
+            """
+            SELECT *
+            FROM one_location_share_grants
+            WHERE owner_user_id = :owner_user_id
+              AND access_origin = 'connections_visibility'
+              AND status = 'active'
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        revoked: list[dict[str, Any]] = []
+        keep = keep_recipient_ids or set()
+        for row in rows:
+            recipient_user_id = str(row.get("recipient_user_id") or "")
+            if recipient_user_id in keep:
+                continue
+            updated = self._execute_one(
+                """
+                UPDATE one_location_share_grants
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND status = 'active'
+                RETURNING *
+                """,
+                {"grant_id": str(row.get("id") or "")},
+            )
+            if updated:
+                revoked.append(updated)
+        return revoked
+
+    def set_connection_visibility(
+        self,
+        *,
+        owner_user_id: str,
+        enabled: bool,
+        precision: str = "precise",
+        excluded_user_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if precision not in {"precise", "approximate"}:
+            raise OneLocationAgentError(
+                "LOCATION_VISIBILITY_PRECISION_INVALID",
+                "Choose precise or approximate location visibility.",
+                status_code=422,
+            )
+        normalized_exclusions = {
+            str(user_id).strip()
+            for user_id in (excluded_user_ids or [])
+            if str(user_id).strip() and str(user_id).strip() != owner_user_id
+        }
+        if len(normalized_exclusions) > 500:
+            raise OneLocationAgentError(
+                "LOCATION_VISIBILITY_EXCLUSIONS_LIMIT",
+                "Too many visibility exclusions were selected.",
+                status_code=422,
+            )
+        audience = "connections" if enabled else "private"
+        row = self._execute_one(
+            """
+            WITH preference AS (
+              INSERT INTO one_location_visibility_preferences (
+                owner_user_id, audience, precision, enabled_at, disabled_at, updated_at, metadata
+              )
+              VALUES (
+                :owner_user_id, :audience, :precision,
+                CASE WHEN :enabled THEN NOW() ELSE NULL END,
+                CASE WHEN :enabled THEN NULL ELSE NOW() END,
+                NOW(), '{}'::jsonb
+              )
+              ON CONFLICT (owner_user_id) DO UPDATE SET
+                audience = EXCLUDED.audience,
+                precision = EXCLUDED.precision,
+                enabled_at = CASE
+                  WHEN EXCLUDED.audience = 'connections'
+                    THEN COALESCE(one_location_visibility_preferences.enabled_at, NOW())
+                  ELSE one_location_visibility_preferences.enabled_at
+                END,
+                disabled_at = CASE
+                  WHEN EXCLUDED.audience = 'private' THEN NOW()
+                  ELSE NULL
+                END,
+                updated_at = NOW()
+              RETURNING *
+            ), deleted_owner_exclusions AS (
+              DELETE FROM one_location_visibility_exclusions
+              WHERE owner_user_id = :owner_user_id
+                AND source = 'owner'
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(
+                    CAST(:excluded_user_ids_json AS JSONB)
+                  ) desired(value)
+                  WHERE desired.value = excluded_user_id
+                )
+            ), inserted_owner_exclusions AS (
+              INSERT INTO one_location_visibility_exclusions (
+                owner_user_id, excluded_user_id, source, created_at
+              )
+              SELECT :owner_user_id, value, 'owner', NOW()
+              FROM jsonb_array_elements_text(CAST(:excluded_user_ids_json AS JSONB)) AS value
+              ON CONFLICT (owner_user_id, excluded_user_id) DO NOTHING
+            )
+            SELECT * FROM preference
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "audience": audience,
+                "precision": precision,
+                "enabled": enabled,
+                "excluded_user_ids_json": _json_param(sorted(normalized_exclusions)),
+            },
+        )
+
+        effective_exclusions = self._visibility_excluded_user_ids(owner_user_id=owner_user_id)
+        recipients = self._list_connection_visibility_recipients(owner_user_id=owner_user_id)
+        eligible = [
+            recipient
+            for recipient in recipients
+            if str(recipient.get("userId") or "") not in effective_exclusions
+        ]
+        ready = [recipient for recipient in eligible if recipient.get("canReceiveLocation")]
+        grants: list[dict[str, Any]] = []
+        keep_recipient_ids: set[str] = set()
+        if enabled:
+            for recipient in ready:
+                recipient_user_id = str(recipient.get("userId") or "")
+                keep_recipient_ids.add(recipient_user_id)
+                existing = self._execute_one(
+                    """
+                    SELECT *
+                    FROM one_location_share_grants
+                    WHERE owner_user_id = :owner_user_id
+                      AND recipient_user_id = :recipient_user_id
+                      AND access_origin = 'connections_visibility'
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {
+                        "owner_user_id": owner_user_id,
+                        "recipient_user_id": recipient_user_id,
+                    },
+                )
+                if existing:
+                    grants.append(
+                        self._grant_payload(self._renew_managed_visibility_grant(existing)) or {}
+                    )
+                    continue
+                grants.append(
+                    self.create_grant(
+                        owner_user_id=owner_user_id,
+                        recipient_user_id=recipient_user_id,
+                        recipient_key_id=str(recipient.get("keyId") or ""),
+                        duration_hours=MAX_LOCATION_SHARE_HOURS,
+                        reason="connections_visibility",
+                        share_kind="connections_visibility",
+                        access_origin="connections_visibility",
+                        enforce_connection=True,
+                    )
+                )
+        self._revoke_managed_visibility_grants(
+            owner_user_id=owner_user_id,
+            keep_recipient_ids=keep_recipient_ids,
+        )
+        return {
+            "visibility": self._visibility_payload(
+                row,
+                excluded_user_ids=effective_exclusions,
+                eligible_connection_count=len(eligible),
+                ready_connection_count=len(ready),
+            ),
+            "grants": grants,
+        }
+
+    def get_connection_visibility(self, *, owner_user_id: str) -> dict[str, Any]:
+        row = self._visibility_preference_row(owner_user_id=owner_user_id)
+        exclusions = self._visibility_excluded_user_ids(owner_user_id=owner_user_id)
+        recipients = self._list_connection_visibility_recipients(owner_user_id=owner_user_id)
+        eligible = [
+            recipient
+            for recipient in recipients
+            if str(recipient.get("userId") or "") not in exclusions
+        ]
+        ready = [recipient for recipient in eligible if recipient.get("canReceiveLocation")]
+        return self._visibility_payload(
+            row,
+            excluded_user_ids=exclusions,
+            eligible_connection_count=len(eligible),
+            ready_connection_count=len(ready),
+        )
+
+    def list_publish_targets(self, *, owner_user_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        visibility = self._visibility_preference_row(owner_user_id=owner_user_id)
+        visibility_precision = str((visibility or {}).get("precision") or "precise")
+        rows = self._execute_many(
+            """
+            SELECT
+              share_grant.*,
+              recipient.display_name AS recipient_display_name,
+              recipient.phone_number AS recipient_phone_number,
+              recipient.phone_verified AS recipient_phone_verified,
+              recipient_key.public_key_jwk AS recipient_public_key_jwk,
+              recipient_key.algorithm AS recipient_key_algorithm,
+              recipient_key.created_at AS recipient_key_created_at
+            FROM one_location_share_grants share_grant
+            JOIN one_location_recipient_keys recipient_key
+              ON recipient_key.user_id = share_grant.recipient_user_id
+             AND recipient_key.key_id = share_grant.recipient_key_id
+             AND recipient_key.status = 'active'
+            LEFT JOIN actor_identity_cache recipient
+              ON recipient.user_id = share_grant.recipient_user_id
+            WHERE share_grant.owner_user_id = :owner_user_id
+              AND share_grant.status = 'active'
+              AND share_grant.expires_at > NOW()
+            ORDER BY share_grant.created_at DESC
+            LIMIT :limit
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "limit": max(1, min(int(limit), 500)),
+            },
+        )
+        targets: list[dict[str, Any]] = []
+        for row in rows:
+            recipient_user_id = str(row.get("recipient_user_id") or "")
+            if str(row.get("access_origin") or "direct") == "connections_visibility":
+                if not self._is_active_connection(
+                    owner_user_id=owner_user_id,
+                    other_user_id=recipient_user_id,
+                ):
+                    continue
+                row = self._renew_managed_visibility_grant(row)
+            grant = self._grant_payload(row)
+            if not grant:
+                continue
+            targets.append(
+                {
+                    "grant": grant,
+                    "precision": (
+                        visibility_precision
+                        if str(row.get("access_origin") or "direct") == "connections_visibility"
+                        else "precise"
+                    ),
+                    "recipient": {
+                        "userId": recipient_user_id,
+                        "displayName": str(row.get("recipient_display_name") or "")
+                        or _mask_phone(row.get("recipient_phone_number"))
+                        or "Connection",
+                        "maskedPhone": _mask_phone(row.get("recipient_phone_number")),
+                        "phoneVerified": bool(row.get("recipient_phone_verified")),
+                        "keyId": str(row.get("recipient_key_id") or "") or None,
+                        "publicKeyJwk": _loads_json(row.get("recipient_public_key_jwk")),
+                        "keyAlgorithm": str(
+                            row.get("recipient_key_algorithm") or "ECDH-P256-AES256-GCM"
+                        ),
+                        "keyRegisteredAt": _iso(row.get("recipient_key_created_at")),
+                        "canReceiveLocation": bool(row.get("recipient_key_id")),
+                    },
+                }
+            )
+        return targets
+
     def create_grant(
         self,
         *,
@@ -2686,8 +3158,10 @@ class OneLocationAgentService:
         duration_hours: float,
         reason: str | None = None,
         share_kind: str | None = None,
+        access_origin: str = "direct",
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
+        send_notification: bool = True,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
@@ -2702,6 +3176,12 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_NOT_CONNECTED",
                 "You can only share your live location with your connections.",
                 status_code=403,
+            )
+        if access_origin not in {"direct", "request_approved", "connections_visibility"}:
+            raise OneLocationAgentError(
+                "LOCATION_ACCESS_ORIGIN_INVALID",
+                "Location access origin is invalid.",
+                status_code=422,
             )
         try:
             duration = normalize_duration_hours(duration_hours)
@@ -2726,33 +3206,62 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             duration_hours=duration,
         )
-        self._execute_many(
-            """
-            UPDATE one_location_share_grants
-            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-            WHERE owner_user_id = :owner_user_id
-              AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
-            RETURNING id
-            """,
-            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
-        )
-        row = self._execute_one(
-            """
+        is_managed_visibility = access_origin == "connections_visibility"
+        if not is_managed_visibility:
+            self._execute_many(
+                """
+                UPDATE one_location_share_grants
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE owner_user_id = :owner_user_id
+                  AND recipient_user_id = :recipient_user_id
+                  AND access_origin = :access_origin
+                  AND status = 'active'
+                RETURNING id
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                    "access_origin": access_origin,
+                },
+            )
+        insert_sql = """
             INSERT INTO one_location_share_grants (
               owner_user_id, recipient_user_id, recipient_key_id, status,
               consent_scope, capability_scopes, duration_hours, expires_at,
-              created_at, updated_at, metadata
+              created_at, updated_at, metadata, access_origin
             )
             VALUES (
               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-              :duration_hours, :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              :duration_hours, :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB),
+              :access_origin
             )
+        """
+        if is_managed_visibility:
+            insert_sql += """
+            ON CONFLICT (owner_user_id, recipient_user_id)
+              WHERE status = 'active' AND access_origin = 'connections_visibility'
+            DO UPDATE SET
+              recipient_key_id = EXCLUDED.recipient_key_id,
+              consent_scope = EXCLUDED.consent_scope,
+              capability_scopes = EXCLUDED.capability_scopes,
+              duration_hours = EXCLUDED.duration_hours,
+              expires_at = EXCLUDED.expires_at,
+              revoked_at = NULL,
+              updated_at = NOW(),
+              metadata = EXCLUDED.metadata
+            RETURNING *, (xmax = 0) AS was_inserted,
+              :recipient_display_name AS recipient_display_name,
+              :recipient_phone_number AS recipient_phone_number
+            """
+        else:
+            insert_sql += """
             RETURNING *,
               :recipient_display_name AS recipient_display_name,
               :recipient_phone_number AS recipient_phone_number
-            """,
+            """
+        row = self._execute_one(
+            insert_sql,
             {
                 "owner_user_id": owner_user_id,
                 "recipient_user_id": recipient_user_id,
@@ -2764,10 +3273,12 @@ class OneLocationAgentService:
                     {
                         "reason": reason or "owner_approved",
                         "share_kind": resolved_kind,
+                        "access_origin": access_origin,
                         "capability_token": capability["token"],
                         "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
                     }
                 ),
+                "access_origin": access_origin,
                 "recipient_display_name": recipient.get("display_name"),
                 "recipient_phone_number": recipient.get("phone_number"),
             },
@@ -2779,14 +3290,16 @@ class OneLocationAgentService:
                 "Could not create the location share.",
                 status_code=500,
             )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            grant_id=grant["id"],
-            event_type="location_share_created",
-            metadata={"duration_hours": duration},
-        )
+        was_inserted = not is_managed_visibility or bool((row or {}).get("was_inserted"))
+        if was_inserted:
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                grant_id=grant["id"],
+                event_type="location_share_created",
+                metadata={"duration_hours": duration},
+            )
         # Kind-aware notification copy so the recipient instantly knows WHAT this
         # is (emergency SOS vs friendly Check-In vs plain share) and WHY. The
         # share kind comes from the grant "reason" marker; a Check-In note is
@@ -2795,7 +3308,10 @@ class OneLocationAgentService:
         # ("owner_approved" / "request_approved" / "sos_panic") are never shown
         # as a raw message.
         share_message = _visible_share_message(reason)
-        if resolved_kind == "sos":
+        if resolved_kind == "connections_visibility":
+            notification_title = "Visible on Friends Map"
+            notification_body = f"{owner_label} is sharing live location with connections."
+        elif resolved_kind == "sos":
             notification_title = "SOS alert"
             notification_body = (
                 f"{owner_label} triggered an SOS and is sharing live location with you."
@@ -2827,7 +3343,7 @@ class OneLocationAgentService:
         # this call. Sending share-created as well produces two alerts for one
         # user action, so direct/SOS/check-in/drive shares use this notification
         # while approvals use only location_access_approved.
-        if reason != "request_approved":
+        if was_inserted and send_notification and reason != "request_approved":
             self._send_metadata_notification(
                 user_id=recipient_user_id,
                 notification_type="location_share_created",
@@ -2885,6 +3401,19 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
             )
+        if str(grant_row.get("access_origin") or "direct") == "connections_visibility":
+            grant_owner_user_id = str(grant_row.get("owner_user_id") or "")
+            grant_recipient_user_id = str(grant_row.get("recipient_user_id") or "")
+            if not self._is_active_connection(
+                owner_user_id=grant_owner_user_id,
+                other_user_id=grant_recipient_user_id,
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                    "Location access ended because this connection is no longer active.",
+                    status_code=403,
+                )
+            grant_row = self._renew_managed_visibility_grant(grant_row)
         if str(grant_row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
@@ -2988,6 +3517,18 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_FOUND", "No approved location share was found.", status_code=404
             )
+        if str(grant_row.get("access_origin") or "direct") == "connections_visibility":
+            grant_owner_user_id = str(grant_row.get("owner_user_id") or "")
+            if not self._is_active_connection(
+                owner_user_id=grant_owner_user_id,
+                other_user_id=recipient_user_id,
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                    "Location access ended because this connection is no longer active.",
+                    status_code=403,
+                )
+            grant_row = self._renew_managed_visibility_grant(grant_row)
         if str(grant_row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=410
@@ -3712,7 +4253,7 @@ class OneLocationAgentService:
                     exc,
                 )
         try:
-            recipients = self.list_verified_recipients(owner_user_id=user_id)
+            recipients = self.list_verified_recipients(owner_user_id=user_id, limit=100)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "one_location.list_state.recipients_failed user=%s error=%s",
@@ -3720,6 +4261,37 @@ class OneLocationAgentService:
                 exc,
             )
             recipients = []
+        visibility = self._visibility_payload(None)
+        try:
+            preference_row = self._visibility_preference_row(owner_user_id=user_id)
+            exclusions = self._visibility_excluded_user_ids(owner_user_id=user_id)
+            if str((preference_row or {}).get("audience") or "private") == "connections":
+                visibility = self.set_connection_visibility(
+                    owner_user_id=user_id,
+                    enabled=True,
+                    precision=str((preference_row or {}).get("precision") or "precise"),
+                    excluded_user_ids=sorted(exclusions),
+                )["visibility"]
+            else:
+                eligible = [
+                    recipient
+                    for recipient in recipients
+                    if str(recipient.get("userId") or "") not in exclusions
+                ]
+                visibility = self._visibility_payload(
+                    preference_row,
+                    excluded_user_ids=exclusions,
+                    eligible_connection_count=len(eligible),
+                    ready_connection_count=sum(
+                        1 for recipient in eligible if recipient.get("canReceiveLocation")
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001 - migration drift must not 500 state
+            logger.warning(
+                "one_location.list_state.visibility_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
         owner_grants = _safe_many(
             "owner_grants",
             """
@@ -3731,7 +4303,7 @@ class OneLocationAgentService:
             LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
             WHERE g.owner_user_id = :user_id
             ORDER BY g.created_at DESC
-            LIMIT 50
+            LIMIT 100
             """,
             {"user_id": user_id},
         )
@@ -3746,7 +4318,7 @@ class OneLocationAgentService:
             LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
             WHERE g.recipient_user_id = :user_id
             ORDER BY g.created_at DESC
-            LIMIT 50
+            LIMIT 100
             """,
             {"user_id": user_id},
         )
@@ -3858,6 +4430,7 @@ class OneLocationAgentService:
 
         return {
             "recipients": recipients,
+            "visibility": visibility,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
@@ -3944,6 +4517,27 @@ class OneLocationAgentService:
             )
         actor_is_owner = str(row.get("owner_user_id") or "") == owner_user_id
         recipient_user_id = str(row.get("recipient_user_id") or "") or None
+        if str(row.get("access_origin") or "direct") == "connections_visibility":
+            self._execute_one(
+                """
+                INSERT INTO one_location_visibility_exclusions (
+                  owner_user_id, excluded_user_id, source, created_at
+                )
+                VALUES (:owner_user_id, :excluded_user_id, :source, NOW())
+                ON CONFLICT (owner_user_id, excluded_user_id) DO UPDATE SET
+                  source = CASE
+                    WHEN one_location_visibility_exclusions.source = 'recipient'
+                      THEN 'recipient'
+                    ELSE EXCLUDED.source
+                  END
+                RETURNING owner_user_id
+                """,
+                {
+                    "owner_user_id": str(row.get("owner_user_id") or ""),
+                    "excluded_user_id": str(row.get("recipient_user_id") or ""),
+                    "source": "owner" if actor_is_owner else "recipient",
+                },
+            )
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -4117,6 +4711,7 @@ class OneLocationAgentService:
             recipient_key_id=None,
             duration_hours=duration_hours,
             reason="request_approved",
+            access_origin="request_approved",
             require_recipient_phone_verified=False,
         )
         resolved = self._execute_one(

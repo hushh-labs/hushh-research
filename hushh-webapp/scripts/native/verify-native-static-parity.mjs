@@ -64,6 +64,12 @@ const locationUsageMatch = infoPlist.match(
 if (!locationUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSLocationWhenInUseUsageDescription.");
 }
+const alwaysLocationUsageMatch = infoPlist.match(
+  /<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
+);
+if (!alwaysLocationUsageMatch?.[1]?.trim()) {
+  fail("iOS Info.plist must include non-empty NSLocationAlwaysAndWhenInUseUsageDescription.");
+}
 const contactsUsageMatch = infoPlist.match(
   /<key>NSContactsUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
 );
@@ -81,6 +87,10 @@ const allowedAndroidPermissions = new Set([
   "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
   "android.permission.ACCESS_COARSE_LOCATION",
+  "android.permission.ACCESS_BACKGROUND_LOCATION",
+  "android.permission.FOREGROUND_SERVICE",
+  "android.permission.FOREGROUND_SERVICE_LOCATION",
+  "android.permission.POST_NOTIFICATIONS",
   "android.permission.READ_CONTACTS",
 ]);
 const unexpectedAndroidPermissions = androidPermissions.filter(
@@ -106,8 +116,11 @@ if (!androidManifest.includes('android.permission.ACCESS_COARSE_LOCATION')) {
 if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
   fail("AndroidManifest.xml must include android.permission.READ_CONTACTS.");
 }
-if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
-  fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+if (!androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+  fail("Friends Map background sharing requires android.permission.ACCESS_BACKGROUND_LOCATION.");
+}
+if (!androidManifest.includes('android.permission.FOREGROUND_SERVICE_LOCATION')) {
+  fail("Friends Map background sharing requires android.permission.FOREGROUND_SERVICE_LOCATION.");
 }
 const androidMainActivity = androidManifest.match(
   /<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*>/,

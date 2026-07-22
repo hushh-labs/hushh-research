@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-06-18
+Last updated: 2026-07-21
 
 ## Visual Map
 
@@ -110,6 +110,34 @@ owner/link metadata plus the attached public location snapshot.
   permission.
 - Consent/audit records are metadata-only.
 
+## Connection Visibility Contract
+
+`Visible to connections` is a private Friends Map audience, not a public link.
+It is off by default and includes accepted mutual `connections` only. Pending
+requests, directional trusted edges, directory matches, and public-link users
+are never members of this audience.
+
+- The owner preference and per-person exclusions are coordinate-free metadata.
+- Every eligible recipient still receives an independent E2EE grant and
+  ciphertext envelope. The backend never encrypts or fans out plaintext.
+- Managed grants use `access_origin = connections_visibility`; direct,
+  request-approved, SOS, check-in, drive, and pickup access remain independent.
+- A recipient without a current One Location key remains unavailable until key
+  provisioning completes.
+- Future accepted connections join an enabled audience automatically unless
+  excluded. Recipient opt-outs remain sticky.
+- Disconnect, exclusion, or disabling visibility blocks reads immediately and
+  revokes managed grants.
+- Managed grants are bounded 24-hour authorization leases that renew silently
+  while the owner preference, connection, and encrypted publishing remain
+  active. The user-facing setting stays on until the owner turns it off.
+- Native publishers refresh their authorized recipient/key list every five
+  minutes, so newly accepted connections join without persisting vault
+  credentials or waiting for the owner to reopen One Location.
+- Approximate mode reduces coordinate precision on the client before E2EE.
+- Consent notifications route to the shield and Access Manager, never the
+  general bell. Location updates themselves do not create notifications.
+
 Capability scopes:
 
 - `cap.location.live.share`
@@ -202,17 +230,22 @@ retention boundary.
 
 ## Native Contract
 
-v1 is foreground-only.
+Web, iOS, and Android share the typed `HushhLocation` Capacitor contract.
 
-- iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
-  Capacitor plugin.
-- Android uses fine/coarse location permissions and the `HushhLocation`
-  Capacitor plugin.
-- No iOS background location mode is added.
-- No Android background location permission is added.
-
-Denied, unavailable, approximate, and foreground-only states must be visible in
-the web control surface.
+- Web publishes only while the page is active. A previously encrypted point is
+  still governed by the live audience policy and is labeled stale by its
+  capture time; it is never presented as a current background update.
+- iOS requests `Always` authorization only after the user enables connection
+  visibility, then publishes recipient-specific ciphertext through the native
+  background publisher.
+- Android requests background location only after the same explicit opt-in and
+  uses a visible location foreground service. Session credentials remain in
+  process memory and the service is not restarted after process death.
+- Foreground publishing remains available when background permission is not
+  granted; the UI must say `Updates while One is open` rather than promising
+  continuous visibility.
+- Denied, unavailable, approximate, foreground-only, and background-authorized
+  states remain visible in Settings.
 
 ## Migration From KAI Prototype
 

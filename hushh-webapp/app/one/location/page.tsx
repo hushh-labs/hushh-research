@@ -131,6 +131,7 @@ import {
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
+import { pointForConnectionVisibility } from "@/lib/one-location/location-privacy";
 import {
   syncOneLocationContactSignals,
   type OneLocationContactSignalResult,
@@ -269,6 +270,7 @@ type BusyState =
   | "refer"
   | "revoke"
   | "sos"
+  | "visibility"
   | "locationSettings"
   | "selfLocation"
   | "driveTo"
@@ -1632,6 +1634,12 @@ export function OneLocationAgentPageContent({
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
+  useEffect(() => {
+    setBackgroundShareEnabled(
+      Boolean(state?.visibility?.enabled) &&
+        permission?.background === "available",
+    );
+  }, [permission?.background, state?.visibility?.enabled]);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -2145,60 +2153,61 @@ export function OneLocationAgentPageContent({
     );
   }, [pendingCircleInviteToken, router, vaultOwnerToken]);
 
-  const refresh = useCallback(async (options?: { background?: boolean }) => {
-    if (!auth.userId) {
-      setBusy(null);
-      setLoadError("Sign in before loading location sharing.");
-      return;
-    }
-    if (!vaultOwnerToken) {
-      setBusy(null);
-      // `/one/location` is already protected by OneAuthGate -> VaultLockGuard.
-      // A missing owner token means that canonical hard gate is taking over;
-      // do not flash a second route-local unlock/error presentation first.
-      setLoadError(null);
-      return;
-    }
-    if (refreshInFlightRef.current) {
-      return refreshInFlightRef.current;
-    }
-    const activeUserId = auth.userId;
-    const activeUser = auth.user;
-    const activeVaultOwnerToken = vaultOwnerToken;
-    const hasUsableState = stateEntry?.userId === activeUserId;
-    // A memory snapshot is safe only for this unlocked session. Keep it visible
-    // while the network reconciles instead of replacing a usable Location page
-    // with the same foreground loader on every focus, push, or route re-entry.
-    const showForegroundLoad = !options?.background && !hasUsableState;
-    if (showForegroundLoad) {
-      setBusy((current) => current ?? "load");
-    }
-    const task = (async () => {
-      setLoadError(null);
-      try {
-        if (!activeUser) {
-          throw new Error(
-            "Refresh your session before loading location sharing.",
-          );
-        }
-        if (workspaceBootstrapUserRef.current !== activeUserId) {
-          await AccountIdentityService.syncCurrentUser(activeUser).catch(
-            (error) => {
-              console.warn(
-                "[OneLocation] Failed to sync account identity:",
-                error,
-              );
-            },
-          );
-          const key = await ensureLocationRecipientKey(activeUserId);
-          await OneLocationService.registerRecipientKey({
-            vaultOwnerToken: activeVaultOwnerToken,
-            keyId: key.keyId,
-            publicKeyJwk: key.publicKeyJwk,
-            algorithm: key.algorithm,
-          });
-          workspaceBootstrapUserRef.current = activeUserId;
-        }
+  const refresh = useCallback(
+    async (options?: { background?: boolean }) => {
+      if (!auth.userId) {
+        setBusy(null);
+        setLoadError("Sign in before loading location sharing.");
+        return;
+      }
+      if (!vaultOwnerToken) {
+        setBusy(null);
+        // `/one/location` is already protected by OneAuthGate -> VaultLockGuard.
+        // A missing owner token means that canonical hard gate is taking over;
+        // do not flash a second route-local unlock/error presentation first.
+        setLoadError(null);
+        return;
+      }
+      if (refreshInFlightRef.current) {
+        return refreshInFlightRef.current;
+      }
+      const activeUserId = auth.userId;
+      const activeUser = auth.user;
+      const activeVaultOwnerToken = vaultOwnerToken;
+      const hasUsableState = stateEntry?.userId === activeUserId;
+      // A memory snapshot is safe only for this unlocked session. Keep it visible
+      // while the network reconciles instead of replacing a usable Location page
+      // with the same foreground loader on every focus, push, or route re-entry.
+      const showForegroundLoad = !options?.background && !hasUsableState;
+      if (showForegroundLoad) {
+        setBusy((current) => current ?? "load");
+      }
+      const task = (async () => {
+        setLoadError(null);
+        try {
+          if (!activeUser) {
+            throw new Error(
+              "Refresh your session before loading location sharing.",
+            );
+          }
+          if (workspaceBootstrapUserRef.current !== activeUserId) {
+            await AccountIdentityService.syncCurrentUser(activeUser).catch(
+              (error) => {
+                console.warn(
+                  "[OneLocation] Failed to sync account identity:",
+                  error,
+                );
+              },
+            );
+            const key = await ensureLocationRecipientKey(activeUserId);
+            await OneLocationService.registerRecipientKey({
+              vaultOwnerToken: activeVaultOwnerToken,
+              keyId: key.keyId,
+              publicKeyJwk: key.publicKeyJwk,
+              algorithm: key.algorithm,
+            });
+            workspaceBootstrapUserRef.current = activeUserId;
+          }
         const [nextPermission, nextState] = await Promise.all([
           OneLocationService.getPermissionState().catch(() => ({
             state: "unavailable" as const,
@@ -2249,29 +2258,34 @@ export function OneLocationAgentPageContent({
         );
         suppressAutoRecipientSelectionRef.current = false;
       } catch (error) {
-        suppressAutoRecipientSelectionRef.current = false;
-        // ApiService handles rejected VAULT_OWNER tokens for web and native by
-        // locking the vault. Do not briefly render the backend auth message
-        // while VaultLockGuard switches to the standard re-unlock flow.
-        if (!isVaultOwnerAuthError(error)) {
-          setLoadError(
-            oneLocationErrorMessage(error, "Could not load location sharing."),
-          );
+          suppressAutoRecipientSelectionRef.current = false;
+          // ApiService handles rejected VAULT_OWNER tokens for web and native by
+          // locking the vault. Do not briefly render the backend auth message
+          // while VaultLockGuard switches to the standard re-unlock flow.
+          if (!isVaultOwnerAuthError(error)) {
+            setLoadError(
+              oneLocationErrorMessage(
+                error,
+                "Could not load location sharing.",
+              ),
+            );
+          }
+        } finally {
+          refreshInFlightRef.current = null;
+          if (showForegroundLoad) setBusy(null);
         }
-      } finally {
-        refreshInFlightRef.current = null;
-        if (showForegroundLoad) setBusy(null);
-      }
-    })();
-    refreshInFlightRef.current = task;
-    return task;
-  }, [
-    auth.user,
-    auth.userId,
-    contactMatchedUserIds,
-    stateEntry?.userId,
-    vaultOwnerToken,
-  ]);
+      })();
+      refreshInFlightRef.current = task;
+      return task;
+    },
+    [
+      auth.user,
+      auth.userId,
+      contactMatchedUserIds,
+      stateEntry?.userId,
+      vaultOwnerToken,
+    ],
+  );
 
   const refreshLocationPermission = useCallback(async () => {
     const nextPermission = await OneLocationService.getPermissionState().catch(
@@ -2300,6 +2314,25 @@ export function OneLocationAgentPageContent({
         error instanceof Error
           ? error.message
           : "Could not open location settings.",
+      );
+    } finally {
+      setBusy(null);
+      window.setTimeout(() => void refreshLocationPermission(), 1200);
+    }
+  }, [refreshLocationPermission]);
+
+  const handleOpenAppSettings = useCallback(async () => {
+    setBusy("locationSettings");
+    try {
+      const result = await OneLocationService.openAppSettings();
+      toast.info(
+        result.opened
+          ? 'Set Location to "Allow all the time", then return to One.'
+          : "Open this app's system settings and allow background location.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not open app settings.",
       );
     } finally {
       setBusy(null);
@@ -2684,8 +2717,15 @@ export function OneLocationAgentPageContent({
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
+      const protectedPoint =
+        grant.accessOrigin === "connections_visibility"
+          ? pointForConnectionVisibility(
+              point,
+              state?.visibility?.precision ?? "precise",
+            )
+          : point;
       const envelope = await encryptLocationForRecipient({
-        point,
+        point: protectedPoint,
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
@@ -2695,7 +2735,7 @@ export function OneLocationAgentPageContent({
         envelope,
       });
     },
-    [vaultOwnerToken],
+    [state?.visibility?.precision, vaultOwnerToken],
   );
 
   const publishEnvelopeWithRetry = useCallback(
@@ -3481,12 +3521,16 @@ export function OneLocationAgentPageContent({
       backendBaseUrl: getApiBaseUrl(),
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+      visibilityPrecision: state?.visibility?.precision ?? "precise",
     });
     void syncBackgroundShare({ enabled: backgroundShareEnabled, session });
-    return () => {
-      void OneLocationService.stopBackgroundShare();
-    };
-  }, [backgroundShareEnabled, activeOwnerGrants, recipients, vaultOwnerToken]);
+  }, [
+    backgroundShareEnabled,
+    activeOwnerGrants,
+    recipients,
+    state?.visibility?.precision,
+    vaultOwnerToken,
+  ]);
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
@@ -3507,6 +3551,68 @@ export function OneLocationAgentPageContent({
       }
     },
     [refresh, vaultOwnerToken],
+  );
+
+  const handleUpdateConnectionVisibility = useCallback(
+    async (params: {
+      enabled: boolean;
+      precision: "precise" | "approximate";
+      excludedUserIds: string[];
+    }) => {
+      if (!vaultOwnerToken) {
+        toast.error("Unlock your vault before changing location visibility.");
+        return false;
+      }
+      setBusy("visibility");
+      try {
+        const isEnabling = params.enabled && !state?.visibility?.enabled;
+        let nextPermission = await OneLocationService.getPermissionState();
+        if (isEnabling && nextPermission.state !== "granted") {
+          nextPermission = await OneLocationService.requestLocationPermission();
+        }
+        if (isEnabling && nextPermission.state !== "granted") {
+          toast.error(
+            "Allow location permission before becoming visible to connections.",
+          );
+          setPermission(nextPermission);
+          return false;
+        }
+        if (isEnabling) {
+          nextPermission =
+            await OneLocationService.requestAlwaysAuthorization().catch(
+              () => nextPermission,
+            );
+        }
+        setPermission(nextPermission);
+        const result = await OneLocationService.updateConnectionVisibility({
+          vaultOwnerToken,
+          ...params,
+        });
+        setBackgroundShareEnabled(
+          params.enabled && nextPermission.background === "available",
+        );
+        toast.success(
+          params.enabled
+            ? nextPermission.background === "available"
+              ? `Visible to ${result.visibility.readyConnectionCount} connections until you turn it off.`
+              : `Visible to ${result.visibility.readyConnectionCount} connections while One is open.`
+            : "Your location is private now.",
+        );
+        await refresh({ background: true });
+        return true;
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not update connection visibility.",
+          ),
+        );
+        return false;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, state?.visibility?.enabled, vaultOwnerToken],
   );
 
   const handleStopSos = useCallback(async () => {
@@ -5223,6 +5329,16 @@ export function OneLocationAgentPageContent({
     permissionIsPrompt: permission?.state === "prompt",
     myLocationPoint,
     myLocationError,
+    locationPermission: permission,
+    visibility: state?.visibility ?? {
+      enabled: false,
+      audience: "private",
+      precision: "precise",
+      excludedUserIds: [],
+      eligibleConnectionCount: 0,
+      readyConnectionCount: 0,
+      unavailableConnectionCount: 0,
+    },
     recipients: rankedRecipients,
     visibleRecipients,
     activeOwnerGrants,
@@ -5238,6 +5354,18 @@ export function OneLocationAgentPageContent({
       title: event.title,
       detail: event.detail,
     })),
+    friendsMapEntries: activeReceivedGrants.flatMap((grant) => {
+      if (grant.accessOrigin !== "connections_visibility") return [];
+      const point = decryptedPoints[grant.id];
+      if (!point) return [];
+      return [
+        {
+          id: grant.id,
+          name: receivedGrantOwnerLabel(grant),
+          point,
+        },
+      ];
+    }),
     recipientSearch,
     selectedRecipientIds,
     selectedRequestOwnerIds,
@@ -5257,6 +5385,8 @@ export function OneLocationAgentPageContent({
     onHideMyLocation: () => handleHideMyLiveLocation(),
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
+    onOpenAppSettings: () => void handleOpenAppSettings(),
+    onUpdateConnectionVisibility: handleUpdateConnectionVisibility,
     onSyncContacts: () => void handleSyncContactSignal(),
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
@@ -5370,7 +5500,10 @@ export function OneLocationAgentPageContent({
               className="h-9 rounded-full px-3"
             >
               {busy === "load" ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="mr-2 h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
               )}

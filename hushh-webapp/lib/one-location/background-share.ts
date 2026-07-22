@@ -22,6 +22,7 @@ export function buildBackgroundShareSession(params: {
   backendBaseUrl: string;
   minMoveMeters: number;
   minIntervalMs: number;
+  visibilityPrecision?: "precise" | "approximate";
 }): BackgroundShareSession {
   const grants: BackgroundShareGrant[] = [];
   for (const grant of params.activeGrants) {
@@ -36,6 +37,10 @@ export function buildBackgroundShareSession(params: {
       grantId: grant.id,
       recipientKeyId: recipient.keyId,
       recipientPublicKeyJwk: recipient.publicKeyJwk,
+      precision:
+        grant.accessOrigin === "connections_visibility"
+          ? (params.visibilityPrecision ?? "precise")
+          : "precise",
     });
   }
   return {

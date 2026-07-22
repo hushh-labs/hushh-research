@@ -55,7 +55,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(KaiPlugin::class.java) // Agent Kai plugin
         registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
-        registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
+        registerPlugin(HushhLocationPlugin::class.java) // Foreground capture + opted-in background sharing
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
         
         Log.d("MainActivity", "All 12 plugins registered successfully")

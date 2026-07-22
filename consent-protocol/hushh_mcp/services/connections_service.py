@@ -246,6 +246,24 @@ class ConnectionsService:
             """,
             {"id": req.get("id")},
         )
+        # An owner who selected all connections also selected future mutual
+        # connections. Reconcile both audiences best-effort after acceptance;
+        # keyless users remain unavailable until One Location provisions them.
+        try:
+            from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+            location_service = OneLocationAgentService()
+            for owner in (requester, user_id):
+                visibility = location_service.get_connection_visibility(owner_user_id=owner)
+                if visibility.get("enabled"):
+                    location_service.set_connection_visibility(
+                        owner_user_id=owner,
+                        enabled=True,
+                        precision=str(visibility.get("precision") or "precise"),
+                        excluded_user_ids=list(visibility.get("excludedUserIds") or []),
+                    )
+        except Exception as exc:  # noqa: BLE001 - connection acceptance remains authoritative
+            logger.warning("connections.location_visibility_reconcile_failed error=%s", exc)
         return {
             "status": "accepted",
             "requestId": req.get("id"),
@@ -523,5 +541,21 @@ class ConnectionsService:
             RETURNING id
             """,
             {"id": (connection_id or "").strip()},
+        )
+        # Read and publish authorization also re-check the graph. This cleanup
+        # keeps Access Manager state accurate even after either user disconnects.
+        self._execute_many(
+            """
+            UPDATE one_location_share_grants
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE status = 'active'
+              AND access_origin = 'connections_visibility'
+              AND (
+                (owner_user_id = :a AND recipient_user_id = :b)
+                OR (owner_user_id = :b AND recipient_user_id = :a)
+              )
+            RETURNING id
+            """,
+            {"a": user_a, "b": user_b},
         )
         return {"removed": 1 if conn else 0}

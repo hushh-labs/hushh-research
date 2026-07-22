@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 114,
+  "expected_migration_version": 115,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -898,6 +898,28 @@
       "active_source",
       "created_at",
       "updated_at"
+    ],
+    "one_location_share_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "status",
+      "access_origin"
+    ],
+    "one_location_visibility_preferences": [
+      "owner_user_id",
+      "audience",
+      "precision",
+      "enabled_at",
+      "disabled_at",
+      "updated_at",
+      "metadata"
+    ],
+    "one_location_visibility_exclusions": [
+      "owner_user_id",
+      "excluded_user_id",
+      "source",
+      "created_at"
     ]
   }
 }

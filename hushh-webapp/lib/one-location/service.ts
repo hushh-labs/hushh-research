@@ -14,9 +14,11 @@ import type {
   OneLocationNetworkConnection,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
+  OneLocationPublishTarget,
   OneLocationRecipient,
   OneLocationReferral,
   OneLocationState,
+  OneLocationVisibility,
   PlainLocationPoint,
   DriveDestination,
   RouteEta,
@@ -133,7 +135,6 @@ export class OneLocationService {
     return HushhLocation.stopBackgroundShare();
   }
 
-
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
     keyId: string;
@@ -163,6 +164,39 @@ export class OneLocationService {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+  }
+
+  static async updateConnectionVisibility(params: {
+    vaultOwnerToken: string;
+    enabled: boolean;
+    precision: "precise" | "approximate";
+    excludedUserIds?: string[];
+  }): Promise<{
+    visibility: OneLocationVisibility;
+    grants: OneLocationGrant[];
+  }> {
+    return apiJson("/api/one/location/visibility", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        enabled: params.enabled,
+        precision: params.precision,
+        excludedUserIds: params.excludedUserIds ?? [],
+      }),
+    });
+  }
+
+  static async getPublishTargets(params: {
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<OneLocationPublishTarget[]> {
+    const search = new URLSearchParams({ limit: String(params.limit ?? 500) });
+    const response = await apiJsonWithRetry<{
+      targets: OneLocationPublishTarget[];
+    }>(`/api/one/location/publish-targets?${search.toString()}`, {
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+    });
+    return response.targets;
   }
 
   static async chat(params: {
@@ -410,7 +444,6 @@ export class OneLocationService {
   }
 
   static async placesAutocomplete(params: {
-
     vaultOwnerToken: string;
     input: string;
     sessionToken?: string;

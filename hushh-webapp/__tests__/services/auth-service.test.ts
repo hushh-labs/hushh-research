@@ -4,6 +4,7 @@ const {
   mockAuth,
   mockFirebaseAuthentication,
   mockHushhAuth,
+  mockHushhLocation,
   mockCapacitor,
   mockPhoneAuthProvider,
   mockUpdatePhoneNumber,
@@ -53,6 +54,9 @@ const {
     getIdToken: vi.fn(),
     signOut: vi.fn(),
     signInWithApple: vi.fn(),
+  },
+  mockHushhLocation: {
+    stopBackgroundShare: vi.fn(),
   },
   mockCapacitor: {
     isNativePlatform: vi.fn(() => true),
@@ -133,6 +137,7 @@ vi.mock("@capacitor-firebase/authentication", () => ({
 
 vi.mock("@/lib/capacitor", () => ({
   HushhAuth: mockHushhAuth,
+  HushhLocation: mockHushhLocation,
 }));
 
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
@@ -145,7 +150,7 @@ import {
   signOut as firebaseSignOut,
   updatePhoneNumber,
 } from "firebase/auth";
-import { HushhAuth } from "@/lib/capacitor";
+import { HushhAuth, HushhLocation } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 
 function createIdToken(expiresInSeconds: number): string {
@@ -181,6 +186,7 @@ function enableLocalDevPhoneTest() {
 describe("AuthService.signOut", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(HushhLocation.stopBackgroundShare).mockResolvedValue();
     vi.mocked(HushhAuth.signOut).mockResolvedValue(undefined);
     vi.mocked(firebaseSignOut).mockResolvedValue(undefined);
   });
@@ -189,6 +195,7 @@ describe("AuthService.signOut", () => {
     await expect(AuthService.signOut()).resolves.toBeUndefined();
 
     expect(HushhAuth.signOut).toHaveBeenCalledTimes(1);
+    expect(HushhLocation.stopBackgroundShare).toHaveBeenCalledTimes(1);
     expect(firebaseSignOut).toHaveBeenCalledWith(mockAuth);
   });
 

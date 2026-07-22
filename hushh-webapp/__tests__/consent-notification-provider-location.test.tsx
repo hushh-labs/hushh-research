@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -92,7 +92,10 @@ import {
   ConsentNotificationProvider,
   useConsentNotificationState,
 } from "@/components/consent/notification-provider";
-import { markOneLocationGrantUnwatched } from "@/lib/one-location/notifications";
+import {
+  hasSeenOneLocationNotification,
+  markOneLocationGrantUnwatched,
+} from "@/lib/one-location/notifications";
 
 const EMPTY_LOCATION_STATE = {
   recipients: [],
@@ -192,7 +195,7 @@ describe("global One Location notification provider", () => {
     );
   });
 
-  it("shows one popup and records one bell item for duplicate live pushes on a non-Location route", async () => {
+  it("shows one popup, refreshes consent state, and keeps the general bell clean", async () => {
     renderProvider();
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
 
@@ -212,13 +215,7 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        taskId: "one_location_share:grant-live-1",
-        routeHref: expect.stringContaining("section=shared"),
-      }),
-    );
+    expect(mocks.startTask).not.toHaveBeenCalled();
   });
 
   it("queues a foreground push received during auth hydration and drains it once for the matching user", async () => {
@@ -249,7 +246,7 @@ describe("global One Location notification provider", () => {
     );
 
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).not.toHaveBeenCalled();
   });
 
   it("recovers globally and still presents only once when push registration is blocked", async () => {
@@ -279,7 +276,7 @@ describe("global One Location notification provider", () => {
 
     await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).not.toHaveBeenCalled();
 
     act(() => {
       window.dispatchEvent(
@@ -296,7 +293,7 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).not.toHaveBeenCalled();
   });
 
   it("presents a push-active reconciliation once and deduplicates a later live push", async () => {
@@ -316,7 +313,8 @@ describe("global One Location notification provider", () => {
     renderProvider();
     await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    expect(mocks.startTask).not.toHaveBeenCalled();
 
     act(() => {
       window.dispatchEvent(
@@ -333,7 +331,7 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).not.toHaveBeenCalled();
   });
 
   it("presents a reconciliation once after a fetch finishes while the page is hidden", async () => {
@@ -369,8 +367,16 @@ describe("global One Location notification provider", () => {
     await act(async () => {
       resolveFirstState(locationState);
     });
-    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        hasSeenOneLocationNotification(
+          "recipient-user",
+          "location_access_request:request-visibility-race-1",
+        ),
+      ).toBe(true),
+    );
     expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
 
     visibilityState.mockReturnValue("visible");
     act(() => {
@@ -379,12 +385,12 @@ describe("global One Location notification provider", () => {
 
     await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).not.toHaveBeenCalled();
 
     visibilityState.mockRestore();
   });
 
-  it("keeps approval copy and the backend deep link without creating a second share entry", async () => {
+  it("keeps approval copy and the backend deep link without creating a bell entry", async () => {
     renderProvider();
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
 
@@ -409,16 +415,13 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledTimes(1);
-    expect(mocks.startTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        taskId:
-          "one_location_workflow:location_access_approved:grant-approved-1",
-        title: "Location request approved",
-        description: "Alex approved your location request.",
-        routeHref: detail.data.request_url,
-      }),
-    );
+    expect(mocks.startTask).not.toHaveBeenCalled();
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith(detail.data.request_url, {
+      scroll: false,
+    });
   });
 
   it("does not surface live terminal notifications for an explicitly unwatched grant", async () => {

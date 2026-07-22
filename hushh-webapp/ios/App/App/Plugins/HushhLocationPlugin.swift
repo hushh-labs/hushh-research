@@ -4,10 +4,11 @@ import CoreLocation
 import UIKit
 
 /**
- * HushhLocationPlugin - foreground-only one-shot location capture.
+ * HushhLocationPlugin - foreground capture plus explicitly authorized
+ * background publishing for encrypted One Location shares.
  *
- * One Location Agent v1 does not request background location. Coordinates are
- * returned only to the local web layer so it can encrypt before persistence.
+ * Background publishing runs only with Always authorization and encrypts every
+ * recipient envelope locally before transport.
  */
 @objc(HushhLocationPlugin)
 public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -42,6 +43,12 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
+        backgroundPublisher.onPublishingStopped = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self = self, self.watchCalls.isEmpty else { return }
+                self.manager.stopUpdatingLocation()
+            }
+        }
     }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
@@ -160,7 +167,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         if let watchCall = watchCalls.removeValue(forKey: id) {
             bridge?.releaseCall(watchCall)
         }
-        if watchCalls.isEmpty {
+        if watchCalls.isEmpty && !backgroundPublisher.isActive {
             DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
         }
         call.resolve()
@@ -179,13 +186,22 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             call.resolve(["started": false, "reason": "invalid-session"])
             return
         }
+        guard isAllowedBackendBaseUrl(base) else {
+            call.resolve(["started": false, "reason": "backend-origin-not-allowed"])
+            return
+        }
         let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
             guard
                 let grantId = g["grantId"] as? String,
                 let keyId = g["recipientKeyId"] as? String,
                 let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
             else { return nil }
-            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+            return BackgroundShareGrantNative(
+                grantId: grantId,
+                recipientKeyId: keyId,
+                recipientPublicKeyJwk: jwk,
+                precision: g["precision"] as? String ?? "precise"
+            )
         }
         guard !grants.isEmpty else {
             call.resolve(["started": false, "reason": "no-grants"])
@@ -236,7 +252,34 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             bridge?.releaseCall(watchCall)
             watchCalls.removeValue(forKey: id)
         }
-        DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        if !backgroundPublisher.isActive {
+            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        }
+    }
+
+    private func isAllowedBackendBaseUrl(_ value: String) -> Bool {
+        guard
+            let components = URLComponents(string: value),
+            let scheme = components.scheme?.lowercased(),
+            let host = components.host?.lowercased(),
+            components.user == nil,
+            components.password == nil,
+            components.query == nil,
+            components.fragment == nil,
+            components.path.isEmpty || components.path == "/"
+        else { return false }
+
+        let hosted = scheme == "https" && components.port == nil && [
+            "api.hushh.ai",
+            "api.uat.hushh.ai",
+            "api.uat.one.hushh.ai"
+        ].contains(host)
+        if hosted { return true }
+#if DEBUG
+        return ["http", "https"].contains(scheme) && ["127.0.0.1", "localhost"].contains(host)
+#else
+        return false
+#endif
     }
 
     private func permissionPayload() -> [String: Any] {

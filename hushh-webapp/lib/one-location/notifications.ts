@@ -3,7 +3,8 @@
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 
-export const ONE_LOCATION_GRANT_OPENED_EVENT = "hushh:one-location-grant-opened";
+export const ONE_LOCATION_GRANT_OPENED_EVENT =
+  "hushh:one-location-grant-opened";
 export const ONE_LOCATION_NOTIFICATION_OPEN_PARAM = "locationNotification";
 export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
@@ -79,11 +80,13 @@ const WORKFLOW_COPY: Record<
   },
   location_referral_invite: {
     title: "Location referral pending",
-    fallbackDescription: "A trusted person referred you into a location request flow.",
+    fallbackDescription:
+      "A trusted person referred you into a location request flow.",
   },
   location_public_invite_submitted: {
     title: "Public location request",
-    fallbackDescription: "Someone requested location access from your public link.",
+    fallbackDescription:
+      "Someone requested location access from your public link.",
   },
   location_one_network_joined: {
     title: "Connected on One",
@@ -136,13 +139,19 @@ function writeOpenedGrantIds(userId: string, grantIds: string[]): void {
   }
 }
 
-export function isOneLocationGrantOpened(userId: string | null | undefined, grantId: string): boolean {
+export function isOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): boolean {
   const normalizedGrantId = String(grantId || "").trim();
   if (!userId || !normalizedGrantId) return false;
   return readOpenedGrantIds(userId).includes(normalizedGrantId);
 }
 
-export function markOneLocationGrantOpened(userId: string | null | undefined, grantId: string): void {
+export function markOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): void {
   const normalizedUserId = String(userId || "").trim();
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedUserId || !normalizedGrantId) return;
@@ -181,9 +190,7 @@ function readSeenNotificationIds(userId: string): Set<string> {
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
-      ? new Set(
-          parsed.map((item) => String(item || "").trim()).filter(Boolean),
-        )
+      ? new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))
       : new Set();
   } catch {
     return new Set();
@@ -199,7 +206,8 @@ function writeSeenNotificationIds(userId: string, ids: Set<string>): void {
     // Cap the stored history so it can never grow unbounded.
     const MAX_SEEN = 500;
     const all = Array.from(ids).filter(Boolean);
-    const trimmed = all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
+    const trimmed =
+      all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
     storage.setItem(
       seenNotificationsStorageKey(normalizedUserId),
       JSON.stringify(trimmed),
@@ -312,7 +320,9 @@ export function oneLocationGrantTaskId(grantId: string): string {
 export function dismissOneLocationShareNotification(grantId: string): void {
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedGrantId) return;
-  AppBackgroundTaskService.dismissTask(oneLocationGrantTaskId(normalizedGrantId));
+  AppBackgroundTaskService.dismissTask(
+    oneLocationGrantTaskId(normalizedGrantId),
+  );
 }
 
 export function oneLocationWorkflowTaskId(
@@ -325,7 +335,10 @@ export function oneLocationWorkflowTaskId(
 export function buildOneLocationNotificationHref(grantId: string): string {
   const params = new URLSearchParams();
   params.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
-  params.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+  params.set(
+    ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+    ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+  );
   params.set(ONE_LOCATION_SECTION_PARAM, "shared");
   return `/one/location?${params.toString()}`;
 }
@@ -380,7 +393,10 @@ export function buildOneLocationWorkflowHref(params: {
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
-    query.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+    query.set(
+      ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+      ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+    );
   }
   const suffix = query.toString();
   return suffix ? `/one/location?${suffix}` : "/one/location";
@@ -419,7 +435,8 @@ export function privacySafeOneLocationNotificationLabel(
   fallback = "A trusted person",
 ): string {
   const normalized = String(value || "").trim();
-  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized)) return fallback;
+  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized))
+    return fallback;
   return normalized.replace(MASKED_PHONE_SUFFIX_PATTERN, "").trim() || fallback;
 }
 
@@ -435,7 +452,9 @@ export function privacySafeOneLocationNotificationBody(
   return normalized.replace(MASKED_PHONE_BODY_PATTERN, "").trim() || fallback;
 }
 
-export function locationShareNotificationDescription(ownerLabel?: string | null): string {
+export function locationShareNotificationDescription(
+  ownerLabel?: string | null,
+): string {
   const label = privacySafeOneLocationNotificationLabel(ownerLabel);
   return `${label} shared location access with you.`;
 }
@@ -446,7 +465,9 @@ export type OneLocationShareKind = "sos" | "check_in" | "drive_to" | "share";
 export function normalizeOneLocationShareKind(
   value?: string | null,
 ): OneLocationShareKind {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "sos") return "sos";
   if (normalized === "check_in" || normalized === "checkin") return "check_in";
   if (normalized === "drive_to" || normalized === "drive") return "drive_to";
@@ -507,7 +528,6 @@ export function locationShareNotificationCopy(params: {
   };
 }
 
-
 export function locationWorkflowNotificationCopy(params: {
   type: OneLocationWorkflowNotificationType;
   ownerLabel?: string | null;
@@ -522,9 +542,16 @@ export function locationWorkflowNotificationCopy(params: {
     params.requesterLabel,
     "Someone",
   );
-  const referringLabel = privacySafeOneLocationNotificationLabel(params.referringLabel);
-  const visitorLabel = privacySafeOneLocationNotificationLabel(params.visitorLabel, "Someone");
-  const networkLabel = privacySafeOneLocationNotificationLabel(params.networkLabel);
+  const referringLabel = privacySafeOneLocationNotificationLabel(
+    params.referringLabel,
+  );
+  const visitorLabel = privacySafeOneLocationNotificationLabel(
+    params.visitorLabel,
+    "Someone",
+  );
+  const networkLabel = privacySafeOneLocationNotificationLabel(
+    params.networkLabel,
+  );
 
   switch (params.type) {
     case "location_share_created":
@@ -616,7 +643,8 @@ export function recordOneLocationShareNotification(params: {
 }): boolean {
   const userId = String(params.userId || "").trim();
   const grantId = String(params.grantId || "").trim();
-  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId)) return false;
+  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId))
+    return false;
   // The recipient explicitly stopped watching this share - never re-notify.
   if (isOneLocationGrantUnwatched(userId, grantId)) return false;
 
@@ -626,45 +654,11 @@ export function recordOneLocationShareNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the recipient's "Shared with me" section, so the
-  // share is reachable from the bell - not only the transient toast. The copy is
-  // kind-aware so the bell entry reads "SOS alert" / "Check-in shared" (with the
-  // note) / "Location shared" instead of one generic line for every share.
-  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
-  const shareKind = normalizeOneLocationShareKind(params.shareKind);
-  const { title, description } = locationShareNotificationCopy({
-    ownerLabel,
-    shareKind: params.shareKind,
-    shareMessage: params.shareMessage,
-  });
-  const taskId = oneLocationGrantTaskId(grantId);
-  AppBackgroundTaskService.startTask({
-    taskId,
-    userId,
-    kind: LOCATION_SHARE_TASK_KIND,
-    title,
-    description,
-    routeHref: buildOneLocationNotificationHref(grantId),
-    visibility: "primary",
-    groupLabel: "Location",
-    autoClearAfterMs: 0,
-    metadata: {
-      grantId,
-      ownerLabel,
-      expiresAt: params.expiresAt || null,
-      durationHours: params.durationHours || null,
-      shareKind,
-      shareMessage: String(params.shareMessage || "").trim() || null,
-    },
-  });
-  AppBackgroundTaskService.completeTask(taskId, description);
-
-  // Also route to the consent surfaces (shield icon + consent manager).
+  // Location access belongs exclusively to the consent surfaces. The general
+  // bell intentionally receives no AppBackgroundTask entry.
   notifyConsentSurfaceRefresh("location_share_created", grantId);
   return true;
 }
-
 
 export function recordOneLocationWorkflowNotification(params: {
   userId: string;
@@ -686,39 +680,18 @@ export function recordOneLocationWorkflowNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the relevant One-Location section, so the workflow
-  // event is reachable from the bell - not only the transient toast.
-  const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
-  AppBackgroundTaskService.startTask({
-    taskId,
-    userId,
-    kind: LOCATION_WORKFLOW_TASK_KIND,
-    title: params.title,
-    description: params.description,
-    routeHref: params.routeHref || "/one/location",
-    visibility: "primary",
-    groupLabel: "Location",
-    autoClearAfterMs: 0,
-    metadata: {
-      notificationType: params.notificationType,
-      id,
-      ...(params.metadata || {}),
-    },
-  });
-  AppBackgroundTaskService.completeTask(taskId, params.description);
-
-  // Also route to the consent surfaces (shield icon + consent manager).
+  // Workflow events are likewise consent-only; the shield and Access Manager
+  // own their durable presentation.
   notifyConsentSurfaceRefresh(params.notificationType, id);
   return true;
 }
-
 
 export function playOneLocationNotificationSound(): void {
   if (typeof window === "undefined") return;
   const audioContextConstructor =
     window.AudioContext ||
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
   if (!audioContextConstructor) return;
 
   try {
@@ -727,7 +700,10 @@ export function playOneLocationNotificationSound(): void {
     const gain = context.createGain();
     oscillator.type = "sine";
     oscillator.frequency.setValueAtTime(880, context.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(660, context.currentTime + 0.12);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      660,
+      context.currentTime + 0.12,
+    );
     gain.gain.setValueAtTime(0.0001, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
