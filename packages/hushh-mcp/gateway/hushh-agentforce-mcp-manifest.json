@@ -12,6 +12,62 @@
     "prompts": false,
     "logging": false
   },
+  "salesforceAgentExchangeHandoff": {
+    "integrationTarget": "salesforce-agentexchange",
+    "supportStatus": "agentforce-catalog-compatible",
+    "upstream": {
+      "transport": "streamable-http",
+      "path": "/mcp/",
+      "authentication": "bearer-or-oauth2-client-credentials",
+      "requestTimeoutSeconds": 55
+    },
+    "agentforce": {
+      "catalog": "salesforce-api-catalog",
+      "transport": "streamable-http",
+      "authentication": "oauth2-client-credentials",
+      "toolsOnly": true,
+      "toolAllowlist": [
+        "search-user-scopes",
+        "prepare-campaign-context",
+        "request-consent",
+        "check-consent-status",
+        "get-encrypted-scoped-export"
+      ],
+      "agentActionPolicy": {
+        "catalogOnly": true,
+        "directPersonalizedToolCalls": "blocked",
+        "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
+        "agentforceActionDefault": "no-personalized-consent-actions",
+        "plannerExposure": "no-personalized-hussh-tools",
+        "trustedConnectorTools": [
+          "search-user-scopes",
+          "prepare-campaign-context",
+          "request-consent",
+          "check-consent-status",
+          "get-encrypted-scoped-export"
+        ],
+        "connectorOnlyTool": "get-encrypted-scoped-export",
+        "connectorOnlyReason": "The encrypted export is delivered to the registered connector and must be decrypted outside the Agentforce LLM."
+      }
+    },
+    "connectorRequirements": {
+      "preserveToolNames": true,
+      "preserveInputOutputSchemas": true,
+      "allowResources": false,
+      "allowPrompts": false,
+      "expandNestedFields": false,
+      "keyCustody": "per-org-connector-runtime",
+      "privateKeyInAgentforceModel": false
+    },
+    "executionBoundary": {
+      "directAgentforceExecution": "catalog-only",
+      "trustedConnectorExecution": "operations-provisioned-execute-principal",
+      "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
+      "applicationAuthentication": "oauth2-client-credentials-per-hop",
+      "userAuthority": "explicit-consent-and-scoped-grant",
+      "informationDelivery": "encrypted-export-after-approval"
+    }
+  },
   "mulesoftAgentforceHandoff": {
     "integrationTarget": "mulesoft-agentforce",
     "supportStatus": "agentforce-catalog-compatible",
@@ -37,38 +93,37 @@
         "catalogOnly": true,
         "directPersonalizedToolCalls": "blocked",
         "directToolCallResult": "REQUIRES_SECURE_CONSENT_FLOW",
-        "muleControlPlaneTools": [
-          "search-user-scopes",
-          "prepare-campaign-context",
-          "request-consent",
-          "check-consent-status"
-        ],
         "agentforceActionDefault": "no-personalized-consent-actions",
-        "salesforceApprovedUatActionAllowlist": [
+        "plannerExposure": "no-personalized-hussh-tools",
+        "trustedConnectorTools": [
           "search-user-scopes",
           "prepare-campaign-context",
           "request-consent",
-          "check-consent-status"
+          "check-consent-status",
+          "get-encrypted-scoped-export"
         ],
         "connectorOnlyTool": "get-encrypted-scoped-export",
         "connectorOnlyReason": "The encrypted export is delivered to the registered connector and must be decrypted outside the Agentforce LLM."
       }
     },
-    "relayRequirements": {
+    "connectorRequirements": {
       "preserveToolNames": true,
       "preserveInputOutputSchemas": true,
       "allowResources": false,
       "allowPrompts": false,
-      "expandNestedFields": false
+      "expandNestedFields": false,
+      "keyCustody": "per-org-connector-runtime",
+      "privateKeyInAgentforceModel": false
     },
     "executionBoundary": {
       "directAgentforceExecution": "catalog-only",
-      "mulesoftUpstreamExecution": "operations-provisioned-execute-principal",
+      "trustedConnectorExecution": "operations-provisioned-execute-principal",
       "agentforcePersonalizedExecution": "requires-salesforce-supported-host-boundary",
       "applicationAuthentication": "oauth2-client-credentials-per-hop",
       "userAuthority": "explicit-consent-and-scoped-grant",
       "informationDelivery": "encrypted-export-after-approval"
-    }
+    },
+    "implementation": "mulesoft-secure-relay"
   },
   "tools": [
     {
@@ -488,21 +543,21 @@
           "connector_public_key": {
             "title": "Connector public key",
             "type": "string",
-            "description": "Optional legacy connector X25519 public key. When supplied, it must exactly match this app's registered key.",
+            "description": "Optional connector X25519 public key. An unregistered connector supplies the complete key bundle per request; a registered app may omit it or must supply the exact registered value.",
             "minLength": 40,
             "maxLength": 128
           },
           "connector_key_id": {
             "title": "Connector key identifier",
             "type": "string",
-            "description": "Optional legacy connector key identifier. When supplied, it must exactly match this app's registered key identifier.",
+            "description": "Optional connector key identifier. Supply it with the public key and wrapping algorithm for an unregistered connector; a registered app may omit it or must supply the exact registered value.",
             "minLength": 1,
             "maxLength": 128
           },
           "connector_wrapping_alg": {
             "title": "Connector wrapping algorithm",
             "type": "string",
-            "description": "Optional legacy wrapping algorithm. When supplied, it must be X25519-AES256-GCM and match this app's registered key.",
+            "description": "Optional wrapping algorithm. It must be X25519-AES256-GCM and is supplied with an unregistered connector key bundle; a registered app may omit it or must supply the exact registered value.",
             "enum": [
               "X25519-AES256-GCM"
             ]
@@ -781,7 +836,7 @@
           "delivery": {
             "title": "Delivery mode",
             "type": "string",
-            "description": "Delivery mode. Hosted connectors, including MuleSoft and Agentforce relays, receive encrypted_inline; trusted local stdio may receive decrypted_local."
+            "description": "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context."
           },
           "expected_scope": {
             "title": "Expected scope",

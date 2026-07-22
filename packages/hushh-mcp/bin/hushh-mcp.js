@@ -33,6 +33,7 @@ function printUsage() {
   console.log("  hushh-mcp --print-remote-config");
   console.log("  hushh-mcp --print-gateway-manifest");
   console.log("  hushh-mcp --print-agentforce-manifest");
+  console.log("  hushh-mcp --print-salesforce-agentexchange-handoff");
   console.log("  hushh-mcp --print-mulesoft-exchange-manifest");
   console.log("  hushh-mcp --print-mulesoft-agentforce-handoff");
   console.log("");
@@ -398,6 +399,23 @@ if (args.includes("--print-mulesoft-agentforce-handoff")) {
     fatal("The packaged MuleSoft Agentforce handoff is unavailable.");
   }
   process.stdout.write(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (args.includes("--print-salesforce-agentexchange-handoff")) {
+  const manifestPath = path.join(
+    packageDir,
+    "gateway",
+    "hushh-agentforce-mcp-manifest.json",
+  );
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged Salesforce AgentExchange handoff is unavailable.");
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!manifest.salesforceAgentExchangeHandoff) {
+    fatal("The packaged Salesforce AgentExchange handoff is unavailable.");
+  }
+  process.stdout.write(`${JSON.stringify(manifest.salesforceAgentExchangeHandoff, null, 2)}\n`);
   process.exit(0);
 }
 
