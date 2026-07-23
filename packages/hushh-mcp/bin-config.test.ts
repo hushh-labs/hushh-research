@@ -97,6 +97,7 @@ describe("hushh-mcp CLI config output", () => {
     expect(manifest.salesforceAgentExchangeHandoff).toMatchObject({
       integrationTarget: "salesforce-agentexchange",
       supportStatus: "agentforce-catalog-compatible",
+      selectionStatus: "optional-action-facade",
       upstream: {
         transport: "streamable-http",
         authentication: "bearer-or-oauth2-client-credentials",
@@ -116,6 +117,17 @@ describe("hushh-mcp CLI config output", () => {
     expect(manifest.salesforceAgentExchangeHandoff.agentforce.toolAllowlist).toEqual(
       manifest.tools.map((tool: { name: string }) => tool.name),
     );
+    expect(manifest.mulesoftAgentforceHandoff).toMatchObject({
+      integrationTarget: "mulesoft-agentforce",
+      selectionStatus: "selected-target-uat-gated",
+      implementation: "mulesoft-secure-relay",
+      connectorRequirements: {
+        keyCustody: "partner-controlled-mulesoft-runtime",
+      },
+      executionBoundary: {
+        agentforceInformationSource: "authorized-salesforce-record-or-metadata-status",
+      },
+    });
     expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "search-user-scopes",
       "prepare-campaign-context",

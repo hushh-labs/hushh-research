@@ -64,7 +64,6 @@ from mcp_modules.tools.kai_tools import (
     handle_kai_open_history,
     handle_kai_open_home,
     handle_kai_open_import,
-    handle_kai_open_optimize,
     handle_kai_open_profile,
     handle_kai_resume_active_analysis,
 )
@@ -130,7 +129,6 @@ HANDLERS = {
     "kai_open_history": handle_kai_open_history,
     "kai_open_consent": handle_kai_open_consent,
     "kai_open_profile": handle_kai_open_profile,
-    "kai_open_optimize": handle_kai_open_optimize,
     "kai_open_home": handle_kai_open_home,
     "kai_navigate_back": handle_kai_navigate_back,
     "kai_resume_active_analysis": handle_kai_resume_active_analysis,

@@ -366,7 +366,7 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
   echo "your-db-password" | gcloud secrets create DB_PASSWORD --data-file=-
   ```
 
-**Frontend build-time (11 centrally-managed values):**
+**Frontend build-time (12 centrally-managed values):**
 - `BACKEND_URL`
 - `APP_FRONTEND_ORIGIN`
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
@@ -378,6 +378,7 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
 - `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (web push / FCM)
 - `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
 - `NEXT_PUBLIC_GTM_ID`
+- `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` (restricted to the deployed web origins)
 
 These Firebase values are public client config, but are still centrally injected from Secret Manager to avoid hardcoded deploy YAML values.
 

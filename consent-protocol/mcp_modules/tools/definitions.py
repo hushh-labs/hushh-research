@@ -108,7 +108,6 @@ def _private_tool_definitions() -> list[Tool]:
         ),
         Tool(name="kai_open_consent", description="Open Kai consent.", inputSchema=empty),
         Tool(name="kai_open_profile", description="Open Kai profile.", inputSchema=empty),
-        Tool(name="kai_open_optimize", description="Open Kai optimize.", inputSchema=empty),
         Tool(name="kai_open_home", description="Open Kai home.", inputSchema=empty),
         Tool(name="kai_navigate_back", description="Navigate back in Kai.", inputSchema=empty),
         Tool(

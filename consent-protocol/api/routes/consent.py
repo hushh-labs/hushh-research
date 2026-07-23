@@ -23,6 +23,10 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.connector_crypto_profiles import (
+    X25519_AES256_GCM,
+    get_connector_crypto_profile,
+)
 from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.export_envelope import (
     ConsentExportEnvelopeSubmissionV2,
@@ -97,7 +101,7 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timed out",
     "timeout",
 )
-_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONNECTOR_WRAPPING_ALG = X25519_AES256_GCM
 _CONSENT_EXPORT_MAX_RAW_BYTES = max(
     1,
     min(
@@ -188,10 +192,22 @@ def _build_verified_wrapped_key_bundle(
         raise HTTPException(status_code=400, detail="Connector key id does not match request.")
     normalized_alg = _clean_text(wrapping_alg) or _expected_connector_wrapping_alg(metadata)
     expected_alg = _expected_connector_wrapping_alg(metadata)
-    if normalized_alg != expected_alg or normalized_alg != _CONNECTOR_WRAPPING_ALG:
+    if normalized_alg != expected_alg:
         raise HTTPException(
             status_code=400,
             detail="Connector wrapping algorithm does not match request.",
+        )
+    try:
+        profile = get_connector_crypto_profile(normalized_alg)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Connector wrapping algorithm is not enabled.",
+        ) from exc
+    if profile.envelope_version != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Connector wrapping algorithm does not match export envelope version.",
         )
     return {
         "wrapped_export_key": wrapped_export_key,

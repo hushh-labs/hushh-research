@@ -57,6 +57,7 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
+          --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
           -f hushh-webapp/Dockerfile \
           hushh-webapp
@@ -72,6 +73,7 @@ steps:
       "NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL",
       "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL",
       "NEXT_PUBLIC_GTM_ID_VAL",
+      "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL",
       "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
     ]
     id: "build-frontend-image"
@@ -150,6 +152,8 @@ availableSecrets:
       env: "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL"
     - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GTM_ID/versions/latest
       env: "NEXT_PUBLIC_GTM_ID_VAL"
+    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY/versions/latest
+      env: "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL"
     - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/versions/latest
       env: "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
 

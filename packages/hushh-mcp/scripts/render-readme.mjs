@@ -123,15 +123,15 @@ The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Co
 
 Every tool uses shallow, fully described JSON Schema. Successful calls return \`structuredContent\` as the canonical result and \`content[0].text\` as its compatibility mirror. Execution errors return \`isError: true\` with safe JSON text only, so a strict client never validates an error against a success output schema.
 
-### Salesforce AgentExchange trusted connector
+### MuleSoft trusted connector for Salesforce and Agentforce
 
-An installed Salesforce package uses a dedicated Hussh execute app per Salesforce org. Its trusted connector runtime is the single decryption source: it generates/imports an X25519 key pair after installation, retains the private key outside Agentforce, and supplies or registers only the public key with Hussh. Agentforce does not receive the Hussh secret or a connector private key.
+A partner-authorized MuleSoft connector uses a dedicated Hussh execute app and a partner-controlled X25519 key. Its reviewed Java 17/JCA runtime is the selected decryption target: only the public key reaches Hussh, while Agentforce and Hussh never receive the connector private key.
 
 \`hushh-mcp --print-agentforce-manifest\` remains a diagnostic preflight view of the canonical five-tool catalog. It is not the file to upload to Exchange.
 
-The trusted connector uses all five tools internally. Agentforce receives the connector's single deterministic action result, not individual personalized Hussh tools; Hussh does not publish a four-tool variant. \`get-encrypted-scoped-export\` stays in the single trusted connector runtime and out of the Agentforce planner/LLM. Successful MCP calls use \`structuredContent\`; \`content[0].text\` is only its compatibility mirror. Use \`hushh-mcp --print-salesforce-agentexchange-handoff\` for the current package-boundary guidance.
+The trusted connector uses all five tools internally. Agentforce reads the authorized Salesforce record or metadata-only delivery status, not individual personalized Hussh tools; Hussh does not publish a four-tool variant. \`get-encrypted-scoped-export\` stays in trusted MuleSoft code and out of the Agentforce planner/LLM. Successful MCP calls use \`structuredContent\`; \`content[0].text\` is only its compatibility mirror. Use \`hushh-mcp --print-mulesoft-agentforce-handoff\` for the selected UAT-gated connector guidance.
 
-Direct Agentforce profiles are catalog-only. A trusted connector execute application does not remove direct-host limits; validate the installed package in the target org before enabling personal-information delivery. Implement key custody, crypto, tool policy, and the UAT gate in [Salesforce AgentExchange trusted connector](../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md).
+Direct Agentforce profiles are catalog-only. AgentExchange remains optional for a Salesforce action or user experience and is not required for decryption. Implement key custody, crypto, tool policy, and the MuleSoft/Salesforce UAT gate in [MuleSoft trusted connector for Salesforce and Agentforce](../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md).
 
 Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&type=5), and [API Catalog MCP servers](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mcp_servers.htm&language=en_US&type=5).
 

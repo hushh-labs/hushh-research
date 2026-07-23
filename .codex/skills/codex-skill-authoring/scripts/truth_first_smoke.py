@@ -94,8 +94,7 @@ def _check_comms(errors: list[str]) -> None:
     _require_text(
         COMMS_RULES,
         [
-            "`Brief reply`",
-            "`Detailed reply`",
+            "return one sendable answer by default",
             "Keep normal Q&A lean",
             "realtime quote data is already part of the analysis provider path",
             "dynamic per-user scopes already exist",
@@ -109,13 +108,13 @@ def _check_comms(errors: list[str]) -> None:
     workflow = json.loads(COMMUNITY_WORKFLOW.read_text(encoding="utf-8"))
     deliverables = workflow.get("deliverables", [])
     common_failures = workflow.get("common_failures", [])
-    for value in ["Brief reply", "Detailed reply", "claim classification for material premise corrections"]:
+    for value in ["one sendable reply", "claim classification for material premise corrections"]:
         if value not in deliverables:
             errors.append(f"{COMMUNITY_WORKFLOW.relative_to(REPO_ROOT)}: missing deliverable `{value}`")
     stale = {
-        "default reply variant",
-        "detailed reply variant",
-        "missing required drafted-reply variants",
+        "Brief reply",
+        "Detailed reply",
+        "optional firmer reply variant when correction is needed",
     }
     for value in stale:
         if value in deliverables or value in common_failures:

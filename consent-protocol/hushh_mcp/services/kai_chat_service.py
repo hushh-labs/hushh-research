@@ -29,7 +29,10 @@ from typing import Optional
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 from hushh_mcp.services.attribute_learner import get_attribute_learner
 from hushh_mcp.services.chat_db_service import (
     ChatDBService,
@@ -844,7 +847,9 @@ class KaiChatService:
                 previous_response=previous_response,
             )
 
-            config = genai_types.GenerateContentConfig(
+            config = build_generate_content_config(
+                genai_types,
+                GEMINI_MODEL,
                 temperature=0.3 if stricter else 0.7,
                 max_output_tokens=1024,
             )
@@ -1188,7 +1193,9 @@ REASONING: [2-3 sentences]
 """
 
             # Generate analysis using new SDK
-            config = genai_types.GenerateContentConfig(
+            config = build_generate_content_config(
+                genai_types,
+                GEMINI_MODEL,
                 temperature=0.3,  # Lower temperature for more consistent analysis
                 max_output_tokens=500,
             )

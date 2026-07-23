@@ -850,6 +850,7 @@
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_map_preferences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -1637,7 +1638,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-optimize",
+      "native_surface_id": null,
       "page_file": "app/kai/optimize/page.tsx",
       "pathname": "/kai/optimize",
       "route_mode": "redirect",
@@ -2364,8 +2365,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "market_data",
           "financial_resource"
@@ -2373,15 +2374,13 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-optimize",
+      "native_surface_id": null,
       "page_file": "app/one/kai/optimize/page.tsx",
       "pathname": "/one/kai/optimize",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.kai_optimize"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.optimize"
       }
@@ -2431,6 +2430,102 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio-allocation",
+      "page_file": "app/one/kai/portfolio/allocation/page.tsx",
+      "pathname": "/one/kai/portfolio/allocation",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio.allocation"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio-holdings",
+      "page_file": "app/one/kai/portfolio/holdings/page.tsx",
+      "pathname": "/one/kai/portfolio/holdings",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio.holdings"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio-performance",
+      "page_file": "app/one/kai/portfolio/performance/page.tsx",
+      "pathname": "/one/kai/portfolio/performance",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio.performance"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data",
+          "financial_resource"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-portfolio-sources",
+      "page_file": "app/one/kai/portfolio/sources/page.tsx",
+      "pathname": "/one/kai/portfolio/sources",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.portfolio.sources"
       }
     },
     {
@@ -2598,7 +2693,21 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getMapState",
+            "updateMapPreferences",
+            "getState",
+            "storeEnvelope"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -4077,27 +4186,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "3f982e6ed3859a48f1f7fd61b9de7119f233d9cc8dad073a8f40b3a537d14a73",
-    "agent_registry": "277e07bfd16d70760bd47c197521a6844239e76eb454e0e91633f71310307c86",
-    "cache_manifest": "b7584a0c98febbdd104b0aa20ace6a4889da27f8867da423a6175a60de85deb7",
-    "data_plane": "a1a2a500c7103122d25c811f94a7d4faa82615c659a7e9de2c4ea917c1e8bd02",
+    "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
+    "agent_registry": "709b9c535294795e9c742993f45eaf6e6d0bf6d60f9c8d0e88118c63aa811577",
+    "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
+    "data_plane": "65c1849b0757a65887e6d0950a4045bc28dc4fbaae0bb3e053f268e838f8d299",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "f09909abd11c55ceae914d2bf53f0b2c80acbd96f9ca1287943aaa42465434ba",
-    "route_layout": "c1dca109e91acc911c9aca8fd344fba5788e02250cfd2125174b4e39124ffed1",
-    "surface_map": "65fe0631edb9735e15a40c9a1f88edca239f144e5664f4e53a1502bc70abcdcb",
+    "route_index": "4e0a6cad9b488a339f7acbad027785f27995c16589b91b5ecfb3b97584b9d11f",
+    "route_layout": "3ec1eab22106a0d15d0ec15ab572338390fa3365c3fcd2a5be7381b419ffb160",
+    "surface_map": "16b7fa0ccdba8c3414d34e33eb1ce60dfbf1ae60742e4c3a8e087f6795c14a34",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 116,
+    "actions": 115,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 108,
+    "physical_routes": 112,
     "semantic_routes": 14,
     "table_families": 32
   }

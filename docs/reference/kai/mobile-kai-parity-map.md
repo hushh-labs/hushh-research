@@ -16,9 +16,9 @@ Founder-language note: this map documents the mobile side of `Separation of Duti
 | `/one/kai/import` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
 | `/one/kai` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
 | `/one/kai/plaid/oauth/return` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/one/kai/portfolio` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai?tab=portfolio` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/portfolio/{holdings,allocation,performance,sources}` | Yes | Yes | Yes | shared Capacitor WebView route contract + runtime audit |
 | `/one/kai/analysis` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/one/kai/optimize` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
 
 ## Feature-Level Parity
 

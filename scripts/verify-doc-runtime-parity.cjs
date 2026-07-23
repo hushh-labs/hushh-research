@@ -86,7 +86,7 @@ const REQUIRED_CANONICAL_ROUTES = {
   KAI_IMPORT: "/one/kai/import",
   KAI_DASHBOARD: "/one/kai?tab=portfolio",
   KAI_ANALYSIS: "/one/kai?tab=analysis",
-  KAI_OPTIMIZE: "/one/kai/optimize",
+  KAI_OPTIMIZE_COMPAT: "/one/kai/optimize",
 };
 
 const REQUIRED_OPERATIONAL_MARKERS = [

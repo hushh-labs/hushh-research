@@ -11,6 +11,9 @@
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
+        <!-- Restricted Android Maps SDK key is generated from the build
+             environment. Never point this at the web or backend Maps key. -->
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key" />
         <!-- Keep the WebView's layout viewport stable while the IME is visible.
              KeyboardInsetManager owns the resulting CSS inset so only
              bottom-anchored controls move above the keyboard. -->

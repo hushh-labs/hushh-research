@@ -11,6 +11,8 @@ import type {
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationGrant,
+  OneLocationMapPreferences,
+  OneLocationMapState,
   OneLocationNetworkConnection,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -163,6 +165,34 @@ export class OneLocationService {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+  }
+
+  /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
+  static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+    return apiJson<OneLocationMapState>("/api/one/location/map-state", {
+      headers: authHeaders(vaultOwnerToken),
+    });
+  }
+
+  static async updateMapPreferences(params: {
+    vaultOwnerToken: string;
+    presenceMode?: OneLocationMapPreferences["presenceMode"];
+    rendererConsentVersion?: string;
+  }): Promise<OneLocationMapPreferences> {
+    const response = await apiJson<{ preferences: OneLocationMapPreferences }>(
+      "/api/one/location/map-preferences",
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          ...(params.presenceMode ? { presenceMode: params.presenceMode } : {}),
+          ...(params.rendererConsentVersion
+            ? { rendererConsentVersion: params.rendererConsentVersion }
+            : {}),
+        }),
+      },
+    );
+    return response.preferences;
   }
 
   static async chat(params: {

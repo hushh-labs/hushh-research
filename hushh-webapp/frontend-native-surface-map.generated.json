@@ -1457,7 +1457,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/optimize surface.",
+        "exemption_reason": "Compatibility redirect for the retired Optimize workspace returns to the canonical Portfolio tab.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -1465,8 +1465,8 @@
         },
         "voice_playbook": {
           "playbook_id": "route.kai.optimize",
-          "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-          "screen": "kai_optimize",
+          "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+          "screen": "kai_portfolio_dashboard",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -1480,25 +1480,15 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
+          "completion_boundary": "The compatibility redirect has no completion authority.",
+          "next_route": "/one/kai?tab=portfolio",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
       "native": {
         "route": "/kai/optimize",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fkai%2Foptimize",
-        "expectedMarker": "native-route-kai-optimize",
-        "expectedRoute": "/one/kai/optimize",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ],
+        "classification": "excluded-compatibility-redirect",
         "legacyAlias": true
       },
       "shell": {
@@ -3124,29 +3114,21 @@
       "page_file": "app/one/kai/optimize/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/kai/optimize/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "SurfaceStack",
-          "PageHeader"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "One-release compatibility redirect for the retired Optimize workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.one.kai.optimize",
-          "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-          "screen": "kai_optimize",
-          "entry_cue": "You can say “Open Optimize Surface” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.kai_optimize",
-          "happy_path_action_ids": [
-            "route.kai_optimize"
-          ],
+          "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+          "screen": "kai_portfolio_dashboard",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -3156,32 +3138,22 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/one/kai/optimize",
-          "return_policy": "stay",
+          "completion_boundary": "The compatibility redirect has no completion authority.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
       "native": {
         "route": "/one/kai/optimize",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Foptimize",
-        "expectedMarker": "native-route-kai-optimize",
-        "expectedRoute": "/one/kai/optimize",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
+        "classification": "excluded-compatibility-redirect"
       },
       "shell": {
-        "app_page_shell": true,
-        "page_header": true,
+        "app_page_shell": false,
+        "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -3303,6 +3275,258 @@
           "loaded"
         ],
         "legacyAlias": true
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kai/portfolio/allocation",
+      "page_file": "app/one/kai/portfolio/allocation/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.allocation",
+          "purpose": "Review portfolio allocation using only real source-backed composition.",
+          "screen": "kai_portfolio_allocation",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The route is read-only unless a visible source-authorized control is selected.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kai/portfolio/allocation",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fallocation",
+        "expectedMarker": "native-route-kai-portfolio-allocation",
+        "expectedRoute": "/one/kai/portfolio/allocation",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kai/portfolio/holdings",
+      "page_file": "app/one/kai/portfolio/holdings/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.holdings",
+          "purpose": "Review the positions in the active portfolio without exposing the Finance tab pager.",
+          "screen": "kai_portfolio_holdings",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The route exposes read and source-authorized holding controls only.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kai/portfolio/holdings",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fholdings",
+        "expectedMarker": "native-route-kai-portfolio-holdings",
+        "expectedRoute": "/one/kai/portfolio/holdings",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kai/portfolio/performance",
+      "page_file": "app/one/kai/portfolio/performance/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.performance",
+          "purpose": "Review source-backed portfolio value and performance evidence.",
+          "screen": "kai_portfolio_performance",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The route never fabricates a time series when source history is unavailable.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kai/portfolio/performance",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fperformance",
+        "expectedMarker": "native-route-kai-portfolio-performance",
+        "expectedRoute": "/one/kai/portfolio/performance",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kai/portfolio/sources",
+      "page_file": "app/one/kai/portfolio/sources/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/kai-portfolio-detail-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "KaiFlow"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.portfolio.sources",
+          "purpose": "Choose and manage the active portfolio source.",
+          "screen": "kai_portfolio_sources",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Source changes settle only after the existing portfolio source service confirms them.",
+          "next_route": "/one/kai?tab=portfolio",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kai/portfolio/sources",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fsources",
+        "expectedMarker": "native-route-kai-portfolio-sources",
+        "expectedRoute": "/one/kai/portfolio/sources",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
       },
       "shell": {
         "app_page_shell": false,
@@ -3582,7 +3806,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.location.map",
-          "purpose": "Show authorized shared locations on an immersive map without proposing unavailable controls.",
+          "purpose": "Show fresh, authorized private location shares on an immersive map. Capture location only after the person explicitly taps Locate me.",
           "screen": "one_location_map",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -3626,12 +3850,38 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getMapState",
+            "updateMapPreferences",
+            "getState",
+            "storeEnvelope"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "package": "@capacitor/google-maps",
+          "integration": "Capacitor sync-managed native renderer; no handwritten plugin bridge",
+          "ios": "Restricted bundle-ID Maps SDK key passed to GoogleMap.create",
+          "android": "Restricted package/SHA Maps SDK key plus transparent map route layers"
+        },
+        {
+          "package": "@capacitor/app",
+          "integration": "Foreground lifecycle gates the bounded map refresh loop"
+        }
+      ],
       "thread_and_consent_contract": {
-        "availability": "temporarily unavailable pending secure native Maps provisioning",
-        "coordinate_storage": "none; the paused route does not load or decrypt coordinates",
-        "location_capture": "not available while Maps is paused"
+        "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
+        "coordinate_storage": "foreground renderer memory only; preferences contain no coordinates",
+        "location_capture": "explicit Locate me action only; opening the route never captures or watches location",
+        "visibility": "Ghost Mode by default; foreground map publication never promotes direct/background envelopes"
       }
     },
     {
@@ -7303,5 +7553,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "edd59857b7aef3a1d30eabf945b9d335b9ca8f1d2136f7b2f6c4443c4f6b4013"
+  "content_sha256": "ecb118c7c9a7d1111205cc51503e24e2babe0bea47726b112a3ce706a7ed1425"
 }

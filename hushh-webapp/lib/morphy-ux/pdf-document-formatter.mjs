@@ -107,6 +107,23 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
   requireTokens(accent, REQUIRED_ACCENT_TOKENS, "Morphy accent");
   const selectedProfile = resolvePdfFormatterProfile(profile);
   const dark = theme !== "light";
+  const codePalette = dark
+    ? {
+        background: "#272822",
+        border: "#49483e",
+        foreground: "#f8f8f2",
+        key: "#f92672",
+        string: "#e6db74",
+        literal: "#ae81ff",
+      }
+    : {
+        background: "#fbfbfa",
+        border: "#d6d6d2",
+        foreground: "#272822",
+        key: "#9c1c62",
+        string: "#2e6b2e",
+        literal: "#5b3f99",
+      };
 
   return {
     id: selectedProfile.id,
@@ -136,12 +153,12 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
       --pdf-section-size: ${selectedProfile.sectionSize};
       --pdf-section-gap: ${selectedProfile.sectionGap};
       --pdf-code-size: ${selectedProfile.codeSize};
-      /* Sublime Text Monokai: copyable protocol material is a code surface. */
-      --code-bg: #272822;
-      --code-border: #49483e;
-      --code-fg: #f8f8f2;
-      --code-key: #f92672;
-      --code-string: #e6db74;
-      --code-literal: #ae81ff;`,
+      /* Sublime-inspired light palette; Monokai remains canonical in dark themes. */
+      --code-bg: ${codePalette.background};
+      --code-border: ${codePalette.border};
+      --code-fg: ${codePalette.foreground};
+      --code-key: ${codePalette.key};
+      --code-string: ${codePalette.string};
+      --code-literal: ${codePalette.literal};`,
   };
 }

@@ -16,7 +16,11 @@ from google.adk.models.llm_request import LlmRequest  # noqa: E402
 from google.genai import types  # noqa: E402
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
-from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding  # noqa: E402
+from hushh_mcp.runtime_providers import (  # noqa: E402
+    ManagedGeminiRuntimeBinding,
+    build_generate_content_config,
+    resolve_model_entry,
+)
 
 PROBE_TIMEOUT_SECONDS = 25
 
@@ -76,10 +80,15 @@ async def main() -> None:
             client.aio.models.generate_content(
                 model=model,
                 contents="Reply OK.",
-                config=types.GenerateContentConfig(
+                config=build_generate_content_config(
+                    types,
+                    model,
                     temperature=0,
                     max_output_tokens=4,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=False,
+                        thinking_level=types.ThinkingLevel.MINIMAL,
+                    ),
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             ),
@@ -91,10 +100,15 @@ async def main() -> None:
         request = LlmRequest(
             model=model,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text="Reply OK.")])],
-            config=types.GenerateContentConfig(
+            config=build_generate_content_config(
+                types,
+                model,
                 temperature=0,
                 max_output_tokens=4,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False,
+                    thinking_level=types.ThinkingLevel.MINIMAL,
+                ),
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         )
@@ -114,9 +128,22 @@ async def main() -> None:
         await asyncio.wait_for(manager.__aenter__(), timeout=PROBE_TIMEOUT_SECONDS)
         await manager.__aexit__(None, None, None)
 
+    def locations_for(model: str) -> tuple[str, ...]:
+        declared = resolve_model_entry("gemini", model).supported_vertex_locations
+        return tuple(
+            location for location in binding.locations if not declared or location in declared
+        )
+
+    unsupported_models = [model for model in models if not locations_for(model)]
+    if unsupported_models:
+        raise RuntimeError(
+            "Managed Gemini models have no configured supported Vertex location: "
+            + ",".join(unsupported_models)
+        )
+
     await asyncio.gather(
-        *(probe_text(model, location) for location in binding.locations for model in models),
-        *(probe_adk_text(model, location) for location in binding.locations for model in models),
+        *(probe_text(model, location) for model in models for location in locations_for(model)),
+        *(probe_adk_text(model, location) for model in models for location in locations_for(model)),
         probe_live_setup(),
     )
     print(

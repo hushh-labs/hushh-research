@@ -26,7 +26,7 @@ async def test_managed_readiness_uses_canonical_binding_and_cache(
     generate_content = AsyncMock(return_value=SimpleNamespace(text="ignored"))
     binding = SimpleNamespace(
         primary_location="asia-southeast1",
-        build_direct_client=lambda: SimpleNamespace(
+        build_direct_client=lambda **_kwargs: SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
         ),
     )
@@ -48,6 +48,7 @@ async def test_managed_readiness_uses_canonical_binding_and_cache(
 
     assert first == second
     assert first.status == "ready"
+    assert first.model == "gemini-3.6-flash"
     assert first.location == "asia-southeast1"
     generate_content.assert_awaited_once()
 
@@ -69,10 +70,11 @@ async def test_gemini_validation_proves_generation_quota(monkeypatch: pytest.Mon
     assert result.status == "ready"
     generate_content.assert_awaited_once()
     call = generate_content.await_args
-    assert call.kwargs["model"] == "gemini-3.1-flash-lite"
+    assert call.kwargs["model"] == "gemini-3.6-flash"
     assert call.kwargs["contents"] == "Reply OK."
     assert call.kwargs["config"].max_output_tokens == 4
-    assert call.kwargs["config"].thinking_config.thinking_budget == 0
+    assert call.kwargs["config"].thinking_config.thinking_level.value == "MINIMAL"
+    assert call.kwargs["config"].temperature is None
 
 
 @pytest.mark.asyncio

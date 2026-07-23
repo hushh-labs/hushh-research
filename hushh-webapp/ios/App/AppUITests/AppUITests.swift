@@ -71,6 +71,117 @@ final class AppUITests: XCTestCase {
         ])
     }
 
+    func testReviewerFinanceSwipe() throws {
+        let rootRoute = RouteCase(
+            name: "portfolio-workspace",
+            initialRoute: "/login?redirect=%2Fone%2Fkai%3Ftab%3Dportfolio",
+            expectedMarker: "native-route-kai-home",
+            expectedRoute: "/one/kai?tab=portfolio",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        let app = launchApp(rootRoute)
+        defer { app.terminate() }
+        _ = try waitForSatisfiedStatus(app, route: rootRoute, timeout: 90)
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "Portfolio WebView is unavailable")
+
+        let swipeStart = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.48))
+        let swipeEnd = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.48))
+        swipeStart.press(forDuration: 0.08, thenDragTo: swipeEnd)
+        XCTAssertTrue(
+            waitForNativeRoute(app, route: "/one/kai?tab=analysis", timeout: 12),
+            "Finance swipe did not settle on Analysis"
+        )
+
+        swipeEnd.press(forDuration: 0.08, thenDragTo: swipeStart)
+        XCTAssertTrue(
+            waitForNativeRoute(app, route: "/one/kai?tab=portfolio", timeout: 12),
+            "Finance reverse swipe did not settle on Portfolio"
+        )
+    }
+
+    func testLocationMapCloseReleasesImmersiveRoute() throws {
+        let app = XCUIApplication()
+        let environment = ProcessInfo.processInfo.environment
+        app.launchArguments = [
+            "-UITestMode",
+            "-UITestInitialRoute", "/one/location/map?demo=people",
+            "-UITestExpectedRoute", "/one/location/map?demo=people",
+            "-UITestAutoReviewerLogin", "true",
+            "-UITestResetAppState", "false",
+        ]
+        if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
+           !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+        }
+        if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
+           !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+        }
+        app.launch()
+        defer { app.terminate() }
+
+        let statusQuery = app.buttons.matching(identifier: "native-test-status")
+        XCTAssertTrue(
+            statusQuery.element(boundBy: 0).waitForExistence(timeout: 30),
+            "native-test-status never appeared for Your Map"
+        )
+        let statusElement = statusQuery.element(boundBy: 0)
+        let mapDeadline = Date().addingTimeInterval(45)
+        var status: [String: String] = [:]
+        while Date() < mapDeadline {
+            status = parseStatus(
+                ((statusElement.value as? String) ?? statusElement.label)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            if status["route"] == "/one/location/map?demo=people",
+               status["bootstrap"] == "vault_unlocked" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertEqual(
+            status["route"],
+            "/one/location/map?demo=people",
+            "Your Map did not settle before the close interaction"
+        )
+
+        // The native Google Maps view does not expose the WebView overlay
+        // controls to XCUI reliably. Tap the visible close affordance by its
+        // stable safe-area position so this test exercises real hit testing.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.07)).tap()
+
+        let closeDeadline = Date().addingTimeInterval(15)
+        while Date() < closeDeadline {
+            status = parseStatus(
+                ((statusElement.value as? String) ?? statusElement.label)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            if status["route"] == "/one/location" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertEqual(status["route"], "/one/location", "Close did not exit Your Map")
+
+        // The previous harness defect reclaimed the expected route every 500ms.
+        // Hold beyond that window and prove the route remains exited.
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        status = parseStatus(
+            ((statusElement.value as? String) ?? statusElement.label)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        XCTAssertEqual(
+            status["route"],
+            "/one/location",
+            "The native test router reclaimed Your Map after close"
+        )
+    }
+
     func testInvestorRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "kai-home", redirect: "/kai", marker: "native-route-kai-home"),
@@ -897,6 +1008,24 @@ final class AppUITests: XCTestCase {
                 + statusSummaryForLog(parseStatus(lastStatus))
         )
         return parseStatus(lastStatus)
+    }
+
+    private func waitForNativeRoute(
+        _ app: XCUIApplication,
+        route: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let status = app.buttons.matching(identifier: "native-test-status").element(boundBy: 0)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let raw = ((status.value as? String) ?? status.label)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizeRoute(parseStatus(raw)["route"] ?? "") == normalizeRoute(route) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return false
     }
 
     private func parseStatus(_ raw: String) -> [String: String] {

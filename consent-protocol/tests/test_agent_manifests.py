@@ -67,7 +67,7 @@ def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
 def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> None:
     manifest = load("connected_systems")
     mapper = next(child for child in manifest.subagents if child.id == "crm_schema_mapper")
-    assert mapper.model.name == "gemini-3.5-flash"
+    assert mapper.model.name == "gemini-3.6-flash"
     assert mapper.runtime.adk_mode == "single_turn"
     assert mapper.runtime.transport == ["in_process"]
     assert mapper.privacy.plaintext_telemetry is False
@@ -96,14 +96,14 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
         "portfolio_import",
     )
     for name in agentic_manifests:
-        assert load(name).model_config_for_runtime().name == "gemini-3.5-flash", name
+        assert load(name).model_config_for_runtime().name == "gemini-3.6-flash", name
 
     assert load("summary_reducer").model_config_for_runtime().name == "gemini-3.1-flash-lite"
     one = load("one")
-    assert one.model_config_for_runtime().name == "gemini-3.5-flash"
+    assert one.model_config_for_runtime().name == "gemini-3.6-flash"
     assert one.capabilities["heads"] == {
-        "text": "gemini-3.5-flash",
-        "specialist_text": "gemini-3.5-flash",
+        "text": "gemini-3.6-flash",
+        "specialist_text": "gemini-3.6-flash",
         "live": "gemini-live-2.5-flash-native-audio",
     }
 

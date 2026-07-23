@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
+  setTopShellTabSwipeState,
   topShellTabSwipePositionVariable,
   useTopShellTabSwipeState,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
@@ -57,9 +58,7 @@ export function TopShellTabs({
   );
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
-  const indicatorTransform = tabSwipeState.isDragging
-    ? `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`
-    : `translate3d(${activeIndex * 100}%, 0, 0)`;
+  const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
@@ -68,6 +67,10 @@ export function TopShellTabs({
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
 
+      // Move the shared compositor indicator at pointer/keyboard time. The
+      // query-backed route remains the semantic authority, but it must not
+      // delay or replay the visible tab response.
+      setTopShellTabSwipeState(tabSet.id, index, false);
       beginRouteTransition(
         tab.href,
         () => {

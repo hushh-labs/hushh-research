@@ -5,11 +5,12 @@ host. This module verifies the Salesforce-safe subset and publishes a
 non-secret Salesforce trusted-connector handoff; it does not define a second
 endpoint or catalog.
 
-The direct Agentforce profile is catalog-only. The Salesforce-side
-AgentExchange trusted connector uses its own operations-provisioned ``execute``
-principal upstream. Hussh keeps person-specific authority in explicit consent,
-scoped grants, and encrypted delivery. No client credential becomes a synthetic
-user identity.
+The direct Agentforce profile is catalog-only. The selected enterprise target
+uses a partner-authorized MuleSoft runtime with its own operations-provisioned
+``execute`` principal. An AgentExchange package may expose a Salesforce action
+or user experience, but it is not the selected decryption boundary. Hussh keeps
+person-specific authority in explicit consent, scoped grants, and encrypted
+delivery. No client credential becomes a synthetic user identity.
 """
 
 from __future__ import annotations
@@ -49,12 +50,11 @@ def canonical_agentforce_tool_name(name: str) -> str | None:
 
 
 def get_salesforce_agentexchange_handoff() -> dict[str, Any]:
-    """Return the non-secret contract for a Salesforce trusted connector.
+    """Return the non-secret optional Salesforce action-facade contract.
 
-    This is implementation guidance, not a deployable Salesforce package,
-    Mule flow, credential, or key. The installed connector runtime is the
-    decryption boundary. AgentExchange distributes that runtime; it does not
-    hold a universal connector private key.
+    This remains available for compatibility and target-org experiments. It is
+    not the selected decryptor: Agentforce reads the authorized CRM record or a
+    metadata-only result produced by the trusted MuleSoft connector.
     """
 
     tool_allowlist = list(get_agentforce_tool_names())
@@ -62,6 +62,7 @@ def get_salesforce_agentexchange_handoff() -> dict[str, Any]:
     return {
         "integrationTarget": SALESFORCE_AGENTEXCHANGE_INTEGRATION_TARGET,
         "supportStatus": "agentforce-catalog-compatible",
+        "selectionStatus": "optional-action-facade",
         "upstream": {
             "transport": "streamable-http",
             "path": "/mcp/",
@@ -109,16 +110,21 @@ def get_salesforce_agentexchange_handoff() -> dict[str, Any]:
 
 
 def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
-    """Return the retained MuleSoft implementation view of the generic handoff.
+    """Return the selected, UAT-gated MuleSoft trusted-connector handoff.
 
-    Kept for existing CLI consumers. New integrations should consume
-    :func:`get_salesforce_agentexchange_handoff` and select MuleSoft only when
-    it is their trusted connector runtime.
+    The five public tools and schemas remain identical. This metadata declares
+    where connector validation, Java/JCA decryption, destination write/readback,
+    and metadata-only Agentforce settlement occur.
     """
 
     handoff = get_salesforce_agentexchange_handoff()
     handoff["integrationTarget"] = MULESOFT_AGENTFORCE_INTEGRATION_TARGET
     handoff["implementation"] = "mulesoft-secure-relay"
+    handoff["selectionStatus"] = "selected-target-uat-gated"
+    handoff["connectorRequirements"]["keyCustody"] = "partner-controlled-mulesoft-runtime"
+    handoff["executionBoundary"]["agentforceInformationSource"] = (
+        "authorized-salesforce-record-or-metadata-status"
+    )
     return handoff
 
 

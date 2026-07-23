@@ -1,6 +1,5 @@
 import {
   buildOneSetupCapabilityRoute,
-  buildKaiMarketRoute,
   isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   normalizeInternalRouteHref,
@@ -173,7 +172,10 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_SETUP,
       width: "content",
       align: "center",
-      items: [{ label: "Set up", href: ROUTES.ONE_SETUP }, { label: "Connections" }],
+      items: [
+        { label: "Set up", href: ROUTES.ONE_SETUP },
+        { label: "Connections" },
+      ],
     };
   }
 
@@ -322,28 +324,21 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Kai finance subroutes (level 3): back returns to the Kai home (level 2),
-  // which in turn returns to /one (level 1). Keeps the One -> agent -> subtab
-  // hierarchy consistent instead of relying on browser history. The setup
-  // origin is preserved on the Kai-home hop so the retrace can still reach the
-  // setup hub from a subroute opened during onboarding.
-  const kaiSubroutes: Array<[string, string]> = [
-    [ROUTES.KAI_OPTIMIZE, "Optimize"],
+  const portfolioDetailRoutes: Array<[string, string]> = [
+    [ROUTES.KAI_PORTFOLIO_HOLDINGS, "Holdings"],
+    [ROUTES.KAI_PORTFOLIO_ALLOCATION, "Allocation"],
+    [ROUTES.KAI_PORTFOLIO_PERFORMANCE, "Performance"],
+    [ROUTES.KAI_PORTFOLIO_SOURCES, "Portfolio source"],
   ];
-  for (const [route, label] of kaiSubroutes) {
-    if (pathname === route || pathname.startsWith(`${route}/`)) {
-      const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-      const kaiHomeBack =
-        originHref === ROUTES.ONE_SETUP
-          ? buildKaiMarketRoute("market", { from: ROUTES.ONE_SETUP })
-          : ROUTES.KAI_HOME;
+  for (const [route, label] of portfolioDetailRoutes) {
+    if (pathname === route) {
       return {
-        backHref: kaiHomeBack,
+        backHref: ROUTES.KAI_PORTFOLIO,
         width: "content",
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Portfolio", href: ROUTES.KAI_PORTFOLIO },
           { label },
         ],
       };

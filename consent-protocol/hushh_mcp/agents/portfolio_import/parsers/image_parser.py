@@ -10,7 +10,10 @@ import logging
 import re
 from typing import List
 
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 
 from ..agent import EnhancedHolding, EnhancedPortfolio
 
@@ -293,7 +296,9 @@ Text:
 {text[:10000]}
 """
 
-            config = types.GenerateContentConfig(
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.3,
                 max_output_tokens=4096,
             )
@@ -393,7 +398,9 @@ Return as JSON with structure:
 }
 """
 
-            config = types.GenerateContentConfig(
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.3,
                 max_output_tokens=8192,
             )

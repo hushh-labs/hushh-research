@@ -58,10 +58,7 @@ Non-owned surfaces:
    - classify material claims with the truth-first labels before drafting
    - if the premise is not grounded, say that directly before suggesting any fix
 5. For material founder-language, product-direction, One/Kai/Nav, PCHP/BYOA, PKM/World Model, or roadmap replies, use the Founder Wiki North-Star Probe as a local evidence lane while keeping public replies public-safe. Private wiki evidence must not be cited or exposed unless the user explicitly asks for a private/internal draft; repo/wiki disagreement is `current_state_vs_north_star_drift`.
-6. For drafted reply/Q&A requests, default to exactly two named outputs:
-   - `Brief reply`: sendable now, short, direct, evidence-backed
-   - `Detailed reply`: same answer with one more layer of reasoning or context
-   Add `Firmer reply` only when the user asks for sharper wording or the premise is materially wrong enough that a separate correction helps.
+6. For drafted reply/Q&A requests, default to one sendable reply: short, direct, evidence-backed, and sufficient to move the discussion forward. Add a second version only when the user explicitly asks for an alternative tone, more detail, or sharper correction.
 7. When the user asks for a Discord-formatted post, announcement, cinematic cadence, launch note, or channel message, use native Discord formatting deliberately:
    - use `#`, `##`, or `###` headings only when the channel message benefits from a clear top-level scan point; include a space after the heading marker
    - use `-#` subtext sparingly for one quiet context line, not as body copy

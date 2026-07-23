@@ -69,9 +69,12 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
 3. Select `light`, `dark`, or explicit `molten-gold` theme. Light and dark must
    take `hu` ink and the `ssh` foil gradient from the app's Foundation tokens;
    only the explicit gold theme may use the Molten Gold variant.
-4. Copyable code always uses the Sublime Text Monokai code surface: `#272822`
-   background, `#f8f8f2` foreground, and the established pink/yellow/purple
-   syntax tokens. Do not replace it with prose-card styling.
+4. Copyable code follows the selected document theme. Light PDFs use the
+   Sublime-inspired light code surface with dark ink and accessible
+   magenta/green/purple syntax tokens. Dark and Molten Gold PDFs use Sublime
+   Text Monokai: `#272822` background, `#f8f8f2` foreground, and the
+   established pink/yellow/purple syntax tokens. Do not replace either code
+   surface with prose-card styling.
 5. Rendered review remains mandatory for every profile. Verify wordmark
    contrast, usable page width, semantic paragraph/list grouping, code legibility,
    table fit, and page breaks before publishing.

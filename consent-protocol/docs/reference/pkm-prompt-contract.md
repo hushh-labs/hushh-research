@@ -233,11 +233,11 @@ Disallowed prompt evolution:
 
 Current PKM classifier candidate:
 
-- `gemini-3.5-flash`
+- `gemini-3.6-flash`
 
 Live prompt-hardening posture:
 
-- `gemini-3.5-flash`
+- `gemini-3.6-flash`
 - minimal-thinking / strict-small-model mode
 
 The PKM classifier stays on this minimal posture until live eval shows a concrete reason to change it.

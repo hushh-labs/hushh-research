@@ -70,6 +70,10 @@ export const ROUTE_ID_VALUES = [
   "kai_plaid_oauth_return",
   "kai_alpaca_oauth_return",
   "kai_dashboard",
+  "kai_portfolio_holdings",
+  "kai_portfolio_allocation",
+  "kai_portfolio_performance",
+  "kai_portfolio_sources",
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
@@ -87,7 +91,10 @@ export function resolveRouteId(pathname: string): RouteId {
     return "one_dashboard";
   }
   if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
-  if (pathname === ROUTES.ONE_SETUP || pathname.startsWith(`${ROUTES.ONE_SETUP}/`)) {
+  if (
+    pathname === ROUTES.ONE_SETUP ||
+    pathname.startsWith(`${ROUTES.ONE_SETUP}/`)
+  ) {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
@@ -103,23 +110,34 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
-  if (pathname === ROUTES.PROFILE_PREFERENCES_KAI) return "profile_preferences_kai";
-  if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE) return "profile_preferences_device";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
+    return "profile_preferences_kai";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
+    return "profile_preferences_device";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
-  if (pathname === ROUTES.PROFILE_SECURITY_VAULT) return "profile_security_vault";
-  if (pathname === ROUTES.PROFILE_SECURITY_SESSION) return "profile_security_session";
+  if (pathname === ROUTES.PROFILE_SECURITY_VAULT)
+    return "profile_security_vault";
+  if (pathname === ROUTES.PROFILE_SECURITY_SESSION)
+    return "profile_security_session";
   if (pathname === ROUTES.PROFILE_MY_DATA) return "profile_my_data";
-  if (pathname === ROUTES.PROFILE_MY_DATA_DOMAIN) return "profile_my_data_domain";
+  if (pathname === ROUTES.PROFILE_MY_DATA_DOMAIN)
+    return "profile_my_data_domain";
   if (pathname === ROUTES.PROFILE_ACCESS) return "profile_access";
-  if (pathname === ROUTES.PROFILE_ACCESS_CONNECTION) return "profile_access_connection";
-  if (pathname === ROUTES.PROFILE_CONNECTED_SYSTEMS) return "profile_connected_systems";
+  if (pathname === ROUTES.PROFILE_ACCESS_CONNECTION)
+    return "profile_access_connection";
+  if (pathname === ROUTES.PROFILE_CONNECTED_SYSTEMS)
+    return "profile_connected_systems";
   if (pathname === ROUTES.PROFILE_GMAIL) return "profile_gmail";
-  if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION) return "profile_gmail_connection";
+  if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
+    return "profile_gmail_connection";
   if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
   if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
-  if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING) return "profile_support_routing";
-  if (pathname === ROUTES.PROFILE_SUPPORT_COMPOSE) return "profile_support_compose";
-  if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL) return "gmail";
+  if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING)
+    return "profile_support_routing";
+  if (pathname === ROUTES.PROFILE_SUPPORT_COMPOSE)
+    return "profile_support_compose";
+  if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL)
+    return "gmail";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
@@ -141,17 +159,15 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_gmail_oauth_return";
   }
   if (pathname === ROUTES.OAUTH_AUTHORIZE) return "oauth_authorize";
-  if (
-    pathname === ROUTES.CONSENTS ||
-    pathname === ROUTES.LEGACY_CONSENTS
-  ) {
+  if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return "consents";
   }
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
-  if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
+  if (pathname === ROUTES.MARKETPLACE_CONNECTIONS)
+    return "marketplace_connections";
   if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {
     return "marketplace_connection_portfolio";
   }
@@ -164,8 +180,10 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
-  if (pathname.startsWith("/one/location/invite/")) return "one_location_circle_invite";
+  if (pathname.startsWith("/one/location/request/"))
+    return "one_location_public_request";
+  if (pathname.startsWith("/one/location/invite/"))
+    return "one_location_circle_invite";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
@@ -221,6 +239,18 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_dashboard";
   }
+  if (pathname === ROUTES.KAI_PORTFOLIO_HOLDINGS) {
+    return "kai_portfolio_holdings";
+  }
+  if (pathname === ROUTES.KAI_PORTFOLIO_ALLOCATION) {
+    return "kai_portfolio_allocation";
+  }
+  if (pathname === ROUTES.KAI_PORTFOLIO_PERFORMANCE) {
+    return "kai_portfolio_performance";
+  }
+  if (pathname === ROUTES.KAI_PORTFOLIO_SOURCES) {
+    return "kai_portfolio_sources";
+  }
   if (
     pathname === "/kai/investments" ||
     pathname === "/one/kai/investments" ||
@@ -236,8 +266,11 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_analysis";
   }
-  if (pathname === ROUTES.KAI_OPTIMIZE || pathname === ROUTES.LEGACY_KAI_OPTIMIZE) {
-    return "kai_optimize";
+  if (
+    pathname === ROUTES.KAI_OPTIMIZE_COMPAT ||
+    pathname === ROUTES.LEGACY_KAI_OPTIMIZE_COMPAT
+  ) {
+    return "kai_dashboard_legacy_redirect";
   }
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
 
@@ -411,7 +444,8 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/plaid/funding/admin/escalations",
   },
   {
-    regex: /^\/api\/kai\/plaid\/funding\/admin\/transfers\/[^/?]+\/refresh(?:\?.*)?$/i,
+    regex:
+      /^\/api\/kai\/plaid\/funding\/admin\/transfers\/[^/?]+\/refresh(?:\?.*)?$/i,
     template: "/api/kai/plaid/funding/admin/transfers/{transfer_id}/refresh",
   },
   {
@@ -631,19 +665,23 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/connected-systems/{system_id}/records/read",
   },
   {
-    regex: /^\/api\/connected-systems\/[^/?]+\/records\/create-intents(?:\?.*)?$/i,
+    regex:
+      /^\/api\/connected-systems\/[^/?]+\/records\/create-intents(?:\?.*)?$/i,
     template: "/api/connected-systems/{system_id}/records/create-intents",
   },
   {
-    regex: /^\/api\/connected-systems\/[^/?]+\/records\/update-intents(?:\?.*)?$/i,
+    regex:
+      /^\/api\/connected-systems\/[^/?]+\/records\/update-intents(?:\?.*)?$/i,
     template: "/api/connected-systems/{system_id}/records/update-intents",
   },
   {
-    regex: /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/approve(?:\?.*)?$/i,
+    regex:
+      /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/approve(?:\?.*)?$/i,
     template: "/api/connected-systems/{system_id}/intents/{intent_id}/approve",
   },
   {
-    regex: /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/reject(?:\?.*)?$/i,
+    regex:
+      /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/reject(?:\?.*)?$/i,
     template: "/api/connected-systems/{system_id}/intents/{intent_id}/reject",
   },
   {
@@ -728,7 +766,7 @@ export function normalizeApiPathToTemplate(path: string): string {
       const looksNumeric = /^\d+$/.test(segment);
       const looksUuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          segment
+          segment,
         );
       const looksOpaqueId = /^[a-z0-9_-]{10,}$/i.test(segment);
 

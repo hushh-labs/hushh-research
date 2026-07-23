@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from db.db_client import get_db
-from hushh_mcp.consent.export_envelope import connector_key_fingerprint
+from hushh_mcp.consent.connector_crypto_profiles import get_connector_crypto_profile
 from hushh_mcp.runtime_settings import get_core_security_settings
 from mcp_modules.canonical_contract import published_tool_name
 from mcp_modules.public_contract import get_public_tool_names
@@ -67,7 +67,6 @@ TOOL_GROUP_TOOL_NAMES = {
         "kai_open_history",
         "kai_open_consent",
         "kai_open_profile",
-        "kai_open_optimize",
         "kai_open_home",
         "kai_navigate_back",
         "kai_resume_active_analysis",
@@ -172,12 +171,6 @@ TOOL_CATALOG = (
         "group": TOOL_GROUP_KAI_VOICE,
         "compatibility_status": "recommended",
         "description": "Navigate to the Profile tab.",
-    },
-    {
-        "name": "kai_open_optimize",
-        "group": TOOL_GROUP_KAI_VOICE,
-        "compatibility_status": "recommended",
-        "description": "Navigate to the Optimize tab.",
     },
     {
         "name": "kai_open_home",
@@ -725,19 +718,24 @@ class DeveloperRegistryService:
         connector_wrapping_alg: str = "X25519-AES256-GCM",
         retire_existing: bool = False,
     ) -> dict[str, Any]:
-        """Register one partner-owned X25519 public key without retaining a private key."""
+        """Register one profile-validated partner public key without a private key."""
 
-        self.ensure_tables()
         clean_key_id = str(connector_key_id or "").strip()
         clean_public_key = str(connector_public_key or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", clean_key_id):
             raise ValueError("connector_key_id is invalid")
-        if connector_wrapping_alg != "X25519-AES256-GCM":
-            raise ValueError("connector_wrapping_alg must be X25519-AES256-GCM")
         try:
-            fingerprint = connector_key_fingerprint(clean_public_key)
+            profile = get_connector_crypto_profile(connector_wrapping_alg)
         except ValueError as exc:
-            raise ValueError("connector_public_key must be an X25519 base64 public key") from exc
+            raise ValueError("connector_wrapping_alg is not an enabled crypto profile") from exc
+        try:
+            fingerprint = profile.fingerprint_recipient_key(clean_public_key)
+        except ValueError as exc:
+            raise ValueError(
+                "connector_public_key does not match the selected crypto profile"
+            ) from exc
+
+        self.ensure_tables()
 
         app = self.get_app(app_id)
         if not app or str(app.get("status") or "") != "active":

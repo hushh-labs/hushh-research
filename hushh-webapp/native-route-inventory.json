@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-07-19",
-  "total_routes": 96,
-  "native_required_routes": 88,
-  "excluded_routes": 8,
+  "total_routes": 100,
+  "native_required_routes": 90,
+  "excluded_routes": 10,
   "routes": [
     {
       "route": "/",
@@ -327,32 +327,12 @@
     },
     {
       "route": "/kai/optimize",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fkai%2Foptimize",
-      "expectedMarker": "native-route-kai-optimize",
-      "expectedRoute": "/one/kai/optimize",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ],
+      "classification": "excluded-compatibility-redirect",
       "legacyAlias": true
     },
     {
       "route": "/one/kai/optimize",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Foptimize",
-      "expectedMarker": "native-route-kai-optimize",
-      "expectedRoute": "/one/kai/optimize",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-compatibility-redirect"
     },
     {
       "route": "/kai/plaid/oauth/return",
@@ -433,6 +413,54 @@
         "loaded"
       ],
       "legacyAlias": true
+    },
+    {
+      "route": "/one/kai/portfolio/holdings",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fholdings",
+      "expectedMarker": "native-route-kai-portfolio-holdings",
+      "expectedRoute": "/one/kai/portfolio/holdings",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/allocation",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fallocation",
+      "expectedMarker": "native-route-kai-portfolio-allocation",
+      "expectedRoute": "/one/kai/portfolio/allocation",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/performance",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fperformance",
+      "expectedMarker": "native-route-kai-portfolio-performance",
+      "expectedRoute": "/one/kai/portfolio/performance",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/sources",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fsources",
+      "expectedMarker": "native-route-kai-portfolio-sources",
+      "expectedRoute": "/one/kai/portfolio/sources",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/portfolio/shared",

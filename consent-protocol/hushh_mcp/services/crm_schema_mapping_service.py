@@ -20,7 +20,10 @@ from typing import Any, Protocol
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,13 +297,18 @@ class GeminiCrmSchemaMapper:
             "Public CRM schema metadata follows. Return JSON only.\n"
             f"{json.dumps(schema_projection, sort_keys=True, separators=(',', ':'))}"
         )
-        config = types.GenerateContentConfig(
+        config = build_generate_content_config(
+            types,
+            self.model_name,
             temperature=0,
             max_output_tokens=self._child.performance.max_output_tokens,
             response_mime_type="application/json",
             response_schema=response_schema,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=False,
+                thinking_level=types.ThinkingLevel.MINIMAL,
+            ),
         )
         try:
             response = await asyncio.wait_for(

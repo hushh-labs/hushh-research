@@ -373,7 +373,9 @@ async def run_stream_pass_v2(
             thinking_level=thinking_level,
         )
 
-    config = types_module.GenerateContentConfig(**config_kwargs)
+    from hushh_mcp.runtime_providers import build_generate_content_config
+
+    config = build_generate_content_config(types_module, model_name, **config_kwargs)
 
     yield stream.event(
         "stage",

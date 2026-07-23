@@ -58,6 +58,13 @@ class StoreEnvelopeRequest(_CamelModel):
     envelope: dict[str, Any]
 
 
+class UpdateMapPreferencesRequest(_CamelModel):
+    presence_mode: str | None = Field(default=None, alias="presenceMode", max_length=40)
+    renderer_consent_version: str | None = Field(
+        default=None, alias="rendererConsentVersion", max_length=80
+    )
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -184,6 +191,31 @@ def _require_retention_auth(request: Request) -> None:
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/map-state")
+def get_location_map_state(token_data: dict = Depends(require_vault_owner_token)):
+    try:
+        return _service().list_map_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/map-preferences")
+def update_location_map_preferences(
+    payload: UpdateMapPreferencesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preferences": _service().update_map_preferences(
+                user_id=_user_id(token_data),
+                presence_mode=payload.presence_mode,
+                renderer_consent_version=payload.renderer_consent_version,
+            )
+        }
     except Exception as exc:
         raise _handle_error(exc) from exc
 

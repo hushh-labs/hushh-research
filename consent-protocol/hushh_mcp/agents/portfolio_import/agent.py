@@ -17,7 +17,10 @@ from typing import Any, Dict, List, Optional
 from hushh_mcp.agents.base_agent import HushhAgent
 from hushh_mcp.constants import GEMINI_MODEL, ConsentScope
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +346,9 @@ Document text:
 {text}
 """
 
-            config = types.GenerateContentConfig(
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.3,
                 max_output_tokens=8192,
             )

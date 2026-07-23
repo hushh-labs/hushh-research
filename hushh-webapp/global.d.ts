@@ -1,21 +1,18 @@
-/**
- * Global type declarations for custom elements
- * This file is referenced by triple-slash directive in material-ripple.tsx
- */
-
-/// <reference types="react" />
+import type * as React from "react";
 
 interface MdRipple extends HTMLElement {
   disabled: boolean;
 }
 
-declare namespace JSX {
-  interface IntrinsicElements {
-    "md-ripple": React.DetailedHTMLProps<
-      React.HTMLAttributes<MdRipple>,
-      MdRipple
-    > & {
-      disabled?: boolean;
-    };
+declare module "react" {
+  namespace JSX {
+    interface IntrinsicElements {
+      "md-ripple": React.DetailedHTMLProps<React.HTMLAttributes<MdRipple>, MdRipple> & {
+        disabled?: boolean;
+      };
+      "capacitor-google-map": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+    }
   }
 }
+
+export {};

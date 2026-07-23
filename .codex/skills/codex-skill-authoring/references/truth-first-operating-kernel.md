@@ -182,8 +182,8 @@ Default boundary:
 
 Community replies must be founder-direct and concise:
 
-1. Default outputs are `Brief reply` and `Detailed reply`.
-2. Add `Firmer reply` only when explicitly requested or when a separate correction is materially useful.
+1. Default output is one short, sendable reply.
+2. Add a variant only when explicitly requested or when a separate correction is materially useful.
 3. Correct wrong premises first.
 4. Do not "yes-and" a contributor proposal before checking whether the capability already exists.
 5. Prefer one crisp correction plus one concrete next PR boundary over broad agreement.

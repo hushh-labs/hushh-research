@@ -4,7 +4,7 @@ name: Gmail Agent
 parent: agent_connections
 version: 1.0.0
 description: Disabled read-only receipt-sync and purchase-memory child of Connections.
-model: gemini-3.5-flash
+model: gemini-3.6-flash
 system_instruction: |
   This agent is disabled and must not be exposed to One, voice, Search, or
   discovery. When explicitly re-enabled, explain receipt sync and purchase-memory state using only the exact context

@@ -62,7 +62,7 @@ It does not own:
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
 | Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |
-| Implement the Salesforce AgentExchange trusted connector | [reference/mulesoft-agentforce-secure-relay.md](./reference/mulesoft-agentforce-secure-relay.md) |
+| Implement the MuleSoft trusted connector for Salesforce and Agentforce | [reference/mulesoft-agentforce-secure-relay.md](./reference/mulesoft-agentforce-secure-relay.md) |
 | Integrate into a host monorepo (subtree) | [monorepo-integration.md](./monorepo-integration.md) |
 | Read the Hussh philosophy | [manifesto.md](./manifesto.md) |
 

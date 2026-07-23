@@ -556,6 +556,28 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
+  it("returns Portfolio details to the tab-level Portfolio index", () => {
+    const expectedLabels = new Map([
+      ["/one/kai/portfolio/holdings", "Holdings"],
+      ["/one/kai/portfolio/allocation", "Allocation"],
+      ["/one/kai/portfolio/performance", "Performance"],
+      ["/one/kai/portfolio/sources", "Portfolio source"],
+    ]);
+
+    for (const [route, label] of expectedLabels) {
+      expect(resolveTopShellBreadcrumb(route)).toEqual({
+        backHref: "/one/kai?tab=portfolio",
+        width: "content",
+        align: "center",
+        items: [
+          { label: "One", href: "/one" },
+          { label: "Portfolio", href: "/one/kai?tab=portfolio" },
+          { label },
+        ],
+      });
+    }
+  });
+
   it("owns ria client workspace back navigation from the shared top bar", () => {
     expect(resolveTopShellBreadcrumb("/ria/clients/user_123")).toEqual({
       backHref: "/ria/clients",

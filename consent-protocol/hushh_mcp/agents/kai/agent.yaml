@@ -5,7 +5,7 @@ version: 2.0.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
 model:
   provider: gemini
-  name: gemini-3.5-flash
+  name: gemini-3.6-flash
   mode: hushh_managed_vertex
   credential_ref: null
 credential_policy:
@@ -118,7 +118,7 @@ subagents:
     description: Advisor-workspace subagent owned by Kai Finance.
     model:
       provider: gemini
-      name: gemini-3.5-flash
+      name: gemini-3.6-flash
       mode: hushh_managed_vertex
     runtime:
       kind: adk
@@ -146,7 +146,7 @@ subagents:
     description: Personal portfolio-review subagent owned by Kai Finance.
     model:
       provider: gemini
-      name: gemini-3.5-flash
+      name: gemini-3.6-flash
       mode: hushh_managed_vertex
     runtime:
       kind: adk

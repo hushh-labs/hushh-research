@@ -1,6 +1,5 @@
 export type KaiCommandAction =
   | "analyze"
-  | "optimize"
   | "import"
   | "consent"
   | "profile"

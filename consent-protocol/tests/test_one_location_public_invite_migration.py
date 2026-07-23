@@ -80,3 +80,18 @@ def test_one_location_circle_invite_migration_is_hash_only_and_network_gated() -
     assert "location_circle_invite_claimed" in sql
     assert "location_one_network_joined" in sql
     assert "idx_one_location_circle_invites_terminal_retention" in sql
+
+
+def test_location_map_presence_migration_is_additive_and_private_by_default() -> None:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    migration_name = "115_one_location_map_presence.sql"
+    sql = (MIGRATIONS_DIR / migration_name).read_text(encoding="utf-8")
+
+    assert migration_name in manifest["ordered_migrations"]
+    assert migration_name in manifest["groups"]["iam"]
+    assert "CREATE TABLE IF NOT EXISTS one_location_map_preferences" in sql
+    assert "DEFAULT 'ghost'" in sql
+    assert "ADD COLUMN IF NOT EXISTS publication_context" in sql
+    assert "foreground_map_visible" in sql
+    assert "DROP TABLE" not in sql
+    assert "DELETE FROM" not in sql

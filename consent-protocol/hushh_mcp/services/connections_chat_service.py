@@ -244,7 +244,10 @@ class ConnectionsChatService:
         self, *, user_id: str, contents: list
     ) -> tuple[str, bool, dict | None]:
         types = self._types
-        config = types.GenerateContentConfig(
+        from hushh_mcp.operons.kai.llm import build_kai_generation_config
+
+        config = build_kai_generation_config(
+            types,
             system_instruction=_SYSTEM_PROMPT,
             tools=[types.Tool(function_declarations=_function_declarations(types))],
             temperature=0.2,

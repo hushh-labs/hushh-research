@@ -55,6 +55,9 @@ def _client(monkeypatch, *, row=None, principal=None) -> TestClient:
             assert export_id == _EXPORT_ID
             return export_row
 
+        async def insert_event(self, **_kwargs):
+            raise AssertionError("Range resources must not create logical READ events")
+
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == "consent_token_demo"  # noqa: S105
         return (

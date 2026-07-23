@@ -26,9 +26,15 @@ import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
-import { PortfolioReviewView, PortfolioData as ReviewPortfolioData } from "./views/portfolio-review-view";
+import {
+  PortfolioReviewView,
+  PortfolioData as ReviewPortfolioData,
+} from "./views/portfolio-review-view";
 import type { PortfolioData } from "./types/portfolio";
-import { DashboardMasterView } from "./views/dashboard-master-view";
+import {
+  DashboardMasterView,
+  type PortfolioDashboardSection,
+} from "./views/dashboard-master-view";
 import { AnalysisView } from "./views/analysis-view";
 import { useVault } from "@/lib/vault/vault-context";
 import { toast } from "sonner";
@@ -39,10 +45,7 @@ import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
-import {
-  buildKaiAnalysisPreviewRoute,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
@@ -55,7 +58,11 @@ import {
   replaceLiveHoldingPreviewRows,
 } from "@/lib/kai/import/live-holdings-preview";
 import { fetchDemoPortfolioTemplateAsset } from "@/lib/services/demo-mode-template-service";
-import { hasPortfolioHoldings, type PlaidPortfolioStatusResponse, type PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
+import {
+  hasPortfolioHoldings,
+  type PlaidPortfolioStatusResponse,
+  type PortfolioSource,
+} from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import {
   clearPlaidOAuthResumeSession,
@@ -71,7 +78,10 @@ import {
   removeSessionItem,
   setSessionItem,
 } from "@/lib/utils/session-storage";
-import { toInvestorLoading, toInvestorStreamText } from "@/lib/copy/investor-language";
+import {
+  toInvestorLoading,
+  toInvestorStreamText,
+} from "@/lib/copy/investor-language";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -88,11 +98,11 @@ import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 export type FlowState =
   | "checking"
   | "import_required"
-  | "importing"       // Streaming progress view
+  | "importing" // Streaming progress view
   | "import_complete" // Stream complete, waits for explicit user action
-  | "reviewing"       // Review parsed data before saving
-  | "dashboard"       // Main view with KPIs and prime assets
-  | "analysis";       // Stock analysis results
+  | "reviewing" // Review parsed data before saving
+  | "dashboard" // Main view with KPIs and prime assets
+  | "analysis"; // Stock analysis results
 
 interface KaiFlowProps {
   userId: string;
@@ -112,6 +122,7 @@ interface KaiFlowProps {
   ) => Promise<void> | void;
   /** Static setup retains the route publisher; feature state is additive chrome. */
   voicePublisherRole?: VoiceSurfacePublisherRole;
+  dashboardSection?: PortfolioDashboardSection;
 }
 
 interface AnalysisResult {
@@ -159,8 +170,8 @@ function isActiveFinanceSetupJourney(
 ): journey is PreVaultUserState {
   return Boolean(
     journey &&
-      !PreVaultUserStateService.isSetupResolved(journey) &&
-      journey.onboardingActiveCapability === "finance",
+    !PreVaultUserStateService.isSetupResolved(journey) &&
+    journey.onboardingActiveCapability === "finance",
   );
 }
 
@@ -174,7 +185,7 @@ interface StreamingState {
   chunkCount: number;
   progressPct?: number;
   statusMessage?: string;
-  thoughts: string[];  // Array of thought summaries from Gemini thinking mode
+  thoughts: string[]; // Array of thought summaries from Gemini thinking mode
   thoughtCount: number;
   qualityReport?: QualityReport;
   liveHoldings: LiveHoldingPreview[];
@@ -223,11 +234,15 @@ function createInitialStreamingState(): StreamingState {
   };
 }
 
-function loadImportBackgroundSnapshot(userId: string): PersistedImportBackgroundSnapshot | null {
+function loadImportBackgroundSnapshot(
+  userId: string,
+): PersistedImportBackgroundSnapshot | null {
   const raw = getSessionItem(KAI_IMPORT_BACKGROUND_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<PersistedImportBackgroundSnapshot>;
+    const parsed = JSON.parse(
+      raw,
+    ) as Partial<PersistedImportBackgroundSnapshot>;
     if (parsed.version !== 1) return null;
     if (!parsed.userId || parsed.userId !== userId) return null;
     if (!parsed.streaming || typeof parsed.streaming !== "object") return null;
@@ -243,7 +258,8 @@ function loadImportBackgroundSnapshot(userId: string): PersistedImportBackground
           ? parsed.runId.trim()
           : null,
       latestCursor:
-        typeof parsed.latestCursor === "number" && Number.isFinite(parsed.latestCursor)
+        typeof parsed.latestCursor === "number" &&
+        Number.isFinite(parsed.latestCursor)
           ? Math.max(0, Math.floor(parsed.latestCursor))
           : 0,
       status:
@@ -253,15 +269,18 @@ function loadImportBackgroundSnapshot(userId: string): PersistedImportBackground
           ? parsed.status
           : "running",
       startedAt:
-        typeof parsed.startedAt === "string" && parsed.startedAt.trim().length > 0
+        typeof parsed.startedAt === "string" &&
+        parsed.startedAt.trim().length > 0
           ? parsed.startedAt
           : new Date().toISOString(),
       updatedAt:
-        typeof parsed.updatedAt === "string" && parsed.updatedAt.trim().length > 0
+        typeof parsed.updatedAt === "string" &&
+        parsed.updatedAt.trim().length > 0
           ? parsed.updatedAt
           : new Date().toISOString(),
       errorMessage:
-        typeof parsed.errorMessage === "string" && parsed.errorMessage.trim().length > 0
+        typeof parsed.errorMessage === "string" &&
+        parsed.errorMessage.trim().length > 0
           ? parsed.errorMessage
           : null,
       streaming: {
@@ -278,7 +297,9 @@ function loadImportBackgroundSnapshot(userId: string): PersistedImportBackground
   }
 }
 
-function saveImportBackgroundSnapshot(snapshot: PersistedImportBackgroundSnapshot): void {
+function saveImportBackgroundSnapshot(
+  snapshot: PersistedImportBackgroundSnapshot,
+): void {
   setSessionItem(KAI_IMPORT_BACKGROUND_KEY, JSON.stringify(snapshot));
 }
 
@@ -301,7 +322,10 @@ function parseMaybeNumber(value: unknown): number | undefined {
   }
 
   const text = String(value).trim();
-  if (!text || ["n/a", "na", "null", "none", "--", "-"].includes(text.toLowerCase())) {
+  if (
+    !text ||
+    ["n/a", "na", "null", "none", "--", "-"].includes(text.toLowerCase())
+  ) {
     return undefined;
   }
 
@@ -318,11 +342,14 @@ function parseNumberOrZero(value: unknown): number {
   return parseMaybeNumber(value) ?? 0;
 }
 
-function compactRecord<T extends Record<string, unknown>>(value: T | undefined): T | undefined {
+function compactRecord<T extends Record<string, unknown>>(
+  value: T | undefined,
+): T | undefined {
   if (!value) return undefined;
   const entries = Object.entries(value).filter(([, entryValue]) => {
     if (entryValue === undefined || entryValue === null) return false;
-    if (typeof entryValue === "string" && entryValue.trim().length === 0) return false;
+    if (typeof entryValue === "string" && entryValue.trim().length === 0)
+      return false;
     return true;
   });
   if (entries.length === 0) return undefined;
@@ -348,7 +375,7 @@ const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
 
 function normalizeTickerSymbol(
   value: unknown,
-  opts?: { name?: string; assetType?: string }
+  opts?: { name?: string; assetType?: string },
 ): string {
   if (value === null || value === undefined) return "";
   const normalized = String(value)
@@ -358,8 +385,12 @@ function normalizeTickerSymbol(
   if (!normalized || normalized.startsWith("HOLDING_")) return "";
   if (TRADE_ACTION_SYMBOLS.has(normalized)) return "";
   if (CASH_EQUIVALENT_SYMBOLS.has(normalized)) return "CASH";
-  const nameLc = String(opts?.name || "").trim().toLowerCase();
-  const assetTypeLc = String(opts?.assetType || "").trim().toLowerCase();
+  const nameLc = String(opts?.name || "")
+    .trim()
+    .toLowerCase();
+  const assetTypeLc = String(opts?.assetType || "")
+    .trim()
+    .toLowerCase();
   if (
     nameLc.includes("cash") ||
     nameLc.includes("sweep") ||
@@ -386,7 +417,7 @@ function normalizeRawStreamLine(input: string): string {
     (!tagged && /^\s*[\[{]/.test(stripped)) ||
     /"[^"]+"\s*:/.test(payloadText) ||
     /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
-      payloadText
+      payloadText,
     );
   if (tagged) {
     const tag = (tagged[1] || "").trim().toUpperCase();
@@ -439,13 +470,15 @@ function sanitizeInvestorCopy(value: unknown, fallback = ""): string {
   return fallback;
 }
 
-function dedupeLiveHoldingPreviewRows(rows: LiveHoldingPreview[]): LiveHoldingPreview[] {
+function dedupeLiveHoldingPreviewRows(
+  rows: LiveHoldingPreview[],
+): LiveHoldingPreview[] {
   return normalizeLiveHoldingPreviewRows(rows);
 }
 
 function mergeLiveHoldingPreviewRows(
   current: LiveHoldingPreview[],
-  incoming: LiveHoldingPreview[]
+  incoming: LiveHoldingPreview[],
 ): LiveHoldingPreview[] {
   // Backend preview events are cumulative snapshots, not deltas.
   return replaceLiveHoldingPreviewRows(current, incoming);
@@ -459,7 +492,8 @@ function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
     const item = row as Record<string, unknown>;
     const symbol = normalizeTickerSymbol(item.symbol, {
       name: typeof item.name === "string" ? item.name : undefined,
-      assetType: typeof item.asset_type === "string" ? item.asset_type : undefined,
+      assetType:
+        typeof item.asset_type === "string" ? item.asset_type : undefined,
     });
     const name =
       typeof item.name === "string" && item.name.trim().length > 0
@@ -472,13 +506,23 @@ function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
         ? item.asset_type.trim()
         : undefined;
     const positionSideRaw =
-      typeof item.position_side === "string" ? item.position_side.trim().toLowerCase() : "";
+      typeof item.position_side === "string"
+        ? item.position_side.trim().toLowerCase()
+        : "";
     const positionSide =
-      positionSideRaw === "long" || positionSideRaw === "short" || positionSideRaw === "liability"
+      positionSideRaw === "long" ||
+      positionSideRaw === "short" ||
+      positionSideRaw === "liability"
         ? (positionSideRaw as "long" | "short" | "liability")
         : undefined;
     if (!symbol) continue;
-    if (marketValue === undefined && quantity === undefined && !name && !assetType) continue;
+    if (
+      marketValue === undefined &&
+      quantity === undefined &&
+      !name &&
+      !assetType
+    )
+      continue;
     preview.push({
       symbol,
       name,
@@ -493,9 +537,15 @@ function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
   return dedupeLiveHoldingPreviewRows(preview);
 }
 
-function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPortfolioData {
-  const normalized = normalizeStoredPortfolio(backendData as Record<string, unknown>) as ReviewPortfolioData;
-  const rawHoldings = Array.isArray(normalized.holdings) ? normalized.holdings : [];
+function normalizePortfolioData(
+  backendData: Record<string, unknown>,
+): ReviewPortfolioData {
+  const normalized = normalizeStoredPortfolio(
+    backendData as Record<string, unknown>,
+  ) as ReviewPortfolioData;
+  const rawHoldings = Array.isArray(normalized.holdings)
+    ? normalized.holdings
+    : [];
   const canonicalHoldings = rawHoldings
     .map((h) => ({
       ...h,
@@ -528,20 +578,24 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
         ? ({
             ...(normalized.account_info as Record<string, unknown>),
             holder_name:
-              (normalized.account_info as Record<string, unknown>).holder_name ??
-              (normalized.account_info as Record<string, unknown>).account_holder,
+              (normalized.account_info as Record<string, unknown>)
+                .holder_name ??
+              (normalized.account_info as Record<string, unknown>)
+                .account_holder,
             brokerage:
               (normalized.account_info as Record<string, unknown>).brokerage ??
-              (normalized.account_info as Record<string, unknown>).brokerage_name,
+              (normalized.account_info as Record<string, unknown>)
+                .brokerage_name,
           } as ReviewPortfolioData["account_info"])
         : normalized.account_info,
     holdings: canonicalHoldings,
     quality_report_v2: compactRecord(
-      normalized.quality_report_v2 && typeof normalized.quality_report_v2 === "object"
+      normalized.quality_report_v2 &&
+        typeof normalized.quality_report_v2 === "object"
         ? ({
             ...(normalized.quality_report_v2 as Record<string, unknown>),
           } as Record<string, unknown>)
-        : undefined
+        : undefined,
     ),
     cash_balance: cashBalance,
     total_value: totalValue,
@@ -555,17 +609,22 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
  * Normalize holdings array to ensure unrealized_gain_loss_pct is computed.
  * This helper can be used in multiple places (checkFinancialData, handleSaveComplete).
  */
-function normalizeHoldingsWithPct<T extends {
-  unrealized_gain_loss_pct?: number;
-  unrealized_gain_loss?: number;
-  cost_basis?: number;
-  market_value?: number;
-}>(holdings: T[] | undefined): T[] | undefined {
+function normalizeHoldingsWithPct<
+  T extends {
+    unrealized_gain_loss_pct?: number;
+    unrealized_gain_loss?: number;
+    cost_basis?: number;
+    market_value?: number;
+  },
+>(holdings: T[] | undefined): T[] | undefined {
   if (!holdings) return holdings;
 
   return holdings.map((h) => {
     // If percentage is already present and valid, keep it
-    if (h.unrealized_gain_loss_pct !== undefined && h.unrealized_gain_loss_pct !== 0) {
+    if (
+      h.unrealized_gain_loss_pct !== undefined &&
+      h.unrealized_gain_loss_pct !== 0
+    ) {
       return h;
     }
 
@@ -603,7 +662,7 @@ function isReviewPortfolioData(value: unknown): value is ReviewPortfolioData {
 }
 
 async function fetchDemoModePortfolioTemplate(
-  _vaultOwnerToken?: string
+  _vaultOwnerToken?: string,
 ): Promise<ReviewPortfolioData> {
   const payload = await fetchDemoPortfolioTemplateAsset();
   if (!isReviewPortfolioData(payload)) {
@@ -631,6 +690,7 @@ export function KaiFlow({
   onSetupSourceSettled,
   onSetupConnectorAttemptSettled,
   voicePublisherRole = "route",
+  dashboardSection = "overview",
 }: KaiFlowProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -640,7 +700,8 @@ export function KaiFlow({
     tokenExpiresAt,
     unlockVault,
   } = useVault();
-  const initialVaultOwnerToken = vaultOwnerToken.trim().length > 0 ? vaultOwnerToken : null;
+  const initialVaultOwnerToken =
+    vaultOwnerToken.trim().length > 0 ? vaultOwnerToken : null;
   const effectiveVaultOwnerToken =
     contextVaultOwnerToken || initialVaultOwnerToken || undefined;
   const { getPortfolioData, setPortfolioData, invalidateDomain } = useCache();
@@ -649,14 +710,21 @@ export function KaiFlow({
   const state = (searchParams?.get("stage") as FlowState) || internalState;
 
   const pathname = usePathname();
-  const setState = useCallback((newState: FlowState) => {
-    setInternalState(newState);
-    if (newState === "import_required" || newState === "reviewing" || newState === "importing") {
-      const params = new URLSearchParams(searchParams?.toString());
-      params.set("stage", newState);
-      router.push(pathname + "?" + params.toString(), { scroll: true });
-    }
-  }, [pathname, router, searchParams]);
+  const setState = useCallback(
+    (newState: FlowState) => {
+      setInternalState(newState);
+      if (
+        newState === "import_required" ||
+        newState === "reviewing" ||
+        newState === "importing"
+      ) {
+        const params = new URLSearchParams(searchParams?.toString());
+        params.set("stage", newState);
+        router.push(pathname + "?" + params.toString(), { scroll: true });
+      }
+    },
+    [pathname, router, searchParams],
+  );
 
   // Listen for back button via search params changing and sync internal state
   useEffect(() => {
@@ -684,35 +752,41 @@ export function KaiFlow({
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
   } = useVoiceSurfaceControlTracking();
-  const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
+  const [plaidStatus, setPlaidStatus] =
+    useState<PlaidPortfolioStatusResponse | null>(null);
 
-  const finishFinanceSetupIfActive = useCallback(async (
-    source: "plaid" | "statement" | "later" = "later",
-    callbackAttemptId?: string,
-  ): Promise<boolean> => {
-    if (mode !== "import") return false;
-    if (onSetupSourceSettled) {
-      const settled = Boolean(
-        await onSetupSourceSettled(source, callbackAttemptId),
-      );
-      if (!settled) {
-        // Do not fall through to Kai when the setup adapter cannot verify the
-        // active journey. Keeping the chooser visible lets the person retry
-        // rather than hiding the required terminal Finish step.
-        toast.error("Finance setup could not be confirmed. Please try again.");
+  const finishFinanceSetupIfActive = useCallback(
+    async (
+      source: "plaid" | "statement" | "later" = "later",
+      callbackAttemptId?: string,
+    ): Promise<boolean> => {
+      if (mode !== "import") return false;
+      if (onSetupSourceSettled) {
+        const settled = Boolean(
+          await onSetupSourceSettled(source, callbackAttemptId),
+        );
+        if (!settled) {
+          // Do not fall through to Kai when the setup adapter cannot verify the
+          // active journey. Keeping the chooser visible lets the person retry
+          // rather than hiding the required terminal Finish step.
+          toast.error(
+            "Finance setup could not be confirmed. Please try again.",
+          );
+        }
+        return true;
       }
+      const journey = await PreVaultUserStateService.bootstrapState(userId, {
+        force: true,
+      }).catch(() => null);
+      if (!isActiveFinanceSetupJourney(journey)) {
+        return false;
+      }
+      setOnboardingFlowActiveCookie(false);
+      router.replace(ROUTES.ONE_SETUP_FINANCE_IMPORT);
       return true;
-    }
-    const journey = await PreVaultUserStateService.bootstrapState(userId, {
-      force: true,
-    }).catch(() => null);
-    if (!isActiveFinanceSetupJourney(journey)) {
-      return false;
-    }
-    setOnboardingFlowActiveCookie(false);
-    router.replace(ROUTES.ONE_SETUP_FINANCE_IMPORT);
-    return true;
-  }, [mode, onSetupSourceSettled, router, userId]);
+    },
+    [mode, onSetupSourceSettled, router, userId],
+  );
   const {
     data: financialResource,
     loading: financialResourceLoading,
@@ -728,7 +802,9 @@ export function KaiFlow({
   });
 
   // Streaming state for real-time progress
-  const [streaming, setStreaming] = useState<StreamingState>(createInitialStreamingState);
+  const [streaming, setStreaming] = useState<StreamingState>(
+    createInitialStreamingState,
+  );
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastImportFileRef = useRef<File | null>(null);
   const importResumeAppliedRef = useRef(false);
@@ -761,7 +837,8 @@ export function KaiFlow({
   useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
 
   const plaidPortfolioData =
-    plaidStatus?.aggregate?.portfolio_data && hasPortfolioHoldings(plaidStatus.aggregate.portfolio_data)
+    plaidStatus?.aggregate?.portfolio_data &&
+    hasPortfolioHoldings(plaidStatus.aggregate.portfolio_data)
       ? plaidStatus.aggregate.portfolio_data
       : null;
   const plaidConfigured = plaidStatus?.configured ?? true;
@@ -785,7 +862,8 @@ export function KaiFlow({
             {
               id: "portfolio_import",
               title: "Portfolio import",
-              purpose: "Starts a statement import or a Plaid brokerage connection.",
+              purpose:
+                "Starts a statement import or a Plaid brokerage connection.",
             },
           ]
         : state === "importing"
@@ -793,7 +871,8 @@ export function KaiFlow({
               {
                 id: "import_progress",
                 title: "Import progress",
-                purpose: "Shows live import progress, holdings extraction, and stream status.",
+                purpose:
+                  "Shows live import progress, holdings extraction, and stream status.",
               },
             ]
           : state === "import_complete"
@@ -801,7 +880,8 @@ export function KaiFlow({
                 {
                   id: "import_ready",
                   title: "Import ready for review",
-                  purpose: "Shows the completed import and lets you continue into review.",
+                  purpose:
+                    "Shows the completed import and lets you continue into review.",
                 },
               ]
             : state === "reviewing"
@@ -809,14 +889,16 @@ export function KaiFlow({
                   {
                     id: "portfolio_review",
                     title: "Review imported portfolio",
-                    purpose: "Lets you inspect parsed holdings before saving them into Kai.",
+                    purpose:
+                      "Lets you inspect parsed holdings before saving them into Kai.",
                   },
                 ]
               : [
                   {
                     id: "portfolio_dashboard",
                     title: "Portfolio dashboard",
-                    purpose: "Shows the saved or connected portfolio workspace.",
+                    purpose:
+                      "Shows the saved or connected portfolio workspace.",
                   },
                 ];
 
@@ -903,7 +985,8 @@ export function KaiFlow({
         saved_holdings_count: savedHoldingsCount,
         parsed_holdings_count: parsedHoldingsCount,
         plaid_holdings_count: plaidHoldingsCount,
-        plaid_connected_institution_count: plaidStatus?.aggregate?.item_count || 0,
+        plaid_connected_institution_count:
+          plaidStatus?.aggregate?.item_count || 0,
         plaid_configured: plaidConfigured,
         import_stage: streaming.stage,
         import_progress_pct: streaming.progressPct,
@@ -1005,7 +1088,8 @@ export function KaiFlow({
       }
 
       if (snapshot.status === "failed") {
-        const message = snapshot.errorMessage || "Import failed. Please try again.";
+        const message =
+          snapshot.errorMessage || "Import failed. Please try again.";
         setError(message);
         toast.error(message);
         setState("import_required");
@@ -1053,7 +1137,10 @@ export function KaiFlow({
     let streamShadow: StreamingState = snapshot.streaming;
     const persistSnapshot = (
       status: ImportBackgroundStatus,
-      options?: { errorMessage?: string | null; parsedPortfolio?: ReviewPortfolioData }
+      options?: {
+        errorMessage?: string | null;
+        parsedPortfolio?: ReviewPortfolioData;
+      },
     ) => {
       saveImportBackgroundSnapshot({
         version: 1,
@@ -1069,13 +1156,16 @@ export function KaiFlow({
         parsedPortfolio: options?.parsedPortfolio,
       });
     };
-    const applyStreaming = (mutate: (prev: StreamingState) => StreamingState) => {
+    const applyStreaming = (
+      mutate: (prev: StreamingState) => StreamingState,
+    ) => {
       streamShadow = mutate(streamShadow);
       setStreaming(streamShadow);
       persistSnapshot("running");
       if (activeImportTaskIdRef.current) {
         AppBackgroundTaskService.updateTask(activeImportTaskIdRef.current, {
-          description: streamShadow.statusMessage || `Import ${streamShadow.stage}`,
+          description:
+            streamShadow.statusMessage || `Import ${streamShadow.stage}`,
           routeHref: ROUTES.KAI_IMPORT,
         });
       }
@@ -1084,10 +1174,11 @@ export function KaiFlow({
     void (async () => {
       try {
         if (!snapshot.runId) {
-          const activeRunResponse = await ApiService.getActivePortfolioImportRun({
-            userId,
-            vaultOwnerToken: effectiveVaultOwnerToken,
-          });
+          const activeRunResponse =
+            await ApiService.getActivePortfolioImportRun({
+              userId,
+              vaultOwnerToken: effectiveVaultOwnerToken,
+            });
           if (activeRunResponse.ok) {
             const activePayload = (await activeRunResponse.json()) as {
               run?: { run_id?: unknown; latest_cursor?: unknown };
@@ -1139,7 +1230,9 @@ export function KaiFlow({
             setState("import_required");
             return;
           }
-          throw new Error(`Failed to resume import stream: HTTP ${response.status}`);
+          throw new Error(
+            `Failed to resume import stream: HTTP ${response.status}`,
+          );
         }
 
         await consumeCanonicalKaiStream(
@@ -1147,22 +1240,27 @@ export function KaiFlow({
           (envelope: KaiStreamEnvelope) => {
             const payload = envelope.payload as Record<string, unknown>;
             const runIdFromPayload =
-              typeof payload.run_id === "string" && payload.run_id.trim().length > 0
+              typeof payload.run_id === "string" &&
+              payload.run_id.trim().length > 0
                 ? payload.run_id.trim()
                 : null;
             if (runIdFromPayload) {
               activeImportRunIdRef.current = runIdFromPayload;
             }
-            if (typeof envelope.seq === "number" && Number.isFinite(envelope.seq)) {
+            if (
+              typeof envelope.seq === "number" &&
+              Number.isFinite(envelope.seq)
+            ) {
               activeImportCursorRef.current = Math.max(
                 activeImportCursorRef.current,
-                Math.floor(envelope.seq)
+                Math.floor(envelope.seq),
               );
             }
 
             switch (envelope.event) {
               case "stage": {
-                const stageValue = typeof payload.stage === "string" ? payload.stage : undefined;
+                const stageValue =
+                  typeof payload.stage === "string" ? payload.stage : undefined;
                 const normalizedStageValue =
                   stageValue === "analyzing"
                     ? "scanning"
@@ -1170,81 +1268,122 @@ export function KaiFlow({
                       ? "normalizing"
                       : stageValue;
                 const stage =
-                  normalizedStageValue && validStages.has(normalizedStageValue as ImportStage)
+                  normalizedStageValue &&
+                  validStages.has(normalizedStageValue as ImportStage)
                     ? (normalizedStageValue as ImportStage)
                     : undefined;
-                const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const statusMessage = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: stage ?? prev.stage,
                   statusMessage: statusMessage || prev.statusMessage,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
               }
               case "progress": {
-                const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
-                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
+                const statusMessage = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
+                const preview =
+                  readHoldingsPreview(payload.holdings_preview) ?? [];
                 applyStreaming((prev) => ({
                   ...prev,
                   statusMessage: statusMessage || prev.statusMessage,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   holdingsExtracted:
-                    readNumber(payload.holdings_extracted) ?? prev.holdingsExtracted,
-                  holdingsTotal: readNumber(payload.holdings_total) ?? prev.holdingsTotal,
-                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
+                    readNumber(payload.holdings_extracted) ??
+                    prev.holdingsExtracted,
+                  holdingsTotal:
+                    readNumber(payload.holdings_total) ?? prev.holdingsTotal,
+                  liveHoldings: mergeLiveHoldingPreviewRows(
+                    prev.liveHoldings,
+                    preview,
+                  ),
                 }));
                 break;
               }
               case "chunk": {
-                const text = typeof payload.text === "string" ? payload.text : "";
-                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
+                const text =
+                  typeof payload.text === "string" ? payload.text : "";
+                const preview =
+                  readHoldingsPreview(payload.holdings_preview) ?? [];
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
                   rawStreamLines: appendRawStreamLines(
                     prev.rawStreamLines,
-                    text ? [text] : undefined
+                    text ? [text] : undefined,
                   ),
-                  totalChars: readNumber(payload.total_chars) ?? prev.totalChars,
-                  chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
-                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  totalChars:
+                    readNumber(payload.total_chars) ?? prev.totalChars,
+                  chunkCount:
+                    readNumber(payload.chunk_count) ?? prev.chunkCount,
+                  liveHoldings: mergeLiveHoldingPreviewRows(
+                    prev.liveHoldings,
+                    preview,
+                  ),
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
               }
               case "thinking": {
-                const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
-                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
+                const statusMessage = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
+                const thought = sanitizeInvestorCopy(
+                  readString(payload.thought),
+                  "",
+                );
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
-                  thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
-                  thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
+                  thoughtCount:
+                    readNumber(payload.count) ??
+                    prev.thoughtCount + (thought ? 1 : 0),
+                  thoughts: thought
+                    ? [...prev.thoughts, thought].slice(-40)
+                    : prev.thoughts,
                   statusMessage: statusMessage || prev.statusMessage,
                   rawStreamLines: appendRawStreamLines(
                     prev.rawStreamLines,
-                    thought ? [`[THINKING] ${thought}`] : undefined
+                    thought ? [`[THINKING] ${thought}`] : undefined,
                   ),
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
               }
               case "warning": {
-                const message = sanitizeInvestorCopy(readString(payload.message), "");
+                const message = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
                 if (!message) break;
                 applyStreaming((prev) => ({
                   ...prev,
                   statusMessage: message,
-                  stageTrail: [...prev.stageTrail, `[WARNING] ${message}`].slice(-120),
-                  rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [`[WARNING] ${message}`]),
+                  stageTrail: [
+                    ...prev.stageTrail,
+                    `[WARNING] ${message}`,
+                  ].slice(-120),
+                  rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
+                    `[WARNING] ${message}`,
+                  ]),
                 }));
                 break;
               }
               case "complete": {
                 const rawPortfolioData = payload.portfolio_data_v2 as
-                  | Record<string, unknown>
-                  | undefined;
+                  Record<string, unknown> | undefined;
                 if (
                   !rawPortfolioData ||
                   typeof rawPortfolioData !== "object" ||
@@ -1289,7 +1428,7 @@ export function KaiFlow({
                 if (activeImportTaskIdRef.current) {
                   AppBackgroundTaskService.completeTask(
                     activeImportTaskIdRef.current,
-                    "Import complete. Review and save when ready."
+                    "Import complete. Review and save when ready.",
                   );
                 }
                 setError(null);
@@ -1303,14 +1442,16 @@ export function KaiFlow({
                     ? "Import was interrupted before completion. Please retry."
                     : sanitizeInvestorCopy(
                         readString(payload.message),
-                        "Import could not be completed."
+                        "Import could not be completed.",
                       );
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "error",
                   errorMessage: message,
                   statusMessage: message,
-                  rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [`[ERROR] ${message}`]),
+                  rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
+                    `[ERROR] ${message}`,
+                  ]),
                 }));
                 persistSnapshot("failed", {
                   errorMessage: message,
@@ -1319,7 +1460,7 @@ export function KaiFlow({
                   AppBackgroundTaskService.failTask(
                     activeImportTaskIdRef.current,
                     message,
-                    "Portfolio import failed. Please retry."
+                    "Portfolio import failed. Please retry.",
                   );
                 }
                 setError(message);
@@ -1334,7 +1475,7 @@ export function KaiFlow({
             signal: abortControllerRef.current?.signal,
             idleTimeoutMs: KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS,
             requireTerminal: true,
-          }
+          },
         );
       } catch (resumeError) {
         if (resumeError instanceof Error && resumeError.name === "AbortError") {
@@ -1359,7 +1500,8 @@ export function KaiFlow({
           userId,
           kind: "portfolio_postsave_sync",
           title: "Profile sync",
-          description: "Finishing onboarding/profile updates in the background.",
+          description:
+            "Finishing onboarding/profile updates in the background.",
           routeHref: ROUTES.KAI_DASHBOARD,
         });
 
@@ -1381,26 +1523,32 @@ export function KaiFlow({
               }
               AppBackgroundTaskService.completeTask(
                 taskId,
-                "No additional profile sync needed."
+                "No additional profile sync needed.",
               );
               return;
             }
             AppBackgroundTaskService.completeTask(
               taskId,
-              "Portfolio sync completed."
+              "Portfolio sync completed.",
             );
           })
           .catch((syncError) => {
-            console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
+            console.warn(
+              "[KaiFlow] Deferred onboarding sync failed after save:",
+              syncError,
+            );
             AppBackgroundTaskService.failTask(
               taskId,
               syncError instanceof Error ? syncError.message : "Sync failed",
-              "Portfolio sync failed. You can continue using dashboard."
+              "Portfolio sync failed. You can continue using dashboard.",
             );
           });
       })
       .catch((pendingError) => {
-        console.warn("[KaiFlow] Failed to preflight profile sync state:", pendingError);
+        console.warn(
+          "[KaiFlow] Failed to preflight profile sync state:",
+          pendingError,
+        );
       });
   }, [effectiveVaultOwnerToken, userId, vaultKey]);
 
@@ -1415,13 +1563,13 @@ export function KaiFlow({
       const cachedPortfolioData = getPortfolioData(userId) ?? undefined;
       const hasCachedPortfolioData = Boolean(
         cachedPortfolioData &&
-          Array.isArray(cachedPortfolioData.holdings) &&
-          cachedPortfolioData.holdings.length > 0
+        Array.isArray(cachedPortfolioData.holdings) &&
+        cachedPortfolioData.holdings.length > 0,
       );
       if (!hasCachedPortfolioData || !cachedPortfolioData) return;
 
       const normalizedCachedHoldings = normalizeHoldingsWithPct(
-        cachedPortfolioData.holdings
+        cachedPortfolioData.holdings,
       );
       const normalizedCachedPortfolio: PortfolioData = {
         ...cachedPortfolioData,
@@ -1432,14 +1580,16 @@ export function KaiFlow({
         hasFinancialData: true,
         holdingsCount: normalizedCachedPortfolio.holdings?.length || 0,
         portfolioData: normalizedCachedPortfolio,
-        holdings: normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
+        holdings:
+          normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
       });
       setState("dashboard");
       runDeferredPostSaveSync();
     };
 
     const handlePortfolioSaveFailed = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: string; error?: string }>).detail;
+      const detail = (event as CustomEvent<{ userId?: string; error?: string }>)
+        .detail;
       if (!detail || detail.userId !== userId) return;
       toast.error("Background portfolio save failed.", {
         description: detail.error || "Reopen import and try saving again.",
@@ -1447,29 +1597,43 @@ export function KaiFlow({
     };
 
     window.addEventListener("kai:portfolio-saved", handlePortfolioSaved);
-    window.addEventListener("kai:portfolio-save-failed", handlePortfolioSaveFailed);
+    window.addEventListener(
+      "kai:portfolio-save-failed",
+      handlePortfolioSaveFailed,
+    );
     return () => {
       window.removeEventListener("kai:portfolio-saved", handlePortfolioSaved);
-      window.removeEventListener("kai:portfolio-save-failed", handlePortfolioSaveFailed);
+      window.removeEventListener(
+        "kai:portfolio-save-failed",
+        handlePortfolioSaveFailed,
+      );
     };
-  }, [getPortfolioData, isDashboardMode, runDeferredPostSaveSync, setPortfolioData, setState, userId]);
+  }, [
+    getPortfolioData,
+    isDashboardMode,
+    runDeferredPostSaveSync,
+    setPortfolioData,
+    setState,
+    userId,
+  ]);
 
-  const loadPlaidStatusSnapshot = useCallback(async (): Promise<PlaidPortfolioStatusResponse | null> => {
-    if (!effectiveVaultOwnerToken) {
-      setPlaidStatus(null);
-      return null;
-    }
-    try {
-      const resource = await refreshFinancialResource({ force: true });
-      const status = resource?.plaidStatus ?? null;
-      setPlaidStatus(status);
-      return status;
-    } catch (plaidError) {
-      console.warn("[KaiFlow] Failed to load Plaid status:", plaidError);
-      setPlaidStatus(null);
-      return null;
-    }
-  }, [effectiveVaultOwnerToken, refreshFinancialResource]);
+  const loadPlaidStatusSnapshot =
+    useCallback(async (): Promise<PlaidPortfolioStatusResponse | null> => {
+      if (!effectiveVaultOwnerToken) {
+        setPlaidStatus(null);
+        return null;
+      }
+      try {
+        const resource = await refreshFinancialResource({ force: true });
+        const status = resource?.plaidStatus ?? null;
+        setPlaidStatus(status);
+        return status;
+      } catch (plaidError) {
+        console.warn("[KaiFlow] Failed to load Plaid status:", plaidError);
+        setPlaidStatus(null);
+        return null;
+      }
+    }, [effectiveVaultOwnerToken, refreshFinancialResource]);
 
   useEffect(() => {
     setPlaidStatus(financialResource?.plaidStatus ?? null);
@@ -1502,13 +1666,21 @@ export function KaiFlow({
         : null;
     const statementPortfolio =
       financialResource?.statementPortfolio ??
-      (normalizedCachedPortfolio && hasPortfolioHoldings(normalizedCachedPortfolio)
+      (normalizedCachedPortfolio &&
+      hasPortfolioHoldings(normalizedCachedPortfolio)
         ? normalizedCachedPortfolio
         : null);
-    const plaidPortfolio = financialResource?.plaidPortfolio ?? plaidPortfolioData ?? null;
-    const primaryPortfolio = financialResource?.activePortfolio ?? statementPortfolio ?? plaidPortfolio;
+    const plaidPortfolio =
+      financialResource?.plaidPortfolio ?? plaidPortfolioData ?? null;
+    const primaryPortfolio =
+      financialResource?.activePortfolio ??
+      statementPortfolio ??
+      plaidPortfolio;
     const fallbackPortfolio =
-      primaryPortfolio ?? statementPortfolio ?? plaidPortfolio ?? normalizedCachedPortfolio;
+      primaryPortfolio ??
+      statementPortfolio ??
+      plaidPortfolio ??
+      normalizedCachedPortfolio;
 
     const optimisticPortfolio =
       primaryPortfolio && hasPortfolioHoldings(primaryPortfolio)
@@ -1525,7 +1697,9 @@ export function KaiFlow({
           hasFinancialData: true,
           holdingsCount: optimisticPortfolio.holdings?.length || 0,
           portfolioData: fallbackPortfolio ?? undefined,
-          holdings: optimisticPortfolio.holdings?.map((holding) => holding.symbol) || [],
+          holdings:
+            optimisticPortfolio.holdings?.map((holding) => holding.symbol) ||
+            [],
         });
         if (isDashboardMode) {
           setOnboardingFlowActiveCookie(false);
@@ -1549,7 +1723,8 @@ export function KaiFlow({
         hasFinancialData: true,
         holdingsCount: primaryPortfolio.holdings?.length || 0,
         portfolioData: fallbackPortfolio ?? undefined,
-        holdings: primaryPortfolio.holdings?.map((holding) => holding.symbol) || [],
+        holdings:
+          primaryPortfolio.holdings?.map((holding) => holding.symbol) || [],
       });
       if (isDashboardMode) {
         setOnboardingFlowActiveCookie(false);
@@ -1563,7 +1738,8 @@ export function KaiFlow({
         hasFinancialData: true,
         holdingsCount: plaidPortfolio.holdings?.length || 0,
         portfolioData: fallbackPortfolio ?? undefined,
-        holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
+        holdings:
+          plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
       });
       if (isDashboardMode) {
         setOnboardingFlowActiveCookie(false);
@@ -1573,7 +1749,10 @@ export function KaiFlow({
     }
 
     if (financialResourceError) {
-      console.warn("[KaiFlow] Shared financial resource failed:", financialResourceError);
+      console.warn(
+        "[KaiFlow] Shared financial resource failed:",
+        financialResourceError,
+      );
     }
 
     invalidateDomain(userId, "financial");
@@ -1623,8 +1802,16 @@ export function KaiFlow({
       }
 
       // Validate file type
-      const validTypes = ["application/pdf", "text/csv", "application/vnd.ms-excel"];
-      if (!validTypes.includes(file.type) && !file.name.endsWith(".csv") && !file.name.endsWith(".pdf")) {
+      const validTypes = [
+        "application/pdf",
+        "text/csv",
+        "application/vnd.ms-excel",
+      ];
+      if (
+        !validTypes.includes(file.type) &&
+        !file.name.endsWith(".csv") &&
+        !file.name.endsWith(".pdf")
+      ) {
         setError("Invalid file type. Please upload a PDF or CSV file.");
         toast.error("Invalid file type. Please upload a PDF or CSV file.");
         return;
@@ -1640,7 +1827,7 @@ export function KaiFlow({
       }
 
       const forceRefreshVaultOwnerToken = async (
-        currentToken: string | null
+        currentToken: string | null,
       ): Promise<string> => {
         const token = await ensureKaiVaultOwnerToken({
           userId,
@@ -1660,7 +1847,10 @@ export function KaiFlow({
       try {
         tokenForImport = await forceRefreshVaultOwnerToken(tokenForImport);
       } catch (tokenError) {
-        console.warn("[KaiFlow] Failed to refresh VAULT_OWNER token before import:", tokenError);
+        console.warn(
+          "[KaiFlow] Failed to refresh VAULT_OWNER token before import:",
+          tokenError,
+        );
         const message = "Your session needs refresh. Please sign in again.";
         setError(message);
         toast.error(message);
@@ -1684,7 +1874,7 @@ export function KaiFlow({
         options?: {
           errorMessage?: string | null;
           parsedPortfolio?: ReviewPortfolioData;
-        }
+        },
       ) => {
         const snapshot: PersistedImportBackgroundSnapshot = {
           version: 1,
@@ -1703,7 +1893,7 @@ export function KaiFlow({
         importSnapshotUpdatedAtRef.current = snapshot.updatedAt;
       };
       const applyStreaming = (
-        mutate: (prev: StreamingState) => StreamingState
+        mutate: (prev: StreamingState) => StreamingState,
       ): void => {
         streamShadow = mutate(streamShadow);
         setStreaming(streamShadow);
@@ -1711,8 +1901,7 @@ export function KaiFlow({
         if (importTaskId) {
           AppBackgroundTaskService.updateTask(importTaskId, {
             description:
-              streamShadow.statusMessage ||
-              `Import ${streamShadow.stage}`,
+              streamShadow.statusMessage || `Import ${streamShadow.stage}`,
             routeHref: ROUTES.KAI_IMPORT,
           });
         }
@@ -1720,7 +1909,7 @@ export function KaiFlow({
 
       const runningImportExists = AppBackgroundTaskService.hasRunningTask(
         userId,
-        "portfolio_import_stream"
+        "portfolio_import_stream",
       );
       if (runningImportExists) {
         const snapshot = loadImportBackgroundSnapshot(userId);
@@ -1730,7 +1919,7 @@ export function KaiFlow({
               task.userId === userId &&
               task.kind === "portfolio_import_stream" &&
               task.status === "running" &&
-              !task.dismissedAt
+              !task.dismissedAt,
           );
           for (const task of staleTasks) {
             AppBackgroundTaskService.dismissTask(task.taskId);
@@ -1746,7 +1935,8 @@ export function KaiFlow({
           setError(null);
           setState("importing");
           toast.message("Portfolio import is already running.", {
-            description: "You can continue now or review it later from background tasks.",
+            description:
+              "You can continue now or review it later from background tasks.",
           });
           return;
         }
@@ -1795,7 +1985,8 @@ export function KaiFlow({
           setError(null);
           setState("importing");
           toast.message("Portfolio import is already running.", {
-            description: "You can continue now or review it later from background tasks.",
+            description:
+              "You can continue now or review it later from background tasks.",
           });
           return;
         }
@@ -1831,22 +2022,27 @@ export function KaiFlow({
           setStreaming(createInitialStreamingState());
         }
       }
-      const staleFinishedImportTasks = AppBackgroundTaskService.getState().tasks.filter(
-        (task) =>
-          task.userId === userId &&
-          task.kind === "portfolio_import_stream" &&
-          (task.status === "failed" || task.status === "canceled") &&
-          !task.dismissedAt
-      );
+      const staleFinishedImportTasks =
+        AppBackgroundTaskService.getState().tasks.filter(
+          (task) =>
+            task.userId === userId &&
+            task.kind === "portfolio_import_stream" &&
+            (task.status === "failed" || task.status === "canceled") &&
+            !task.dismissedAt,
+        );
       for (const task of staleFinishedImportTasks) {
         AppBackgroundTaskService.dismissTask(task.taskId);
       }
       if (
         runningImportExists &&
-        AppBackgroundTaskService.hasRunningTask(userId, "portfolio_import_stream")
+        AppBackgroundTaskService.hasRunningTask(
+          userId,
+          "portfolio_import_stream",
+        )
       ) {
         toast.message("Another portfolio import is already running.", {
-          description: "Please wait for it to finish before starting a new one.",
+          description:
+            "Please wait for it to finish before starting a new one.",
         });
         return;
       }
@@ -1880,14 +2076,17 @@ export function KaiFlow({
       try {
         // Fresh import intent: proactively cancel any lingering active backend run.
         try {
-          const activeRunResponse = await ApiService.getActivePortfolioImportRun({
-            userId,
-            vaultOwnerToken: tokenForImport,
-          });
+          const activeRunResponse =
+            await ApiService.getActivePortfolioImportRun({
+              userId,
+              vaultOwnerToken: tokenForImport,
+            });
           if (activeRunResponse.ok) {
-            const activePayload = (await activeRunResponse.json().catch(() => null)) as
-              | { run?: { run_id?: unknown; status?: unknown } }
-              | null;
+            const activePayload = (await activeRunResponse
+              .json()
+              .catch(() => null)) as {
+              run?: { run_id?: unknown; status?: unknown };
+            } | null;
             const activeRunId =
               typeof activePayload?.run?.run_id === "string"
                 ? activePayload.run.run_id.trim()
@@ -1905,7 +2104,10 @@ export function KaiFlow({
             }
           }
         } catch (activeRunError) {
-          console.warn("[KaiFlow] Active run pre-cancel check failed:", activeRunError);
+          console.warn(
+            "[KaiFlow] Active run pre-cancel check failed:",
+            activeRunError,
+          );
         }
 
         setState("importing");
@@ -1952,7 +2154,9 @@ export function KaiFlow({
         formData.append("file", file);
         formData.append("user_id", userId);
 
-        const runImportRequest = async (importToken: string): Promise<Response> => {
+        const runImportRequest = async (
+          importToken: string,
+        ): Promise<Response> => {
           // Fresh uploads must keep start + stream on one backend request.
           // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to
           // different instances, while the import run manager is still in-memory.
@@ -1984,13 +2188,17 @@ export function KaiFlow({
           ) {
             throw fetchError;
           }
-          throw new Error("Connection issue. Please check your network and try again.");
+          throw new Error(
+            "Connection issue. Please check your network and try again.",
+          );
         }
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
           if (response.status === 401) {
-            throw new Error("Your session needs refresh. Please sign in again.");
+            throw new Error(
+              "Your session needs refresh. Please sign in again.",
+            );
           } else if (response.status === 422) {
             let parsed: Record<string, unknown> | null = null;
             try {
@@ -1999,17 +2207,23 @@ export function KaiFlow({
               parsed = null;
             }
             const detail =
-              parsed && typeof parsed.detail === "object" && parsed.detail !== null
+              parsed &&
+              typeof parsed.detail === "object" &&
+              parsed.detail !== null
                 ? (parsed.detail as Record<string, unknown>)
                 : null;
             const message =
-              (detail && typeof detail.message === "string" && detail.message) ||
+              (detail &&
+                typeof detail.message === "string" &&
+                detail.message) ||
               "This document does not appear to be a brokerage statement.";
             throw new Error(message);
           } else if (response.status === 413) {
             throw new Error(MAX_IMPORT_FILE_SIZE_MESSAGE);
           } else if (response.status >= 500) {
-            throw new Error("Service is temporarily unavailable. Please try again shortly.");
+            throw new Error(
+              "Service is temporarily unavailable. Please try again shortly.",
+            );
           }
           throw new Error(`Upload failed: ${response.status} - ${errorText}`);
         }
@@ -2033,9 +2247,13 @@ export function KaiFlow({
           "error",
         ]);
         const readNumber = (value: unknown): number | undefined =>
-          typeof value === "number" && Number.isFinite(value) ? value : undefined;
+          typeof value === "number" && Number.isFinite(value)
+            ? value
+            : undefined;
         const readString = (value: unknown): string | undefined =>
-          typeof value === "string" && value.trim().length > 0 ? value : undefined;
+          typeof value === "string" && value.trim().length > 0
+            ? value
+            : undefined;
         const readBoolean = (value: unknown): boolean | undefined => {
           if (typeof value === "boolean") return value;
           if (typeof value === "string") {
@@ -2045,20 +2263,32 @@ export function KaiFlow({
           }
           return undefined;
         };
-        const formatQualityGateDetails = (value: unknown): string | undefined => {
+        const formatQualityGateDetails = (
+          value: unknown,
+        ): string | undefined => {
           if (!value || typeof value !== "object" || Array.isArray(value)) {
             return undefined;
           }
           const gate = value as Record<string, unknown>;
           const severity = String(gate.severity || "").toLowerCase();
           const reasonsRaw = Array.isArray(gate.reasons)
-            ? gate.reasons.map((item) => String(item || "").trim().toLowerCase())
+            ? gate.reasons.map((item) =>
+                String(item || "")
+                  .trim()
+                  .toLowerCase(),
+              )
             : [];
 
           if (severity === "warn" || reasonsRaw.length > 0) {
-            const hasReconciliationGap = reasonsRaw.includes("value_reconciliation_gap");
-            const hasPlaceholder = reasonsRaw.includes("placeholder_symbols_detected");
-            const hasHeaderRows = reasonsRaw.includes("account_header_rows_detected");
+            const hasReconciliationGap = reasonsRaw.includes(
+              "value_reconciliation_gap",
+            );
+            const hasPlaceholder = reasonsRaw.includes(
+              "placeholder_symbols_detected",
+            );
+            const hasHeaderRows = reasonsRaw.includes(
+              "account_header_rows_detected",
+            );
 
             if (hasReconciliationGap || hasPlaceholder || hasHeaderRows) {
               return "Some statement fields were partial. Please review holdings before saving.";
@@ -2072,7 +2302,9 @@ export function KaiFlow({
 
           return undefined;
         };
-        const readHoldingsPreview = (value: unknown): LiveHoldingPreview[] | undefined => {
+        const readHoldingsPreview = (
+          value: unknown,
+        ): LiveHoldingPreview[] | undefined => {
           if (!Array.isArray(value)) return undefined;
           const preview: LiveHoldingPreview[] = [];
           for (const row of value) {
@@ -2080,7 +2312,10 @@ export function KaiFlow({
             const item = row as Record<string, unknown>;
             const symbol = normalizeTickerSymbol(item.symbol, {
               name: typeof item.name === "string" ? item.name : undefined,
-              assetType: typeof item.asset_type === "string" ? item.asset_type : undefined,
+              assetType:
+                typeof item.asset_type === "string"
+                  ? item.asset_type
+                  : undefined,
             });
             const name =
               typeof item.name === "string" && item.name.trim().length > 0
@@ -2089,18 +2324,29 @@ export function KaiFlow({
             const marketValue = readNumber(item.market_value);
             const quantity = readNumber(item.quantity);
             const assetType =
-              typeof item.asset_type === "string" && item.asset_type.trim().length > 0
+              typeof item.asset_type === "string" &&
+              item.asset_type.trim().length > 0
                 ? item.asset_type.trim()
                 : undefined;
             const positionSideRaw =
-              typeof item.position_side === "string" ? item.position_side.trim().toLowerCase() : "";
+              typeof item.position_side === "string"
+                ? item.position_side.trim().toLowerCase()
+                : "";
             const positionSide =
-              positionSideRaw === "long" || positionSideRaw === "short" || positionSideRaw === "liability"
+              positionSideRaw === "long" ||
+              positionSideRaw === "short" ||
+              positionSideRaw === "liability"
                 ? (positionSideRaw as "long" | "short" | "liability")
                 : undefined;
             // Confirmed preview rows must have a stable symbol and at least one meaningful field.
             if (!symbol) continue;
-            if (marketValue === undefined && quantity === undefined && !name && !assetType) continue;
+            if (
+              marketValue === undefined &&
+              quantity === undefined &&
+              !name &&
+              !assetType
+            )
+              continue;
             preview.push({
               symbol,
               name,
@@ -2136,12 +2382,13 @@ export function KaiFlow({
           const line = normalizeTrailLine(next);
           if (!line) return trail;
           const key = trailLineKey(line);
-          if (trail.some((existingLine) => trailLineKey(existingLine) === key)) return trail;
+          if (trail.some((existingLine) => trailLineKey(existingLine) === key))
+            return trail;
           return [...trail, line];
         };
         const splitChunkTextIntoLines = (
           text: string,
-          options?: { flush?: boolean }
+          options?: { flush?: boolean },
         ): string[] => {
           const flush = Boolean(options?.flush);
           if (text) {
@@ -2232,7 +2479,7 @@ export function KaiFlow({
               ...prev,
               stageTrail: appendTrailLine(
                 prev.stageTrail,
-                `[WATCHDOG] No stream updates for ${stalledSec}s. Still waiting...`
+                `[WATCHDOG] No stream updates for ${stalledSec}s. Still waiting...`,
               ),
               rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                 `[WATCHDOG] No stream updates for ${stalledSec}s. Still waiting...`,
@@ -2247,7 +2494,7 @@ export function KaiFlow({
               ...prev,
               stageTrail: appendTrailLine(
                 prev.stageTrail,
-                `[ERROR] Import stream stalled for ${stalledSec}s. Aborting stream.`
+                `[ERROR] Import stream stalled for ${stalledSec}s. Aborting stream.`,
               ),
               rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                 `[ERROR] Import stream stalled for ${stalledSec}s. Aborting stream.`,
@@ -2267,22 +2514,27 @@ export function KaiFlow({
             }
             const payload = envelope.payload as Record<string, unknown>;
             const runIdFromPayload =
-              typeof payload.run_id === "string" && payload.run_id.trim().length > 0
+              typeof payload.run_id === "string" &&
+              payload.run_id.trim().length > 0
                 ? payload.run_id.trim()
                 : null;
             if (runIdFromPayload) {
               activeImportRunIdRef.current = runIdFromPayload;
             }
-            if (typeof envelope.seq === "number" && Number.isFinite(envelope.seq)) {
+            if (
+              typeof envelope.seq === "number" &&
+              Number.isFinite(envelope.seq)
+            ) {
               activeImportCursorRef.current = Math.max(
                 activeImportCursorRef.current,
-                Math.floor(envelope.seq)
+                Math.floor(envelope.seq),
               );
             }
 
             switch (envelope.event) {
               case "stage": {
-                const stageValue = typeof payload.stage === "string" ? payload.stage : undefined;
+                const stageValue =
+                  typeof payload.stage === "string" ? payload.stage : undefined;
                 const normalizedStageValue =
                   stageValue === "analyzing"
                     ? "scanning"
@@ -2290,45 +2542,64 @@ export function KaiFlow({
                       ? "normalizing"
                       : stageValue;
                 const stage =
-                  normalizedStageValue && validStages.has(normalizedStageValue as ImportStage)
+                  normalizedStageValue &&
+                  validStages.has(normalizedStageValue as ImportStage)
                     ? (normalizedStageValue as ImportStage)
                     : undefined;
                 if (!stage) return;
                 const rawStageMessage = readString(payload.message) ?? stage;
-                const stageMessage = sanitizeInvestorCopy(rawStageMessage, stage);
+                const stageMessage = sanitizeInvestorCopy(
+                  rawStageMessage,
+                  stage,
+                );
 
                 applyStreaming((prev) => ({
                   ...prev,
                   stageTrail: appendTrailLine(
                     prev.stageTrail,
-                    `[${stage.toUpperCase()}] ${stageMessage}`
+                    `[${stage.toUpperCase()}] ${stageMessage}`,
                   ),
                   rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                     `[STAGE/${stage.toUpperCase()}] ${stageMessage}`,
                   ]),
                   stage,
-                  totalChars: readNumber(payload.total_chars) ?? prev.totalChars,
-                  chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
-                  thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  totalChars:
+                    readNumber(payload.total_chars) ?? prev.totalChars,
+                  chunkCount:
+                    readNumber(payload.chunk_count) ?? prev.chunkCount,
+                  thoughtCount:
+                    readNumber(payload.thought_count) ?? prev.thoughtCount,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   statusMessage: stageMessage || prev.statusMessage,
                 }));
                 break;
               }
               case "thinking": {
-                const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
-                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
+                const statusMessage = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
+                const thought = sanitizeInvestorCopy(
+                  readString(payload.thought),
+                  "",
+                );
                 applyStreaming((prev) => {
                   return {
                     ...prev,
                     stage: "extracting",
-                    thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
-                    thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
-                    progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                    thoughts: thought
+                      ? [...prev.thoughts, thought].slice(-40)
+                      : prev.thoughts,
+                    thoughtCount:
+                      readNumber(payload.count) ??
+                      prev.thoughtCount + (thought ? 1 : 0),
+                    progressPct:
+                      readNumber(payload.progress_pct) ?? prev.progressPct,
                     statusMessage: statusMessage || prev.statusMessage,
                     rawStreamLines: appendRawStreamLines(
                       prev.rawStreamLines,
-                      thought ? [`[THINKING] ${thought}`] : undefined
+                      thought ? [`[THINKING] ${thought}`] : undefined,
                     ),
                     streamedText: fullModelTokenText || prev.streamedText,
                   };
@@ -2336,9 +2607,14 @@ export function KaiFlow({
                 break;
               }
               case "chunk": {
-                const text = typeof payload.text === "string" ? payload.text : "";
-                const chunkStatusMessage = sanitizeInvestorCopy(readString(payload.message), "");
-                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
+                const text =
+                  typeof payload.text === "string" ? payload.text : "";
+                const chunkStatusMessage = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
+                const preview =
+                  readHoldingsPreview(payload.holdings_preview) ?? [];
                 if (text) {
                   fullStreamedText += text;
                   fullModelTokenText += text;
@@ -2347,75 +2623,111 @@ export function KaiFlow({
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
-                  rawStreamLines: appendRawStreamLines(prev.rawStreamLines, chunkLines),
+                  rawStreamLines: appendRawStreamLines(
+                    prev.rawStreamLines,
+                    chunkLines,
+                  ),
                   streamedText: fullModelTokenText || fullStreamedText,
-                  totalChars: readNumber(payload.total_chars) ?? fullStreamedText.length,
-                  chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
-                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  totalChars:
+                    readNumber(payload.total_chars) ?? fullStreamedText.length,
+                  chunkCount:
+                    readNumber(payload.chunk_count) ?? prev.chunkCount,
+                  liveHoldings: mergeLiveHoldingPreviewRows(
+                    prev.liveHoldings,
+                    preview,
+                  ),
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   statusMessage: chunkStatusMessage || prev.statusMessage,
                 }));
                 break;
               }
               case "progress": {
                 const phase = readString(payload.phase);
-                const message = sanitizeInvestorCopy(readString(payload.message), "");
-                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
+                const message = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
+                const preview =
+                  readHoldingsPreview(payload.holdings_preview) ?? [];
                 applyStreaming((prev) => ({
                   ...prev,
                   stageTrail: appendTrailLine(
                     prev.stageTrail,
                     message
                       ? `[${(phase || prev.stage).toUpperCase()}] ${message}`
-                        : undefined
+                      : undefined,
                   ),
                   rawStreamLines: appendRawStreamLines(
                     prev.rawStreamLines,
                     message
-                      ? [`[PROGRESS/${(phase || String(prev.stage)).toUpperCase()}] ${message}`]
-                      : undefined
+                      ? [
+                          `[PROGRESS/${(phase || String(prev.stage)).toUpperCase()}] ${message}`,
+                        ]
+                      : undefined,
                   ),
                   stage:
-                    phase === "normalizing" || phase === "validating" || phase === "parsing"
-                      ? (phase === "parsing" ? "normalizing" : phase as ImportStage)
+                    phase === "normalizing" ||
+                    phase === "validating" ||
+                    phase === "parsing"
+                      ? phase === "parsing"
+                        ? "normalizing"
+                        : (phase as ImportStage)
                       : prev.stage,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   statusMessage: message ?? prev.statusMessage,
                   holdingsExtracted:
-                    readNumber(payload.holdings_extracted) ?? prev.holdingsExtracted,
-                  holdingsTotal: readNumber(payload.holdings_total) ?? prev.holdingsTotal,
-                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
+                    readNumber(payload.holdings_extracted) ??
+                    prev.holdingsExtracted,
+                  holdingsTotal:
+                    readNumber(payload.holdings_total) ?? prev.holdingsTotal,
+                  liveHoldings: mergeLiveHoldingPreviewRows(
+                    prev.liveHoldings,
+                    preview,
+                  ),
                 }));
                 break;
               }
               case "warning": {
-                const message = sanitizeInvestorCopy(readString(payload.message), "");
+                const message = sanitizeInvestorCopy(
+                  readString(payload.message),
+                  "",
+                );
                 if (!message) break;
                 applyStreaming((prev) => ({
                   ...prev,
-                  stageTrail: appendTrailLine(prev.stageTrail, `[WARNING] ${message}`),
+                  stageTrail: appendTrailLine(
+                    prev.stageTrail,
+                    `[WARNING] ${message}`,
+                  ),
                   rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                     `[WARNING] ${message}`,
                   ]),
                   statusMessage: message,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
               }
               case "complete": {
                 const rawPortfolioData = payload.portfolio_data_v2 as
-                  | Record<string, unknown>
-                  | undefined;
+                  Record<string, unknown> | undefined;
                 if (
                   !rawPortfolioData ||
                   typeof rawPortfolioData !== "object" ||
                   Array.isArray(rawPortfolioData)
                 ) {
-                  throw new Error("Missing portfolio_data_v2 in complete event");
+                  throw new Error(
+                    "Missing portfolio_data_v2 in complete event",
+                  );
                 }
                 const parseFallback =
                   readBoolean(payload.parse_fallback) ??
-                  readBoolean((rawPortfolioData as Record<string, unknown>).parse_fallback) ??
+                  readBoolean(
+                    (rawPortfolioData as Record<string, unknown>)
+                      .parse_fallback,
+                  ) ??
                   false;
                 const rawExtractV2 =
                   payload.raw_extract_v2 &&
@@ -2452,12 +2764,12 @@ export function KaiFlow({
                         ...(qualityReportRaw as QualityReport),
                       } as QualityReport)
                     : undefined;
-                const trailingChunkLines = splitChunkTextIntoLines("", { flush: true }).map(
-                  (line) => line
-                );
+                const trailingChunkLines = splitChunkTextIntoLines("", {
+                  flush: true,
+                }).map((line) => line);
                 const completionMessage = sanitizeInvestorCopy(
                   readString(payload.message),
-                  "Import complete!"
+                  "Import complete!",
                 );
 
                 applyStreaming((prev) => ({
@@ -2465,13 +2777,14 @@ export function KaiFlow({
                   stage: "complete",
                   stageTrail: appendTrailLine(
                     prev.stageTrail,
-                    `[COMPLETE] ${completionMessage}`
+                    `[COMPLETE] ${completionMessage}`,
                   ),
                   rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                     ...trailingChunkLines,
                     `[COMPLETE] ${completionMessage}`,
                   ]),
-                  thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
+                  thoughtCount:
+                    readNumber(payload.thought_count) ?? prev.thoughtCount,
                   qualityReport,
                   holdingsExtracted:
                     parsedPortfolio?.holdings?.length ?? prev.holdingsExtracted,
@@ -2490,7 +2803,8 @@ export function KaiFlow({
                           ? holding.position_side
                           : undefined,
                       is_short_position: holding.is_short_position === true,
-                      is_liability_position: holding.is_liability_position === true,
+                      is_liability_position:
+                        holding.is_liability_position === true,
                     })) || prev.liveHoldings,
                   progressPct: readNumber(payload.progress_pct) ?? 100,
                   statusMessage: completionMessage,
@@ -2499,19 +2813,25 @@ export function KaiFlow({
                 break;
               }
               case "aborted": {
-                const message = "Import was interrupted before completion. Please retry.";
+                const message =
+                  "Import was interrupted before completion. Please retry.";
                 terminalStreamFailureMessage = message;
-                terminalStreamFailureDetails =
-                  formatQualityGateDetails(payload.quality_gate);
+                terminalStreamFailureDetails = formatQualityGateDetails(
+                  payload.quality_gate,
+                );
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "error",
-                  stageTrail: appendTrailLine(prev.stageTrail, `[ERROR] ${message}`),
+                  stageTrail: appendTrailLine(
+                    prev.stageTrail,
+                    `[ERROR] ${message}`,
+                  ),
                   rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                     `[ERROR] ${message}`,
                   ]),
                   errorMessage: message,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   statusMessage: message,
                 }));
                 break;
@@ -2521,20 +2841,25 @@ export function KaiFlow({
                   typeof payload.message === "string"
                     ? payload.message
                     : "Import could not be completed for this statement.",
-                  "Import could not be completed for this statement."
+                  "Import could not be completed for this statement.",
                 );
                 terminalStreamFailureMessage = message;
-                terminalStreamFailureDetails =
-                  formatQualityGateDetails(payload.quality_gate);
+                terminalStreamFailureDetails = formatQualityGateDetails(
+                  payload.quality_gate,
+                );
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "error",
-                  stageTrail: appendTrailLine(prev.stageTrail, `[ERROR] ${message}`),
+                  stageTrail: appendTrailLine(
+                    prev.stageTrail,
+                    `[ERROR] ${message}`,
+                  ),
                   rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
                     `[ERROR] ${message}`,
                   ]),
                   errorMessage: message,
-                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  progressPct:
+                    readNumber(payload.progress_pct) ?? prev.progressPct,
                   statusMessage: message,
                 }));
                 break;
@@ -2547,7 +2872,7 @@ export function KaiFlow({
             signal: abortControllerRef.current.signal,
             idleTimeoutMs: KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS,
             requireTerminal: true,
-          }
+          },
         );
 
         if (terminalStreamFailureMessage) {
@@ -2559,7 +2884,7 @@ export function KaiFlow({
             AppBackgroundTaskService.failTask(
               importTaskId,
               terminalStreamFailureMessage,
-              "Portfolio import failed. Please retry."
+              "Portfolio import failed. Please retry.",
             );
           }
           setError(terminalStreamFailureMessage);
@@ -2567,7 +2892,7 @@ export function KaiFlow({
             terminalStreamFailureMessage,
             terminalStreamFailureDetails
               ? { description: terminalStreamFailureDetails }
-              : undefined
+              : undefined,
           );
           setState("importing");
           return;
@@ -2580,8 +2905,6 @@ export function KaiFlow({
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         trackImportTerminalTelemetry("success");
 
-
-
         // Store parsed portfolio and transition to review state
         setFlowData((prev) => ({
           ...prev,
@@ -2593,14 +2916,16 @@ export function KaiFlow({
         if (importTaskId) {
           AppBackgroundTaskService.completeTask(
             importTaskId,
-            "Import complete. Review and save when ready."
+            "Import complete. Review and save when ready.",
           );
         }
 
         // Persist completion state until user explicitly continues to review.
         setState("import_complete");
         if (parsedPortfolioData.parse_fallback) {
-          toast.warning("Portfolio loaded with partial coverage. Please review before saving.");
+          toast.warning(
+            "Portfolio loaded with partial coverage. Please review before saving.",
+          );
         } else {
           toast.success("Portfolio is ready for review.");
         }
@@ -2630,14 +2955,17 @@ export function KaiFlow({
             return;
           }
           if (!userInitiatedCancel) {
-            const interruptedMessage = "Import was interrupted before completion. Please retry.";
+            const interruptedMessage =
+              "Import was interrupted before completion. Please retry.";
             trackImportTerminalTelemetry("error");
             setError(interruptedMessage);
             toast.error(interruptedMessage);
             setStreaming((prev) => ({
               ...prev,
               stage: "error",
-              stageTrail: prev.stageTrail.includes(`[ERROR] ${interruptedMessage}`)
+              stageTrail: prev.stageTrail.includes(
+                `[ERROR] ${interruptedMessage}`,
+              )
                 ? prev.stageTrail
                 : [...prev.stageTrail, `[ERROR] ${interruptedMessage}`],
               rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
@@ -2653,7 +2981,7 @@ export function KaiFlow({
               AppBackgroundTaskService.failTask(
                 importTaskId,
                 interruptedMessage,
-                "Portfolio import was interrupted. Please retry."
+                "Portfolio import was interrupted. Please retry.",
               );
             }
             setState("importing");
@@ -2680,19 +3008,16 @@ export function KaiFlow({
           err instanceof Error ? String(err.message || "") : String(err || "");
         const isTransientNetworkLoss =
           /network connection was lost|connection issue|failed to fetch|network error|stream error/i.test(
-            rawErrorMessage
+            rawErrorMessage,
           );
-        const safeError =
-          isTransientNetworkLoss
-            ? "Connection was interrupted while importing. Reopen import to continue from where it stopped."
-            : err instanceof Error
+        const safeError = isTransientNetworkLoss
+          ? "Connection was interrupted while importing. Reopen import to continue from where it stopped."
+          : err instanceof Error
             ? sanitizeInvestorCopy(err.message, err.message)
             : "We could not import your portfolio. Please try again.";
         trackImportTerminalTelemetry("error");
         setError(safeError);
-        toast.error(
-          safeError
-        );
+        toast.error(safeError);
         applyStreaming((prev) => ({
           ...prev,
           stage: "error",
@@ -2703,9 +3028,7 @@ export function KaiFlow({
               : [...prev.stageTrail, nextLine];
           })(),
           rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
-            `[ERROR] ${
-              safeError
-            }`,
+            `[ERROR] ${safeError}`,
           ]),
           errorMessage: safeError,
           statusMessage: safeError || "Import failed",
@@ -2717,7 +3040,7 @@ export function KaiFlow({
           AppBackgroundTaskService.failTask(
             importTaskId,
             safeError,
-            "Portfolio import failed. Please retry."
+            "Portfolio import failed. Please retry.",
           );
         }
         setState("importing");
@@ -2738,7 +3061,7 @@ export function KaiFlow({
       unlockVault,
       setBusyOperation,
       setState,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -2757,7 +3080,8 @@ export function KaiFlow({
   ]);
 
   useEffect(() => {
-    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
+    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault)
+      return;
     if (!pendingImportFile) return;
     if (vaultKey && effectiveVaultOwnerToken) return;
     setPendingImportFile(null);
@@ -2771,7 +3095,8 @@ export function KaiFlow({
   ]);
 
   useEffect(() => {
-    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
+    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault)
+      return;
     if (!pendingSchemaPreload) return;
     if (vaultKey && effectiveVaultOwnerToken) return;
     setPendingSchemaPreload(false);
@@ -2807,7 +3132,10 @@ export function KaiFlow({
         userId,
         vaultOwnerToken: effectiveVaultOwnerToken,
       }).catch((cancelError) => {
-        console.warn("[KaiFlow] Failed to cancel import run on backend:", cancelError);
+        console.warn(
+          "[KaiFlow] Failed to cancel import run on backend:",
+          cancelError,
+        );
       });
     }
     if (abortControllerRef.current) {
@@ -2830,7 +3158,15 @@ export function KaiFlow({
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
-  }, [effectiveVaultOwnerToken, flowData.portfolioData, mode, router, setBusyOperation, setState, userId]);
+  }, [
+    effectiveVaultOwnerToken,
+    flowData.portfolioData,
+    mode,
+    router,
+    setBusyOperation,
+    setState,
+    userId,
+  ]);
 
   // Handle retry import after stream error/stall.
   const handleRetryImport = useCallback(() => {
@@ -2871,84 +3207,112 @@ export function KaiFlow({
     } else {
       setState("import_required");
     }
-  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router, setState]);
+  }, [
+    finishFinanceSetupIfActive,
+    flowData.portfolioData,
+    mode,
+    router,
+    setState,
+  ]);
 
   // Handle save complete from review screen
-  const handleSaveComplete = useCallback(async (savedData: ReviewPortfolioData) => {
-    // Convert to dashboard format and update flow data
-    // Map the review types to dashboard types
-    // Normalize holdings to ensure unrealized_gain_loss_pct is computed
-    const normalizedHoldings = normalizeHoldingsWithPct(savedData.holdings);
+  const handleSaveComplete = useCallback(
+    async (savedData: ReviewPortfolioData) => {
+      // Convert to dashboard format and update flow data
+      // Map the review types to dashboard types
+      // Normalize holdings to ensure unrealized_gain_loss_pct is computed
+      const normalizedHoldings = normalizeHoldingsWithPct(savedData.holdings);
 
-    const portfolioData: PortfolioData = {
-      account_info: savedData.account_info ? {
-        account_number: savedData.account_info.account_number,
-        brokerage_name: savedData.account_info.brokerage,
-        account_holder: savedData.account_info.holder_name,
-      } : undefined,
-      account_summary: savedData.account_summary ? {
-        beginning_value: savedData.account_summary.beginning_value,
-        ending_value: savedData.account_summary.ending_value ?? savedData.total_value ?? 0,
-        change_in_value: savedData.account_summary.change_in_value,
-        cash_balance: savedData.account_summary.cash_balance,
-        equities_value: savedData.account_summary.equities_value,
-      } : undefined,
-      holdings: normalizedHoldings,
-      transactions: [],
-      asset_allocation: savedData.asset_allocation ? {
-        cash_percent: savedData.asset_allocation.cash_pct,
-        equities_percent: savedData.asset_allocation.equities_pct,
-        bonds_percent: savedData.asset_allocation.bonds_pct,
-      } : undefined,
-      income_summary: savedData.income_summary ? {
-        dividends: savedData.income_summary.dividends_taxable,
-        interest: savedData.income_summary.interest_income,
-        total: savedData.income_summary.total_income,
-      } : undefined,
-      realized_gain_loss: savedData.realized_gain_loss ? {
-        short_term: savedData.realized_gain_loss.short_term_gain,
-        long_term: savedData.realized_gain_loss.long_term_gain,
-        total: savedData.realized_gain_loss.net_realized,
-      } : undefined,
-      parse_fallback: savedData.parse_fallback,
-    };
+      const portfolioData: PortfolioData = {
+        account_info: savedData.account_info
+          ? {
+              account_number: savedData.account_info.account_number,
+              brokerage_name: savedData.account_info.brokerage,
+              account_holder: savedData.account_info.holder_name,
+            }
+          : undefined,
+        account_summary: savedData.account_summary
+          ? {
+              beginning_value: savedData.account_summary.beginning_value,
+              ending_value:
+                savedData.account_summary.ending_value ??
+                savedData.total_value ??
+                0,
+              change_in_value: savedData.account_summary.change_in_value,
+              cash_balance: savedData.account_summary.cash_balance,
+              equities_value: savedData.account_summary.equities_value,
+            }
+          : undefined,
+        holdings: normalizedHoldings,
+        transactions: [],
+        asset_allocation: savedData.asset_allocation
+          ? {
+              cash_percent: savedData.asset_allocation.cash_pct,
+              equities_percent: savedData.asset_allocation.equities_pct,
+              bonds_percent: savedData.asset_allocation.bonds_pct,
+            }
+          : undefined,
+        income_summary: savedData.income_summary
+          ? {
+              dividends: savedData.income_summary.dividends_taxable,
+              interest: savedData.income_summary.interest_income,
+              total: savedData.income_summary.total_income,
+            }
+          : undefined,
+        realized_gain_loss: savedData.realized_gain_loss
+          ? {
+              short_term: savedData.realized_gain_loss.short_term_gain,
+              long_term: savedData.realized_gain_loss.long_term_gain,
+              total: savedData.realized_gain_loss.net_realized,
+            }
+          : undefined,
+        parse_fallback: savedData.parse_fallback,
+      };
 
-    const holdingSymbols = normalizedHoldings?.map((h) => h.symbol) || [];
+      const holdingSymbols = normalizedHoldings?.map((h) => h.symbol) || [];
 
-    // Update cache context so other pages (Manage, etc.) can access the data
-    setPortfolioData(userId, portfolioData);
-    CacheSyncService.onPortfolioUpserted(userId, portfolioData);
+      // Update cache context so other pages (Manage, etc.) can access the data
+      setPortfolioData(userId, portfolioData);
+      CacheSyncService.onPortfolioUpserted(userId, portfolioData);
 
+      setFlowData({
+        hasFinancialData: true,
+        holdingsCount: savedData.holdings?.length || 0,
+        holdings: holdingSymbols,
+        portfolioData,
+        parsedPortfolio: undefined, // Clear parsed data
+      });
+      clearImportBackgroundSnapshot(userId);
+      importResumeAppliedRef.current = false;
+      importSnapshotUpdatedAtRef.current = null;
+      activeImportRunIdRef.current = null;
+      activeImportCursorRef.current = 0;
+      if (activeImportTaskIdRef.current) {
+        AppBackgroundTaskService.dismissTask(activeImportTaskIdRef.current);
+        activeImportTaskIdRef.current = null;
+      }
+      trackEvent("import_save_completed", {
+        result: "success",
+      });
 
-    setFlowData({
-      hasFinancialData: true,
-      holdingsCount: savedData.holdings?.length || 0,
-      holdings: holdingSymbols,
-      portfolioData,
-      parsedPortfolio: undefined, // Clear parsed data
-    });
-    clearImportBackgroundSnapshot(userId);
-    importResumeAppliedRef.current = false;
-    importSnapshotUpdatedAtRef.current = null;
-    activeImportRunIdRef.current = null;
-    activeImportCursorRef.current = 0;
-    if (activeImportTaskIdRef.current) {
-      AppBackgroundTaskService.dismissTask(activeImportTaskIdRef.current);
-      activeImportTaskIdRef.current = null;
-    }
-    trackEvent("import_save_completed", {
-      result: "success",
-    });
+      if (mode === "import") {
+        if (await finishFinanceSetupIfActive("statement")) return;
+        setOnboardingFlowActiveCookie(false);
+        router.push(ROUTES.KAI_DASHBOARD);
+        return;
+      }
 
-    if (mode === "import") {
-      if (await finishFinanceSetupIfActive("statement")) return;
-      setOnboardingFlowActiveCookie(false);
-      router.push(ROUTES.KAI_DASHBOARD);
-      return;
-    }
-
-    setState("dashboard");
-  }, [finishFinanceSetupIfActive, mode, router, setPortfolioData, setState, userId]);
+      setState("dashboard");
+    },
+    [
+      finishFinanceSetupIfActive,
+      mode,
+      router,
+      setPortfolioData,
+      setState,
+      userId,
+    ],
+  );
 
   // Handle skip import - preserve existing data if available
   const handleSkipImport = useCallback(async () => {
@@ -2965,192 +3329,230 @@ export function KaiFlow({
     if (!flowData.portfolioData) {
       setFlowData({ hasFinancialData: false });
     }
-  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router, setState]);
-
-  const handleConnectPlaid = useCallback(async (environment?: string | null) => {
-    let onboardingAttemptId: string | undefined;
-    if (!vaultKey || !effectiveVaultOwnerToken) {
-      setPendingPlaidConnection(true);
-      setResumePlaidAfterVault(false);
-      setVaultDialogOpen(true);
-      toast.info("Set up your private vault to connect your portfolio.");
-      return;
-    }
-    setIsConnectingPlaid(true);
-    try {
-      let shouldSettleSetupSource = false;
-      const redirectUri = resolvePlaidRedirectUri();
-      const linkToken = await PlaidPortfolioService.createLinkToken({
-        userId,
-        vaultOwnerToken: effectiveVaultOwnerToken,
-        redirectUri,
-        environment,
-      });
-
-      if (!linkToken.configured || !linkToken.link_token) {
-        if (mode === "import") {
-          toast.info("Bank linking is not available right now. You can link it later.");
-          return;
-        }
-        throw new Error("Plaid is not configured for this environment.");
-      }
-      if (onSetupSourceSettled) {
-        const journey = await PreVaultUserStateService.bootstrapState(userId, {
-          force: true,
-        });
-        if (isActiveFinanceSetupJourney(journey)) {
-          shouldSettleSetupSource = true;
-          onboardingAttemptId =
-            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-              ? crypto.randomUUID()
-              : `plaid_${Date.now().toString(36)}`;
-          await PreVaultUserStateService.syncOnboardingJourney({
-            userId,
-            phase: "external_connector",
-            activeCapability: "finance",
-            callbackState: "pending",
-            callbackAttemptId: onboardingAttemptId,
-            expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-          });
-        } else if (!PreVaultUserStateService.isSetupResolved(journey)) {
-          throw new Error("Finance setup is no longer active. Return to setup and try again.");
-        } else {
-          // Resolved-root re-entry is explicit user intent from the Finance
-          // workspace. Do not mutate setup journey state, but do allow Plaid.
-        }
-      }
-      if (linkToken.resume_session_id) {
-        savePlaidOAuthResumeSession({
-          version: 1,
-          userId,
-          resumeSessionId: linkToken.resume_session_id,
-          returnPath: shouldSettleSetupSource
-            ? ROUTES.ONE_SETUP_FINANCE_IMPORT
-            : ROUTES.KAI_DASHBOARD,
-          startedAt: new Date().toISOString(),
-          ...(onboardingAttemptId ? { onboardingAttemptId } : {}),
-        });
-      }
-
-      const Plaid = await loadPlaidLink();
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const finish = (callback: () => void) => {
-          if (settled) return;
-          settled = true;
-          callback();
-        };
-
-        const handler = Plaid.create({
-          token: linkToken.link_token,
-          onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
-            void PlaidPortfolioService.exchangePublicToken({
-              userId,
-              publicToken,
-              vaultOwnerToken: effectiveVaultOwnerToken,
-              metadata,
-              resumeSessionId: linkToken.resume_session_id || null,
-              environment: linkToken.environment || environment || null,
-            })
-              .then((status) => {
-                clearPlaidOAuthResumeSession();
-                setPlaidStatus(status);
-                const plaidPortfolio = status.aggregate?.portfolio_data || null;
-                setFlowData((current) => ({
-                  ...current,
-                  hasFinancialData:
-                    current.hasFinancialData || hasPortfolioHoldings(plaidPortfolio),
-                  holdingsCount:
-                    (current.portfolioData?.holdings?.length || 0) ||
-                    (Array.isArray(plaidPortfolio?.holdings) ? plaidPortfolio.holdings.length : 0),
-                  holdings:
-                    current.portfolioData?.holdings?.map((holding) => holding.symbol) ||
-                    plaidPortfolio?.holdings?.map((holding) => holding.symbol) ||
-                    [],
-                }));
-                toast.success("Brokerage connected with Plaid.");
-                if (!vaultKey || !effectiveVaultOwnerToken) {
-                  setPendingPlaidConnection(true);
-                  setResumePlaidAfterVault(false);
-                  setVaultDialogOpen(true);
-                  toast.info("Set up or open your private vault to save Plaid details.");
-                } else if (mode === "import") {
-                  if (onSetupSourceSettled && !shouldSettleSetupSource) {
-                    setOnboardingFlowActiveCookie(false);
-                    router.push(ROUTES.KAI_DASHBOARD);
-                  } else {
-                    void finishFinanceSetupIfActive("plaid", onboardingAttemptId).then((handled) => {
-                      if (handled) return;
-                      setOnboardingFlowActiveCookie(false);
-                      router.push(ROUTES.KAI_DASHBOARD);
-                    });
-                  }
-                } else {
-                  setState("dashboard");
-                }
-                finish(resolve);
-              })
-              .catch((exchangeError) => {
-                finish(() =>
-                  reject(
-                    exchangeError instanceof Error
-                      ? exchangeError
-                      : new Error("Plaid connection failed.")
-                  )
-                );
-              })
-              .finally(() => {
-                handler.destroy?.();
-              });
-          },
-          onExit: (exitError: Record<string, unknown> | null) => {
-            handler.destroy?.();
-            clearPlaidOAuthResumeSession();
-            if (onboardingAttemptId) {
-              void onSetupConnectorAttemptSettled?.(
-                exitError && typeof exitError === "object" ? "failed" : "cancelled",
-                onboardingAttemptId,
-              );
-            }
-            if (exitError && typeof exitError === "object") {
-              const detail =
-                typeof exitError.error_message === "string"
-                  ? exitError.error_message
-                  : "Plaid Link closed with an error.";
-              finish(() => reject(new Error(detail)));
-              return;
-            }
-            finish(resolve);
-          },
-        });
-
-        handler.open();
-      });
-    } catch (plaidError) {
-      clearPlaidOAuthResumeSession();
-      if (onboardingAttemptId) {
-        await onSetupConnectorAttemptSettled?.("failed", onboardingAttemptId);
-      }
-      toast.error("Could not connect Plaid.", {
-        description:
-          plaidError instanceof Error ? plaidError.message : "Please try again.",
-      });
-    } finally {
-      setIsConnectingPlaid(false);
-      await loadPlaidStatusSnapshot();
-    }
   }, [
-    effectiveVaultOwnerToken,
     finishFinanceSetupIfActive,
-    loadPlaidStatusSnapshot,
+    flowData.portfolioData,
     mode,
-    onSetupSourceSettled,
-    onSetupConnectorAttemptSettled,
     router,
     setState,
-    userId,
-    vaultKey,
   ]);
+
+  const handleConnectPlaid = useCallback(
+    async (environment?: string | null) => {
+      let onboardingAttemptId: string | undefined;
+      if (!vaultKey || !effectiveVaultOwnerToken) {
+        setPendingPlaidConnection(true);
+        setResumePlaidAfterVault(false);
+        setVaultDialogOpen(true);
+        toast.info("Set up your private vault to connect your portfolio.");
+        return;
+      }
+      setIsConnectingPlaid(true);
+      try {
+        let shouldSettleSetupSource = false;
+        const redirectUri = resolvePlaidRedirectUri();
+        const linkToken = await PlaidPortfolioService.createLinkToken({
+          userId,
+          vaultOwnerToken: effectiveVaultOwnerToken,
+          redirectUri,
+          environment,
+        });
+
+        if (!linkToken.configured || !linkToken.link_token) {
+          if (mode === "import") {
+            toast.info(
+              "Bank linking is not available right now. You can link it later.",
+            );
+            return;
+          }
+          throw new Error("Plaid is not configured for this environment.");
+        }
+        if (onSetupSourceSettled) {
+          const journey = await PreVaultUserStateService.bootstrapState(
+            userId,
+            {
+              force: true,
+            },
+          );
+          if (isActiveFinanceSetupJourney(journey)) {
+            shouldSettleSetupSource = true;
+            onboardingAttemptId =
+              typeof crypto !== "undefined" &&
+              typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `plaid_${Date.now().toString(36)}`;
+            await PreVaultUserStateService.syncOnboardingJourney({
+              userId,
+              phase: "external_connector",
+              activeCapability: "finance",
+              callbackState: "pending",
+              callbackAttemptId: onboardingAttemptId,
+              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+            });
+          } else if (!PreVaultUserStateService.isSetupResolved(journey)) {
+            throw new Error(
+              "Finance setup is no longer active. Return to setup and try again.",
+            );
+          } else {
+            // Resolved-root re-entry is explicit user intent from the Finance
+            // workspace. Do not mutate setup journey state, but do allow Plaid.
+          }
+        }
+        if (linkToken.resume_session_id) {
+          savePlaidOAuthResumeSession({
+            version: 1,
+            userId,
+            resumeSessionId: linkToken.resume_session_id,
+            returnPath: shouldSettleSetupSource
+              ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+              : ROUTES.KAI_DASHBOARD,
+            startedAt: new Date().toISOString(),
+            ...(onboardingAttemptId ? { onboardingAttemptId } : {}),
+          });
+        }
+
+        const Plaid = await loadPlaidLink();
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const finish = (callback: () => void) => {
+            if (settled) return;
+            settled = true;
+            callback();
+          };
+
+          const handler = Plaid.create({
+            token: linkToken.link_token,
+            onSuccess: (
+              publicToken: string,
+              metadata: Record<string, unknown>,
+            ) => {
+              void PlaidPortfolioService.exchangePublicToken({
+                userId,
+                publicToken,
+                vaultOwnerToken: effectiveVaultOwnerToken,
+                metadata,
+                resumeSessionId: linkToken.resume_session_id || null,
+                environment: linkToken.environment || environment || null,
+              })
+                .then((status) => {
+                  clearPlaidOAuthResumeSession();
+                  setPlaidStatus(status);
+                  const plaidPortfolio =
+                    status.aggregate?.portfolio_data || null;
+                  setFlowData((current) => ({
+                    ...current,
+                    hasFinancialData:
+                      current.hasFinancialData ||
+                      hasPortfolioHoldings(plaidPortfolio),
+                    holdingsCount:
+                      current.portfolioData?.holdings?.length ||
+                      0 ||
+                      (Array.isArray(plaidPortfolio?.holdings)
+                        ? plaidPortfolio.holdings.length
+                        : 0),
+                    holdings:
+                      current.portfolioData?.holdings?.map(
+                        (holding) => holding.symbol,
+                      ) ||
+                      plaidPortfolio?.holdings?.map(
+                        (holding) => holding.symbol,
+                      ) ||
+                      [],
+                  }));
+                  toast.success("Brokerage connected with Plaid.");
+                  if (!vaultKey || !effectiveVaultOwnerToken) {
+                    setPendingPlaidConnection(true);
+                    setResumePlaidAfterVault(false);
+                    setVaultDialogOpen(true);
+                    toast.info(
+                      "Set up or open your private vault to save Plaid details.",
+                    );
+                  } else if (mode === "import") {
+                    if (onSetupSourceSettled && !shouldSettleSetupSource) {
+                      setOnboardingFlowActiveCookie(false);
+                      router.push(ROUTES.KAI_DASHBOARD);
+                    } else {
+                      void finishFinanceSetupIfActive(
+                        "plaid",
+                        onboardingAttemptId,
+                      ).then((handled) => {
+                        if (handled) return;
+                        setOnboardingFlowActiveCookie(false);
+                        router.push(ROUTES.KAI_DASHBOARD);
+                      });
+                    }
+                  } else {
+                    setState("dashboard");
+                  }
+                  finish(resolve);
+                })
+                .catch((exchangeError) => {
+                  finish(() =>
+                    reject(
+                      exchangeError instanceof Error
+                        ? exchangeError
+                        : new Error("Plaid connection failed."),
+                    ),
+                  );
+                })
+                .finally(() => {
+                  handler.destroy?.();
+                });
+            },
+            onExit: (exitError: Record<string, unknown> | null) => {
+              handler.destroy?.();
+              clearPlaidOAuthResumeSession();
+              if (onboardingAttemptId) {
+                void onSetupConnectorAttemptSettled?.(
+                  exitError && typeof exitError === "object"
+                    ? "failed"
+                    : "cancelled",
+                  onboardingAttemptId,
+                );
+              }
+              if (exitError && typeof exitError === "object") {
+                const detail =
+                  typeof exitError.error_message === "string"
+                    ? exitError.error_message
+                    : "Plaid Link closed with an error.";
+                finish(() => reject(new Error(detail)));
+                return;
+              }
+              finish(resolve);
+            },
+          });
+
+          handler.open();
+        });
+      } catch (plaidError) {
+        clearPlaidOAuthResumeSession();
+        if (onboardingAttemptId) {
+          await onSetupConnectorAttemptSettled?.("failed", onboardingAttemptId);
+        }
+        toast.error("Could not connect Plaid.", {
+          description:
+            plaidError instanceof Error
+              ? plaidError.message
+              : "Please try again.",
+        });
+      } finally {
+        setIsConnectingPlaid(false);
+        await loadPlaidStatusSnapshot();
+      }
+    },
+    [
+      effectiveVaultOwnerToken,
+      finishFinanceSetupIfActive,
+      loadPlaidStatusSnapshot,
+      mode,
+      onSetupSourceSettled,
+      onSetupConnectorAttemptSettled,
+      router,
+      setState,
+      userId,
+      vaultKey,
+    ],
+  );
 
   useEffect(() => {
     if (!resumePlaidAfterVault) return;
@@ -3202,7 +3604,9 @@ export function KaiFlow({
     setError(null);
 
     try {
-      const template = await fetchDemoModePortfolioTemplate(effectiveVaultOwnerToken);
+      const template = await fetchDemoModePortfolioTemplate(
+        effectiveVaultOwnerToken,
+      );
 
       setFlowData((previous) => ({
         ...previous,
@@ -3218,32 +3622,36 @@ export function KaiFlow({
       setPendingSchemaPreload(false);
       setIsPreloadingSchema(false);
     }
-  }, [
-    effectiveVaultOwnerToken,
-    isPreloadingSchema,
-    setState,
-  ]);
+  }, [effectiveVaultOwnerToken, isPreloadingSchema, setState]);
 
   useEffect(() => {
     if (!resumePreloadAfterVault) return;
     if (!vaultKey || !effectiveVaultOwnerToken) return;
     setResumePreloadAfterVault(false);
     void handlePreloadSchema();
-  }, [resumePreloadAfterVault, vaultKey, effectiveVaultOwnerToken, handlePreloadSchema]);
+  }, [
+    resumePreloadAfterVault,
+    vaultKey,
+    effectiveVaultOwnerToken,
+    handlePreloadSchema,
+  ]);
 
   // Route new analysis starts through the comparison preview first.
-  const handleAnalyzeStock = useCallback((symbol: string, _options?: AnalysisLaunchOptions) => {
-    if (!symbol || !effectiveVaultOwnerToken) {
-      toast.error("Set up or open your private vault first.");
-      return;
-    }
-    useKaiSession.getState().setAnalysisParams(null);
-    router.push(
-      buildKaiAnalysisPreviewRoute({
-        ticker: symbol.toUpperCase(),
-      })
-    );
-  }, [effectiveVaultOwnerToken, router]);
+  const handleAnalyzeStock = useCallback(
+    (symbol: string, _options?: AnalysisLaunchOptions) => {
+      if (!symbol || !effectiveVaultOwnerToken) {
+        toast.error("Set up or open your private vault first.");
+        return;
+      }
+      useKaiSession.getState().setAnalysisParams(null);
+      router.push(
+        buildKaiAnalysisPreviewRoute({
+          ticker: symbol.toUpperCase(),
+        }),
+      );
+    },
+    [effectiveVaultOwnerToken, router],
+  );
 
   // Handle back to dashboard from analysis
   const handleBackToDashboard = useCallback(() => {
@@ -3263,7 +3671,10 @@ export function KaiFlow({
           description="Your holdings, sources, and investing context in one place."
         />
         <AppPageContentRegion className="flex min-h-[400px] items-center justify-center">
-          <HushhLoader variant="inline" label={toInvestorLoading("ACCOUNT_STATE")} />
+          <HushhLoader
+            variant="inline"
+            label={toInvestorLoading("ACCOUNT_STATE")}
+          />
         </AppPageContentRegion>
       </div>
     );
@@ -3282,7 +3693,9 @@ export function KaiFlow({
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
           plaidConfigured={plaidConfigured}
-          plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
+          plaidLocalDualEnvironmentEnabled={
+            plaidStatus?.local_dual_environment_enabled ?? false
+          }
         />
       )}
 
@@ -3362,32 +3775,38 @@ export function KaiFlow({
       {isDashboardMode &&
         state === "dashboard" &&
         (Boolean(flowData.hasFinancialData) || Boolean(plaidPortfolioData)) && (
-        <DashboardMasterView
-          userId={userId}
-          vaultOwnerToken={effectiveVaultOwnerToken ?? ""}
-          portfolioData={
-            (flowData.portfolioData ?? plaidPortfolioData ?? { holdings: [] }) as PortfolioData
-          }
-          onReupload={handleReimport}
-        />
-      )}
+          <DashboardMasterView
+            userId={userId}
+            vaultOwnerToken={effectiveVaultOwnerToken ?? ""}
+            portfolioData={
+              (flowData.portfolioData ??
+                plaidPortfolioData ?? { holdings: [] }) as PortfolioData
+            }
+            onReupload={handleReimport}
+            section={dashboardSection}
+          />
+        )}
 
       {isDashboardMode &&
         state === "dashboard" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-        <PortfolioImportView
-          onFileSelect={handleFileUpload}
-          onSkip={handleSkipImport}
-          onPreloadSchema={() => void handlePreloadSchema()}
-          onConnectPlaid={(environment) => void handleConnectPlaid(environment)}
-          isUploading={false}
-          isPreloadingSchema={isPreloadingSchema}
-          isConnectingPlaid={isConnectingPlaid}
-          plaidConfigured={plaidConfigured}
-          plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
-        />
-      )}
+          <PortfolioImportView
+            onFileSelect={handleFileUpload}
+            onSkip={handleSkipImport}
+            onPreloadSchema={() => void handlePreloadSchema()}
+            onConnectPlaid={(environment) =>
+              void handleConnectPlaid(environment)
+            }
+            isUploading={false}
+            isPreloadingSchema={isPreloadingSchema}
+            isConnectingPlaid={isConnectingPlaid}
+            plaidConfigured={plaidConfigured}
+            plaidLocalDualEnvironmentEnabled={
+              plaidStatus?.local_dual_environment_enabled ?? false
+            }
+          />
+        )}
 
       {isDashboardMode && state === "analysis" && flowData.analysisResult && (
         <AnalysisView

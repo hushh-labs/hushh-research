@@ -41,6 +41,7 @@ class ModelEntry:
     supports_function_calling: bool = True
     supports_native_realtime: bool = False
     supports_prompt_caching: bool = False
+    supported_vertex_locations: tuple[str, ...] = field(default_factory=tuple)
     aliases: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -54,6 +55,7 @@ _MODELS: tuple[ModelEntry, ...] = (
         provider="gemini",
         model=GEMINI_MODEL,
         supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
         aliases=("gemini-default", "default"),
     ),
     ModelEntry(provider="gemini", model="gemini-3.1-pro-preview"),

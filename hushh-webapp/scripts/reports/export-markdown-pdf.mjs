@@ -272,6 +272,13 @@ function renderMarkdown(markdown) {
   };
 
   for (const line of lines) {
+    if (line.trim() === "<!-- pdf:page-break -->") {
+      flushParagraph();
+      closeLists();
+      flushTable();
+      html.push('<div class="pdf-page-break" aria-hidden="true"></div>');
+      continue;
+    }
     if (line.trim() === "<!-- pdf:omit-start -->") {
       omitFromPdf = true;
       continue;
@@ -461,6 +468,11 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
         margin: 0;
       }
 
+      .pdf-page-break {
+        break-before: page;
+        height: 0;
+      }
+
       .shell {
         max-width: 960px;
         margin: 0 auto;
@@ -568,6 +580,7 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
         background: var(--code-bg);
         border: 1px solid var(--code-border);
         border-radius: 14px;
+        break-inside: avoid;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         color: var(--code-fg);
         font: var(--pdf-code-size)/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 114,
+  "expected_migration_version": 115,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -687,6 +687,29 @@
       "updated_at",
       "revoked_at",
       "metadata"
+    ],
+    "one_location_envelopes": [
+      "id",
+      "grant_id",
+      "owner_user_id",
+      "recipient_user_id",
+      "recipient_key_id",
+      "algorithm",
+      "ciphertext",
+      "iv",
+      "sender_ephemeral_public_key_jwk",
+      "captured_at",
+      "source_platform",
+      "publication_context",
+      "created_at",
+      "metadata"
+    ],
+    "one_location_map_preferences": [
+      "user_id",
+      "presence_mode",
+      "renderer_consent_version",
+      "created_at",
+      "updated_at"
     ],
     "connected_system_intents": [
       "intent_id",

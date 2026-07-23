@@ -9,9 +9,9 @@ flowchart TB
     import["/one/kai/import"]
     home["/one/kai"]
     news["/one/kai/news"]
-    portfolio["/one/kai/portfolio"]
+    portfolio["/one/kai?tab=portfolio"]
+    portfolioDetails["/one/kai/portfolio/*"]
     analysis["/one/kai/analysis"]
-    optimize["/one/kai/optimize"]
   end
 
   subgraph frontend["Frontend runtime"]
@@ -41,9 +41,9 @@ flowchart TB
   news --> market --> insights
   home --> financial
   portfolio --> financial --> pkm
+  portfolioDetails --> financial
   analysis --> stream --> debate
   analysis --> financial
-  optimize --> financial
   source --> plaid --> prefs
   source --> pkm
   plaid --> providers

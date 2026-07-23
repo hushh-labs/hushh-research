@@ -38,7 +38,10 @@ from hushh_mcp.constants import (
     KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS,
 )
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable, fetch_market_data
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 
 logger = logging.getLogger(__name__)
@@ -432,7 +435,11 @@ async def analyze_portfolio_losers(
                 include_thoughts=False,
                 thinking_level=thinking_level,
             )
-        config = genai_types.GenerateContentConfig(**config_kwargs)
+        config = build_generate_content_config(
+            genai_types,
+            model_to_use,
+            **config_kwargs,
+        )
         resp = await client.aio.models.generate_content(
             model=model_to_use,
             contents=prompt,
@@ -894,7 +901,11 @@ async def analyze_portfolio_losers_stream(
                         include_thoughts=bool(KAI_LLM_STREAM_INCLUDE_THOUGHTS),
                         thinking_level=thinking_level,
                     )
-                config = genai_types.GenerateContentConfig(**config_kwargs)
+                config = build_generate_content_config(
+                    genai_types,
+                    model_to_use,
+                    **config_kwargs,
+                )
 
                 # Stream the response
                 full_response = ""
