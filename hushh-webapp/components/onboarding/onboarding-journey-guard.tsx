@@ -21,6 +21,10 @@ import {
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import {
+  clearSetupIntent,
+  hasSetupIntent,
+} from "@/lib/services/one-setup-intent";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -112,6 +116,18 @@ export function OnboardingJourneyGuard({
           setupSurface,
         })),
   );
+  // "Dismissed" = the user finished/skipped onboarding at least once. After
+  // that, a setup surface is reachable ONLY via a deliberate in-app open
+  // (Profile → "Set Up One", which calls markSetupIntent). Any other arrival —
+  // the browser/OS back button, a stale history entry, a direct URL — is ejected
+  // to home so setup is never re-shown post-onboarding.
+  const setupDismissed = Boolean(
+    persistentSetupResolved ||
+      (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
+  );
+  const shouldEjectSetupSurface = Boolean(
+    setupSurface && setupDismissed && !hasSetupIntent(),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -127,11 +143,25 @@ export function OnboardingJourneyGuard({
 
     async function verifyAdmission() {
       if (authLoading) return;
-      if (
-        !userId ||
-        exempt ||
-        setupSurface
-      ) {
+      if (!userId || exempt) {
+        redirectTargetRef.current = null;
+        setError(null);
+        setChecking(false);
+        return;
+      }
+      if (setupSurface) {
+        // First onboarding and a deliberate open (Profile → "Set Up One") are
+        // admitted. A dismissed user who reached a setup surface WITHOUT a
+        // deliberate open (browser/OS back, history, direct URL) is ejected to
+        // home — this is the one place that catches every arrival path.
+        if (shouldEjectSetupSurface) {
+          if (redirectTargetRef.current !== ROUTES.ONE_HOME) {
+            redirectTargetRef.current = ROUTES.ONE_HOME;
+            setRedirecting(true);
+            router.replace(ROUTES.ONE_HOME);
+          }
+          return;
+        }
         redirectTargetRef.current = null;
         setError(null);
         setChecking(false);
@@ -280,16 +310,37 @@ export function OnboardingJourneyGuard({
     retryNonce,
     router,
     setupSurface,
+    shouldEjectSetupSurface,
     userId,
   ]);
 
+  // The deliberate-entry intent covers only the active setup visit. Clear it the
+  // moment the user is on any non-setup surface so a later back-navigation into
+  // setup is treated as non-deliberate and ejected.
+  useEffect(() => {
+    if (!isOneSetupSurfaceRoute(pathname)) {
+      clearSetupIntent();
+    }
+  }, [pathname]);
+
   if (exempt || (!authLoading && !userId)) return <>{children}</>;
   if (
+    shouldEjectSetupSurface ||
     (checking && !cachedAdmissionAllowsCurrentRoute) ||
     authLoading ||
     redirecting
   ) {
-    return <HushhLoader label={redirecting ? "Returning to setup..." : "Checking setup..."} />;
+    return (
+      <HushhLoader
+        label={
+          shouldEjectSetupSurface
+            ? "Opening One..."
+            : redirecting
+              ? "Returning to setup..."
+              : "Checking setup..."
+        }
+      />
+    );
   }
   if (error) {
     return (

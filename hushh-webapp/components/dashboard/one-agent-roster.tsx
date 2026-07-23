@@ -20,6 +20,8 @@ import {
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { OneLocationState } from "@/lib/one-location/types";
 import type { KaiHomeInsightsV2, KaiHomeMover } from "@/lib/services/api-service";
@@ -223,6 +225,7 @@ function useCachedAgentMetrics(
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
   cachedMetrics: Record<string, AgentMetric>,
+  setupDismissed: boolean,
 ): OneAgentMode[] {
   return ONE_CAPABILITIES.filter(
     (capability) =>
@@ -262,8 +265,12 @@ function buildModes(
       id: capability.id,
       title: capability.title,
       description: capability.description,
+      // Once onboarding is dismissed, a home tile for a not-yet-configured
+      // capability opens the capability's OWN screen — never the setup hub.
+      // Setup is reachable only via Profile → "Set Up One" (post-onboarding),
+      // and routing a tile into a setup surface would be ejected by the guard.
       href:
-        setupCapability && isActionable
+        !setupDismissed && setupCapability && isActionable
           ? buildOneSetupCapabilityRoute(capability.id)
           : capability.href,
       icon: capability.icon,
@@ -503,7 +510,13 @@ export function OneAgentRoster({
   userId?: string | null;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
-  const modes = buildModes(capabilityStatusById, cachedMetrics);
+  const setupDismissed = Boolean(
+    userId &&
+      (OneSetupCompletionHintService.isResolved(userId) ||
+        PreVaultUserStateService.getCachedBootstrapState(userId)
+          ?.setupCompleted === true),
+  );
+  const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
   const [view, setView] = useState<AgentRosterView>("grid");
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
