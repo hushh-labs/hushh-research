@@ -418,13 +418,13 @@ function locationActivity() {
 async function openLocationFeatureStep() {
   expect(
     await screen.findByRole("heading", {
-      name: "The people you love. Always in reach.",
+      name: "Share your location easily with anyone.",
     }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "When it matters, your people know.",
+      name: "Stay connected when you need it.",
     }),
   ).toBeTruthy();
 }
@@ -449,10 +449,11 @@ async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
   fireEvent.click(continueButton);
   expect(
     screen.getByRole("heading", {
-      name: "Your circle, your choice",
+      name: "Your circle is ready.",
     }),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
@@ -741,7 +742,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -777,7 +778,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeNull();
   });
@@ -800,7 +801,8 @@ describe("OneLocationAgentPage", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -1116,12 +1118,12 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "When it matters, your people know.",
+          name: "Stay connected when you need it.",
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "The people you love. Always in reach.",
+          name: "Share your location easily with anyone.",
         }),
       ).toBeNull();
     },
@@ -1166,7 +1168,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     const onboardingShellClass =
