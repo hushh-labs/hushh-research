@@ -111,6 +111,7 @@ import {
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
 import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
+import { markSetupIntent } from "@/lib/services/one-setup-intent";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildProfileRoute,
@@ -4008,9 +4009,13 @@ function ProfilePageContent() {
                 title={PROFILE_LABELS.setup}
                 chevron
                 density="compact"
-                onClick={() =>
-                  router.push(buildOneSetupRoute({ returnTo: ROUTES.PROFILE }))
-                }
+                onClick={() => {
+                  // Mark this as a DELIBERATE setup open so the onboarding guard
+                  // admits the hub for an already-dismissed user (any other
+                  // arrival — back button / history — is ejected to home).
+                  markSetupIntent();
+                  router.push(buildOneSetupRoute({ returnTo: ROUTES.PROFILE }));
+                }}
               />
               {shouldShowRiaRegulatoryRow ? (
                 <SettingsRow

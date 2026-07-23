@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 function status(
   id: string,
@@ -42,6 +43,28 @@ function countRosterMetrics(
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("routes home tiles to the product surface once onboarding is dismissed", () => {
+    const userId = "dashboard-dismissed-user";
+    OneSetupCompletionHintService.markResolved(userId); // dismissed
+
+    render(
+      <OneDashboardPage
+        displayName="Dismissed User"
+        userId={userId}
+        capabilityStatusById={buildStatusMap({
+          finance: { state: "not-started", requiresUnlock: true },
+        })}
+      />,
+    );
+
+    // Profile-only: a not-configured tile opens the capability's own screen,
+    // never /one/setup/* (which the guard would eject a dismissed user from).
+    const financeLink = screen.getByRole("link", { name: "Open Finance" });
+    const href = financeLink.getAttribute("href") ?? "";
+    expect(href).not.toBe(buildOneSetupCapabilityRoute("finance"));
+    expect(href.startsWith("/one/setup")).toBe(false);
   });
 
   it("renders the primary One agent modes with route targets", () => {
