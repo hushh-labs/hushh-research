@@ -34,9 +34,7 @@ import {
   Lock,
   Map,
   MapPin,
-  MessageCircle,
   Navigation,
-  Phone,
   Plus,
   RefreshCw,
   Send,
@@ -80,6 +78,7 @@ import {
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import {
   QuickActionCard,
   QuickActionsSection,
@@ -87,7 +86,6 @@ import {
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
-import { LocalEmergencyDialerRow } from "./local-emergency-dialer-row";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -186,13 +184,20 @@ export type LocationHubViewModel = {
   onShareCircleInvite: () => void;
   onRevokeCircleInvite: (invite: OneLocationCircleInvite) => void;
 
-  /* SOS panic */
+  /* Save My Soul (internal compatibility identifier remains SOS). */
+  /** Connected, share-ready circle used by non-SMS quick actions. */
   sosRecipients: OneLocationRecipient[];
+  /** Explicit owner-selected Save My Soul recipients. */
+  smsRecipients: OneLocationRecipient[];
+  smsContactCandidates: OneLocationRecipient[];
+  smsContactUserIds: string[];
   sosActive: boolean;
   sosBusy: boolean;
   sosStartedAtLabel: string | null;
-  onTriggerSos: () => void;
+  onTriggerSos: (message?: "Come get me" | "I'm not safe" | null) => void;
   onStopSos: () => void;
+  onAddSmsContact: (recipientUserId: string) => void;
+  onRemoveSmsContact: (recipientUserId: string) => void;
 
   /* Check-In (quick action) — reuses the encrypted share pipeline. The message
      is surfaced in the recipient's notification (e.g. "Alex: I've checked in
@@ -232,6 +237,7 @@ type FlowKind =
   | "temp-link"
   | "check-in"
   | "sos"
+  | "sms-contacts"
   | "privacy"
   | "active-shares"
   | "shared-with-me"
@@ -249,6 +255,7 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "temp-link": "temp-link",
   "check-in": "check-in",
   sos: "sos",
+  "sms-contacts": "sms-contacts",
   privacy: "privacy",
   "active-shares": "active-shares",
   "shared-with-me": "shared-with-me",
@@ -503,7 +510,23 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "check-in" ? (
           <CheckInFlow vm={vm} onClose={closeFlow} />
         ) : flow === "sos" ? (
-          <SosFlow vm={vm} />
+          <SosFlow
+            vm={vm}
+            onClose={() => closeFlow("now")}
+            onEditContacts={() => openFlow("sms-contacts")}
+          />
+        ) : flow === "sms-contacts" ? (
+          <SmsContactsFlow
+            recipients={vm.smsContactCandidates}
+            selectedUserIds={vm.smsContactUserIds}
+            busyKey={vm.busy}
+            onBack={() => closeFlow("now")}
+            onAdd={vm.onAddSmsContact}
+            onRemove={vm.onRemoveSmsContact}
+            recipientLabel={vm.recipientLabel}
+            recipientSubtitle={vm.recipientSubtitle}
+            isRecipientShareReady={vm.isRecipientShareReady}
+          />
         ) :
           flow === "active-shares" ||
           flow === "shared-with-me" ||
@@ -527,7 +550,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "privacy" ? (
-          <PrivacyFlow onManageSharing={() => closeFlow("people")} />
+          <PrivacyFlow
+            smsContactCount={vm.smsContactUserIds.length}
+            onManageSharing={() => closeFlow("people")}
+            onManageSmsContacts={() => openFlow("sms-contacts")}
+          />
         ) : (
           <TemporaryLinkFlow
             vm={vm}
@@ -718,8 +745,8 @@ function NowHub({
         <QuickActionCard
           tone="red"
           icon={<Shield className="h-5 w-5" />}
-          title="Alert"
-          subtitle={vm.sosActive ? "Live now" : "Notify circle"}
+          title="SMS"
+          subtitle={vm.sosActive ? "Live now" : "Save my soul"}
           onClick={onSos}
         />
       </QuickActionsSection>
@@ -890,7 +917,15 @@ function LocationToggle({
   );
 }
 
-function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
+function PrivacyFlow({
+  smsContactCount,
+  onManageSharing,
+  onManageSmsContacts,
+}: {
+  smsContactCount: number;
+  onManageSharing: () => void;
+  onManageSmsContacts: () => void;
+}) {
   // Inert local state for now — real auto-share / pause wiring comes later.
   const [autoShare, setAutoShare] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -964,6 +999,24 @@ function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
             See and change who has your live location
           </p>
         </div>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
+      </button>
+
+      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+        Safety
+      </p>
+      <button
+        type="button"
+        onClick={onManageSmsContacts}
+        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+        data-testid="one-location-sms-contacts-entry"
+      >
+        <span className="min-w-0 flex-1 text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
+          SMS contacts
+        </span>
+        <span className="text-[14px] text-black/40 dark:text-muted-foreground">
+          {smsContactCount}
+        </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
       </button>
     </div>
@@ -1376,145 +1429,29 @@ function LinksHub({
 }
 
 /* =================================================================== */
-/* SOS FLOW (Quick Action wrapper around the existing SOS panic panel)  */
+/* SAVE MY SOUL FLOW (internal action identifier remains `sos`)          */
 /* =================================================================== */
 
-/** Circle avatar tones for the "Location shared with …" stack. */
-const SOS_AVATAR_TONES = [
-  "bg-amber-500",
-  "bg-blue-600",
-  "bg-rose-500",
-  "bg-teal-500",
-  "bg-violet-500",
-];
-
-function sosInitials(label: string): string {
-  const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
-  }
-  return (words[0]?.slice(0, 1) || "?").toUpperCase();
-}
-
-/** Small square shortcut card (Call / Message / Share live location). */
-function SosQuickCard({
-  icon: Icon,
-  title,
-  subtitle,
-  onClick,
+function SosFlow({
+  vm,
+  onClose,
+  onEditContacts,
 }: {
-  icon: typeof Phone;
-  title: string;
-  subtitle: string;
-  onClick?: () => void;
+  vm: LocationHubViewModel;
+  onClose: () => void;
+  onEditContacts: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-w-0 flex-col gap-3 rounded-[16px] bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
-    >
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#fdeeec] dark:bg-[#e0342c]/15">
-        <Icon className="h-[17px] w-[17px] text-[#e0342c]" strokeWidth={1.8} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[14px] font-bold text-foreground">
-          {title}
-        </span>
-        <span className="mt-2 flex items-end justify-between gap-2.5">
-          <span className="min-w-0 truncate text-[12px] text-black/45 dark:text-white/45">
-            {subtitle}
-          </span>
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
-            <ChevronRight className="h-3 w-3 text-black/40 dark:text-white/40" />
-          </span>
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function SosFlow({ vm }: { vm: LocationHubViewModel }) {
-  const recipients = vm.sosRecipients;
-  const sharedCount = recipients.length;
-
-  return (
-    <div className="space-y-3.5">
-      {/* Title only — the single back affordance is the top-left app-chrome back
-          arrow, which returns to the Location hub. */}
-      <h1 className="text-[33px] font-bold tracking-[-0.6px] text-foreground">
-        Safety
-      </h1>
-
-      <SosPanel
-        recipients={recipients}
-        active={vm.sosActive}
-        busy={vm.sosBusy}
-        startedAtLabel={vm.sosStartedAtLabel}
-        onTrigger={vm.onTriggerSos}
-        onStop={vm.onStopSos}
-        recipientLabel={vm.recipientLabel}
-        isRecipientShareReady={vm.isRecipientShareReady}
-      />
-
-      {/* Location shared with N people */}
-      {sharedCount > 0 ? (
-        <div className="rounded-[18px] bg-white p-[18px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
-          <div className="text-[16px] font-bold text-foreground">
-            Location shared with {sharedCount}{" "}
-            {sharedCount === 1 ? "person" : "people"}
-          </div>
-          <div className="mt-3.5 flex items-center justify-between gap-3">
-            <div className="flex -space-x-1">
-              {recipients.slice(0, 4).map((r, index) => (
-                <span
-                  key={r.userId}
-                  className={cn(
-                    "flex h-[52px] w-[52px] items-center justify-center rounded-full text-sm font-semibold text-white ring-[2.5px] ring-white dark:ring-[#1c1c1e]",
-                    SOS_AVATAR_TONES[index % SOS_AVATAR_TONES.length],
-                  )}
-                  aria-hidden
-                >
-                  {sosInitials(vm.recipientLabel(r))}
-                </span>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="shrink-0 whitespace-nowrap rounded-[14px] border-[1.5px] border-[color:var(--app-accent)] px-[18px] py-[11px] text-[14px] font-semibold text-[color:var(--app-accent)] dark:border-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
-            >
-              View all
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Quick shortcuts */}
-      <div className="grid grid-cols-3 gap-2.5">
-        <SosQuickCard icon={Phone} title="Call" subtitle="Call for help" />
-        <SosQuickCard
-          icon={MessageCircle}
-          title="Message"
-          subtitle="Message contacts"
-        />
-        <SosQuickCard
-          icon={MapPin}
-          title="Share live location"
-          subtitle="With your circle"
-        />
-      </div>
-
-      {/* Reach out for help */}
-      <div className="rounded-[18px] bg-white px-4 py-[18px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
-        <div className="text-[16px] font-bold text-foreground">
-          Reach out for help
-        </div>
-        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] dark:bg-white/[0.04]">
-          <LocalEmergencyDialerRow />
-        </div>
-      </div>
-
-    </div>
+    <SosPanel
+      recipients={vm.smsRecipients}
+      active={vm.sosActive}
+      busy={vm.sosBusy}
+      onTrigger={vm.onTriggerSos}
+      onClose={onClose}
+      onEditContacts={onEditContacts}
+      recipientLabel={vm.recipientLabel}
+      isRecipientShareReady={vm.isRecipientShareReady}
+    />
   );
 }
 

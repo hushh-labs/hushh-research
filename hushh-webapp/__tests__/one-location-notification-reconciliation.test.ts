@@ -110,6 +110,39 @@ function stateFixture(): OneLocationState {
 }
 
 describe("One Location global notification reconciliation", () => {
+  it("waits for the first encrypted envelope before surfacing SMS", () => {
+    const state = stateFixture();
+    state.receivedGrants = [
+      {
+        ...state.receivedGrants[0],
+        id: "sms-pending-envelope",
+        shareKind: "sos",
+        shareMessage: "Come get me",
+        latestEnvelopeId: null,
+      },
+    ];
+
+    expect(
+      buildOneLocationNotificationPayloads(state, USER_ID).filter(
+        (payload) => payload.type === "location_share_created",
+      ),
+    ).toEqual([]);
+
+    state.receivedGrants[0]!.latestEnvelopeId = "envelope-1";
+    expect(
+      buildOneLocationNotificationPayloads(state, USER_ID).filter(
+        (payload) => payload.type === "location_share_created",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        type: "location_share_created",
+        grant_id: "sms-pending-envelope",
+        share_kind: "sos",
+        share_message: "Come get me",
+      }),
+    ]);
+  });
+
   it("reconstructs every user-facing workflow without visiting the Location page", () => {
     const payloads = buildOneLocationNotificationPayloads(stateFixture(), USER_ID);
     expect(payloads.map((payload) => payload.type)).toEqual(

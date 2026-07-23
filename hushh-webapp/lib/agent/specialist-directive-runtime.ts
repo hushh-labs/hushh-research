@@ -4,6 +4,7 @@ import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import {
   isSosShareReadyRecipient,
   runSosPanic,
+  selectSmsRecipients,
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
@@ -153,7 +154,10 @@ export async function runLocationDirective(
         state.networkConnections,
         currentUserId,
       );
-      const ready = connected.filter(isSosShareReadyRecipient);
+      const ready = selectSmsRecipients(
+        connected,
+        state.smsContactUserIds,
+      ).filter(isSosShareReadyRecipient);
       if (!ready.length) {
         return {
           delegate_agent_id: "agent_location",

@@ -22,6 +22,7 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 import {
   isSosShareReadyRecipient,
   runSosPanic,
+  selectSmsRecipients,
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
@@ -336,7 +337,10 @@ export function useLocationChat(params: {
           state.networkConnections,
           userId || null,
         );
-        const ready = connected.filter(isSosShareReadyRecipient);
+        const ready = selectSmsRecipients(
+          connected,
+          state.smsContactUserIds,
+        ).filter(isSosShareReadyRecipient);
         if (!ready.length) {
           await report({ id: action.id, type: action.type, status: "cancelled" });
           return;

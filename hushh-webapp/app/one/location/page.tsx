@@ -159,6 +159,7 @@ import {
 import {
   isSosShareReadyRecipient,
   runSosPanic,
+  selectSmsRecipients,
   selectShareReadyRecipients,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
@@ -279,6 +280,7 @@ type BusyState =
   | "publicRevoke"
   | "circleInvite"
   | "circleRevoke"
+  | `sms-contact:${string}`
   | null;
 
 type OneLocationSelectionSurface =
@@ -1991,6 +1993,14 @@ export function OneLocationAgentPageContent({
     () => selectShareReadyRecipients(rankedRecipients),
     [rankedRecipients],
   );
+  const smsContactUserIds = useMemo(
+    () => state?.smsContactUserIds ?? [],
+    [state?.smsContactUserIds],
+  );
+  const smsActionRecipients = useMemo(
+    () => selectSmsRecipients(sosActionRecipients, smsContactUserIds),
+    [smsContactUserIds, sosActionRecipients],
+  );
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
@@ -2983,16 +2993,20 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleTriggerSos = useCallback(async () => {
+  const handleTriggerSos = useCallback(async (
+    note?: "Come get me" | "I'm not safe" | null,
+  ) => {
     if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
     if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
-    const readyRecipients = sosActionRecipients.filter(
+    const readyRecipients = smsActionRecipients.filter(
       isSosShareReadyRecipient,
     );
-    const totalTrusted = sosActionRecipients.length;
+    const totalSelected = smsActionRecipients.length;
     if (!readyRecipients.length) {
       toast.error(
-        "No trusted contacts are ready to receive your location yet.",
+        totalSelected
+          ? "Your SMS contacts are not ready to receive location yet."
+          : "Add at least one SMS contact before sending an alert.",
       );
       return;
     }
@@ -3004,7 +3018,7 @@ export function OneLocationAgentPageContent({
       });
       if (!readiness.ready || !readiness.point) {
         toast.error(
-          "Couldn't get your location — SOS not sent. Check location permissions.",
+          "Couldn't get your location — SMS not sent. Check location permissions.",
         );
         return;
       }
@@ -3013,15 +3027,16 @@ export function OneLocationAgentPageContent({
         vaultOwnerToken,
         recipients: readyRecipients,
         point,
+        note,
         publish: (grant, recipient, pt) =>
           publishEnvelopeWithRetry(grant, recipient, "manual", pt),
       });
       setSosIncident(incident);
-      const skipped = totalTrusted - readyRecipients.length;
+      const skipped = totalSelected - readyRecipients.length;
       toast.success(
         skipped > 0
-          ? `SOS sent. Alerted ${readyRecipients.length} of ${totalTrusted} contacts (${skipped} not ready).`
-          : `SOS sent. Alerting ${readyRecipients.length} trusted contact(s).`,
+          ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
+          : `SMS sent to ${readyRecipients.length} contact(s).`,
       );
       await refresh();
     } catch (error) {
@@ -3031,7 +3046,7 @@ export function OneLocationAgentPageContent({
         setSosIncident(error.partialIncident);
       }
       toast.error(
-        error instanceof Error ? error.message : "Could not send SOS alert.",
+        error instanceof Error ? error.message : "Could not send SMS alert.",
       );
     } finally {
       setBusy(null);
@@ -3040,11 +3055,57 @@ export function OneLocationAgentPageContent({
     ensureForegroundLocationReady,
     permission,
     publishEnvelopeWithRetry,
-    sosActionRecipients,
+    smsActionRecipients,
     refresh,
     sosIncident,
     vaultOwnerToken,
   ]);
+
+  const handleAddSmsContact = useCallback(
+    async (recipientUserId: string) => {
+      if (!vaultOwnerToken || busy) return;
+      setBusy(`sms-contact:${recipientUserId}`);
+      try {
+        await OneLocationService.addSmsContact({
+          vaultOwnerToken,
+          recipientUserId,
+        });
+        await refresh();
+        toast.success("SMS contact added.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not add SMS contact.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy, refresh, vaultOwnerToken],
+  );
+
+  const handleRemoveSmsContact = useCallback(
+    async (recipientUserId: string) => {
+      if (!vaultOwnerToken || busy) return;
+      setBusy(`sms-contact:${recipientUserId}`);
+      try {
+        await OneLocationService.removeSmsContact({
+          vaultOwnerToken,
+          recipientUserId,
+        });
+        await refresh();
+        toast.success("SMS contact removed.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not remove SMS contact.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy, refresh, vaultOwnerToken],
+  );
 
   const handlePublish = useCallback(
     async (grant: OneLocationGrant) => {
@@ -3631,7 +3692,7 @@ export function OneLocationAgentPageContent({
     // subsequent refresh() failure cannot trigger a misleading "Could not stop" toast.
     clearSosIncident();
     setSosIncident(null);
-    toast.success("SOS ended. Live location sharing stopped.");
+    toast.success("SMS ended. Live location sharing stopped.");
     try {
       await refresh();
     } catch {
@@ -5395,6 +5456,9 @@ export function OneLocationAgentPageContent({
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
     sosRecipients: sosActionRecipients,
+    smsRecipients: smsActionRecipients,
+    smsContactCandidates: sosActionRecipients,
+    smsContactUserIds,
     sosActive: Boolean(sosIncident?.grantIds.length),
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident
@@ -5402,6 +5466,10 @@ export function OneLocationAgentPageContent({
       : null,
     onTriggerSos: handleTriggerSos,
     onStopSos: handleStopSos,
+    onAddSmsContact: (recipientUserId) =>
+      void handleAddSmsContact(recipientUserId),
+    onRemoveSmsContact: (recipientUserId) =>
+      void handleRemoveSmsContact(recipientUserId),
     onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
       void handleCheckIn(recipientIds, durationHoursValue, messageValue),
   };

@@ -231,8 +231,8 @@ def test_action_result_templates_contain_sos_panic_entries():
     assert ("sos_panic", "cancelled") in _ACTION_RESULT_TEMPLATES, (
         "_ACTION_RESULT_TEMPLATES must have a ('sos_panic', 'cancelled') entry"
     )
-    assert "SOS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "completed")]
-    assert "SOS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "cancelled")]
+    assert "SMS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "completed")]
+    assert "SMS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "cancelled")]
 
 
 # ---------------------------------------------------------------------------

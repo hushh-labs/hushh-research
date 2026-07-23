@@ -167,6 +167,35 @@ export class OneLocationService {
     });
   }
 
+  static async addSmsContact(params: {
+    vaultOwnerToken: string;
+    recipientUserId: string;
+  }): Promise<string[]> {
+    const response = await apiJson<{ smsContactUserIds: string[] }>(
+      "/api/one/location/sms-contacts",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ recipientUserId: params.recipientUserId }),
+      },
+    );
+    return response.smsContactUserIds ?? [];
+  }
+
+  static async removeSmsContact(params: {
+    vaultOwnerToken: string;
+    recipientUserId: string;
+  }): Promise<string[]> {
+    const response = await apiJson<{ smsContactUserIds: string[] }>(
+      `/api/one/location/sms-contacts/${encodeURIComponent(params.recipientUserId)}`,
+      {
+        method: "DELETE",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.smsContactUserIds ?? [];
+  }
+
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
   static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {

@@ -74,6 +74,10 @@ export function buildOneLocationNotificationPayloads(
     if (
       grant.status !== "active" ||
       approvedGrantIds.has(grant.id) ||
+      // SMS grants are created immediately before their first encrypted
+      // envelope. Do not tell the recipient that live location is available
+      // until the backend has durably linked that first envelope.
+      (grant.shareKind === "sos" && !grant.latestEnvelopeId) ||
       options.isGrantUnwatched?.(grant.id)
     ) {
       continue;

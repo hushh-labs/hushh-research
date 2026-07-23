@@ -2678,6 +2678,184 @@ class OneLocationAgentService:
         )
         return row is not None
 
+    def _is_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> bool:
+        """Fail closed when the selected-contact table is unavailable.
+
+        Postgres is the authoritative membership store. A future Redis layer may
+        cache this lookup, but it must preserve the same owner-scoped contract
+        and fall back to Postgres without broadening the recipient set.
+        """
+        try:
+            row = self._execute_one(
+                """
+                SELECT 1
+                FROM one_location_sms_contacts
+                WHERE owner_user_id = :owner_user_id
+                  AND contact_user_id = :contact_user_id
+                LIMIT 1
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "contact_user_id": contact_user_id,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - safety path must fail closed
+            logger.warning(
+                "one_location.sms_contact_lookup_failed owner=%s contact=%s error=%s",
+                redact_log_field("owner_user_id", owner_user_id),
+                redact_log_field("contact_user_id", contact_user_id),
+                exc,
+            )
+            return False
+        return row is not None
+
+    def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
+        rows = self._execute_many(
+            """
+            SELECT sms.contact_user_id
+            FROM one_location_sms_contacts sms
+            WHERE sms.owner_user_id = :owner_user_id
+              AND EXISTS (
+                SELECT 1
+                FROM connections c
+                WHERE c.status = 'active'
+                  AND (
+                    (c.user_a_id = :owner_user_id AND c.user_b_id = sms.contact_user_id)
+                    OR
+                    (c.user_b_id = :owner_user_id AND c.user_a_id = sms.contact_user_id)
+                  )
+              )
+            ORDER BY sms.created_at, sms.contact_user_id
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [
+            str(row.get("contact_user_id") or "")
+            for row in rows
+            if str(row.get("contact_user_id") or "").strip()
+        ]
+
+    def add_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> list[str]:
+        if owner_user_id == contact_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_SMS_CONTACT_SELF",
+                "Choose a different connection as an SMS contact.",
+                status_code=422,
+            )
+        if not self._is_active_connection(
+            owner_user_id=owner_user_id, other_user_id=contact_user_id
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_SMS_CONTACT_NOT_CONNECTED",
+                "Only an active connection can be added as an SMS contact.",
+                status_code=403,
+            )
+        # Reject contacts that cannot actually decrypt a live-location envelope.
+        self._recipient_key_row(
+            recipient_user_id=contact_user_id,
+            require_phone_verified=True,
+            unavailable_message=(
+                "This connection must finish Location setup before they can be "
+                "added as an SMS contact."
+            ),
+        )
+        self._execute_one(
+            """
+            INSERT INTO one_location_sms_contacts (
+              owner_user_id, contact_user_id, created_at, updated_at
+            )
+            VALUES (:owner_user_id, :contact_user_id, NOW(), NOW())
+            ON CONFLICT (owner_user_id, contact_user_id) DO UPDATE
+            SET updated_at = one_location_sms_contacts.updated_at
+            RETURNING contact_user_id
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "contact_user_id": contact_user_id,
+            },
+        )
+        return self.list_sms_contact_ids(owner_user_id=owner_user_id)
+
+    def remove_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> list[str]:
+        self._execute_one(
+            """
+            DELETE FROM one_location_sms_contacts
+            WHERE owner_user_id = :owner_user_id
+              AND contact_user_id = :contact_user_id
+            RETURNING contact_user_id
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "contact_user_id": contact_user_id,
+            },
+        )
+        return self.list_sms_contact_ids(owner_user_id=owner_user_id)
+
+    def _send_location_share_created_notification(
+        self,
+        *,
+        grant: dict[str, Any],
+        owner_user_id: str,
+        recipient_user_id: str,
+        duration: float,
+        reason: str | None,
+        resolved_kind: str,
+    ) -> None:
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        share_message = _visible_share_message(reason)
+        if resolved_kind == "sos":
+            notification_title = "SMS · Save my soul"
+            notification_body = (
+                f"{owner_label}: {share_message}"
+                if share_message
+                else (f"{owner_label} sent a Save My Soul alert and shared live location with you.")
+            )
+        elif resolved_kind == "drive_to":
+            notification_title = "Drive shared"
+            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
+        elif resolved_kind == "pick_me_up":
+            notification_title = "Pickup requested"
+            notification_body = (
+                f"{owner_label}: {share_message}"
+                if share_message
+                else f"{owner_label} is requesting a pickup."
+            )
+        elif resolved_kind == "pickup_enroute":
+            notification_title = "Drive shared"
+            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
+        elif resolved_kind == "check_in":
+            notification_title = "Check-in shared"
+            notification_body = (
+                f"{owner_label}: {share_message}"
+                if share_message
+                else f"{owner_label} checked in and shared their location with you."
+            )
+        else:
+            notification_title = "Location shared"
+            notification_body = f"{owner_label} shared location access with you."
+        self._send_metadata_notification(
+            user_id=recipient_user_id,
+            notification_type="location_share_created",
+            title=notification_title,
+            body=notification_body,
+            notification_tag=f"one-location-share:{grant['id']}",
+            request_url=_one_location_url(
+                grantId=grant["id"],
+                locationNotification="opened",
+                section="shared",
+            ),
+            data={
+                "grant_id": grant["id"],
+                "owner_user_id": owner_user_id,
+                "owner_display_label": owner_label,
+                "duration_hours": str(duration),
+                "expires_at": grant.get("expiresAt"),
+                "share_kind": resolved_kind,
+                **({"share_message": share_message} if share_message else {}),
+            },
+        )
+
     def create_grant(
         self,
         *,
@@ -2712,14 +2890,20 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
+        resolved_kind = share_kind or _classify_share_kind(reason)
+        if resolved_kind == "sos" and not self._is_sms_contact(
+            owner_user_id=owner_user_id, contact_user_id=recipient_user_id
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_SMS_CONTACT_REQUIRED",
+                "This person is not in your SMS contacts.",
+                status_code=403,
+            )
         recipient = self._recipient_key_row(
             recipient_user_id=recipient_user_id,
             recipient_key_id=recipient_key_id,
             require_phone_verified=require_recipient_phone_verified,
         )
-        resolved_kind = share_kind or _classify_share_kind(reason)
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
         key_id = str(recipient.get("key_id") or "")
         expires_at = _utcnow() + timedelta(hours=duration)
         capability = self._mint_grant_capability_token(
@@ -2788,67 +2972,18 @@ class OneLocationAgentService:
             event_type="location_share_created",
             metadata={"duration_hours": duration},
         )
-        # Kind-aware notification copy so the recipient instantly knows WHAT this
-        # is (emergency SOS vs friendly Check-In vs plain share) and WHY. The
-        # share kind comes from the grant "reason" marker; a Check-In note is
-        # surfaced verbatim ("<Owner>: <message>"), SOS gets urgent dedicated
-        # copy, and a plain share keeps the neutral line. Internal markers
-        # ("owner_approved" / "request_approved" / "sos_panic") are never shown
-        # as a raw message.
-        share_message = _visible_share_message(reason)
-        if resolved_kind == "sos":
-            notification_title = "SOS alert"
-            notification_body = (
-                f"{owner_label} triggered an SOS and is sharing live location with you."
-            )
-        elif resolved_kind == "drive_to":
-            notification_title = "Drive shared"
-            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
-        elif resolved_kind == "pick_me_up":
-            notification_title = "Pickup requested"
-            notification_body = (
-                f"{owner_label}: {share_message}"
-                if share_message
-                else f"{owner_label} is requesting a pickup."
-            )
-        elif resolved_kind == "pickup_enroute":
-            notification_title = "Drive shared"
-            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
-        elif resolved_kind == "check_in":
-            notification_title = "Check-in shared"
-            notification_body = (
-                f"{owner_label}: {share_message}"
-                if share_message
-                else f"{owner_label} checked in and shared their location with you."
-            )
-        else:
-            notification_title = "Location shared"
-            notification_body = f"{owner_label} shared location access with you."
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
-        # user action, so direct/SOS/check-in/drive shares use this notification
-        # while approvals use only location_access_approved.
-        if reason != "request_approved":
-            self._send_metadata_notification(
-                user_id=recipient_user_id,
-                notification_type="location_share_created",
-                title=notification_title,
-                body=notification_body,
-                notification_tag=f"one-location-share:{grant['id']}",
-                request_url=_one_location_url(
-                    grantId=grant["id"],
-                    locationNotification="opened",
-                    section="shared",
-                ),
-                data={
-                    "grant_id": grant["id"],
-                    "owner_user_id": owner_user_id,
-                    "owner_display_label": owner_label,
-                    "duration_hours": str(duration),
-                    "expires_at": grant.get("expiresAt"),
-                    "share_kind": resolved_kind,
-                    **({"share_message": share_message} if share_message else {}),
-                },
+        # user action. SMS waits until its first encrypted envelope is durably
+        # stored so a recipient is never told a location is available too early.
+        if reason != "request_approved" and resolved_kind != "sos":
+            self._send_location_share_created_notification(
+                grant=grant,
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration=duration,
+                reason=reason,
+                resolved_kind=resolved_kind,
             )
         return grant
 
@@ -2890,6 +3025,7 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
+        is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
         expires_at = _parse_datetime(grant_row.get("expires_at"), field_name="expires_at")
         if expires_at <= _utcnow():
             self._expire_stale_grants(owner_user_id)
@@ -2981,6 +3117,25 @@ class OneLocationAgentService:
                 "recipient_key_id": recipient_key_id,
             },
         )
+        grant_metadata = _loads_json(grant_row.get("metadata"))
+        if not isinstance(grant_metadata, dict):
+            grant_metadata = {}
+        stored_kind = str(grant_metadata.get("share_kind") or "")
+        if stored_kind == "sos" and is_first_envelope:
+            self._send_location_share_created_notification(
+                grant=self._grant_payload(
+                    {
+                        **grant_row,
+                        "latest_envelope_id": envelope_payload["id"],
+                    }
+                )
+                or {"id": grant_id, "expiresAt": _iso(grant_row.get("expires_at"))},
+                owner_user_id=owner_user_id,
+                recipient_user_id=str(grant_row.get("recipient_user_id") or ""),
+                duration=float(grant_row.get("duration_hours") or 8),
+                reason=str(grant_metadata.get("reason") or "") or None,
+                resolved_kind="sos",
+            )
         return envelope_payload
 
     def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
@@ -3972,6 +4127,26 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
+        sms_contacts = _safe_many(
+            "sms_contacts",
+            """
+            SELECT sms.contact_user_id
+            FROM one_location_sms_contacts sms
+            WHERE sms.owner_user_id = :user_id
+              AND EXISTS (
+                SELECT 1
+                FROM connections c
+                WHERE c.status = 'active'
+                  AND (
+                    (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
+                    OR
+                    (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
+                  )
+              )
+            ORDER BY sms.created_at, sms.contact_user_id
+            """,
+            {"user_id": user_id},
+        )
         public_submissions = _safe_many(
             "public_submissions",
             """
@@ -4064,6 +4239,11 @@ class OneLocationAgentService:
                 payload
                 for row in network_connections
                 if (payload := self._trusted_connection_as_network_payload(row))
+            ],
+            "smsContactUserIds": [
+                str(row.get("contact_user_id") or "")
+                for row in sms_contacts
+                if str(row.get("contact_user_id") or "").strip()
             ],
             "publicInviteSubmissions": [
                 payload

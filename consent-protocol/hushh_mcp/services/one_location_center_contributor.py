@@ -42,15 +42,15 @@ _ACTIVE_GRANT_STATUSES = {"active", "approved", "granted"}
 _PENDING_REQUEST_STATUSES = {"pending", "request_pending", "sent"}
 
 # Human-facing labels + scope descriptions per share kind so the Consent Manager
-# can render a "SOS" / "Check-In" / "Share" tag and an accurate one-line
+# can render an "SMS" / "Check-In" / "Share" tag and an accurate one-line
 # description instead of the same generic copy for every location grant.
 _SHARE_KIND_LABEL = {
-    "sos": "SOS",
+    "sos": "SMS",
     "check_in": "Check-In",
     "share": "Share",
 }
 _SHARE_KIND_SCOPE_DESCRIPTION = {
-    "sos": "SOS emergency live location",
+    "sos": "SMS · Save my soul live location",
     "check_in": "Check-in live location",
     "share": "Live location sharing",
 }

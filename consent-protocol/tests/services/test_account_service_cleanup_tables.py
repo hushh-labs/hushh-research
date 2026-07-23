@@ -100,6 +100,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_sms_contacts",
         "DELETE FROM one_location_referrals",
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
@@ -209,6 +210,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_sms_contacts",
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql

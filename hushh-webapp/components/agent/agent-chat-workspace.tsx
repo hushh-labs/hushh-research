@@ -4091,7 +4091,7 @@ export function AgentChatWorkspace({
                     confirmLabel={
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .type === "sos_panic"
-                        ? "Send SOS"
+                        ? "Send SMS"
                         : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                               .type === "request_device_location_permission"
                           ? "Allow location"
@@ -4106,7 +4106,7 @@ export function AgentChatWorkspace({
                       );
                       const confirmText =
                         directivePayloadType === "sos_panic"
-                          ? "Send SOS"
+                          ? "Send SMS"
                           : directivePayloadType === "request_device_location_permission"
                             ? "Allow location"
                             : "Share";

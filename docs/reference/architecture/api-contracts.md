@@ -188,6 +188,8 @@ not the product owner for live location.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection to the authenticated owner's Save My Soul contacts |
+| DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |

@@ -95,3 +95,22 @@ def test_location_map_presence_migration_is_additive_and_private_by_default() ->
     assert "foreground_map_visible" in sql
     assert "DROP TABLE" not in sql
     assert "DELETE FROM" not in sql
+
+
+def test_sms_contact_migration_is_owner_scoped_and_fails_closed_by_default() -> None:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    schema_contract = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
+    migration_name = "116_one_location_sms_contacts.sql"
+    sql = (MIGRATIONS_DIR / migration_name).read_text(encoding="utf-8")
+    rollback = (MIGRATIONS_DIR / "rollback" / "116_one_location_sms_contacts_down.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert migration_name in manifest["ordered_migrations"]
+    assert migration_name in manifest["groups"]["iam"]
+    assert "one_location_sms_contacts" in schema_contract["required_tables"]
+    assert "PRIMARY KEY (owner_user_id, contact_user_id)" in sql
+    assert "CHECK (owner_user_id <> contact_user_id)" in sql
+    assert "REFERENCES actor_profiles(user_id) ON DELETE CASCADE" in sql
+    assert "INSERT INTO" not in sql
+    assert "DROP TABLE IF EXISTS one_location_sms_contacts" in rollback

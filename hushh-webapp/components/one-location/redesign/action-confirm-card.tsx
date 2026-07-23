@@ -9,7 +9,7 @@ const CONFIRM_LABEL: Record<ClientAction["type"], string> = {
   publish_share: "Share",
   view_envelope: "View",
   create_public_link: "Create link",
-  sos_panic: "Send SOS",
+  sos_panic: "Send SMS",
   check_in: "Check in",
 };
 

@@ -1,220 +1,294 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Shield, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
+import { ArrowLeft, Phone } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
+
+const HOLD_DURATION_MS = 2_000;
+export type SmsQuickMessage = "Come get me" | "I'm not safe";
 
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   active: boolean;
   busy: boolean;
-  startedAtLabel: string | null;
-  onTrigger: () => void;
-  onStop: () => void;
-  recipientLabel: (r: OneLocationRecipient) => string;
-  isRecipientShareReady: (r: OneLocationRecipient) => boolean;
-  countdownSeconds?: number;
+  onTrigger: (message?: SmsQuickMessage | null) => void;
+  onClose: () => void;
+  onEditContacts: () => void;
+  recipientLabel: (recipient: OneLocationRecipient) => string;
+  isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
 };
 
-/** First name only, for the "notify Ankit, Akshat and Kushal" sentence. */
 function firstNameOf(label: string): string {
-  const trimmed = label.trim();
-  const first = trimmed.split(/\s+/)[0];
-  return first || trimmed;
+  return label.trim().split(/\s+/)[0] || label.trim();
 }
 
-/** "Ankit", "Ankit and Akshat", "Ankit, Akshat and Kushal", "… and 2 others". */
 function formatNames(names: string[]): string {
-  if (names.length === 0) return "your circle";
+  if (names.length === 0) return "";
   if (names.length === 1) return names[0]!;
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  const shown = names.slice(0, 3);
-  if (names.length === 3) return `${shown[0]}, ${shown[1]} and ${shown[2]}`;
-  return `${shown[0]}, ${shown[1]} and ${names.length - 2} others`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
 }
 
-/**
- * SOS card for the Safety screen (Apple Blue v2 design).
- *
- * Behaviour is unchanged from the original panel: the primary red button arms a
- * short, cancellable countdown before firing `onTrigger` (never fires by
- * accident); while active it shows the "alerted" state with an "I'm safe" stop.
- * Only the presentation is reskinned to the design — literal red values with
- * dark variants layered on.
- */
 export function SosPanel({
   recipients,
   active,
   busy,
-  startedAtLabel,
   onTrigger,
-  onStop,
+  onClose,
+  onEditContacts,
   recipientLabel,
   isRecipientShareReady,
-  countdownSeconds = 5,
 }: SosPanelProps) {
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [message, setMessage] = useState<SmsQuickMessage | null>(null);
+  const [progress, setProgress] = useState(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const holdStartedAtRef = useRef(0);
   const firedRef = useRef(false);
+  const observedBusyRef = useRef(false);
 
-  const stopTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
+  const readyRecipients = useMemo(
+    () => recipients.filter(isRecipientShareReady),
+    [isRecipientShareReady, recipients],
+  );
+  const names = useMemo(
+    () =>
+      formatNames(
+        readyRecipients.map((recipient) =>
+          firstNameOf(recipientLabel(recipient)),
+        ),
+      ),
+    [readyRecipients, recipientLabel],
+  );
+  const disabled = busy || active || readyRecipients.length === 0;
 
-  useEffect(() => stopTimer, []);
-
-  // Stable reference so the active-flip effect can list it without re-firing every render.
-  const cancelCountdown = useCallback(() => {
-    stopTimer();
-    firedRef.current = false;
-    setRemaining(null);
+  const clearHold = useCallback((resetProgress = true) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    timeoutRef.current = null;
+    frameRef.current = null;
+    holdStartedAtRef.current = 0;
+    if (resetProgress && !firedRef.current) setProgress(0);
   }, []);
 
-  const startCountdown = () => {
-    if (busy || active) return;
-    firedRef.current = false;
-    setRemaining(countdownSeconds);
-    stopTimer();
-    timerRef.current = setInterval(() => {
-      // Pure decrement only — side-effects (onTrigger) live in a useEffect below.
-      setRemaining((prev) => (prev === null ? null : prev - 1));
-    }, 1000);
+  const completeHold = useCallback(() => {
+    if (firedRef.current || disabled) return;
+    firedRef.current = true;
+    clearHold(false);
+    setProgress(1);
+    onTrigger(message);
+  }, [clearHold, disabled, message, onTrigger]);
+
+  const updateProgress = useCallback(() => {
+    if (!holdStartedAtRef.current || firedRef.current) return;
+    const elapsed = performance.now() - holdStartedAtRef.current;
+    setProgress(Math.min(elapsed / HOLD_DURATION_MS, 1));
+    if (elapsed < HOLD_DURATION_MS) {
+      frameRef.current = requestAnimationFrame(updateProgress);
+    }
+  }, []);
+
+  const startHold = useCallback(() => {
+    if (disabled || holdStartedAtRef.current || firedRef.current) return;
+    holdStartedAtRef.current = performance.now();
+    setProgress(0);
+    frameRef.current = requestAnimationFrame(updateProgress);
+    timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
+  }, [completeHold, disabled, updateProgress]);
+
+  const cancelHold = useCallback(() => clearHold(true), [clearHold]);
+
+  useEffect(() => {
+    const onWindowBlur = () => cancelHold();
+    const onVisibility = () => {
+      if (document.hidden) cancelHold();
+    };
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearHold();
+    };
+  }, [cancelHold, clearHold]);
+
+  useEffect(() => {
+    if (busy) observedBusyRef.current = true;
+    if (!busy && observedBusyRef.current && !active) {
+      observedBusyRef.current = false;
+      firedRef.current = false;
+      setProgress(0);
+    }
+  }, [active, busy]);
+
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button > 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    startHold();
   };
 
-  // Fire onTrigger exactly once when the countdown reaches zero.
-  // Keeping it outside the functional updater prevents double-firing under StrictMode.
-  useEffect(() => {
-    if (remaining === 0 && !firedRef.current) {
-      firedRef.current = true;
-      stopTimer();
-      setRemaining(null);
-      onTrigger();
+  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  }, [remaining, onTrigger]);
+    cancelHold();
+  };
 
-  // Cancel any running countdown when the SOS becomes active externally.
-  useEffect(() => {
-    if (active) cancelCountdown();
-  }, [active, cancelCountdown]);
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+      event.preventDefault();
+      startHold();
+    }
+  };
 
-  const readyRecipients = recipients.filter(isRecipientShareReady);
-  const readyCount = readyRecipients.length;
-  const names = formatNames(
-    (readyCount > 0 ? readyRecipients : recipients).map((r) =>
-      firstNameOf(recipientLabel(r)),
-    ),
-  );
+  const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      cancelHold();
+    }
+  };
 
-  // ACTIVE — the alert is live.
-  if (active) {
-    return (
-      <section className="relative overflow-hidden rounded-[18px] bg-[#fbe9e6] p-[22px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[#3a1512]">
-        <div
-          className="pointer-events-none absolute right-6 top-1/2 flex h-[66px] w-[66px] -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-[0_4px_16px_rgba(148,32,26,0.2)] dark:bg-white/10"
-          aria-hidden
+  return (
+    <section
+      className="fixed inset-0 z-[90] overflow-y-auto bg-black text-white"
+      data-testid="sms-safety-screen"
+    >
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))]">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Back to Location"
+          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-[#202023] text-white"
         >
-          <Shield className="h-7 w-7 text-[#e0342c]" strokeWidth={1.5} />
-        </div>
-        <div className="relative z-[1] max-w-[210px]">
-          <div className="flex items-center gap-2">
-            <span className="h-[11px] w-[11px] rounded-full bg-[#e0342c]" />
-            <span className="text-[14px] font-bold tracking-[0.04em] text-[#d92c24] dark:text-[#ff6f66]">
-              ALERT ACTIVE
-            </span>
-          </div>
-          <h2 className="mt-3.5 max-w-[200px] text-[29px] font-bold leading-[1.15] tracking-[-0.4px] text-foreground">
-            Your circle has been alerted
-          </h2>
-          <p className="mt-3 text-[15px] leading-[1.5] text-black/50 dark:text-white/55">
-            Your trusted contacts have been notified and can see your live
-            location.
+          <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+        </button>
+
+        <header className="mt-1 px-3 text-center">
+          <h1 className="text-[28px] font-bold leading-[1.15] tracking-[-0.45px]">
+            SMS · Save my soul
+          </h1>
+          <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
+            Press and hold. Your SMS contacts get your live location in One —
+            when connected.
           </p>
-          <div className="mt-5 flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#34c759]" />
-            <span className="text-[16px] font-bold text-foreground">Live now</span>
+        </header>
+
+        <div className="flex min-h-[310px] flex-1 items-center justify-center py-6">
+          <div className="relative flex h-[252px] w-[252px] items-center justify-center">
+            <span className="absolute inset-0 rounded-full border border-white/10" />
+            <span className="absolute inset-[24px] rounded-full border border-white/15" />
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={
+                active
+                  ? "SMS sharing is active"
+                  : "Press and hold for two seconds to send SMS"
+              }
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerEnd}
+              onPointerCancel={handlePointerEnd}
+              onPointerLeave={cancelHold}
+              onKeyDown={handleKeyDown}
+              onKeyUp={handleKeyUp}
+              onContextMenu={(event) => event.preventDefault()}
+              className={cn(
+                "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[#ff3b30] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                progress > 0 && progress < 1 && "scale-[1.035]",
+                disabled && "cursor-not-allowed opacity-45",
+              )}
+              style={{
+                boxShadow:
+                  progress > 0
+                    ? `0 0 0 ${Math.round(progress * 8)}px rgba(255,59,48,.18)`
+                    : undefined,
+              }}
+            >
+              <span className="text-[31px] font-bold leading-none">
+                {active ? "SENT" : "SMS"}
+              </span>
+              <span className="mt-1.5 text-[12px] text-white/85">
+                {busy
+                  ? "Sending…"
+                  : active
+                    ? "Live now"
+                    : progress > 0
+                      ? `${Math.max(0, 2 - progress * 2).toFixed(1)} s`
+                      : "Hold 2 s"}
+              </span>
+            </button>
           </div>
-          {startedAtLabel ? (
-            <p className="ml-[18px] mt-1 text-[14px] text-black/45 dark:text-white/45">
-              Started {startedAtLabel}
+        </div>
+
+        <div className="mt-auto">
+          <p className="truncate px-2 text-center text-[13px] text-white/70">
+            {names ? `SMS goes to ${names}` : "No SMS contacts selected"}{" "}
+            ·{" "}
+            <button
+              type="button"
+              onClick={onEditContacts}
+              className="font-semibold text-[#2997ff]"
+            >
+              Edit
+            </button>
+          </p>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {(["Come get me", "I'm not safe"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={message === option}
+                onClick={() =>
+                  setMessage((current) => (current === option ? null : option))
+                }
+                className={cn(
+                  "press-scale h-10 rounded-full border text-[13px] font-semibold",
+                  message === option
+                    ? "border-white bg-white text-black"
+                    : "border-white/5 bg-[#1c1c1e] text-white",
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <a
+              href="tel:911"
+              className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] text-[15px] font-semibold text-white"
+            >
+              <Phone className="h-4 w-4 fill-current" aria-hidden />
+              Call 911
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="press-scale h-12 rounded-full border border-white/55 text-[15px] font-semibold text-white"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {!names ? (
+            <p className="mt-2 text-center text-[12px] text-white/55">
+              Add a ready connection before sending an SMS.
             </p>
           ) : null}
-          <Button
-            variant="destructive"
-            onClick={onStop}
-            isLoading={busy}
-            className="mt-5 h-12 w-full rounded-full text-[15px] font-semibold"
-          >
-            I&apos;m safe — Stop sharing
-          </Button>
         </div>
-      </section>
-    );
-  }
-
-  // ARMED — countdown running, still cancellable.
-  if (remaining !== null) {
-    return (
-      <section className="rounded-[18px] bg-white p-[22px] text-center shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
-        <p className="text-[15px] font-semibold text-[#d92c24] dark:text-[#ff6f66]">
-          Alerting {names} in
-        </p>
-        <p
-          className="my-2 text-6xl font-bold text-[#e0342c]"
-          aria-live="assertive"
-        >
-          {remaining}
-        </p>
-        <Button
-          variant="outline"
-          onClick={cancelCountdown}
-          className="h-12 w-full rounded-full text-[15px] font-semibold"
-        >
-          <X className="mr-1.5 h-4 w-4" aria-hidden />
-          Cancel
-        </Button>
-      </section>
-    );
-  }
-
-  // CALM — SOS ready.
-  return (
-    <section className="rounded-[18px] bg-white p-[22px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
-      <div className="flex items-center gap-2">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#34c759]" />
-        <span className="text-[14px] font-bold tracking-[0.04em] text-[#28a745] dark:text-[#4ade80]">
-          SOS READY
-        </span>
       </div>
-      <h2 className="mt-3 text-[26px] font-bold leading-[1.15] tracking-[-0.4px] text-foreground">
-        You&apos;re covered
-      </h2>
-      <p className="mt-2.5 text-[15px] leading-[1.5] text-black/50 dark:text-white/55">
-        Hold Alert to notify {names} with your live location. It never fires by
-        accident.
-      </p>
-      <button
-        type="button"
-        onClick={startCountdown}
-        disabled={busy || readyCount === 0}
-        className={cn(
-          "mt-[18px] flex w-full items-center justify-center gap-2 rounded-full bg-[#e0342c] py-[14px] text-[15px] font-semibold text-white transition-opacity",
-          (busy || readyCount === 0) && "opacity-50",
-        )}
-      >
-        <Shield className="h-4 w-4" strokeWidth={1.8} />
-        Open Alert
-      </button>
-      {readyCount === 0 ? (
-        <p className="mt-2.5 text-center text-[12px] text-black/45 dark:text-white/45">
-          Add a trusted contact who&apos;s ready to receive your location.
-        </p>
-      ) : null}
     </section>
   );
 }

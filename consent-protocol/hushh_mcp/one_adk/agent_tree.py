@@ -823,7 +823,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Location specialist about live location sharing with trusted people, check-ins, or SOS."""
+    """Ask the Location specialist about live location sharing, check-ins, or Save My Soul."""
     return await _specialist_turn("agent_location", request, tool_context)
 
 

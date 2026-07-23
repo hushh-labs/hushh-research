@@ -13,17 +13,24 @@ const HUB_SOURCE = fs.readFileSync(
   ),
   "utf8",
 );
+const SMS_PANEL_SOURCE = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../components/one-location/redesign/sos-panel.tsx",
+  ),
+  "utf8",
+);
 
-describe("One Location SOS emergency actions", () => {
-  it("keeps one local emergency row that opens the device dialer", () => {
+describe("One Location SMS emergency actions", () => {
+  it("opens the US 911 dialer only after an explicit user tap", () => {
     render(<LocalEmergencyDialerRow />);
 
     expect(
-      screen.getByRole("link", { name: "Open local emergency dialer" }),
-    ).toHaveAttribute("href", "tel:");
-    expect(screen.getByText("Local Emergency")).toBeInTheDocument();
-    expect(screen.getByText("Open your phone dialer")).toBeInTheDocument();
-    expect(HUB_SOURCE.match(/<LocalEmergencyDialerRow \/>/g)).toHaveLength(1);
+      screen.getByRole("link", { name: "Call 911" }),
+    ).toHaveAttribute("href", "tel:911");
+    expect(screen.getByText("Emergency services")).toBeInTheDocument();
+    expect(screen.getByText("United States")).toBeInTheDocument();
+    expect(SMS_PANEL_SOURCE).toContain('href="tel:911"');
   });
 
   it("does not advertise unimplemented SOS support actions", () => {

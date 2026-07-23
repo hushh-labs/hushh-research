@@ -288,6 +288,8 @@ export type OneLocationState = {
   publicInvites: OneLocationPublicInvite[];
   circleInvites?: OneLocationCircleInvite[];
   networkConnections?: OneLocationNetworkConnection[];
+  /** Owner-selected, connected recipients eligible for Save My Soul alerts. */
+  smsContactUserIds?: string[];
   publicInviteSubmissions: OneLocationPublicInviteSubmission[];
   capabilityScopes: string[];
 };

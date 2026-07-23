@@ -108,6 +108,19 @@ export function selectShareReadyRecipients(
   return recipients.filter((r) => r.canReceiveLocation === true);
 }
 
+/**
+ * Fail-closed Save My Soul selection. An empty or unavailable membership list
+ * never falls back to every connected person.
+ */
+export function selectSmsRecipients(
+  recipients: OneLocationRecipient[],
+  smsContactUserIds: string[] | undefined,
+): OneLocationRecipient[] {
+  const selectedIds = new Set(smsContactUserIds ?? []);
+  if (selectedIds.size === 0) return [];
+  return recipients.filter((recipient) => selectedIds.has(recipient.userId));
+}
+
 // ---------------------------------------------------------------------------
 // 4. Panic execution
 // ---------------------------------------------------------------------------
@@ -117,6 +130,8 @@ export interface RunSosPanicParams {
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
+  /** Optional fixed quick message shown in the recipient notification. */
+  note?: "Come get me" | "I'm not safe" | null;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
    * encrypt+store implementation (and is therefore easy to unit-test).
@@ -146,10 +161,10 @@ export interface RunSosPanicParams {
 export async function runSosPanic(
   params: RunSosPanicParams,
 ): Promise<SosIncident> {
-  const { vaultOwnerToken, recipients, point, publish } = params;
+  const { vaultOwnerToken, recipients, point, publish, note } = params;
 
   if (!recipients.length) {
-    throw new SosPanicError("No SOS recipients provided.", null);
+    throw new SosPanicError("No SMS contacts provided.", null);
   }
 
   // Capture a single timestamp used for both the success incident and any
@@ -164,7 +179,8 @@ export async function runSosPanic(
         recipientUserId: recipient.userId,
         recipientKeyId: recipient.keyId,
         durationHours: 8,
-        reason: "sos_panic",
+        reason: note || "sos_panic",
+        shareKind: "sos",
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
       // publish throws for this or a later recipient.

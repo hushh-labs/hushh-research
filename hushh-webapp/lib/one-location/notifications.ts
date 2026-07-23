@@ -453,11 +453,11 @@ export function normalizeOneLocationShareKind(
   return "share";
 }
 
-/** Short, human tag per share kind for badges/labels (SOS / Check-In / Share). */
+/** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {
     case "sos":
-      return "SOS";
+      return "SMS";
     case "check_in":
       return "Check-In";
     case "drive_to":
@@ -469,9 +469,8 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
 
 /**
  * Kind-aware title + description for a received location share so the recipient
- * instantly sees WHAT it is (emergency SOS vs friendly Check-In vs plain share)
- * and WHY. A Check-In note is surfaced verbatim ("<Owner>: <message>"); SOS gets
- * urgent dedicated copy; a plain share keeps the neutral line.
+ * instantly sees WHAT it is (Save My Soul vs friendly Check-In vs plain share)
+ * and WHY. Fixed SMS and Check-In messages are surfaced with the sender label.
  */
 export function locationShareNotificationCopy(params: {
   ownerLabel?: string | null;
@@ -483,8 +482,10 @@ export function locationShareNotificationCopy(params: {
   const kind = normalizeOneLocationShareKind(params.shareKind);
   if (kind === "sos") {
     return {
-      title: "SOS alert",
-      description: `${label} triggered an SOS and is sharing live location with you. Open to view it now.`,
+      title: "SMS · Save my soul",
+      description: message
+        ? `${label}: ${message}`
+        : `${label} sent an SMS and shared live location with you. Open to view it now.`,
     };
   }
   if (kind === "check_in") {
@@ -629,7 +630,7 @@ export function recordOneLocationShareNotification(params: {
   // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
   // "Open" deep-link into the recipient's "Shared with me" section, so the
   // share is reachable from the bell - not only the transient toast. The copy is
-  // kind-aware so the bell entry reads "SOS alert" / "Check-in shared" (with the
+  // kind-aware so the bell entry reads "SMS · Save my soul" / "Check-in shared" (with the
   // note) / "Location shared" instead of one generic line for every share.
   const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
   const shareKind = normalizeOneLocationShareKind(params.shareKind);
