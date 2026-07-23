@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
@@ -60,8 +60,8 @@ describe("SmsContactsFlow", () => {
     expect(onAdd).toHaveBeenCalledWith("available");
   });
 
-  it("requires confirmation before removing membership", () => {
-    const onRemove = vi.fn();
+  it("requires confirmation and waits for successful removal", async () => {
+    const onRemove = vi.fn().mockResolvedValue(true);
     render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
@@ -72,6 +72,46 @@ describe("SmsContactsFlow", () => {
       hidden: true,
     });
     fireEvent.click(removeButtons[removeButtons.length - 1]!);
-    expect(onRemove).toHaveBeenCalledWith("selected");
+    await waitFor(() => {
+      expect(onRemove).toHaveBeenCalledWith("selected");
+      expect(screen.queryByText("Remove Kushal?")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the confirmation open when removal fails", async () => {
+    const onRemove = vi.fn().mockResolvedValue(false);
+    render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const removeButtons = screen.getAllByRole("button", {
+      name: "Remove",
+      hidden: true,
+    });
+    fireEvent.click(removeButtons[removeButtons.length - 1]!);
+
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith("selected"));
+    expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
+  });
+
+  it("owns a full-screen settings canvas and a bottom-sheet confirmation", () => {
+    render(
+      <SmsContactsFlow
+        {...baseProps}
+        onRemove={vi.fn().mockResolvedValue(true)}
+      />,
+    );
+
+    expect(screen.getByTestId("sms-contacts-screen")).toHaveClass(
+      "fixed",
+      "inset-0",
+      "bg-[#f2f3f7]",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByRole("alertdialog")).toHaveClass(
+      "!bottom-0",
+      "!top-auto",
+      "!max-w-[430px]",
+      "!rounded-t-[24px]",
+    );
   });
 });

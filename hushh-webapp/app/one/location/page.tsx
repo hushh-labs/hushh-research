@@ -1761,7 +1761,9 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.userId, vaultOwnerToken]);
   const updateLocationWorkspace = useCallback(
-    (updater: (current: LocationWorkspaceMemory) => LocationWorkspaceMemory) => {
+    (
+      updater: (current: LocationWorkspaceMemory) => LocationWorkspaceMemory,
+    ) => {
       setLocationWorkspace((current) => {
         const next = updater(current);
         writeLocationWorkspaceMemory(auth.userId, next);
@@ -1777,9 +1779,11 @@ export function OneLocationAgentPageContent({
         ...current,
         myLocationPoint:
           typeof next === "function"
-            ? (next as (value: PlainLocationPoint | null) => PlainLocationPoint | null)(
-                current.myLocationPoint,
-              )
+            ? (
+                next as (
+                  value: PlainLocationPoint | null,
+                ) => PlainLocationPoint | null
+              )(current.myLocationPoint)
             : next,
       }));
     },
@@ -1796,9 +1800,11 @@ export function OneLocationAgentPageContent({
         ...current,
         decryptedPoints:
           typeof next === "function"
-            ? (next as (
-                value: Record<string, PlainLocationPoint>,
-              ) => Record<string, PlainLocationPoint>)(current.decryptedPoints)
+            ? (
+                next as (
+                  value: Record<string, PlainLocationPoint>,
+                ) => Record<string, PlainLocationPoint>
+              )(current.decryptedPoints)
             : next,
       }));
     },
@@ -2196,133 +2202,139 @@ export function OneLocationAgentPageContent({
     );
   }, [pendingCircleInviteToken, router, vaultOwnerToken]);
 
-  const refresh = useCallback(async (options?: { background?: boolean }) => {
-    if (!auth.userId) {
-      setBusy(null);
-      setLoadError("Sign in before loading location sharing.");
-      return;
-    }
-    if (!vaultOwnerToken) {
-      setBusy(null);
-      // `/one/location` is already protected by OneAuthGate -> VaultLockGuard.
-      // A missing owner token means that canonical hard gate is taking over;
-      // do not flash a second route-local unlock/error presentation first.
-      setLoadError(null);
-      return;
-    }
-    if (refreshInFlightRef.current) {
-      return refreshInFlightRef.current;
-    }
-    const activeUserId = auth.userId;
-    const activeUser = auth.user;
-    const activeVaultOwnerToken = vaultOwnerToken;
-    const hasUsableState = stateEntry?.userId === activeUserId;
-    // A memory snapshot is safe only for this unlocked session. Keep it visible
-    // while the network reconciles instead of replacing a usable Location page
-    // with the same foreground loader on every focus, push, or route re-entry.
-    const showForegroundLoad = !options?.background && !hasUsableState;
-    if (showForegroundLoad) {
-      setBusy((current) => current ?? "load");
-    }
-    const task = (async () => {
-      setLoadError(null);
-      try {
-        if (!activeUser) {
-          throw new Error(
-            "Refresh your session before loading location sharing.",
-          );
-        }
-        if (workspaceBootstrapUserRef.current !== activeUserId) {
-          await AccountIdentityService.syncCurrentUser(activeUser).catch(
-            (error) => {
-              console.warn(
-                "[OneLocation] Failed to sync account identity:",
-                error,
-              );
-            },
-          );
-          const key = await ensureLocationRecipientKey(activeUserId);
-          await OneLocationService.registerRecipientKey({
-            vaultOwnerToken: activeVaultOwnerToken,
-            keyId: key.keyId,
-            publicKeyJwk: key.publicKeyJwk,
-            algorithm: key.algorithm,
-          });
-          workspaceBootstrapUserRef.current = activeUserId;
-        }
-        const [nextPermission, nextState] = await Promise.all([
-          OneLocationService.getPermissionState().catch(() => ({
-            state: "unavailable" as const,
-            precise: false,
-            background: "unavailable" as const,
-          })),
-          OneLocationStateResource.load(activeUserId, () =>
-            OneLocationService.getState(activeVaultOwnerToken),
-          ),
-        ]);
-        setPermission(nextPermission);
-        const rankedNextRecipients = rankRecipientsForRecommendation(
-          enrichRecipientsWithContactSignal(
-            nextState.recipients,
-            contactMatchedUserIds,
-          ),
-          contactMatchedUserIds,
-        );
-        const firstRecommendedRecipient = rankedNextRecipients[0];
-        const shouldAutoSelectFallback =
-          !suppressAutoRecipientSelectionRef.current;
-        const nextRecipientIds = new Set(
-          nextState.recipients.map((recipient) => recipient.userId),
-        );
-        setSelectedRecipientId((current) =>
-          current && nextRecipientIds.has(current)
-            ? current
-            : shouldAutoSelectFallback
-              ? firstRecommendedRecipient?.userId || ""
-              : "",
-        );
-        setSelectedRequestOwnerId((current) =>
-          current && nextRecipientIds.has(current)
-            ? current
-            : shouldAutoSelectFallback
-              ? firstRecommendedRecipient?.userId || ""
-              : "",
-        );
-        // Multi-select share/request lists must never auto-select a default
-        // person: the redesign hub ("Who can see you?" / "Make it comfortable")
-        // requires the user to pick explicitly. We only preserve selections that
-        // are still valid after a refresh and otherwise leave the list empty.
-        setSelectedRecipientIds((current) =>
-          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
-        );
-        setSelectedRequestOwnerIds((current) =>
-          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
-        );
-        suppressAutoRecipientSelectionRef.current = false;
-      } catch (error) {
-        suppressAutoRecipientSelectionRef.current = false;
-        // ApiService handles rejected VAULT_OWNER tokens for web and native by
-        // locking the vault. Do not briefly render the backend auth message
-        // while VaultLockGuard switches to the standard re-unlock flow.
-        if (!isVaultOwnerAuthError(error)) {
-          setLoadError(
-            oneLocationErrorMessage(error, "Could not load location sharing."),
-          );
-        }
-      } finally {
-        refreshInFlightRef.current = null;
-        if (showForegroundLoad) setBusy(null);
+  const refresh = useCallback(
+    async (options?: { background?: boolean }) => {
+      if (!auth.userId) {
+        setBusy(null);
+        setLoadError("Sign in before loading location sharing.");
+        return;
       }
-    })();
-    refreshInFlightRef.current = task;
-    return task;
-  }, [
-    auth.user,
-    auth.userId,
-    contactMatchedUserIds,
-    stateEntry?.userId,
-    vaultOwnerToken,
-  ]);
+      if (!vaultOwnerToken) {
+        setBusy(null);
+        // `/one/location` is already protected by OneAuthGate -> VaultLockGuard.
+        // A missing owner token means that canonical hard gate is taking over;
+        // do not flash a second route-local unlock/error presentation first.
+        setLoadError(null);
+        return;
+      }
+      if (refreshInFlightRef.current) {
+        return refreshInFlightRef.current;
+      }
+      const activeUserId = auth.userId;
+      const activeUser = auth.user;
+      const activeVaultOwnerToken = vaultOwnerToken;
+      const hasUsableState = stateEntry?.userId === activeUserId;
+      // A memory snapshot is safe only for this unlocked session. Keep it visible
+      // while the network reconciles instead of replacing a usable Location page
+      // with the same foreground loader on every focus, push, or route re-entry.
+      const showForegroundLoad = !options?.background && !hasUsableState;
+      if (showForegroundLoad) {
+        setBusy((current) => current ?? "load");
+      }
+      const task = (async () => {
+        setLoadError(null);
+        try {
+          if (!activeUser) {
+            throw new Error(
+              "Refresh your session before loading location sharing.",
+            );
+          }
+          if (workspaceBootstrapUserRef.current !== activeUserId) {
+            await AccountIdentityService.syncCurrentUser(activeUser).catch(
+              (error) => {
+                console.warn(
+                  "[OneLocation] Failed to sync account identity:",
+                  error,
+                );
+              },
+            );
+            const key = await ensureLocationRecipientKey(activeUserId);
+            await OneLocationService.registerRecipientKey({
+              vaultOwnerToken: activeVaultOwnerToken,
+              keyId: key.keyId,
+              publicKeyJwk: key.publicKeyJwk,
+              algorithm: key.algorithm,
+            });
+            workspaceBootstrapUserRef.current = activeUserId;
+          }
+          const [nextPermission, nextState] = await Promise.all([
+            OneLocationService.getPermissionState().catch(() => ({
+              state: "unavailable" as const,
+              precise: false,
+              background: "unavailable" as const,
+            })),
+            OneLocationStateResource.load(activeUserId, () =>
+              OneLocationService.getState(activeVaultOwnerToken),
+            ),
+          ]);
+          setPermission(nextPermission);
+          const rankedNextRecipients = rankRecipientsForRecommendation(
+            enrichRecipientsWithContactSignal(
+              nextState.recipients,
+              contactMatchedUserIds,
+            ),
+            contactMatchedUserIds,
+          );
+          const firstRecommendedRecipient = rankedNextRecipients[0];
+          const shouldAutoSelectFallback =
+            !suppressAutoRecipientSelectionRef.current;
+          const nextRecipientIds = new Set(
+            nextState.recipients.map((recipient) => recipient.userId),
+          );
+          setSelectedRecipientId((current) =>
+            current && nextRecipientIds.has(current)
+              ? current
+              : shouldAutoSelectFallback
+                ? firstRecommendedRecipient?.userId || ""
+                : "",
+          );
+          setSelectedRequestOwnerId((current) =>
+            current && nextRecipientIds.has(current)
+              ? current
+              : shouldAutoSelectFallback
+                ? firstRecommendedRecipient?.userId || ""
+                : "",
+          );
+          // Multi-select share/request lists must never auto-select a default
+          // person: the redesign hub ("Who can see you?" / "Make it comfortable")
+          // requires the user to pick explicitly. We only preserve selections that
+          // are still valid after a refresh and otherwise leave the list empty.
+          setSelectedRecipientIds((current) =>
+            current.filter((recipientId) => nextRecipientIds.has(recipientId)),
+          );
+          setSelectedRequestOwnerIds((current) =>
+            current.filter((recipientId) => nextRecipientIds.has(recipientId)),
+          );
+          suppressAutoRecipientSelectionRef.current = false;
+        } catch (error) {
+          suppressAutoRecipientSelectionRef.current = false;
+          // ApiService handles rejected VAULT_OWNER tokens for web and native by
+          // locking the vault. Do not briefly render the backend auth message
+          // while VaultLockGuard switches to the standard re-unlock flow.
+          if (!isVaultOwnerAuthError(error)) {
+            setLoadError(
+              oneLocationErrorMessage(
+                error,
+                "Could not load location sharing.",
+              ),
+            );
+          }
+        } finally {
+          refreshInFlightRef.current = null;
+          if (showForegroundLoad) setBusy(null);
+        }
+      })();
+      refreshInFlightRef.current = task;
+      return task;
+    },
+    [
+      auth.user,
+      auth.userId,
+      contactMatchedUserIds,
+      stateEntry?.userId,
+      vaultOwnerToken,
+    ],
+  );
 
   const refreshLocationPermission = useCallback(async () => {
     const nextPermission = await OneLocationService.getPermissionState().catch(
@@ -2443,10 +2455,7 @@ export function OneLocationAgentPageContent({
   }, [auth.loading, auth.userId, refresh, stateEntry?.userId]);
 
   useEffect(() => {
-    if (
-      locationOnboardingGate !== "show" ||
-      !auth.user
-    ) {
+    if (locationOnboardingGate !== "show" || !auth.user) {
       return;
     }
 
@@ -2555,11 +2564,7 @@ export function OneLocationAgentPageContent({
     return () => {
       cancelled = true;
     };
-  }, [
-    auth.user,
-    locationOnboardingGate,
-    locationOnboardingPeopleRefresh,
-  ]);
+  }, [auth.user, locationOnboardingGate, locationOnboardingPeopleRefresh]);
 
   useEffect(() => {
     if (auth.loading) {
@@ -2993,118 +2998,138 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleTriggerSos = useCallback(async (
-    note?: "Come get me" | "I'm not safe" | null,
-  ) => {
-    if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
-    if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
-    const readyRecipients = smsActionRecipients.filter(
-      isSosShareReadyRecipient,
-    );
-    const totalSelected = smsActionRecipients.length;
-    if (!readyRecipients.length) {
-      toast.error(
-        totalSelected
-          ? "Your SMS contacts are not ready to receive location yet."
-          : "Add at least one SMS contact before sending an alert.",
+  const handleTriggerSos = useCallback(
+    async (note?: "Come get me" | "I'm not safe" | null) => {
+      if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
+        return;
+      const readyRecipients = smsActionRecipients.filter(
+        isSosShareReadyRecipient,
       );
-      return;
-    }
-    setBusy("sos");
-    try {
-      const readiness = await ensureForegroundLocationReady({
-        capturePoint: true,
-        autoOpenSettings: true,
-      });
-      if (!readiness.ready || !readiness.point) {
+      const totalSelected = smsActionRecipients.length;
+      if (!readyRecipients.length) {
         toast.error(
-          "Couldn't get your location — SMS not sent. Check location permissions.",
+          totalSelected
+            ? "Your SMS contacts are not ready to receive location yet."
+            : "Add at least one SMS contact before sending an alert.",
         );
         return;
       }
-      const point = readiness.point;
-      const incident = await runSosPanic({
-        vaultOwnerToken,
-        recipients: readyRecipients,
-        point,
-        note,
-        publish: (grant, recipient, pt) =>
-          publishEnvelopeWithRetry(grant, recipient, "manual", pt),
-      });
-      setSosIncident(incident);
-      const skipped = totalSelected - readyRecipients.length;
-      toast.success(
-        skipped > 0
-          ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-          : `SMS sent to ${readyRecipients.length} contact(s).`,
-      );
-      await refresh();
-    } catch (error) {
-      // Recover from memory — SosPanicError carries any partial incident
-      // in-process, so the SOS banner stays up even if localStorage failed.
-      if (error instanceof SosPanicError && error.partialIncident) {
-        setSosIncident(error.partialIncident);
-      }
-      toast.error(
-        error instanceof Error ? error.message : "Could not send SMS alert.",
-      );
-    } finally {
-      setBusy(null);
-    }
-  }, [
-    ensureForegroundLocationReady,
-    permission,
-    publishEnvelopeWithRetry,
-    smsActionRecipients,
-    refresh,
-    sosIncident,
-    vaultOwnerToken,
-  ]);
-
-  const handleAddSmsContact = useCallback(
-    async (recipientUserId: string) => {
-      if (!vaultOwnerToken || busy) return;
-      setBusy(`sms-contact:${recipientUserId}`);
+      setBusy("sos");
       try {
-        await OneLocationService.addSmsContact({
-          vaultOwnerToken,
-          recipientUserId,
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
         });
+        if (!readiness.ready || !readiness.point) {
+          toast.error(
+            "Couldn't get your location — SMS not sent. Check location permissions.",
+          );
+          return;
+        }
+        const point = readiness.point;
+        const incident = await runSosPanic({
+          vaultOwnerToken,
+          recipients: readyRecipients,
+          point,
+          note,
+          publish: (grant, recipient, pt) =>
+            publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+        });
+        setSosIncident(incident);
+        const skipped = totalSelected - readyRecipients.length;
+        toast.success(
+          skipped > 0
+            ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
+            : `SMS sent to ${readyRecipients.length} contact(s).`,
+        );
         await refresh();
-        toast.success("SMS contact added.");
       } catch (error) {
+        // Recover from memory — SosPanicError carries any partial incident
+        // in-process, so the SOS banner stays up even if localStorage failed.
+        if (error instanceof SosPanicError && error.partialIncident) {
+          setSosIncident(error.partialIncident);
+        }
         toast.error(
-          error instanceof Error ? error.message : "Could not add SMS contact.",
+          error instanceof Error ? error.message : "Could not send SMS alert.",
         );
       } finally {
         setBusy(null);
       }
     },
-    [busy, refresh, vaultOwnerToken],
+    [
+      ensureForegroundLocationReady,
+      permission,
+      publishEnvelopeWithRetry,
+      smsActionRecipients,
+      refresh,
+      sosIncident,
+      vaultOwnerToken,
+    ],
+  );
+
+  const handleAddSmsContact = useCallback(
+    async (recipientUserId: string) => {
+      if (!auth.userId || !vaultOwnerToken || busy) return false;
+      setBusy(`sms-contact:${recipientUserId}`);
+      try {
+        const smsContactUserIds = await OneLocationService.addSmsContact({
+          vaultOwnerToken,
+          recipientUserId,
+        });
+        if (
+          !OneLocationStateResource.replaceSmsContactUserIds(
+            auth.userId,
+            smsContactUserIds,
+          )
+        ) {
+          await refresh();
+        }
+        toast.success("SMS contact added.");
+        return true;
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not add SMS contact.",
+        );
+        return false;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.userId, busy, refresh, vaultOwnerToken],
   );
 
   const handleRemoveSmsContact = useCallback(
     async (recipientUserId: string) => {
-      if (!vaultOwnerToken || busy) return;
+      if (!auth.userId || !vaultOwnerToken || busy) return false;
       setBusy(`sms-contact:${recipientUserId}`);
       try {
-        await OneLocationService.removeSmsContact({
+        const smsContactUserIds = await OneLocationService.removeSmsContact({
           vaultOwnerToken,
           recipientUserId,
         });
-        await refresh();
+        if (
+          !OneLocationStateResource.replaceSmsContactUserIds(
+            auth.userId,
+            smsContactUserIds,
+          )
+        ) {
+          await refresh();
+        }
         toast.success("SMS contact removed.");
+        return true;
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
             : "Could not remove SMS contact.",
         );
+        return false;
       } finally {
         setBusy(null);
       }
     },
-    [busy, refresh, vaultOwnerToken],
+    [auth.userId, busy, refresh, vaultOwnerToken],
   );
 
   const handlePublish = useCallback(
@@ -3245,7 +3270,13 @@ export function OneLocationAgentPageContent({
         if (!silent) setBusy(null);
       }
     },
-    [auth.userId, vaultOwnerToken, vaultKey, state?.myRecipientKey, setDecryptedPoints],
+    [
+      auth.userId,
+      vaultOwnerToken,
+      vaultKey,
+      state?.myRecipientKey,
+      setDecryptedPoints,
+    ],
   );
 
   // Recipient-side "ask them to share again": re-request access from the owner
@@ -3592,7 +3623,12 @@ export function OneLocationAgentPageContent({
         void OneLocationService.clearLocationWatch(watchId).catch(() => null);
       }
     };
-  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state, setMyLocationPoint]);
+  }, [
+    selfPreviewStreaming,
+    activeOwnerGrants.length,
+    permission?.state,
+    setMyLocationPoint,
+  ]);
 
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
@@ -5299,8 +5335,8 @@ export function OneLocationAgentPageContent({
       surface === "map"
         ? "native-route-one-location-map"
         : mode === "setup"
-        ? "native-route-one-setup-location"
-        : "native-route-one-location",
+          ? "native-route-one-setup-location"
+          : "native-route-one-location",
     authState: auth.loading
       ? "pending"
       : auth.isAuthenticated
@@ -5468,8 +5504,7 @@ export function OneLocationAgentPageContent({
     onStopSos: handleStopSos,
     onAddSmsContact: (recipientUserId) =>
       void handleAddSmsContact(recipientUserId),
-    onRemoveSmsContact: (recipientUserId) =>
-      void handleRemoveSmsContact(recipientUserId),
+    onRemoveSmsContact: handleRemoveSmsContact,
     onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
       void handleCheckIn(recipientIds, durationHoursValue, messageValue),
   };
@@ -5542,7 +5577,10 @@ export function OneLocationAgentPageContent({
               className="h-9 rounded-full px-3"
             >
               {busy === "load" ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="mr-2 h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
               )}

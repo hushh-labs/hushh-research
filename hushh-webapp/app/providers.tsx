@@ -12,13 +12,7 @@
  * CacheProvider enables data sharing across page navigations to reduce API calls.
  */
 
-import {
-  CSSProperties,
-  ReactNode,
-  Suspense,
-  useEffect,
-  useMemo,
-} from "react";
+import { CSSProperties, ReactNode, Suspense, useEffect, useMemo } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
@@ -27,7 +21,10 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
-import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import {
+  resolveAppRouteLayout,
+  shouldSuppressPersistentChromeForRouteState,
+} from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
@@ -56,7 +53,11 @@ import {
   useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES, isFoundationPublicRoute, isRiaRoute } from "@/lib/navigation/routes";
+import {
+  ROUTES,
+  isFoundationPublicRoute,
+  isRiaRoute,
+} from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
@@ -105,7 +106,12 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  const hidesPersistentChrome = routeLayout.persistentChrome === "none";
+  const hidesPersistentChrome =
+    routeLayout.persistentChrome === "none" ||
+    shouldSuppressPersistentChromeForRouteState(
+      shellPathname,
+      searchParams?.get("action"),
+    );
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -131,7 +137,8 @@ function AppShellFrame({ children }: ProvidersProps) {
     topShellModel.mode === "bar-with-tabs"
       ? `${shellPathname}:${topShellModel.tabs.id}:${topShellModel.tabs.activeValue}`
       : shellPathname;
-  const hideGlobalChrome = !topShellMetrics.shellVisible || hidesPersistentChrome;
+  const hideGlobalChrome =
+    !topShellMetrics.shellVisible || hidesPersistentChrome;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
@@ -210,10 +217,10 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--app-scroll-bottom-pad": hidesPersistentChrome
           ? "0px"
           : isRiaRoute(pathname)
-          ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-          : hideGlobalChrome || isPublicStandaloneRoute
             ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-            : "var(--bottom-chrome-stack-height)",
+            : hideGlobalChrome || isPublicStandaloneRoute
+              ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+              : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
@@ -236,7 +243,8 @@ function AppShellFrame({ children }: ProvidersProps) {
     isFoundationRoute ||
     chromeState.useOnboardingChrome;
   const bottomShellModel = {
-    ambientEnabled: ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
+    ambientEnabled:
+      ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
     navigationHidden: chromeState.hideCommandBar,
     hidden: hidesPersistentChrome,
   };
@@ -256,7 +264,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   // while omitting that glass, and the persistent Agent Bar must still travel
   // with it. This matches Navbar's non-onboarding scroll-hide policy.
   useKaiBottomChromeProgressCssVar(
-    !chromeState.useOnboardingChrome && !riaPinnedChrome && !hidesPersistentChrome,
+    !chromeState.useOnboardingChrome &&
+      !riaPinnedChrome &&
+      !hidesPersistentChrome,
   );
   // Add a root platform class for native-iOS specific CSS hooks.
   useEffect(() => {
@@ -297,13 +307,18 @@ function AppShellFrame({ children }: ProvidersProps) {
       // Route programmatic navigations through the shared exit -> enter envelope
       // so they crossfade exactly like /one -> /one/* link clicks instead of
       // hard-cutting on exit.
-      beginRouteTransition(href, () => {
-        if (replace) {
-          router.replace(href, { scroll });
-          return;
-        }
-        router.push(href, { scroll });
-      }, customEvent.detail?.source ?? "programmatic", customEvent.detail?.transitionMode ?? "full");
+      beginRouteTransition(
+        href,
+        () => {
+          if (replace) {
+            router.replace(href, { scroll });
+            return;
+          }
+          router.push(href, { scroll });
+        },
+        customEvent.detail?.source ?? "programmatic",
+        customEvent.detail?.transitionMode ?? "full",
+      );
     };
 
     window.addEventListener(
@@ -399,8 +414,8 @@ function AppShellFrame({ children }: ProvidersProps) {
               <NativeTestRouter />
               <NativeTestBootstrap />
               <NativeTestRouteStatus />
-      <InteractionRuntime />
-      <FoundationPublicAmbient />
+              <InteractionRuntime />
+              <FoundationPublicAmbient />
               {!hidesPersistentChrome ? (
                 <AmbientChromeController enabled={ambientChromeEnabled} />
               ) : null}

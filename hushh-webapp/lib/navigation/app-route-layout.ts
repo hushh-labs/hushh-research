@@ -142,3 +142,18 @@ export function resolveAppRouteLayoutMode(
 ): AppRouteLayoutMode {
   return resolveAppRouteLayout(pathname).mode;
 }
+
+/**
+ * These focused Location safety surfaces own the complete viewport and their
+ * own exit controls. Persistent top/bottom chrome would obscure their actions.
+ */
+export function shouldSuppressPersistentChromeForRouteState(
+  pathname: string,
+  action: string | null | undefined,
+): boolean {
+  const normalizedAction = String(action || "").trim();
+  return (
+    normalizePathname(pathname) === "/one/location" &&
+    (normalizedAction === "sos" || normalizedAction === "sms-contacts")
+  );
+}

@@ -40,12 +40,22 @@ describe("SosPanel", () => {
     render(<SosPanel {...baseProps} />);
 
     expect(screen.getByText("SMS · Save my soul")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Press and hold. An SMS with your live location goes to your people — even with no internet.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /call 911/i })).toHaveAttribute(
       "href",
       "tel:911",
     );
     expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("sms-safety-screen")).toHaveClass(
+      "fixed",
+      "inset-0",
+      "bg-black",
+    );
   });
 
   it("does not send when the hold is released before two seconds", () => {

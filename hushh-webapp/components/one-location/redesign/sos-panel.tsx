@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ArrowLeft, Phone } from "lucide-react";
+import { ChevronLeft, Phone } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
@@ -90,12 +90,12 @@ export function SosPanel({
     onTrigger(message);
   }, [clearHold, disabled, message, onTrigger]);
 
-  const updateProgress = useCallback(() => {
+  const updateProgress = useCallback(function tickProgress() {
     if (!holdStartedAtRef.current || firedRef.current) return;
     const elapsed = performance.now() - holdStartedAtRef.current;
     setProgress(Math.min(elapsed / HOLD_DURATION_MS, 1));
     if (elapsed < HOLD_DURATION_MS) {
-      frameRef.current = requestAnimationFrame(updateProgress);
+      frameRef.current = requestAnimationFrame(tickProgress);
     }
   }, []);
 
@@ -161,7 +161,8 @@ export function SosPanel({
 
   return (
     <section
-      className="fixed inset-0 z-[90] overflow-y-auto bg-black text-white"
+      className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-black text-white"
+      data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))]">
@@ -171,16 +172,16 @@ export function SosPanel({
           aria-label="Back to Location"
           className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-[#202023] text-white"
         >
-          <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+          <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
         <header className="mt-1 px-3 text-center">
-          <h1 className="text-[28px] font-bold leading-[1.15] tracking-[-0.45px]">
+          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[1.15] !tracking-[-0.45px]">
             SMS · Save my soul
           </h1>
           <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
-            Press and hold. Your SMS contacts get your live location in One —
-            when connected.
+            Press and hold. An SMS with your live location goes to your people —
+            even with no internet.
           </p>
         </header>
 
@@ -206,7 +207,7 @@ export function SosPanel({
               className={cn(
                 "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[#ff3b30] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
-                disabled && "cursor-not-allowed opacity-45",
+                disabled && "cursor-not-allowed",
               )}
               style={{
                 boxShadow:
@@ -233,8 +234,7 @@ export function SosPanel({
 
         <div className="mt-auto">
           <p className="truncate px-2 text-center text-[13px] text-white/70">
-            {names ? `SMS goes to ${names}` : "No SMS contacts selected"}{" "}
-            ·{" "}
+            {names ? `SMS goes to ${names}` : "No SMS contacts selected"} ·{" "}
             <button
               type="button"
               onClick={onEditContacts}
@@ -281,12 +281,6 @@ export function SosPanel({
               Cancel
             </button>
           </div>
-
-          {!names ? (
-            <p className="mt-2 text-center text-[12px] text-white/55">
-              Add a ready connection before sending an SMS.
-            </p>
-          ) : null}
         </div>
       </div>
     </section>

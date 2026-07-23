@@ -197,7 +197,7 @@ export type LocationHubViewModel = {
   onTriggerSos: (message?: "Come get me" | "I'm not safe" | null) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
-  onRemoveSmsContact: (recipientUserId: string) => void;
+  onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
   /* Check-In (quick action) — reuses the encrypted share pipeline. The message
      is surfaced in the recipient's notification (e.g. "Alex: I've checked in
@@ -353,8 +353,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     } else if (section === "people") {
       nextTab = "people";
     }
-    const legacyInbox =
-      searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
+    const legacyInbox = searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
     if (detailAction || nextTab || legacyInbox) {
       setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
@@ -527,8 +526,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
           />
-        ) :
-          flow === "active-shares" ||
+        ) : flow === "active-shares" ||
           flow === "shared-with-me" ||
           flow === "needs-review" ? (
           <LocationDetailFlow
@@ -635,11 +633,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   );
 }
 
-function LocationHubPanel({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-5 px-[var(--page-inline-gutter-standard)]">
       {children}
@@ -822,14 +816,17 @@ function LocationDetailFlow({
           <div className="space-y-3">
             {vm.receivedGrants.map((grant) => {
               const point = vm.decryptedPoints[grant.id];
-              const expanded = Boolean(point) && !collapsedGrantIds.has(grant.id);
+              const expanded =
+                Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
                 <SharedWithMeCard
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
                   statusLine={vm.expiresLabel(grant.expiresAt)}
                   metaLine={
-                    point ? `Updated ${vm.formatDateTime(point.capturedAt)}` : undefined
+                    point
+                      ? `Updated ${vm.formatDateTime(point.capturedAt)}`
+                      : undefined
                   }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
