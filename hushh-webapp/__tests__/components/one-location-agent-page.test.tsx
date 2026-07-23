@@ -37,6 +37,7 @@ const {
   mockTrackEvent,
   mockRouterPush,
   mockRouterReplace,
+  mockRouterBack,
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
@@ -69,6 +70,7 @@ const {
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
   mockRouterReplace: vi.fn(),
+  mockRouterBack: vi.fn(),
   mockSearchParamsGet: vi.fn(),
   mockSearchParams: {
     get: vi.fn(),
@@ -84,6 +86,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mockRouterPush,
     replace: mockRouterReplace,
+    back: mockRouterBack,
   }),
   useSearchParams: () => mockSearchParams,
 }));
@@ -418,13 +421,13 @@ function locationActivity() {
 async function openLocationFeatureStep() {
   expect(
     await screen.findByRole("heading", {
-      name: "The people you love. Always in reach.",
+      name: "Share your location easily with anyone.",
     }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "When it matters, your people know.",
+      name: "Stay connected when you need it.",
     }),
   ).toBeTruthy();
 }
@@ -449,10 +452,11 @@ async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
   fireEvent.click(continueButton);
   expect(
     screen.getByRole("heading", {
-      name: "Your circle, your choice",
+      name: "Your circle is ready.",
     }),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
@@ -726,7 +730,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("always runs the canonical Location journey in setup mode and settles Back separately", async () => {
+  it("leaves setup with browser Back without marking onboarding complete or skipped", async () => {
     const onSetupComplete = vi.fn();
     const onSetupSkip = vi.fn();
     window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
@@ -741,11 +745,12 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(onSetupSkip).toHaveBeenCalledTimes(1);
+    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+    expect(onSetupSkip).not.toHaveBeenCalled();
     expect(onSetupComplete).not.toHaveBeenCalled();
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
@@ -777,7 +782,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeNull();
   });
@@ -800,7 +805,8 @@ describe("OneLocationAgentPage", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -1116,12 +1122,12 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "When it matters, your people know.",
+          name: "Stay connected when you need it.",
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "The people you love. Always in reach.",
+          name: "Share your location easily with anyone.",
         }),
       ).toBeNull();
     },
@@ -1166,7 +1172,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     const onboardingShellClass =

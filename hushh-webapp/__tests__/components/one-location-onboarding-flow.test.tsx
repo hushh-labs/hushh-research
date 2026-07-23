@@ -71,6 +71,7 @@ function renderFlow(
     }),
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
     onRequestNotifications: vi.fn().mockResolvedValue(undefined),
+    onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
     ...overrides,
@@ -90,57 +91,86 @@ afterEach(() => {
 });
 
 describe("OneLocationOnboardingFlow", () => {
-  it("renders the new welcome screen and lets the user leave safely", () => {
+  it("keeps first-screen Back separate from Skip", () => {
     const props = renderFlow();
 
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "The people you love. Always in reach.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
     const welcomeAvatar = document.querySelector(
-      'img[src="/one-location/onboarding/akshat.webp"]',
+      'img[src="/one-location/onboarding/orbit-person-1.webp"]',
     );
-    expect(welcomeAvatar?.parentElement?.className).toContain("rounded-[13px]");
+    expect(welcomeAvatar?.parentElement?.className).toContain("rounded-[18px]");
     expect(welcomeAvatar?.parentElement?.className).not.toContain(
       "rounded-full",
     );
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+    expect(props.onSkip).not.toHaveBeenCalled();
   });
 
-  it("replaces the old feature carousel with one supplied-art use-case screen", () => {
+  it("fits the supplied-art use cases into one non-scrolling screen", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    const featureSurface = screen.getByTestId(
+      "one-location-onboarding-features",
+    ).firstElementChild;
+    expect(featureSurface?.className).toContain("overflow-hidden");
+    expect(featureSurface?.className).toContain("flex-col");
+    expect(
+      document.querySelector("[data-one-feature-grid]")?.className,
+    ).toContain("grid-rows-3");
+    for (const card of document.querySelectorAll("[data-one-use-case-card]")) {
+      expect(card.className).toContain("h-full");
+      expect(card.className).toContain("min-h-0");
+      expect(
+        card.querySelector("[data-one-use-case-alert]")?.className,
+      ).toContain("w-max");
+      expect(
+        card.querySelector("[data-one-use-case-alert] span.whitespace-nowrap")
+          ?.className,
+      ).toContain("min-w-max");
+      expect(
+        card.querySelector("[data-one-use-case-alert] .truncate"),
+      ).toBeNull();
+    }
     expect(
       screen.getByRole("heading", {
-        name: "When it matters, your people know.",
+        name: "Stay connected when you need it.",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Need help fast?")).toBeTruthy();
-    expect(screen.getByText("Meeting a friend?")).toBeTruthy();
-    expect(screen.getByText("Riding home late?")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Need help, but can't call or speak?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: 'Still answering "Where are you?"',
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Meeting up, but can't find each other?",
+      }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
       screen
-        .getByTestId("location-use-case-sos")
-        .querySelector('img[src="/one-location/onboarding/il-shield.png"]'),
-    ).toBeTruthy();
-    expect(
-      screen
         .getByTestId("location-use-case-checkin")
-        .querySelector('img[src="/one-location/onboarding/il-pin.png"]'),
+        .querySelector(
+          'img[src="/one-location/onboarding/feature-checkin-pin-transparent.webp"]',
+        ),
     ).toBeTruthy();
-    expect(
-      screen
-        .getByTestId("location-use-case-trip")
-        .querySelector('img[src="/one-location/onboarding/il-car.png"]'),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
@@ -151,7 +181,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -202,6 +232,8 @@ describe("OneLocationOnboardingFlow", () => {
     });
     openPeopleScreen();
 
+    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     const continueButton = screen.getByRole("button", { name: "Continue" });
     expect(continueButton).toBeDisabled();
     expect(
@@ -224,11 +256,15 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
     expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Your circle, your choice" }),
+      screen.getByRole("heading", { name: "Your circle is ready." }),
     ).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(screen.getByText("New")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(screen.getByText("Joined")).toBeTruthy();
+    expect(screen.getByText("Invited")).toBeTruthy();
+    expect(screen.getByText("Add more")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3999);
@@ -254,7 +290,8 @@ describe("OneLocationOnboardingFlow", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
@@ -262,35 +299,23 @@ describe("OneLocationOnboardingFlow", () => {
     expect(onComplete).toHaveBeenCalledTimes(2);
   });
 
-  it("retains contact selection and cancels completion when Back leaves the final circle", async () => {
-    vi.useFakeTimers();
+  it("offers Skip before the final screen and removes all navigation from the final animation", () => {
     const props = renderFlow();
-    openPeopleScreen();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(props.onSkip).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-
-    expect(screen.getByText("2 selected")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Remove New Person" }),
-    ).toHaveAttribute("aria-pressed", "true");
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(props.onComplete).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
   });
 
   it("keeps explicit dark surfaces on every onboarding screen", () => {
     renderFlow();
     const welcome = screen.getByTestId("one-location-onboarding-welcome");
-    expect(welcome.firstElementChild?.className).toContain("dark:bg-[#071d39]");
+    expect(welcome.firstElementChild?.className).toContain("dark:bg-[#073d78]");
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     const features = screen.getByTestId("one-location-onboarding-features");
