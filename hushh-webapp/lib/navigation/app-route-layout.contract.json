@@ -355,7 +355,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.location.map",
-      "purpose": "Show fresh, authorized private location shares on an immersive map. Capture location only after the person explicitly taps Locate me.",
+      "purpose": "Show fresh, authorized private location shares on an immersive map. Center the camera from one foreground-only device fix on entry; publish that location only after the person explicitly taps Locate me.",
       "screen": "one_location_map",
       "entryCue": "",
       "proactivity": "ambient",
@@ -370,7 +370,7 @@
         "callbackError": "Return to the Location hub.",
         "routeMismatch": "Use the verified current route."
       },
-      "completionBoundary": "No location is captured until the person taps Locate me.",
+      "completionBoundary": "Entry may capture one foreground-only device fix for camera focus. No location is published to private recipients until the person taps Locate me.",
       "nextRoute": "/one/location",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally without inventing a map control."

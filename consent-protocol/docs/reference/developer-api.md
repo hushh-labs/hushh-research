@@ -448,6 +448,12 @@ private key in a request, chat, log, or support ticket.
 
 If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON locally to the requested subtree before using it.
 
+For a Java 17 connector, use the runnable
+[Java 17/JCA consent-export decryptor](../../examples/java17-jca-export-decryptor/README.md).
+It consumes the flat hosted-MCP fields, validates the authenticated lifecycle
+context, and implements the exact current `X25519-AES256-GCM` envelope without
+adding a Java-specific profile.
+
 ---
 
 ## Developer MCP Surface

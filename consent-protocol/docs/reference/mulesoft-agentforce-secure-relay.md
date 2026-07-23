@@ -62,13 +62,32 @@ MuleSoft may host both lanes, but they do not share authority:
 | Lane | Authority | Current state |
 | --- | --- | --- |
 | Consent delivery | Partner execute app, exact approved scope, active grant, connector key binding | Hussh lifecycle and encrypted export are current; MuleSoft/JCA decryptor is UAT-gated |
-| Connected Systems mutation | Signed-in vault owner, typed CRM intent, trusted confirmation, bound CRM record, idempotent execution and readback | Existing MuleSoft-backed mutation is current; encrypted mutation delivery is a target |
+| Connected Systems mutation | Signed-in vault owner, typed CRM intent, trusted confirmation, bound CRM record, idempotent execution and readback | Existing MuleSoft-backed mutation sends readable fields over TLS; encrypted mutation delivery is a target |
 
 Each lane keeps independent policy, correlation, idempotency, audit, and
 recovery. A `grant_ref` never authorizes a CRM mutation. Reusing the same
 partner-controlled connector and key-custody runtime does not require a second
 key channel, but a future mutation envelope must bind its distinct lane,
 purpose, destination, and confirmation receipt in authenticated metadata.
+
+The target mutation sequence is:
+
+1. Register and pin the MuleSoft connector public key and key fingerprint.
+2. Keep the existing typed intent, owner-bound CRM record, and trusted
+   confirmation as the mutation authority.
+3. After confirmation, seal only the approved fields with the existing
+   `X25519-AES256-GCM` construction.
+4. Bind `connected_systems_mutation`, intent ID, approval receipt, connector,
+   operation, object type, bound record, field names, expiry, key fingerprint,
+   and idempotency reference into authenticated metadata.
+5. Let the trusted MuleSoft connector decrypt outside model context, mutate the
+   CRM, read it back, and return a metadata-only settlement.
+
+Sealing inside FastAPI protects only the Hussh-to-MuleSoft application leg
+because Hussh has already received and staged readable fields. End-to-end
+browser-to-MuleSoft confidentiality requires client-side sealing and
+ciphertext-only pending-intent storage. That is a larger change and must not be
+represented as already shipped.
 
 ## Connector identity and key custody
 
@@ -89,6 +108,12 @@ The private key must never enter an MCP argument, Agentforce, an SObject,
 prompt, Flow variable, DataWeave log, trace, ticket, or Hussh system. Key
 rotation is explicit: retain an old key only for bounded active exports, then
 create fresh consent/export bindings for the new key.
+
+The public key is authenticated, registered, and pinned per connector
+environment. Hussh does not trust a new public key fetched independently during
+each delivery or mutation. The same registered key-custody runtime may serve
+both authority lanes, but each envelope carries its own purpose and lifecycle
+binding.
 
 ## Consent-delivery lifecycle
 
@@ -151,7 +176,9 @@ plaintext = AES-256-GCM.decrypt(
 `canonical_json` is recursively key-sorted compact UTF-8 JSON. Do not replace
 this with PBKDF2, AES-CBC, guessed HKDF, an AES key-wrap variant, or a different
 AAD representation. Reference code is in the [Developer API decryption
-guide](./developer-api.md#decrypt-an-encrypted-export-locally).
+guide](./developer-api.md#decrypt-an-encrypted-export-locally). A runnable
+[Java 17/JCA sample](../../examples/java17-jca-export-decryptor/README.md)
+implements the same envelope and includes a cross-language brokerage vector.
 
 This export design uses a long-lived recipient key and therefore does not claim
 Signal-style forward secrecy. Compromise of that connector private key can

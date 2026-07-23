@@ -176,6 +176,13 @@ const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = [
 ];
 
 const ROUTE_OVERRIDES = {
+  // Gmail remains addressable for compatibility, but the authored capability
+  // registry currently marks it paused. Its client page intentionally settles
+  // on One instead of mounting a disabled workspace.
+  "/one/gmail": {
+    allowedPathnames: ["/one"],
+    allowedRouteIds: ["/one"],
+  },
   "/kai/onboarding": {
     allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
     allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
@@ -202,8 +209,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/gmail": {
     path: "/gmail",
-    expectedPathname: "/one/gmail",
-    allowedRouteIds: ["/one/gmail"],
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
   },
   "/pkm": {
     path: "/pkm",
@@ -316,8 +323,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/one/profile/receipts": {
     path: "/one/profile/receipts",
-    expectedPathname: "/one/gmail",
-    allowedRouteIds: ["/one/gmail"],
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
     requiresColdEntry: true,
   },
   "/ria/workspace": {

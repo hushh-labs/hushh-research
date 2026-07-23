@@ -27,6 +27,13 @@ def test_multi_statement_brokerage_round_trip_and_static_mcp_projection() -> Non
         "stmt_demo_2026_05",
         "stmt_demo_2026_06",
     }
+    assert {
+        (statement["statement_period_start"], statement["statement_period_end"])
+        for statement in bundle["statements"]
+    } == {
+        ("2026-05-01", "2026-05-31"),
+        ("2026-06-01", "2026-06-30"),
+    }
     assert {holding["statement_ref"] for holding in bundle["holdings"]} == {
         "stmt_demo_2026_05",
         "stmt_demo_2026_06",

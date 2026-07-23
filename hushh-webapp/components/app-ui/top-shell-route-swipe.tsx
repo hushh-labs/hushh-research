@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { setTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const AXIS_LOCK_THRESHOLD_PX = 6;
 const DIRECTION_RATIO = 1.12;
@@ -59,6 +60,7 @@ export function TopShellRouteSwipe({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const swipeContentRef = useRef<HTMLDivElement | null>(null);
   const enabled = Boolean(
     tabSet &&
     (tabSet.queryParam === null || tabSet.id === "consent") &&
@@ -80,6 +82,24 @@ export function TopShellRouteSwipe({
     let tracking = false;
     let ignored = false;
     let axis: "undecided" | "horizontal" | "vertical" = "undecided";
+    const resetVisual = (animate: boolean) => {
+      const surface = swipeContentRef.current;
+      if (surface) {
+        surface.style.transition = animate
+          ? "transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1)"
+          : "none";
+        surface.style.transform = "translate3d(0, 0, 0)";
+        if (animate) {
+          window.setTimeout(() => {
+            if (surface.style.transform === "translate3d(0, 0, 0)") {
+              surface.style.willChange = "";
+              surface.style.transition = "";
+            }
+          }, 180);
+        }
+      }
+      setTopShellTabSwipeState(tabSet.id, activeIndex, false);
+    };
 
     const beginTracking = (
       target: EventTarget | null,
@@ -92,6 +112,11 @@ export function TopShellRouteSwipe({
       startY = clientY;
       startTimestamp = timestamp || performance.now();
       tracking = true;
+      const surface = swipeContentRef.current;
+      if (surface) {
+        surface.style.transition = "none";
+        surface.style.willChange = "transform";
+      }
     };
 
     const reset = () => {
@@ -113,15 +138,35 @@ export function TopShellRouteSwipe({
         return;
       const horizontal = Math.abs(clientX - startX);
       const vertical = Math.abs(clientY - startY);
-      if (
-        axis !== "undecided" ||
-        (horizontal < AXIS_LOCK_THRESHOLD_PX &&
-          vertical < AXIS_LOCK_THRESHOLD_PX)
-      )
-        return;
-      axis =
-        horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
-      if (axis === "vertical") tracking = false;
+      if (axis === "undecided") {
+        if (
+          horizontal < AXIS_LOCK_THRESHOLD_PX &&
+          vertical < AXIS_LOCK_THRESHOLD_PX
+        ) {
+          return;
+        }
+        axis =
+          horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
+        if (axis === "vertical") {
+          tracking = false;
+          resetVisual(true);
+        }
+      }
+      if (axis !== "horizontal" || startX === null) return;
+      const deltaX = clientX - startX;
+      const position = Math.max(
+        0,
+        Math.min(
+          tabSet.tabs.length - 1,
+          activeIndex - deltaX / Math.max(1, window.innerWidth),
+        ),
+      );
+      setTopShellTabSwipeState(tabSet.id, position, true);
+      const surface = swipeContentRef.current;
+      if (surface) {
+        const resistedDelta = Math.max(-28, Math.min(28, deltaX * 0.18));
+        surface.style.transform = `translate3d(${resistedDelta}px, 0, 0)`;
+      }
     };
 
     const finishTracking = (
@@ -147,6 +192,7 @@ export function TopShellRouteSwipe({
       const velocity = horizontal / durationMs;
       const finalAxis = axis;
       reset();
+      resetVisual(true);
 
       if (
         finalAxis !== "horizontal" ||
@@ -165,6 +211,14 @@ export function TopShellRouteSwipe({
         return;
       const destination = tabSet.tabs[activeIndex + (deltaX < 0 ? 1 : -1)];
       if (!destination || destination.href === pathname) return;
+      setTopShellTabSwipeState(
+        tabSet.id,
+        Math.max(
+          0,
+          tabSet.tabs.findIndex((tab) => tab.value === destination.value),
+        ),
+        false,
+      );
       scrollAppToTop("auto");
       beginRouteTransition(
         destination.href,
@@ -198,7 +252,10 @@ export function TopShellRouteSwipe({
       onStart(event as TouchEvent);
     const moveListener: EventListener = (event) => onMove(event as TouchEvent);
     const endListener: EventListener = (event) => onEnd(event as TouchEvent);
-    const cancelListener: EventListener = () => reset();
+    const cancelListener: EventListener = () => {
+      reset();
+      resetVisual(true);
+    };
     // Embla-powered workspaces already receive Pointer Events. Consent uses
     // route-backed tabs so it previously listened only for Touch Events,
     // leaving desktop trackpads and pointer-capable WebViews with no gesture
@@ -253,8 +310,15 @@ export function TopShellRouteSwipe({
       swipeSurface.removeEventListener("pointermove", pointerMoveListener);
       swipeSurface.removeEventListener("pointerup", pointerEndListener);
       swipeSurface.removeEventListener("pointercancel", cancelListener);
+      resetVisual(false);
     };
   }, [enabled, pathname, router, tabSet]);
 
-  return <>{children}</>;
+  if (!enabled) return <>{children}</>;
+
+  return (
+    <div ref={swipeContentRef} data-top-shell-route-swipe-content="true">
+      {children}
+    </div>
+  );
 }

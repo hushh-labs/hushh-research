@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
+  requestTopShellTabSelection,
   setTopShellTabSwipeState,
   topShellTabSwipePositionVariable,
   useTopShellTabSwipeState,
@@ -71,6 +72,7 @@ export function TopShellTabs({
       // query-backed route remains the semantic authority, but it must not
       // delay or replay the visible tab response.
       setTopShellTabSwipeState(tabSet.id, index, false);
+      requestTopShellTabSelection(tabSet.id, tab.value);
       beginRouteTransition(
         tab.href,
         () => {
@@ -88,7 +90,15 @@ export function TopShellTabs({
   );
 
   return (
-    <div className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current">
+    <div
+      className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current"
+      data-top-shell-tab-set={tabSet.id}
+      style={
+        {
+          [topShellTabSwipePositionVariable(tabSet.id)]: tabSwipeState.position,
+        } as CSSProperties
+      }
+    >
       <div
         aria-label={`${tabSet.label} navigation`}
         className="relative flex h-full w-full"
@@ -113,7 +123,7 @@ export function TopShellTabs({
               aria-current={isActive ? "page" : undefined}
               tabIndex={isActive ? 0 : -1}
               className={cn(
-                "relative flex h-full flex-1 items-center justify-center overflow-hidden transition-colors",
+                "relative z-10 flex h-full flex-1 items-center justify-center overflow-hidden transition-[color,opacity] duration-150",
                 isActive ? "text-current" : "text-current opacity-65 hover:opacity-100",
               )}
               onClick={() => selectIndex(index, false)}
@@ -135,7 +145,7 @@ export function TopShellTabs({
               }}
             >
               <MaterialRipple variant="none" className="z-0" />
-              <span className="relative z-10 text-[15px] font-medium tracking-tight">
+              <span className="relative z-10 text-[15px] font-semibold tracking-[-0.01em]">
                 {tab.label}
               </span>
             </button>
@@ -143,12 +153,27 @@ export function TopShellTabs({
         })}
         <div
           aria-hidden
-          data-testid="top-shell-tab-indicator"
           className={cn(
-            "absolute bottom-0 left-0 h-[2px] bg-[var(--app-accent)] shadow-[0_1px_10px_color-mix(in_oklab,var(--app-accent)_45%,transparent)] motion-reduce:transition-none",
+            "pointer-events-none absolute inset-y-1.5 left-0 motion-reduce:transition-none",
             tabSwipeState.isDragging
               ? "transition-none"
-              : "transition-transform duration-200",
+              : "transition-transform duration-150 ease-out",
+          )}
+          style={{
+            transform: indicatorTransform,
+            width: tabWidth,
+          }}
+        >
+          <div className="mx-1 h-full rounded-xl bg-current/[0.07]" />
+        </div>
+        <div
+          aria-hidden
+          data-testid="top-shell-tab-indicator"
+          className={cn(
+            "absolute bottom-0 left-0 z-20 h-[3px] rounded-full bg-[var(--app-accent)] shadow-[0_1px_10px_color-mix(in_oklab,var(--app-accent)_45%,transparent)] motion-reduce:transition-none",
+            tabSwipeState.isDragging
+              ? "transition-none"
+              : "transition-transform duration-150 ease-out",
           )}
           style={{
             transform: indicatorTransform,

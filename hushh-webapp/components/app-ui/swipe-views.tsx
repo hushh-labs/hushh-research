@@ -3,7 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 
-import { setTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import {
+  setTopShellTabSwipeState,
+  subscribeTopShellTabSelection,
+} from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,9 +69,16 @@ export function SwipeViews({
     containScroll: "trimSnaps",
     // Query-backed panes must feel like a direct workspace selection rather
     // than a second route transition. Embla's duration is its spring-like
-    // snap parameter (not milliseconds); 20 is deliberately quicker than
+    // snap parameter (not milliseconds); 16 is deliberately quicker than
     // the default while retaining enough motion for the live tab underline.
-    duration: 20,
+    duration: 16,
+    dragThreshold: 6,
+    skipSnaps: false,
+    // Pane content streams, charts, and cached resources change height often.
+    // Embla's default ResizeObserver re-initialized the horizontal engine for
+    // those vertical-only changes, producing a visible hitch on Finance.
+    // Viewport-width changes are handled explicitly below.
+    watchResize: false,
     watchDrag,
   });
   const panels = useMemo(() => React.Children.toArray(children), [children]);
@@ -79,6 +89,7 @@ export function SwipeViews({
   const isDraggingRef = useRef(false);
   const hasMovedSincePointerDownRef = useRef(false);
   const lastReportedValueRef = useRef(activeValue);
+  const resizeFrameRef = useRef<number | null>(null);
 
   const syncTabIndicator = useCallback(
     (isDragging?: boolean) => {
@@ -147,6 +158,47 @@ export function SwipeViews({
       onSelectionCommit?.(newValue);
     }
   }, [emblaApi, options, onSelectionChange, onSelectionCommit, tabSetId]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    let lastWidth = window.innerWidth;
+    const onResize = () => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        const nextWidth = window.innerWidth;
+        if (Math.abs(nextWidth - lastWidth) < 1) return;
+        lastWidth = nextWidth;
+        emblaApi.reInit();
+        syncTabIndicator(false);
+      });
+    };
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, [emblaApi, syncTabIndicator]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    return subscribeTopShellTabSelection((selection) => {
+      if (selection.tabSetId !== tabSetId) return;
+      const targetIndex = options.findIndex(
+        (option) => option.value === selection.value,
+      );
+      if (targetIndex < 0 || targetIndex === emblaApi.selectedScrollSnap())
+        return;
+      // A top-tab press starts the compositor motion immediately. Waiting for
+      // Next searchParams made the tab ink update first and the pane lag behind.
+      emblaApi.scrollTo(targetIndex);
+    });
+  }, [emblaApi, options, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -226,7 +278,7 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full [content-visibility:auto] [contain-intrinsic-size:auto_100dvh]",
+                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}

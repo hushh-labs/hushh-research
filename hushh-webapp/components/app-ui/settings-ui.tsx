@@ -3,8 +3,10 @@
 import {
   Children,
   cloneElement,
+  createContext,
   isValidElement,
   useEffect,
+  useContext,
   useState,
 } from "react";
 import type { ReactElement, ReactNode } from "react";
@@ -96,6 +98,30 @@ function containsInteractiveNode(node: ReactNode): boolean {
 
 export const SettingsSegmentedTabs = SegmentedTabs;
 
+type SettingsPresentation = {
+  separatorInset?: boolean;
+  density?: "compact" | "comfortable";
+};
+
+const SettingsPresentationContext = createContext<SettingsPresentation>({});
+
+/**
+ * Establishes one grouped-list presentation for a route family. Feature
+ * panels can keep composing SettingsGroup/SettingsRow without restating the
+ * owning shell's separator and density choices on every nested row.
+ */
+export function SettingsPresentationProvider({
+  separatorInset,
+  density,
+  children,
+}: SettingsPresentation & { children: ReactNode }) {
+  return (
+    <SettingsPresentationContext.Provider value={{ separatorInset, density }}>
+      {children}
+    </SettingsPresentationContext.Provider>
+  );
+}
+
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent: "bg-accent/12 text-accent-strong dark:bg-accent/20",
   blue: "bg-sky-500/12 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200",
@@ -117,7 +143,7 @@ export function SettingsGroup({
   description,
   children,
   embedded = false,
-  separatorInset = false,
+  separatorInset,
   className,
   testId = "settings-group",
 }: {
@@ -135,6 +161,9 @@ export function SettingsGroup({
   className?: string;
   testId?: string;
 }) {
+  const presentation = useContext(SettingsPresentationContext);
+  const resolvedSeparatorInset =
+    separatorInset ?? presentation.separatorInset ?? false;
   const shell = (
     <div
       data-slot="settings-group-shell"
@@ -150,9 +179,11 @@ export function SettingsGroup({
       <div
         className={cn(
           "relative isolate",
-          separatorInset ? "group/settings-list" : "divide-y divide-border/60",
+          resolvedSeparatorInset
+            ? "group/settings-list"
+            : "divide-y divide-border/60",
         )}
-        data-inset-separators={separatorInset ? "true" : undefined}
+        data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
       >
         {children}
       </div>
@@ -209,7 +240,7 @@ export function SettingsRow({
   disabled = false,
   tone = "default",
   iconTone = "gray",
-  density = "comfortable",
+  density,
   stackTrailingOnMobile = false,
   className,
   voiceControlId,
@@ -241,6 +272,8 @@ export function SettingsRow({
   voicePurpose?: string;
   testId?: string;
 }) {
+  const presentation = useContext(SettingsPresentationContext);
+  const resolvedDensity = density ?? presentation.density ?? "comfortable";
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive =
     !disabled && (typeof onClick === "function" || resolvedAsChild);
@@ -265,7 +298,7 @@ export function SettingsRow({
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
-    density === "compact" && "[--settings-row-py:0.5rem]",
+    resolvedDensity === "compact" && "[--settings-row-py:0.5rem]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
@@ -295,7 +328,8 @@ export function SettingsRow({
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
             "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-[10px]",
-            density !== "compact" && "sm:h-10 sm:w-10 sm:rounded-[12px]",
+            resolvedDensity !== "compact" &&
+              "sm:h-10 sm:w-10 sm:rounded-[12px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >

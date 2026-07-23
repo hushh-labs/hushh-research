@@ -35,9 +35,12 @@ the Google Maps renderer disclosure before it initializes.
 - The map returns only fresh (90-second default), active, recipient-scoped
   `foreground_map_visible` ciphertext. It never promotes a direct or
   background-share envelope onto the map.
-- Opening Map never captures location. **Locate me** is the explicit
-  foreground action that can publish a fresh encrypted Map envelope to the
-  owner’s already-active private recipients.
+- Opening Map centers on the owner immediately: it paints a process-memory
+  location first when available, then requests one fresh foreground fix and
+  animates the camera to the accuracy-appropriate zoom. This entry focus never
+  starts a watcher or publishes the point. **Locate me** remains the explicit
+  action that can publish a fresh encrypted Map envelope to the owner’s
+  already-active private recipients.
 - Decryption happens only in foreground device memory. Closing the route
   destroys the renderer and clears marker state. Coordinates are not added to
   storage, logs, route data, or map preference records.
@@ -45,13 +48,17 @@ the Google Maps renderer disclosure before it initializes.
   is no iframe or single-point fallback. Missing restricted platform keys shows
   a safe unavailable state without decrypting coordinates.
 - The people surface is one matched-geometry control: it expands into search,
-  visibility, and framing controls, then morphs into a 64px map button so the
-  map remains unobstructed. Selecting a person or Show everyone minimizes it.
-- Local development and injected native UI-test sessions expose a **Demo**
-  control with fictional people. Demo markers stay in process memory and
-  perform no preference, envelope, or share writes. **Locate me** continues to
-  use the actual browser/native location provider while Demo is active. The
-  control is unavailable in ordinary production sessions.
+  visibility, and framing controls, then morphs through one coordinated
+  width/measured-height/radius transition into a 56px circular map button so
+  the map remains unobstructed. The body is taken out of layout during the
+  morph because WebKit can retain a collapsed grid track and render a tall
+  empty pill. Selecting a person or Show everyone minimizes it.
+- Local development, UAT, and injected native UI-test sessions expose a
+  **Demo** control with 50 deterministic fictional people distributed around
+  the world. Demo markers stay in process memory and perform no preference,
+  envelope, or share writes. **Locate me** continues to use the actual
+  browser/native location provider while Demo is active. The control is
+  unavailable in ordinary production sessions.
 
 Builds must inject separate restricted values for
 `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY`,

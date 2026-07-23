@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SettingsDetailPanel,
   SettingsGroup,
+  SettingsPresentationProvider,
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
@@ -125,13 +126,7 @@ describe("SettingsRow", () => {
       container.querySelector('[data-slot="settings-row-icon"]'),
     ).toBeNull();
 
-    rerender(
-      <SettingsRow
-        icon={Phone}
-        iconTone="blue"
-        title="Account"
-      />,
-    );
+    rerender(<SettingsRow icon={Phone} iconTone="blue" title="Account" />);
     expect(
       container
         .querySelector('[data-slot="settings-row-icon"]')
@@ -179,9 +174,9 @@ describe("SettingsRow", () => {
       </SettingsGroup>,
     );
 
-    expect(container.querySelector('[data-testid="settings-row"]')?.className).toContain(
-      "after:left-0",
-    );
+    expect(
+      container.querySelector('[data-testid="settings-row"]')?.className,
+    ).toContain("after:left-0");
 
     rerender(
       <SettingsGroup separatorInset>
@@ -190,9 +185,31 @@ describe("SettingsRow", () => {
       </SettingsGroup>,
     );
 
-    expect(container.querySelector('[data-testid="settings-row"]')?.className).toContain(
-      "after:left-[3.75rem]",
+    expect(
+      container.querySelector('[data-testid="settings-row"]')?.className,
+    ).toContain("after:left-[3.75rem]");
+  });
+
+  it("inherits route-family separator and density defaults", () => {
+    const { container } = render(
+      <SettingsPresentationProvider separatorInset density="compact">
+        <SettingsGroup>
+          <SettingsRow icon={Phone} title="Phone number" />
+          <SettingsRow title="Sign-in provider" />
+        </SettingsGroup>
+      </SettingsPresentationProvider>,
     );
+
+    const group = container.querySelector(
+      '[data-slot="settings-group-shell"] > div',
+    );
+    const rows = container.querySelectorAll('[data-testid="settings-row"]');
+
+    expect(group?.getAttribute("data-inset-separators")).toBe("true");
+    expect(rows[0]?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(
+      rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
+    ).not.toContain("sm:h-10");
   });
 
   it("supports asChild rows without losing row content", () => {
