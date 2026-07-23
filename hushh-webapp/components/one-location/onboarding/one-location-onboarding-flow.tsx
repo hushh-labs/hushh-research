@@ -452,7 +452,7 @@ function UseCaseArt({
         />
       ) : null}
       <span
-        className="absolute bottom-[13%] right-[4%] flex max-w-[96%] items-center gap-1 rounded-full bg-white/95 px-3 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
+        className="absolute bottom-[13%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 px-3 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
         data-one-use-case-alert
       >
         {kind !== "sms" ? (
@@ -465,7 +465,7 @@ function UseCaseArt({
             <Check className="h-3 w-3" strokeWidth={3} />
           </span>
         ) : null}
-        <span className="truncate">{alertText}</span>
+        <span className="min-w-max shrink-0 whitespace-nowrap">{alertText}</span>
         <Check
           className={cn(
             "h-3.5 w-3.5 shrink-0",
@@ -494,13 +494,13 @@ function UseCaseCard({
   const colors = USE_CASE_TONES[tone];
   return (
     <article
-      className="relative min-h-[218px] overflow-hidden rounded-[24px] border border-black/[0.04] bg-[#fbfcfe] shadow-[0_8px_26px_rgba(21,41,70,0.08)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
+      className="relative h-full min-h-0 overflow-hidden rounded-[24px] border border-black/[0.04] bg-[#fbfcfe] shadow-[0_8px_26px_rgba(21,41,70,0.08)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
       data-testid={testId}
       data-one-use-case-card
     >
       <span className={cn("absolute inset-y-0 left-0 w-1", colors.line)} />
       <div
-        className="relative z-10 flex min-h-[218px] w-[60%] min-w-0 flex-col justify-center py-5 pl-5 pr-2"
+        className="relative z-10 flex h-full min-h-0 w-[60%] min-w-0 flex-col justify-center py-4 pl-5 pr-2"
         data-one-use-case-copy
       >
         <span
@@ -564,8 +564,11 @@ function FeaturesScreen({
           : "You can adjust permissions later in Location Settings.";
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] dark:bg-[#0c1017]">
-      <header className="flex h-16 items-center justify-between">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] dark:bg-[#0c1017]"
+      data-one-feature-screen
+    >
+      <header className="flex h-[clamp(48px,7dvh,64px)] shrink-0 items-center justify-between">
         <button
           type="button"
           onClick={onBack}
@@ -577,7 +580,7 @@ function FeaturesScreen({
         <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
       </header>
       <h1
-        className="text-[39px] font-bold leading-[1.04] tracking-normal text-[#091126] dark:text-[#f6f8fc]"
+        className="shrink-0 text-[clamp(30px,4.4dvh,39px)] font-bold leading-[1.04] tracking-normal text-[#091126] dark:text-[#f6f8fc]"
         data-one-feature-heading
       >
         Stay connected
@@ -585,7 +588,7 @@ function FeaturesScreen({
         when you need it.
       </h1>
       <div
-        className="mt-6 space-y-4"
+        className="mt-[clamp(8px,1.8dvh,20px)] grid min-h-0 flex-1 grid-rows-3 gap-[clamp(7px,1.35dvh,16px)]"
         data-one-feature-grid
       >
         <UseCaseCard
@@ -617,12 +620,15 @@ function FeaturesScreen({
         />
       </div>
       <p
-        className="pt-4 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]"
+        className="shrink-0 pt-[clamp(4px,0.9dvh,12px)] text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]"
         aria-live="polite"
       >
         {status}
       </p>
-      <div className="mt-3">
+      <div
+        className="mt-[clamp(4px,0.8dvh,10px)] shrink-0"
+        data-one-feature-cta
+      >
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -633,11 +639,39 @@ function FeaturesScreen({
       </div>
       <style>{`
         @media (max-width: 370px) {
-          [data-one-feature-heading] { font-size: 34px; }
-          [data-one-use-case-copy] { width: 62%; padding-left: 16px; }
+          [data-one-use-case-copy] { width: 64%; padding-left: 16px; }
           [data-one-use-case-title] { font-size: 18px; }
           [data-one-use-case-body] { font-size: 13px; }
-          [data-one-use-case-art] { width: 46%; }
+          [data-one-use-case-art] { width: 43%; }
+        }
+        @media (max-height: 760px) {
+          [data-one-feature-screen] { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+          [data-one-feature-heading] { font-size: 29px; }
+          [data-one-use-case-card] { border-radius: 20px; }
+          [data-one-use-case-copy] { width: 64%; padding: 8px 6px 8px 16px; }
+          [data-one-use-case-tag] { padding: 2px 10px; font-size: 10px; }
+          [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
+          [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
+          [data-one-use-case-art] { width: 42%; }
+          [data-one-use-case-kind="sms"] > div { width: 64px; height: 64px; border-width: 5px; }
+          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 18px; }
+          [data-one-use-case-kind="sms"] > div span span:last-child { margin-top: 2px; font-size: 8px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 54px; height: 54px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 26px; height: 26px; }
+          [data-one-use-case-kind="checkin"] > img { width: 76px; height: 76px; }
+          [data-one-use-case-alert] { right: 2%; bottom: 8%; padding: 4px 8px; font-size: 8px; }
+          [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
+          [data-one-use-case-alert] > span:first-child svg { width: 10px; height: 10px; }
+          [data-one-feature-cta] button { min-height: 44px; }
+        }
+        @media (max-height: 680px) {
+          [data-one-feature-heading] { font-size: 26px; }
+          [data-one-use-case-copy] { width: 66%; padding-left: 14px; }
+          [data-one-use-case-tag] { font-size: 9px; }
+          [data-one-use-case-title] { font-size: 14px; }
+          [data-one-use-case-body] { font-size: 10px; }
+          [data-one-use-case-art] { width: 39%; }
+          [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
         }
       `}</style>
     </div>

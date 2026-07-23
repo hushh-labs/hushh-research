@@ -113,7 +113,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).toHaveBeenCalledTimes(1);
   });
 
-  it("replaces the old feature carousel with one supplied-art use-case screen", () => {
+  it("fits the supplied-art use cases into one non-scrolling screen", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -121,12 +121,24 @@ describe("OneLocationOnboardingFlow", () => {
     const featureSurface = screen.getByTestId(
       "one-location-onboarding-features",
     ).firstElementChild;
-    expect(featureSurface?.className).toContain("overflow-y-auto");
+    expect(featureSurface?.className).toContain("overflow-hidden");
+    expect(featureSurface?.className).toContain("flex-col");
     expect(
       document.querySelector("[data-one-feature-grid]")?.className,
-    ).toContain("space-y-4");
+    ).toContain("grid-rows-3");
     for (const card of document.querySelectorAll("[data-one-use-case-card]")) {
-      expect(card.className).toContain("min-h-[218px]");
+      expect(card.className).toContain("h-full");
+      expect(card.className).toContain("min-h-0");
+      expect(
+        card.querySelector("[data-one-use-case-alert]")?.className,
+      ).toContain("w-max");
+      expect(
+        card.querySelector("[data-one-use-case-alert] span.whitespace-nowrap")
+          ?.className,
+      ).toContain("min-w-max");
+      expect(
+        card.querySelector("[data-one-use-case-alert] .truncate"),
+      ).toBeNull();
     }
     expect(
       screen.getByRole("heading", {
