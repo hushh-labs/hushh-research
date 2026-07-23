@@ -6,6 +6,10 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
+import {
+  clearSetupIntent,
+  markSetupIntent,
+} from "@/lib/services/one-setup-intent";
 
 const {
   push,
@@ -53,7 +57,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_SETUP: "/one/setup", PROFILE: "/one/profile" },
+  ROUTES: { ONE_SETUP: "/one/setup", ONE_HOME: "/one", PROFILE: "/one/profile" },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
@@ -116,6 +120,7 @@ describe("OnboardingJourneyGuard", () => {
     isPersistentSetupResolvedMock.mockReturnValue(false);
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
+    clearSetupIntent();
   });
 
   it("admits a cached setup route without a bootstrap request or checking churn", async () => {
@@ -167,6 +172,58 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
     });
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it("ejects a dismissed user who reaches a setup surface without a deliberate open", async () => {
+    // Post-onboarding, a setup surface reached via the browser/OS back button,
+    // a stale history entry, or a direct URL (no deliberate open) must send the
+    // user home — setup is one-time.
+    pathnameValue = "/one/setup";
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+    clearSetupIntent(); // not a deliberate open
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one");
+    });
+    expect(screen.queryByText("hub")).toBeNull();
+  });
+
+  it("admits a deliberate setup open (Profile → Set Up One) for a dismissed user", () => {
+    pathnameValue = "/one/setup";
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+    markSetupIntent(); // deliberate open
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("hub")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("admits a setup surface during first onboarding (not dismissed)", async () => {
+    pathnameValue = "/one/setup";
+    isPersistentSetupResolvedMock.mockReturnValue(false); // not dismissed
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("hub")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("admits completed Location without widening the unresolved setup gate", () => {
