@@ -14,7 +14,7 @@ import {
   Check,
   Loader2,
   MapPin,
-  ShieldCheck,
+  Navigation,
   UserPlus,
 } from "lucide-react";
 
@@ -69,23 +69,52 @@ type OneLocationOnboardingFlowProps = {
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
   onRequestNotifications: () => Promise<void>;
+  onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   requireLocationToComplete?: boolean;
 };
 
-const TEAM_AVATAR_SOURCES = [
-  "/one-location/onboarding/akshat.webp",
-  "/one-location/onboarding/neelesh.webp",
-  "/one-location/onboarding/ankit.webp",
-  "/one-location/onboarding/kushal.webp",
+const WELCOME_ORBIT_ITEMS = [
+  {
+    src: "/one-location/onboarding/orbit-person-1.webp",
+    position: "left-[14%] top-[20%]",
+    imageClassName: "object-cover",
+  },
+  {
+    src: "/one-location/onboarding/orbit-office.webp",
+    position: "right-[8%] top-[10%]",
+    imageClassName: "object-contain",
+  },
+  {
+    src: "/one-location/onboarding/orbit-person-2.webp",
+    position: "right-[8%] top-[56%]",
+    imageClassName: "object-cover",
+  },
+  {
+    src: "/one-location/onboarding/orbit-person-3.webp",
+    position: "bottom-[2%] left-[42%]",
+    imageClassName: "object-cover",
+  },
+  {
+    src: "/one-location/onboarding/orbit-car.webp",
+    position: "bottom-[14%] left-[3%]",
+    imageClassName: "object-contain",
+  },
 ] as const;
 
 const ONBOARDING_IMAGE_SOURCES = [
-  "/one-location/onboarding/il-car.png",
-  "/one-location/onboarding/il-pin.png",
-  "/one-location/onboarding/il-shield.png",
-  ...TEAM_AVATAR_SOURCES,
+  ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
+  "/one-location/onboarding/feature-checkin-pin-transparent.webp",
+] as const;
+
+const AVATAR_TONES = [
+  { background: "#2f80ed", foreground: "#ffffff" },
+  { background: "#a847e8", foreground: "#ffffff" },
+  { background: "#0fae9c", foreground: "#ffffff" },
+  { background: "#f38a13", foreground: "#ffffff" },
+  { background: "#e74747", foreground: "#ffffff" },
+  { background: "#7357df", foreground: "#ffffff" },
 ] as const;
 
 function initials(name: string): string {
@@ -105,14 +134,24 @@ function safeName(
   return normalized || fallback;
 }
 
+function avatarTone(seed: string) {
+  let hash = 0;
+  for (const character of seed) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return AVATAR_TONES[hash % AVATAR_TONES.length]!;
+}
+
 function Avatar({
   name,
   photoUrl,
   size = "md",
+  colorSeed,
 }: {
   name: string;
   photoUrl?: string | null;
   size?: "sm" | "md" | "lg";
+  colorSeed?: string;
 }) {
   const sizeClass =
     size === "lg"
@@ -120,13 +159,19 @@ function Avatar({
       : size === "sm"
         ? "h-9 w-9 text-xs"
         : "h-14 w-14 text-sm";
+  const tone = avatarTone(colorSeed || name);
 
   return (
     <span
       className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-white bg-[#dce8f6] font-bold text-[#21364d] shadow-[0_8px_22px_rgba(24,57,91,0.18)] dark:border-[#dce7f6]",
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-white font-bold shadow-[0_8px_22px_rgba(24,57,91,0.18)] dark:border-[#e7edf6]",
         sizeClass,
       )}
+      style={
+        photoUrl
+          ? undefined
+          : { backgroundColor: tone.background, color: tone.foreground }
+      }
       aria-hidden="true"
     >
       {photoUrl ? (
@@ -141,40 +186,6 @@ function Avatar({
       ) : (
         initials(name)
       )}
-    </span>
-  );
-}
-
-function TeamAvatar({
-  index,
-  size = "sm",
-  shape = "circle",
-}: {
-  index: number;
-  size?: "sm" | "lg";
-  shape?: "circle" | "portrait";
-}) {
-  const src = TEAM_AVATAR_SOURCES[index % TEAM_AVATAR_SOURCES.length]!;
-  return (
-    <span
-      className={cn(
-        "block shrink-0 overflow-hidden bg-[#dce8f6]",
-        shape === "portrait"
-          ? "rounded-[13px]"
-          : "rounded-full border-[3px] border-white shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
-        size === "lg" ? "h-[58px] w-[58px]" : "h-8 w-8",
-      )}
-      aria-hidden="true"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element -- Local static team art must render in Capacitor static export. */}
-      <img
-        src={src}
-        alt=""
-        loading="eager"
-        decoding="async"
-        fetchPriority="high"
-        className="h-full w-full object-cover"
-      />
     </span>
   );
 }
@@ -213,43 +224,85 @@ function PrimaryButton({
   );
 }
 
-function WelcomeRadar() {
-  const contacts = [
-    "left-1/2 top-[8%] -translate-x-1/2",
-    "bottom-[12%] left-[9%]",
-    "bottom-[22%] right-[7%]",
-  ];
+function OnboardingSkipButton({
+  onClick,
+  disabled = false,
+  inverse = false,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  inverse?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "min-h-11 rounded-full px-2 text-[16px] font-bold disabled:opacity-50",
+        inverse
+          ? "text-white"
+          : "text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+      )}
+    >
+      Skip
+    </button>
+  );
+}
 
+function WelcomeRadar() {
   return (
     <div
-      className="relative mx-auto aspect-square w-[min(82vw,38dvh,350px)] overflow-hidden"
+      className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
       aria-hidden="true"
     >
-      {["inset-[4%]", "inset-[20%]", "inset-[36%]"].map((position, index) => (
+      {["inset-[5%]", "inset-[21%]", "inset-[37%]"].map((position, index) => (
         <span
           key={position}
+          data-one-onboarding-motion
           className={cn(
-            "absolute rounded-full border border-white/35",
+            "absolute rounded-full border border-white/30",
             position,
-            index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
+            index === 0 &&
+              "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
           )}
         />
       ))}
-      <span className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[5px] border-white/80 bg-white/20">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[color:var(--app-accent)]">
-          <MapPin className="h-5 w-5 fill-current/10" strokeWidth={2.5} />
+      <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
+        <span className="flex h-[70px] w-[70px] items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]">
+          <MapPin className="h-7 w-7 fill-current/10" strokeWidth={2.7} />
+        </span>
+        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
+          You
         </span>
       </span>
-      {contacts.map((position, index) => (
-        <span key={position} className={cn("absolute", position)}>
-          <span className="block rounded-[18px] bg-white p-1 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
-            <TeamAvatar index={index} size="lg" shape="portrait" />
+      {WELCOME_ORBIT_ITEMS.map((item, index) => (
+        <span
+          key={item.src}
+          data-one-onboarding-motion
+          className={cn(
+            "absolute z-10 [animation:oneOrbitItemIn_.48s_ease-out_both]",
+            item.position,
+          )}
+          style={{ animationDelay: `${120 + index * 90}ms` }}
+        >
+          <span className="block h-[66px] w-[66px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+            <img
+              src={item.src}
+              alt=""
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className={cn("h-full w-full rounded-[13px]", item.imageClassName)}
+            />
           </span>
-          <span className="absolute -right-1 -top-1 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
+          <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
         </span>
       ))}
       <style>{`
         @keyframes oneWelcomeRing { 0%, 100% { opacity: .32; } 50% { opacity: .78; } }
+        @keyframes oneOrbitItemIn { from { opacity: 0; transform: translateY(10px) scale(.92); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @media (prefers-reduced-motion: reduce) { [data-one-onboarding-motion] { animation: none !important; } }
       `}</style>
     </div>
@@ -258,16 +311,20 @@ function WelcomeRadar() {
 
 function WelcomeScreen({
   onBack,
+  onSkip,
   onStart,
   leaving,
 }: {
   onBack: () => void;
+  onSkip: () => void;
   onStart: () => void;
   leaving: boolean;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-accent)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#071d39]">
-      <header className="flex h-16 shrink-0 items-center pt-2">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#073d78]">
+      <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
+      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
+      <header className="relative z-10 flex h-16 shrink-0 items-center justify-between pt-2">
         <button
           type="button"
           onClick={onBack}
@@ -281,8 +338,13 @@ function WelcomeScreen({
             <ArrowLeft className="h-6 w-6" />
           )}
         </button>
+        <OnboardingSkipButton
+          inverse
+          onClick={onSkip}
+          disabled={leaving}
+        />
       </header>
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 text-center">
           <p className="inline-flex items-center gap-2 text-[19px] font-bold">
             <MapPin
@@ -292,13 +354,16 @@ function WelcomeScreen({
             />
             Location Agent
           </p>
-          <h1 className="mx-auto mt-7 max-w-[400px] text-[clamp(32px,5dvh,40px)] font-bold leading-[1.08] tracking-normal">
-            The people you love.
+          <h1
+            className="mx-auto mt-7 max-w-[410px] text-[38px] font-bold leading-[1.08] tracking-normal"
+            data-one-welcome-heading
+          >
+            Share your location
             <br />
-            Always in reach.
+            easily with anyone.
           </h1>
         </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center py-3">
+        <div className="flex min-h-0 flex-1 items-center justify-center py-2">
           <WelcomeRadar />
         </div>
         <div className="shrink-0">
@@ -307,18 +372,19 @@ function WelcomeScreen({
           </PrimaryButton>
         </div>
       </div>
+      <style>{`
+        @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
+      `}</style>
     </div>
   );
 }
 
 type UseCaseCardProps = {
   tag: string;
-  title: string;
-  body: string;
-  imageSrc: string;
-  imageClassName?: string;
+  titleLines: readonly [string, string];
+  bodyLines: readonly [string, string];
   alertText: string;
-  avatarIndexes: number[];
+  kind: "sms" | "share" | "checkin";
   tone: "danger" | "success" | "info";
   testId: string;
 };
@@ -338,27 +404,111 @@ const USE_CASE_TONES = {
   },
 } as const;
 
+function UseCaseArt({
+  kind,
+  alertText,
+}: {
+  kind: UseCaseCardProps["kind"];
+  alertText: string;
+}) {
+  return (
+    <div
+      className="absolute inset-y-0 right-0 w-[48%]"
+      data-one-use-case-art
+      data-one-use-case-kind={kind}
+      aria-hidden="true"
+    >
+      {kind === "sms" ? (
+        <div className="absolute right-[12%] top-[22%] flex h-[98px] w-[98px] items-center justify-center rounded-full border-[9px] border-[#fff0f0] bg-[#ef302f] text-center text-white shadow-[0_13px_26px_rgba(239,48,47,0.22)] dark:border-[#4b2528]">
+          <span>
+            <span className="block text-[25px] font-extrabold leading-none">
+              SMS
+            </span>
+            <span className="mt-1 block text-[10px] font-bold">
+              Tap for help
+            </span>
+          </span>
+        </div>
+      ) : null}
+      {kind === "share" ? (
+        <>
+          <span className="absolute bottom-[34%] left-[15%] h-3 w-3 rounded-full bg-[#61a8ff] ring-4 ring-[#dbeeff] dark:ring-[#183e69]" />
+          <span className="absolute bottom-[39%] left-[25%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute bottom-[45%] left-[34%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute bottom-[51%] left-[43%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute right-[15%] top-[24%] flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#288af0] text-white shadow-[0_13px_26px_rgba(40,138,240,0.28)]">
+            <Navigation className="h-9 w-9 fill-current" strokeWidth={1.5} />
+          </span>
+        </>
+      ) : null}
+      {kind === "checkin" ? (
+        <span
+          className="absolute right-[5%] top-[12%] h-[96px] w-[96px]"
+          data-one-checkin-art
+        >
+          <span className="absolute bottom-[7%] left-[5%] h-[31%] w-[90%] rounded-[50%] border border-[#16a895]/20 bg-[radial-gradient(ellipse_at_center,rgba(22,168,149,0.16)_0%,rgba(22,168,149,0.05)_48%,transparent_72%)] dark:border-[#42d6c2]/20 dark:bg-[radial-gradient(ellipse_at_center,rgba(66,214,194,0.16)_0%,rgba(66,214,194,0.04)_50%,transparent_74%)]" />
+          <span className="absolute bottom-[13%] left-[20%] h-[20%] w-[61%] rounded-[50%] border border-[#16a895]/25 dark:border-[#42d6c2]/25" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
+            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_12px_13px_rgba(22,169,149,0.22)] dark:brightness-90"
+          />
+        </span>
+      ) : null}
+      <span
+        className="absolute bottom-[13%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 px-3 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
+        data-one-use-case-alert
+      >
+        {kind !== "sms" ? (
+          <span
+            className={cn(
+              "flex h-4 w-4 items-center justify-center rounded-full text-white",
+              kind === "share" ? "bg-[#338df2]" : "bg-[#16a895]",
+            )}
+          >
+            <Check className="h-3 w-3" strokeWidth={3} />
+          </span>
+        ) : null}
+        <span className="min-w-max shrink-0 whitespace-nowrap">{alertText}</span>
+        <Check
+          className={cn(
+            "h-3.5 w-3.5 shrink-0",
+            kind === "sms"
+              ? "text-[#ef302f]"
+              : kind === "share"
+                ? "text-[#338df2]"
+                : "text-[#16a895]",
+          )}
+          strokeWidth={3}
+        />
+      </span>
+    </div>
+  );
+}
+
 function UseCaseCard({
   tag,
-  title,
-  body,
-  imageSrc,
-  imageClassName,
+  titleLines,
+  bodyLines,
   alertText,
-  avatarIndexes,
+  kind,
   tone,
   testId,
 }: UseCaseCardProps) {
   const colors = USE_CASE_TONES[tone];
   return (
     <article
-      className="relative min-h-0 overflow-hidden rounded-[22px] border border-black/[0.04] bg-[#fbfcfe] shadow-[0_8px_26px_rgba(21,41,70,0.08)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
+      className="relative h-full min-h-0 overflow-hidden rounded-[24px] border border-black/[0.04] bg-[#fbfcfe] shadow-[0_8px_26px_rgba(21,41,70,0.08)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
       data-testid={testId}
       data-one-use-case-card
     >
       <span className={cn("absolute inset-y-0 left-0 w-1", colors.line)} />
       <div
-        className="relative z-10 flex h-full w-[59%] min-w-0 flex-col justify-center py-3 pl-5 pr-1"
+        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-5 pr-2"
         data-one-use-case-copy
       >
         <span
@@ -370,44 +520,30 @@ function UseCaseCard({
         >
           {tag}
         </span>
-        <h2
-          className="mt-2 text-[clamp(17px,2.7dvh,21px)] font-bold leading-tight text-[#091126] dark:text-white"
+        <div
+          role="heading"
+          aria-level={2}
+          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[18px] font-bold leading-[1.12] text-[#091126] dark:text-white"
           data-one-use-case-title
         >
-          {title}
-        </h2>
+          {titleLines.map((line) => (
+            <span key={line} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
+        </div>
         <p
-          className="mt-1 text-[clamp(12px,1.8dvh,14px)] leading-[1.35] text-[#777d88] dark:text-[#aeb8c7]"
+          className="mt-2 text-[13px] leading-[1.34] text-[#777d88] dark:text-[#aeb8c7]"
           data-one-use-case-body
         >
-          {body}
+          {bodyLines.map((line) => (
+            <span key={line} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
         </p>
       </div>
-      <div className="absolute inset-y-0 right-0 w-[49%] overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element -- Supplied onboarding art must render in Capacitor static export. */}
-        <img
-          src={imageSrc}
-          alt=""
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          className={cn(
-            "h-full w-full object-contain [mask-image:radial-gradient(ellipse_at_center,black_52%,transparent_96%)] dark:brightness-[0.72] dark:contrast-125 dark:saturate-125",
-            imageClassName,
-          )}
-        />
-        <span
-          className="absolute bottom-2 right-2 flex max-w-[96%] items-center gap-1 rounded-full bg-white/95 py-1 pl-1 pr-2 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
-          data-one-use-case-alert
-        >
-          <span className="flex -space-x-2">
-            {avatarIndexes.map((avatarIndex) => (
-              <TeamAvatar key={avatarIndex} index={avatarIndex} />
-            ))}
-          </span>
-          <span className="truncate">{alertText}</span>
-        </span>
-      </div>
+      <UseCaseArt kind={kind} alertText={alertText} />
     </article>
   );
 }
@@ -420,6 +556,7 @@ function FeaturesScreen({
   requireLocationToContinue,
   onBack,
   onSkip,
+  leaving,
   onContinue,
 }: {
   locationGranted: boolean;
@@ -429,6 +566,7 @@ function FeaturesScreen({
   requireLocationToContinue: boolean;
   onBack: () => void;
   onSkip: () => void;
+  leaving: boolean;
   onContinue: () => void;
 }) {
   const waitingForLocation = requireLocationToContinue && !locationGranted;
@@ -444,8 +582,11 @@ function FeaturesScreen({
           : "You can adjust permissions later in Location Settings.";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] dark:bg-[#0c1017]">
-      <header className="flex h-14 shrink-0 items-center justify-between">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] dark:bg-[#0c1017]"
+      data-one-feature-screen
+    >
+      <header className="flex h-[clamp(48px,7dvh,64px)] shrink-0 items-center justify-between">
         <button
           type="button"
           onClick={onBack}
@@ -454,66 +595,64 @@ function FeaturesScreen({
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <button
-          type="button"
-          onClick={onSkip}
-          disabled={locationBusy}
-          className="min-h-11 rounded-full px-1 text-[16px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
-        >
-          Skip
-        </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
       </header>
       <h1
-        className="shrink-0 text-[clamp(31px,5dvh,40px)] font-bold leading-[1.02] tracking-normal text-[#091126] dark:text-[#f6f8fc]"
+        className="shrink-0 text-[clamp(30px,4.4dvh,39px)] font-bold leading-[1.04] tracking-normal text-[#091126] dark:text-[#f6f8fc]"
         data-one-feature-heading
       >
-        When it matters,
+        Stay connected
         <br />
-        your people know.
+        when you need it.
       </h1>
       <div
-        className="mt-4 grid min-h-0 flex-1 grid-rows-3 gap-3"
+        className="mt-[clamp(8px,1.8dvh,20px)] grid min-h-0 flex-1 grid-rows-3 gap-[clamp(7px,1.35dvh,16px)]"
         data-one-feature-grid
       >
         <UseCaseCard
-          tag="SMS"
-          title="Need help fast?"
-          body="One hold texts your live location."
-          imageSrc="/one-location/onboarding/il-shield.png"
-          alertText="Ankit & Neelesh alerted"
-          avatarIndexes={[2, 1]}
+          tag="SMS - Save My Soul"
+          titleLines={["Need help, but", "can't call or speak?"]}
+          bodyLines={[
+            "Send an emergency SMS with your",
+            "live location to trusted contacts.",
+          ]}
+          alertText="Sent to 3 contacts"
+          kind="sms"
           tone="danger"
           testId="location-use-case-sos"
         />
         <UseCaseCard
-          tag="Check in"
-          title="Meeting a friend?"
-          body="Share where you are so they find you fast."
-          imageSrc="/one-location/onboarding/il-pin.png"
-          alertText="Kushal is joining you"
-          avatarIndexes={[3]}
-          tone="success"
-          testId="location-use-case-checkin"
-        />
-        <UseCaseCard
-          tag="Live trip"
-          title="Riding home late?"
-          body="Share your live trip and ETA."
-          imageSrc="/one-location/onboarding/il-car.png"
-          imageClassName="object-cover object-center"
-          alertText="Jhumma is on her way"
-          avatarIndexes={[0]}
+          tag="Share location"
+          titleLines={["Still answering", '"Where are you?"']}
+          bodyLines={[
+            "Share your live location safely in",
+            "one tap. Stop anytime.",
+          ]}
+          alertText="Location shared securely"
+          kind="share"
           tone="info"
           testId="location-use-case-trip"
         />
+        <UseCaseCard
+          tag="Check in"
+          titleLines={["Meeting up, but", "can't find each other?"]}
+          bodyLines={["Check in once so everyone sees", "your exact spot."]}
+          alertText="Checked in at Gate 3"
+          kind="checkin"
+          tone="success"
+          testId="location-use-case-checkin"
+        />
       </div>
       <p
-        className="h-7 shrink-0 pt-2 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]"
+        className="shrink-0 pt-[clamp(4px,0.9dvh,12px)] text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]"
         aria-live="polite"
       >
         {status}
       </p>
-      <div className="mt-2 shrink-0">
+      <div
+        className="mt-[clamp(4px,0.8dvh,10px)] shrink-0"
+        data-one-feature-cta
+      >
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -523,15 +662,66 @@ function FeaturesScreen({
         </PrimaryButton>
       </div>
       <style>{`
-        @media (max-height: 700px) {
-          [data-one-feature-heading] { font-size: 28px; }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-use-case-card] { border-radius: 18px; }
-          [data-one-use-case-copy] { padding: 6px 4px 6px 16px; }
-          [data-one-use-case-tag] { padding: 2px 9px; font-size: 10px; }
-          [data-one-use-case-title] { margin-top: 3px; font-size: 15px; }
-          [data-one-use-case-body] { margin-top: 1px; font-size: 11px; line-height: 1.25; }
-          [data-one-use-case-alert] { bottom: 4px; right: 4px; }
+        @media (max-width: 400px) {
+          [data-one-use-case-copy] { width: 65%; padding-left: 16px; padding-right: 4px; }
+          [data-one-use-case-tag] { padding: 3px 10px; font-size: 10.5px; }
+          [data-one-use-case-title] { margin-top: 7px; font-size: 16px; }
+          [data-one-use-case-body] { margin-top: 6px; font-size: 11px; }
+          [data-one-use-case-art] { width: 42%; }
+        }
+        @media (max-height: 760px) {
+          [data-one-feature-screen] { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+          [data-one-feature-heading] { font-size: 29px; }
+          [data-one-use-case-card] { border-radius: 20px; }
+          [data-one-use-case-copy] { width: 64%; padding: 8px 6px 8px 16px; }
+          [data-one-use-case-tag] { padding: 2px 10px; font-size: 10px; }
+          [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
+          [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
+          [data-one-use-case-art] { width: 42%; }
+          [data-one-use-case-kind="sms"] > div { width: 64px; height: 64px; border-width: 5px; }
+          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 18px; }
+          [data-one-use-case-kind="sms"] > div span span:last-child { margin-top: 2px; font-size: 8px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 54px; height: 54px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 26px; height: 26px; }
+          [data-one-checkin-art] { width: 68px; height: 68px; }
+          [data-one-use-case-alert] { right: 2%; bottom: 8%; padding: 4px 8px; font-size: 8px; }
+          [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
+          [data-one-use-case-alert] > span:first-child svg { width: 10px; height: 10px; }
+          [data-one-feature-cta] button { min-height: 44px; }
+        }
+        @media (max-height: 680px) {
+          [data-one-feature-heading] { font-size: 26px; }
+          [data-one-use-case-copy] { width: 66%; padding-left: 14px; }
+          [data-one-use-case-tag] { font-size: 9px; }
+          [data-one-use-case-title] { font-size: 14px; }
+          [data-one-use-case-body] { font-size: 10px; }
+          [data-one-use-case-art] { width: 39%; }
+          [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
+        }
+        @media (max-width: 370px) {
+          [data-one-use-case-copy] { width: 64%; padding-left: 14px; padding-right: 3px; }
+          [data-one-use-case-title] { font-size: 14px; }
+          [data-one-use-case-body] { font-size: 9.5px; }
+          [data-one-use-case-art] { width: 40%; }
+        }
+        @media (max-width: 340px) {
+          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
+          [data-one-use-case-card] { border-radius: 16px; }
+          [data-one-use-case-copy] { width: 65%; padding: 5px 2px 5px 12px; }
+          [data-one-use-case-tag] { padding: 1px 7px; font-size: 8px; }
+          [data-one-use-case-title] { margin-top: 3px; font-size: 13px; line-height: 1.05; }
+          [data-one-use-case-body] { margin-top: 3px; font-size: 9px; line-height: 1.12; }
+          [data-one-use-case-art] { width: 39%; }
+          [data-one-use-case-kind="sms"] > div { width: 48px; height: 48px; border-width: 4px; }
+          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 15px; }
+          [data-one-use-case-kind="sms"] > div span span:last-child { font-size: 6px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 42px; height: 42px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 20px; height: 20px; }
+          [data-one-checkin-art] { width: 50px; height: 50px; }
+          [data-one-use-case-alert] { right: 1%; bottom: 5%; padding: 2px 4px; font-size: 6px; gap: 2px; }
+          [data-one-use-case-alert] > span:first-child { width: 10px; height: 10px; }
+          [data-one-use-case-alert] > span:first-child svg { width: 8px; height: 8px; }
+          [data-one-use-case-alert] > svg { width: 9px; height: 9px; }
         }
       `}</style>
     </div>
@@ -562,6 +752,8 @@ function PeopleScreen({
   initialSelectedIds,
   onRetry,
   onBack,
+  onSkip,
+  leaving,
   onSelectionChange,
   onContinue,
 }: {
@@ -572,6 +764,8 @@ function PeopleScreen({
   initialSelectedIds: string[];
   onRetry: () => void;
   onBack: () => void;
+  onSkip: () => void;
+  leaving: boolean;
   onSelectionChange: (selectedIds: string[]) => void;
   onContinue: (selectedIds: string[]) => void;
 }) {
@@ -629,7 +823,7 @@ function PeopleScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center px-5 pt-2">
+      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
         <button
           type="button"
           onClick={onBack}
@@ -638,6 +832,7 @@ function PeopleScreen({
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <h1 className="mt-3 text-[34px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
@@ -706,6 +901,7 @@ function PeopleScreen({
                   <Avatar
                     name={safeName(person.displayName)}
                     photoUrl={person.photoUrl}
+                    colorSeed={person.userId}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[17px] font-bold text-[#171d28] dark:text-[#f3f6fb]">
@@ -763,7 +959,6 @@ function CircleScreen({
   requestsSending,
   failedCount,
   settlementRetryCount,
-  onBack,
 }: {
   currentUserName: string;
   currentUserPhotoUrl?: string | null;
@@ -771,131 +966,103 @@ function CircleScreen({
   requestsSending: boolean;
   failedCount: number;
   settlementRetryCount: number;
-  onBack: () => void;
 }) {
-  const [messageIndex, setMessageIndex] = useState(0);
   const shown = members.slice(0, 4);
   const positions = [
-    "left-1/2 top-[5%] -translate-x-1/2",
-    "right-[4%] top-1/2 -translate-y-1/2",
-    "bottom-[5%] left-1/2 -translate-x-1/2",
-    "left-[4%] top-1/2 -translate-y-1/2",
+    "left-[42%] top-[-2%]",
+    "left-[-1%] top-[38%]",
+    "right-[-1%] top-[38%]",
+    "bottom-[-2%] left-[13%]",
   ];
-  const messages =
+  const joinedMember = shown.find((member) => member.status === "connected");
+  const joinedFirstName = joinedMember?.displayName.split(/\s+/)[0];
+  const subtitle =
     settlementRetryCount > 0
-      ? [
-          "Your circle is ready.",
-          "One is finishing the secure setup...",
-          "Keeping everyone together while we reconnect.",
-        ]
-      : [
-          requestsSending
-            ? "Sending your invitations securely..."
-            : "Bringing your trusted people together...",
-          `${members.length} ${members.length === 1 ? "person" : "people"} in your private circle.`,
-          failedCount > 0
-            ? `${failedCount} invitation will be available to retry in Connect.`
-            : "Nothing is shared until you choose it.",
-          "Your circle is ready.",
-        ];
-
-  useEffect(() => {
-    setMessageIndex(0);
-    const timer = window.setInterval(() => {
-      setMessageIndex((current) => Math.min(current + 1, messages.length - 1));
-    }, 900);
-    return () => window.clearInterval(timer);
-  }, [messages.length, settlementRetryCount]);
+      ? "One is finishing your secure setup. This screen will close when it is ready."
+      : failedCount > 0
+        ? `${failedCount} invitation could not be sent. You can retry it later from Connect.`
+        : requestsSending
+          ? "I am sending the invitations now. I will tell you when your people join."
+          : joinedFirstName
+            ? `${joinedFirstName}'s in. I've invited the rest - I'll tell you when they join.`
+            : "I've invited your people - I'll tell you when they join.";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),22px)] dark:bg-[#0c1017]">
-      <button
-        type="button"
-        onClick={onBack}
-        className="press-scale absolute left-5 top-[max(env(safe-area-inset-top,0px),14px)] z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
-        aria-label="Go back"
-      >
-        <ArrowLeft className="h-6 w-6" />
-      </button>
-      <div className="shrink-0 text-center">
-        <p className="text-[13px] font-bold uppercase text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-          Location Agent
-        </p>
-        <h1 className="mx-auto mt-3 max-w-[400px] text-[clamp(32px,5dvh,40px)] font-bold leading-[1.04] text-[#151b26] dark:text-[#f5f7fb]">
-          Your circle,
-          <br />
-          your choice
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),24px)] dark:bg-[#0c1017]">
+      <div className="shrink-0 pt-2 text-left">
+        <h1 className="text-[36px] font-bold leading-[1.05] text-[#111823] dark:text-[#f5f7fb]">
+          Your circle is ready.
         </h1>
+        <p className="mt-3 min-h-12 max-w-[410px] text-[16px] leading-6 text-[#777d86] dark:text-[#aeb8c7]">
+          {subtitle}
+        </p>
       </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center">
+      <div className="flex min-h-0 flex-1 items-start justify-center pt-3">
         <div
-          className="relative aspect-square w-[min(88vw,48dvh,390px)] overflow-hidden"
+          className="relative aspect-square w-[min(88vw,48dvh,390px)]"
           aria-label="Your private circle"
         >
-          {["inset-[8%]", "inset-[22%]", "inset-[36%]"].map(
-            (position, index) => (
-              <span
-                key={position}
-                data-one-onboarding-motion
-                className={cn(
-                  "absolute rounded-full border border-[color:var(--app-accent-border)]",
-                  position,
-                  "[animation:oneCirclePulse_2.8s_ease-out_infinite]",
-                )}
-                style={{ animationDelay: `${index * 380}ms` }}
-              />
-            ),
-          )}
+          <span
+            data-one-onboarding-motion
+            className="absolute inset-[9%] rounded-full border-2 border-dashed border-[#a8d5fb] [animation:oneCircleReady_2.8s_ease-in-out_infinite] dark:border-[#426b91]"
+          />
           <span className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
             <Avatar
               name={currentUserName}
               photoUrl={currentUserPhotoUrl}
               size="lg"
+              colorSeed={currentUserName}
             />
-            <span className="absolute -inset-1 -z-10 rounded-full border-[3px] border-[color:var(--app-accent)] shadow-[0_0_28px_var(--app-accent-ring)]" />
+            <span className="absolute -inset-2 -z-10 rounded-full border-[3px] border-[#087ff5] bg-white shadow-[0_9px_28px_rgba(8,127,245,0.24)] dark:bg-[#0c1017]" />
           </span>
           {shown.map((member, index) => (
             <span
               key={member.userId}
+              data-one-onboarding-motion
               className={cn(
-                "absolute z-10 flex flex-col items-center",
+                "absolute z-10 flex w-[82px] flex-col items-center [animation:oneCircleMemberIn_.46s_ease-out_both]",
                 positions[index],
               )}
+              style={{ animationDelay: `${180 + index * 340}ms` }}
             >
-              <Avatar name={member.displayName} photoUrl={member.photoUrl} />
-              <span className="mt-1 max-w-20 truncate text-[11px] font-bold text-[#202736] dark:text-[#e9eef7]">
+              <span className="relative">
+                <Avatar
+                  name={member.displayName}
+                  photoUrl={member.photoUrl}
+                  colorSeed={member.userId}
+                />
+                {member.status === "connected" ? (
+                  <span className="absolute -right-0.5 -top-0.5 h-[18px] w-[18px] rounded-full border-[3px] border-white bg-[#31c65b] dark:border-[#0c1017]" />
+                ) : null}
+              </span>
+              <span className="mt-1 max-w-[82px] truncate text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
                 {member.displayName.split(" ")[0]}
               </span>
-              {member.status === "pending" ? (
-                <span className="mt-0.5 rounded-full bg-[#fff3d9] px-2 py-0.5 text-[9px] font-semibold text-[#986a16] dark:bg-[#4a3718] dark:text-[#ffd98a]">
-                  Pending
-                </span>
-              ) : null}
+              <span
+                className={cn(
+                  "mt-0.5 text-[10px] font-semibold",
+                  member.status === "connected"
+                    ? "text-[#23a64d]"
+                    : "text-[#8b919a] dark:text-[#8f9bab]",
+                )}
+              >
+                {member.status === "connected" ? "Joined" : "Invited"}
+              </span>
             </span>
           ))}
+          <span className="absolute bottom-[-2%] right-[5%] z-10 flex w-[82px] flex-col items-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-dashed border-[#91c8f6] bg-[#e8f5ff] text-[#087ff5] dark:border-[#426b91] dark:bg-[#132c43] dark:text-[#68b5ff]">
+              <UserPlus className="h-7 w-7" strokeWidth={1.8} />
+            </span>
+            <span className="mt-1 text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
+              Add more
+            </span>
+          </span>
         </div>
       </div>
-      <div
-        className="flex h-20 shrink-0 items-center justify-center"
-        aria-live="polite"
-      >
-        <p
-          key={`${settlementRetryCount}-${messageIndex}`}
-          className="motion-step-enter max-w-[360px] text-center text-[16px] font-semibold leading-6 text-[#69717d] dark:text-[#aeb8c7]"
-        >
-          {messages[messageIndex]}
-        </p>
-      </div>
-      <div className="flex h-8 shrink-0 items-center justify-center gap-2 text-[12px] font-semibold text-[#8b919a] dark:text-[#8794a6]">
-        <ShieldCheck className="h-4 w-4 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
-        Private by default
-      </div>
       <style>{`
-        @keyframes oneCirclePulse {
-          0% { opacity: .2; transform: scale(.88); }
-          55% { opacity: .72; }
-          100% { opacity: .08; transform: scale(1.12); }
-        }
+        @keyframes oneCircleReady { 0%, 100% { opacity: .52; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.02); } }
+        @keyframes oneCircleMemberIn { from { opacity: 0; transform: translateY(10px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
@@ -925,6 +1092,7 @@ export function OneLocationOnboardingFlow({
   onSendConnectionRequests,
   onRequestLocation,
   onRequestNotifications,
+  onBack,
   onComplete,
   onSkip = onComplete,
   requireLocationToComplete = false,
@@ -996,6 +1164,16 @@ export function OneLocationOnboardingFlow({
     setLeaving(true);
     try {
       await onSkip();
+    } catch {
+      setLeaving(false);
+    }
+  };
+
+  const runBack = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      await onBack();
     } catch {
       setLeaving(false);
     }
@@ -1083,7 +1261,8 @@ export function OneLocationOnboardingFlow({
       >
         {screen === "welcome" ? (
           <WelcomeScreen
-            onBack={() => void runSkip()}
+            onBack={() => void runBack()}
+            onSkip={() => void runSkip()}
             onStart={openFeatures}
             leaving={leaving}
           />
@@ -1096,7 +1275,8 @@ export function OneLocationOnboardingFlow({
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
             onBack={() => setScreen("welcome")}
-            onSkip={continueFromFeatures}
+            onSkip={() => void runSkip()}
+            leaving={leaving}
             onContinue={continueFromFeatures}
           />
         ) : null}
@@ -1109,6 +1289,8 @@ export function OneLocationOnboardingFlow({
             initialSelectedIds={selectedPeopleIds}
             onRetry={onRetryPeople}
             onBack={() => setScreen("features")}
+            onSkip={() => void runSkip()}
+            leaving={leaving}
             onSelectionChange={setSelectedPeopleIds}
             onContinue={handlePeopleContinue}
           />
@@ -1121,7 +1303,6 @@ export function OneLocationOnboardingFlow({
             requestsSending={requestsSending}
             failedCount={failedRequestCount}
             settlementRetryCount={settlementRetryCount}
-            onBack={() => setScreen("people")}
           />
         ) : null}
       </section>

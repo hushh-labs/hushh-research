@@ -5293,6 +5293,7 @@ export function OneLocationAgentPageContent({
           }
           onRequestLocation={handleLocationOnboardingPermission}
           onRequestNotifications={handleLocationOnboardingNotifications}
+          onBack={() => router.back()}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}

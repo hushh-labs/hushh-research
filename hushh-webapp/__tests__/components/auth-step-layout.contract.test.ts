@@ -27,7 +27,7 @@ describe("AuthStep layout contract", () => {
     expect(source).not.toContain("isLocalReviewerSurface");
   });
 
-  it("sizes the page to exactly one viewport (minus the fixed Agent Bar's reserved clearance) so it never scrolls, and anchors content to the bottom for one-thumb reach", () => {
+  it("sizes the page to one viewport without scrolling and vertically centers the complete sign-in block", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/AuthStep.tsx"),
       "utf8",
@@ -45,12 +45,11 @@ describe("AuthStep layout contract", () => {
       "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
     );
     expect(source).toContain("overflow-hidden");
-    expect(source).toContain("justify-end");
-    // The root hero+buttons column anchors to the bottom (justify-end), not
-    // vertically centered as a whole, for one-thumb reach on tall phones.
-    expect(source).not.toContain(
-      "flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center",
+    expect(source).toContain("data-auth-content-block");
+    expect(source).toContain(
+      'className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"',
     );
+    expect(source).not.toContain("justify-end");
     // The provider buttons sit directly on the shared hero background (no
     // frosted glass card/sheet), matching the welcome ("/") page's
     // direct-on-canvas CTA.
