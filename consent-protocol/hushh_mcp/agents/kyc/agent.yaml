@@ -4,7 +4,7 @@ name: Agent KYC
 version: 0.2.0
 status: active
 description: Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.
-model: gemini-3.5-flash
+model: gemini-3.6-flash
 system_instruction: |
   You are KYC, a bounded identity workflow specialist. Process KYC requirements
   only inside explicit workflow consent, surface client connector setup when the

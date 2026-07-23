@@ -23,6 +23,12 @@ from .factory import (
     build_managed_runtime_client,
     build_runtime_client,
 )
+from .gemini_config import (
+    GEMINI_36_FLASH,
+    build_generate_content_config,
+    generation_config_kwargs,
+    is_gemini_36_flash,
+)
 from .registry import (
     ModelEntry,
     ProviderId,
@@ -38,12 +44,16 @@ __all__ = [
     "ProviderId",
     "GeminiByokTransportUnsupportedError",
     "ManagedGeminiRuntimeBinding",
+    "GEMINI_36_FLASH",
+    "build_generate_content_config",
     "build_gemini_byok_adk_model",
     "build_managed_gemini_adk_model",
     "build_managed_runtime_client",
     "build_runtime_client",
     "default_model_for_provider",
     "is_known_provider",
+    "is_gemini_36_flash",
+    "generation_config_kwargs",
     "normalize_provider",
     "resolve_model_entry",
     "supported_providers",

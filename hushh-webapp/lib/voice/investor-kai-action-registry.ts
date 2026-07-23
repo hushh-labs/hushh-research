@@ -114,7 +114,6 @@ const DEFAULT_TRIGGER: InvestorKaiActionDefinition["trigger"] = {
 
 const KNOWN_KAI_COMMANDS: readonly KaiCommandAction[] = [
   "analyze",
-  "optimize",
   "import",
   "consent",
   "profile",

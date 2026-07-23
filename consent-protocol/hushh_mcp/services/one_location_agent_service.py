@@ -1564,6 +1564,7 @@ class OneLocationAgentService:
             "senderEphemeralPublicKeyJwk": _loads_json(row.get("sender_ephemeral_public_key_jwk")),
             "capturedAt": _iso(row.get("captured_at")),
             "sourcePlatform": str(row.get("source_platform") or "unknown"),
+            "publicationContext": str(row.get("publication_context") or "private_foreground"),
             "createdAt": _iso(row.get("created_at")),
             "metadata": _loads_json(row.get("metadata")) or {},
         }
@@ -2907,17 +2908,30 @@ class OneLocationAgentService:
                 status_code=422,
             )
         captured_at = _parse_datetime(envelope.get("capturedAt"), field_name="capturedAt")
+        publication_context = str(
+            envelope.get("publicationContext") or "private_foreground"
+        ).strip()
+        if publication_context not in {
+            "private_background",
+            "private_foreground",
+            "foreground_map_visible",
+        }:
+            raise OneLocationAgentError(
+                "LOCATION_ENVELOPE_PUBLICATION_CONTEXT_INVALID",
+                "Location publication context is invalid.",
+                status_code=422,
+            )
         row = self._execute_one(
             """
             INSERT INTO one_location_envelopes (
               grant_id, owner_user_id, recipient_user_id, recipient_key_id,
               algorithm, ciphertext, iv, sender_ephemeral_public_key_jwk,
-              captured_at, source_platform, created_at, metadata
+              captured_at, source_platform, publication_context, created_at, metadata
             )
             VALUES (
               CAST(:grant_id AS UUID), :owner_user_id, :recipient_user_id, :recipient_key_id,
               :algorithm, :ciphertext, :iv, CAST(:sender_key AS JSONB),
-              :captured_at, :source_platform, NOW(), CAST(:metadata_json AS JSONB)
+              :captured_at, :source_platform, :publication_context, NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
@@ -2936,6 +2950,7 @@ class OneLocationAgentService:
                 ),
                 "captured_at": captured_at,
                 "source_platform": normalize_source_platform(envelope.get("sourcePlatform")),
+                "publication_context": publication_context,
                 "metadata_json": _json_param(envelope.get("metadata") or {}),
             },
         )
@@ -3021,6 +3036,150 @@ class OneLocationAgentService:
         return {
             "grant": self._grant_payload(grant_row),
             "envelope": self._envelope_payload(row),
+        }
+
+    def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
+        """Return the caller's metadata-only Map visibility preference.
+
+        Coordinates remain exclusively in the recipient-encrypted envelopes. A
+        missing row is deliberately Ghost Mode so opening Map never makes a
+        person discoverable.
+        """
+        row = self._execute_one(
+            """
+            SELECT presence_mode, renderer_consent_version, updated_at
+            FROM one_location_map_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return {
+            "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
+            "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
+            or None,
+            "updatedAt": _iso((row or {}).get("updated_at")),
+        }
+
+    def update_map_preferences(
+        self,
+        *,
+        user_id: str,
+        presence_mode: str | None,
+        renderer_consent_version: str | None,
+    ) -> dict[str, Any]:
+        if presence_mode is not None and presence_mode not in {"ghost", "foreground_private"}:
+            raise OneLocationAgentError(
+                "LOCATION_MAP_PRESENCE_INVALID",
+                "Map presence mode is invalid.",
+                status_code=422,
+            )
+        if renderer_consent_version is not None and len(renderer_consent_version) > 80:
+            raise OneLocationAgentError(
+                "LOCATION_MAP_CONSENT_INVALID",
+                "Map renderer consent is invalid.",
+                status_code=422,
+            )
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_map_preferences (
+              user_id, presence_mode, renderer_consent_version, created_at, updated_at
+            ) VALUES (
+              :user_id, COALESCE(:presence_mode, 'ghost'), :renderer_consent_version, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              presence_mode = COALESCE(:presence_mode, one_location_map_preferences.presence_mode),
+              renderer_consent_version = COALESCE(:renderer_consent_version, one_location_map_preferences.renderer_consent_version),
+              updated_at = NOW()
+            RETURNING presence_mode, renderer_consent_version, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "presence_mode": presence_mode,
+                "renderer_consent_version": renderer_consent_version,
+            },
+        )
+        return {
+            "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
+            "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
+            or None,
+            "updatedAt": _iso((row or {}).get("updated_at")),
+        }
+
+    def list_map_state(self, *, user_id: str) -> dict[str, Any]:
+        """Read active, freshly published private Map envelopes for the viewer.
+
+        This query never expires grants, writes audit events, or returns raw
+        coordinates. The browser/native renderer decrypts returned ciphertext
+        only in its foreground memory.
+        """
+        freshness_seconds = _bounded_int_env("ONE_LOCATION_MAP_FRESHNESS_SECONDS", 90, 30, 300)
+        rows = self._execute_many(
+            """
+            SELECT
+              g.*, owner.display_name AS owner_display_name, owner.phone_number AS owner_phone_number,
+              envelope.id AS map_envelope_id,
+              envelope.grant_id AS map_envelope_grant_id,
+              envelope.owner_user_id AS map_envelope_owner_user_id,
+              envelope.recipient_user_id AS map_envelope_recipient_user_id,
+              envelope.recipient_key_id AS map_envelope_recipient_key_id,
+              envelope.algorithm AS map_envelope_algorithm,
+              envelope.ciphertext AS map_envelope_ciphertext,
+              envelope.iv AS map_envelope_iv,
+              envelope.sender_ephemeral_public_key_jwk AS map_envelope_sender_key,
+              envelope.captured_at AS map_envelope_captured_at,
+              envelope.source_platform AS map_envelope_source_platform,
+              envelope.publication_context AS map_envelope_publication_context,
+              envelope.created_at AS map_envelope_created_at,
+              envelope.metadata AS map_envelope_metadata
+            FROM one_location_share_grants g
+            JOIN one_location_map_preferences preference
+              ON preference.user_id = g.owner_user_id
+             AND preference.presence_mode = 'foreground_private'
+            LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
+            JOIN LATERAL (
+              SELECT *
+              FROM one_location_envelopes candidate
+              WHERE candidate.grant_id = g.id
+                AND candidate.recipient_user_id = :user_id
+                AND candidate.publication_context = 'foreground_map_visible'
+                AND candidate.captured_at >= NOW() - make_interval(secs => :freshness_seconds)
+              ORDER BY candidate.captured_at DESC, candidate.created_at DESC
+              LIMIT 1
+            ) envelope ON TRUE
+            WHERE g.recipient_user_id = :user_id
+              AND g.status = 'active'
+              AND g.expires_at > NOW()
+            ORDER BY envelope.captured_at DESC
+            LIMIT 100
+            """,
+            {"user_id": user_id, "freshness_seconds": freshness_seconds},
+        )
+        markers: list[dict[str, Any]] = []
+        for row in rows:
+            grant = self._grant_payload(row)
+            envelope = {
+                "id": str(row.get("map_envelope_id") or ""),
+                "grantId": str(row.get("map_envelope_grant_id") or ""),
+                "ownerUserId": str(row.get("map_envelope_owner_user_id") or ""),
+                "recipientUserId": str(row.get("map_envelope_recipient_user_id") or ""),
+                "recipientKeyId": str(row.get("map_envelope_recipient_key_id") or ""),
+                "algorithm": str(row.get("map_envelope_algorithm") or "ECDH-P256-AES256-GCM"),
+                "ciphertext": str(row.get("map_envelope_ciphertext") or ""),
+                "iv": str(row.get("map_envelope_iv") or ""),
+                "senderEphemeralPublicKeyJwk": _loads_json(row.get("map_envelope_sender_key")),
+                "capturedAt": _iso(row.get("map_envelope_captured_at")),
+                "sourcePlatform": str(row.get("map_envelope_source_platform") or "unknown"),
+                "publicationContext": str(row.get("map_envelope_publication_context") or ""),
+                "createdAt": _iso(row.get("map_envelope_created_at")),
+                "metadata": _loads_json(row.get("map_envelope_metadata")) or {},
+            }
+            if grant and envelope:
+                markers.append({"grant": grant, "envelope": envelope})
+        return {
+            "preferences": self.get_map_preferences(user_id=user_id),
+            "freshnessSeconds": freshness_seconds,
+            "markers": markers,
         }
 
     def _expire_public_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -10,7 +10,10 @@ from typing import Any, Dict
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.tools import hushh_tool
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +144,7 @@ async def extract_with_llm(text: str, brokerage: str = "unknown") -> Dict[str, A
     Use Gemini LLM to extract holdings from complex/unstructured text.
 
     This is a fallback when structured parsing fails.
-    Uses gemini-3.5-flash for optimal extraction.
+    Uses the canonical Gemini text model for bounded extraction.
 
     Args:
         text: Extracted text from document
@@ -170,7 +173,9 @@ Text:
 {text[:12000]}
 """
 
-        config = types.GenerateContentConfig(
+        config = build_generate_content_config(
+            types,
+            GEMINI_MODEL,
             temperature=0.3,
             max_output_tokens=4096,
         )

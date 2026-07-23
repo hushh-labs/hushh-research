@@ -142,7 +142,7 @@ _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").stri
 # send_client_content behavior. A BYOK key must never silently fall back to
 # Hussh's managed Vertex identity.
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents run the same generation: gemini-3.5-flash.
+# All worker agents resolve the same authored Gemini text generation.
 _SPECIALIST_MODEL = (
     os.getenv("AGENT_ONE_SPECIALIST_MODEL") or _KAI_MANIFEST.model_config_for_runtime().name
 ).strip()

@@ -141,7 +141,7 @@ Migration scripts use `DB_*` variables only (same as runtime). `db/migrate.py` u
 
 ## Kai Portfolio Import Model Policy
 
-Kai portfolio import defaults to `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"` in `hushh_mcp/constants.py`. Runtime can override the import model with `KAI_PORTFOLIO_IMPORT_MODEL` or `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL`; hosted provider/auth comes from Vertex workload ADC. Local API-key compatibility requires explicit `HUSHH_GENAI_AUTH_MODE=developer_api_key`.
+Kai portfolio import defaults to `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.6-flash"` in `hushh_mcp/constants.py`. Runtime can override the import model with `KAI_PORTFOLIO_IMPORT_MODEL` or `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL`; hosted provider/auth comes from Vertex workload ADC. Gemini 3.6 is pinned to the global Vertex endpoint and its generation config omits legacy sampling controls. Local API-key compatibility requires explicit `HUSHH_GENAI_AUTH_MODE=developer_api_key`.
 
 ## Kai Portfolio Import Upload Limits
 

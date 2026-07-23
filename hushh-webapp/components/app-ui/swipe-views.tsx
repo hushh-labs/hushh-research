@@ -36,6 +36,12 @@ interface SwipeViewsProps {
   activeValue: string;
   /** Emits immediately when Embla selects a pane; route state remains authoritative. */
   onSelectionChange?: (value: string) => void;
+  /**
+   * Emits after the compositor has settled on a pane. Query-backed workspaces
+   * use this boundary to update the URL without putting Next navigation in
+   * the pointer/scroll hot path.
+   */
+  onSelectionCommit?: (value: string) => void;
   /** Keeps route content and surface shadows inside the canonical page gutter. */
   panelInset?: "none" | "page";
 }
@@ -46,6 +52,7 @@ export function SwipeViews({
   tabSetId,
   activeValue,
   onSelectionChange,
+  onSelectionCommit,
   panelInset = "none",
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
@@ -98,9 +105,14 @@ export function SwipeViews({
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
     if (targetIdx !== -1 && targetIdx !== emblaApi.selectedScrollSnap()) {
       emblaApi.scrollTo(targetIdx);
+      setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+    } else if (
+      !isDraggingRef.current &&
+      !hasMovedSincePointerDownRef.current
+    ) {
+      setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
     }
     lastReportedValueRef.current = activeValue;
-    setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
   }, [emblaApi, activeValue, options, tabSetId]);
 
   // Publish selection at Embla's `select` point. Waiting for `settle` made
@@ -131,7 +143,10 @@ export function SwipeViews({
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
-  }, [emblaApi, options, onSelectionChange, tabSetId]);
+    if (newValue) {
+      onSelectionCommit?.(newValue);
+    }
+  }, [emblaApi, options, onSelectionChange, onSelectionCommit, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -211,13 +226,13 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full [content-visibility:auto] [contain-intrinsic-size:auto_100dvh]",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}
               style={{ minHeight: "inherit" }}
             >
-              {isActive ? panels[index] : null}
+              {panels[index]}
             </div>
           );
         })}

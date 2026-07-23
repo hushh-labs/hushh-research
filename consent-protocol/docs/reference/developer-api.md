@@ -90,17 +90,29 @@ They authenticate only the partner application and never create a synthetic
 user subject. The supplied user identifier selects the consent subject;
 explicit approval and a valid scoped grant remain mandatory before encrypted
 information delivery. The direct Agentforce profile is catalog-only and returns
-`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. A Salesforce
-AgentExchange trusted connector is a separate upstream principal, not a
-workaround for direct-host limitations: it performs the consent lifecycle and
-decryption outside the Agentforce model with its own per-org app and connector
-key. See [Salesforce AgentExchange trusted
-connector](./mulesoft-agentforce-secure-relay.md).
+`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. The selected enterprise
+target is a partner-authorized MuleSoft connector using a dedicated execute app
+and partner-controlled key. It performs the consent lifecycle and decryption
+outside Agentforce, then exposes only the authorized Salesforce record or
+metadata-only delivery status. See [MuleSoft trusted connector for Salesforce
+and Agentforce](./mulesoft-agentforce-secure-relay.md).
 Register an exact
 HTTPS redirect URI for PKCE first; loopback HTTP is permitted solely for local
 development. Client secrets, authorization codes, access tokens, refresh
 tokens, Firebase identifiers, and consent tokens are never returned by
 ordinary portal reads or MCP tools.
+
+### Connector crypto profile boundary
+
+`connector_wrapping_alg` is an exact, allowlisted crypto-profile identifier
+bound to the connector key and consent lifecycle. It is not a request-time
+algorithm negotiation field. The currently enabled `X25519-AES256-GCM` profile
+uses the envelope-v2 X25519 recipient-key exchange and AES-256-GCM payload.
+No Salesforce-named profile is enabled until Salesforce provides an exact
+recipient-key exchange plus a target-org unwrap, decrypt, and tamper-rejection
+test vector. A future profile must use a new authenticated envelope version;
+it cannot widen the current enum or reuse envelope v2 without binding its
+profile and connector key identifier.
 
 ---
 
@@ -225,6 +237,13 @@ The response contains envelope metadata and ciphertext directly in the authentic
 ```
 
 Hussh does not return plaintext user data to developer callers. The external connector receives ciphertext in the authenticated MCP/API response, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`. No `ResourceLink` follow-up is required.
+
+Before either successful inline route returns ciphertext, Hussh durably records
+a state-neutral metadata-only `READ` event. If audit persistence is unavailable,
+the route fails closed with `EXPORT_AUDIT_UNAVAILABLE`. The event records
+issuance context and never records ciphertext, wrapped keys, complete envelopes,
+credentials, supplied identifiers, or decrypted information. It proves release
+from Hussh, not connector decryption or destination write success.
 
 For the layer-by-layer PKM storage, consent, MCP, connector, and partner handoff
 map, use [Personal Knowledge Model: PKM to MCP encrypted export flow](./personal-knowledge-model.md#pkm-to-mcp-encrypted-export-flow).
@@ -422,11 +441,10 @@ async function decryptScopedExport(
 The connector private key must correspond to the exact public key and
 `connector_key_id` supplied in the approved consent request. If that private
 key is unavailable, create and securely retain a new connector key pair, then
-request fresh consent and fetch a new export. For a Salesforce AgentExchange
-connector, key generation/import happens after installation in that org's
-trusted connector runtime; the package, Agentforce model, and Hussh never
-receive the private key. Never send a connector private key in a request,
-chat, log, or support ticket.
+request fresh consent and fetch a new export. For the selected MuleSoft target,
+key generation/import happens in the partner-controlled connector/KMS boundary;
+Agentforce and Hussh never receive the private key. Never send a connector
+private key in a request, chat, log, or support ticket.
 
 If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON locally to the requested subtree before using it.
 

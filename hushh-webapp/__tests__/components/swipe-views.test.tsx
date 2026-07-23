@@ -19,18 +19,18 @@ vi.mock("embla-carousel-react", () => ({
   default: (options: Record<string, unknown>) => {
     embla.options = options;
     return [
-    embla.ref,
-    {
-      selectedScrollSnap: () => embla.selectedIndex,
-      scrollProgress: () => embla.scrollProgress,
-      scrollTo: embla.scrollTo,
-      on: (event: string, listener: () => void) => {
-        embla.listeners.set(event, listener);
+      embla.ref,
+      {
+        selectedScrollSnap: () => embla.selectedIndex,
+        scrollProgress: () => embla.scrollProgress,
+        scrollTo: embla.scrollTo,
+        on: (event: string, listener: () => void) => {
+          embla.listeners.set(event, listener);
+        },
+        off: (event: string) => {
+          embla.listeners.delete(event);
+        },
       },
-      off: (event: string) => {
-        embla.listeners.delete(event);
-      },
-    },
     ];
   },
 }));
@@ -49,7 +49,7 @@ describe("SwipeViews", () => {
     embla.options = null;
   });
 
-  it("mounts only the route-selected panel and keeps semantic panel targets", () => {
+  it("keeps pane identity mounted while route selection changes", () => {
     const mounts = { first: 0, second: 0 };
     const cleanups = { first: 0, second: 0 };
 
@@ -71,8 +71,8 @@ describe("SwipeViews", () => {
     );
 
     expect(screen.getByText("first panel content")).toBeInTheDocument();
-    expect(screen.queryByText("second panel content")).not.toBeInTheDocument();
-    expect(mounts).toEqual({ first: 1, second: 0 });
+    expect(screen.getByText("second panel content")).toBeInTheDocument();
+    expect(mounts).toEqual({ first: 1, second: 1 });
     expect(view.container.querySelectorAll('[role="tabpanel"]')).toHaveLength(
       2,
     );
@@ -98,10 +98,10 @@ describe("SwipeViews", () => {
       </SwipeViews>,
     );
 
-    expect(screen.queryByText("first panel content")).not.toBeInTheDocument();
+    expect(screen.getByText("first panel content")).toBeInTheDocument();
     expect(screen.getByText("second panel content")).toBeInTheDocument();
     expect(mounts).toEqual({ first: 1, second: 1 });
-    expect(cleanups).toEqual({ first: 1, second: 0 });
+    expect(cleanups).toEqual({ first: 0, second: 0 });
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
     expect(
       screen
@@ -112,6 +112,7 @@ describe("SwipeViews", () => {
 
   it("reports the destination as soon as a horizontal pager selects it", () => {
     const onSelectionChange = vi.fn();
+    const onSelectionCommit = vi.fn();
 
     render(
       <SwipeViews
@@ -119,6 +120,7 @@ describe("SwipeViews", () => {
         activeValue="first"
         options={OPTIONS}
         onSelectionChange={onSelectionChange}
+        onSelectionCommit={onSelectionCommit}
       >
         <div>first panel content</div>
         <div>second panel content</div>
@@ -133,6 +135,7 @@ describe("SwipeViews", () => {
     embla.listeners.get("settle")?.();
 
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(onSelectionCommit).toHaveBeenCalledWith("second");
     expect(embla.options).toMatchObject({ duration: 20 });
   });
 
@@ -150,18 +153,46 @@ describe("SwipeViews", () => {
     embla.listeners.get("pointerUp")?.();
 
     const progressVariable = "--top-shell-tab-swipe-continuous-position";
-    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
-      "0.45",
-    );
+    expect(
+      document.documentElement.style.getPropertyValue(progressVariable),
+    ).toBe("0.45");
 
     embla.selectedIndex = 1;
     embla.scrollProgress = 1;
     embla.listeners.get("settle")?.();
 
-    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
-      "1",
-    );
+    expect(
+      document.documentElement.style.getPropertyValue(progressVariable),
+    ).toBe("1");
     expect(view.container.querySelector(".will-change-transform")).toBeTruthy();
+  });
+
+  it("does not reset underline progress when optimistic selection updates mid-drag", () => {
+    const view = render(
+      <SwipeViews tabSetId="optimistic" activeValue="first" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    embla.listeners.get("pointerDown")?.();
+    embla.scrollProgress = 0.48;
+    embla.listeners.get("scroll")?.();
+    embla.selectedIndex = 1;
+    embla.listeners.get("select")?.();
+
+    view.rerender(
+      <SwipeViews tabSetId="optimistic" activeValue="second" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--top-shell-tab-swipe-optimistic-position",
+      ),
+    ).toBe("0.48");
   });
 
   it("keeps inset panel content and shadows inside the page gutter", () => {
@@ -181,9 +212,7 @@ describe("SwipeViews", () => {
       "#top-shell-inset-panel-first",
     );
     expect(firstPanel).toHaveAttribute("data-swipe-panel-inset", "page");
-    expect(firstPanel).toHaveClass(
-      "px-[var(--page-inline-gutter-standard)]",
-    );
+    expect(firstPanel).toHaveClass("px-[var(--page-inline-gutter-standard)]");
     expect(firstPanel).toHaveClass("min-w-0", "max-w-full");
   });
 });

@@ -175,7 +175,6 @@ export function executeKaiCommand(
     command,
     params,
     router,
-    hasPortfolioData,
     reviewDirty,
     busyOperations,
     setAnalysisParams,
@@ -226,23 +225,6 @@ export function executeKaiCommand(
     console.warn(
       `[KAI_ACTION_REGISTRY] missing_action_for_command command=${command}`,
     );
-  }
-
-  if (!hasPortfolioData && command === "optimize") {
-    toast.info("Import your portfolio to unlock this command.");
-    router.push(ROUTES.KAI_IMPORT);
-    return buildCommandResult({
-      status: "blocked",
-      reason: "portfolio_required",
-      actionId,
-      routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_IMPORT,
-      screenBefore: currentScreen,
-      screenAfter: "import",
-      resultSummary:
-        "Portfolio import is required before that Kai command can run.",
-      data: { command },
-    });
   }
 
   if (command === "analyze") {
@@ -299,20 +281,6 @@ export function executeKaiCommand(
       screenAfter: "kai_analysis",
       resultSummary: `Opened the ${symbol} comparison preview before starting the debate.`,
       data: { command, symbol },
-    });
-  }
-
-  if (command === "optimize") {
-    router.push(ROUTES.KAI_OPTIMIZE);
-    return buildCommandResult({
-      status: "executed",
-      actionId,
-      routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_OPTIMIZE,
-      screenBefore: currentScreen,
-      screenAfter: "optimize",
-      resultSummary: "Opened the Kai optimization workspace.",
-      data: { command },
     });
   }
 

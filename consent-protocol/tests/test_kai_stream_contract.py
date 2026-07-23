@@ -162,11 +162,11 @@ def test_portfolio_statement_import_compat_stream_does_not_use_multipart_request
     assert "request=_AlwaysConnectedImportStreamRequest()" in portfolio_source
 
 
-def test_portfolio_import_defaults_to_gemini_35_flash_with_env_override():
+def test_portfolio_import_defaults_to_gemini_36_flash_with_env_override():
     constants_source = (_ROOT / "hushh_mcp/constants.py").read_text(encoding="utf-8")
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
 
-    assert 'KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"' in constants_source
+    assert 'KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.6-flash"' in constants_source
     assert '"KAI_PORTFOLIO_IMPORT_MODEL"' in portfolio_source
     assert '"KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"' in portfolio_source
     assert "extraction_model = _resolve_portfolio_import_model()" in portfolio_source

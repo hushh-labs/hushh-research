@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +13,8 @@ from pydantic import BaseModel, Field, SecretStr
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.runtime_providers import build_generate_content_config
 from hushh_mcp.runtime_providers.factory import (
     ManagedGeminiRuntimeBinding,
     build_runtime_client,
@@ -19,9 +22,13 @@ from hushh_mcp.runtime_providers.factory import (
 
 router = APIRouter(prefix="/api/one/runtime", tags=["One runtime configuration"])
 
-# A readiness probe is a bounded, low-token classification workload. Use the
-# current cost/latency tier rather than paying the agentic 3.5 Flash rate.
-_GEMINI_PROBE_MODEL = "gemini-3.1-flash-lite"
+_ONE_RUNTIME_MODEL = (
+    ManifestLoader.load(
+        str(Path(__file__).resolve().parents[3] / "hushh_mcp" / "agents" / "one" / "agent.yaml")
+    )
+    .model_config_for_runtime()
+    .name
+)
 _PROBE_TIMEOUT_SECONDS = 8.0
 
 
@@ -89,15 +96,20 @@ async def managed_gemini_readiness(
         return _managed_readiness_cache[1]
     try:
         binding = ManagedGeminiRuntimeBinding.from_environment()
-        client = binding.build_direct_client()
+        client = binding.build_direct_client(model=_ONE_RUNTIME_MODEL)
         await asyncio.wait_for(
             client.aio.models.generate_content(
-                model=_GEMINI_PROBE_MODEL,
+                model=_ONE_RUNTIME_MODEL,
                 contents="Reply OK.",
-                config=genai_types.GenerateContentConfig(
+                config=build_generate_content_config(
+                    genai_types,
+                    _ONE_RUNTIME_MODEL,
                     temperature=0,
                     max_output_tokens=4,
-                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=genai_types.ThinkingConfig(
+                        include_thoughts=False,
+                        thinking_level=genai_types.ThinkingLevel.MINIMAL,
+                    ),
                     automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
                         disable=True
                     ),
@@ -107,7 +119,7 @@ async def managed_gemini_readiness(
         )
         response = ManagedGeminiReadinessResponse(
             status="ready",
-            model=_GEMINI_PROBE_MODEL,
+            model=_ONE_RUNTIME_MODEL,
             location=binding.primary_location,
         )
         _managed_readiness_cache = (now, response)
@@ -164,12 +176,17 @@ async def validate_gemini_credential(
         # deliberately ignored and the credential is never persisted here.
         await asyncio.wait_for(
             client.aio.models.generate_content(
-                model=_GEMINI_PROBE_MODEL,
+                model=_ONE_RUNTIME_MODEL,
                 contents="Reply OK.",
-                config=genai_types.GenerateContentConfig(
+                config=build_generate_content_config(
+                    genai_types,
+                    _ONE_RUNTIME_MODEL,
                     temperature=0,
                     max_output_tokens=4,
-                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=genai_types.ThinkingConfig(
+                        include_thoughts=False,
+                        thinking_level=genai_types.ThinkingLevel.MINIMAL,
+                    ),
                     automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
                         disable=True
                     ),

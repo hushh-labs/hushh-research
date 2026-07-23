@@ -89,6 +89,15 @@ describe("Top app bar responsive contract", () => {
     expect(tabs).toContain("aria-controls={topShellTabDomId");
     expect(tabs).toContain('event.key === "ArrowRight"');
     expect(tabs).toContain('event.key === "Home"');
+    expect(tabs).toContain(
+      "setTopShellTabSwipeState(tabSet.id, index, false);",
+    );
+    expect(tabs).toContain(
+      "calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%)",
+    );
+    expect(tabs).not.toContain(
+      ': `translate3d(${activeIndex * 100}%, 0, 0)`',
+    );
     expect(source).not.toContain("topChromeHideDistance");
     expect(source).toContain('data-testid="app-top-shell-layout"');
     expect(source).not.toContain("max-xl:hidden");

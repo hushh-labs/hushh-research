@@ -30,6 +30,14 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "kai_portfolio_dashboard",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/kai/portfolio/holdings")).toEqual({
+      screen: "kai_portfolio_holdings",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/kai/portfolio/performance")).toEqual({
+      screen: "kai_portfolio_performance",
+      subview: null,
+    });
   });
 
   it("keeps legacy dashboard compatibility mapping", () => {
@@ -70,10 +78,12 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "marketplace",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/marketplace/ria", "riaId=ria_123")).toEqual({
-      screen: "marketplace_ria_profile",
-      subview: "profile",
-    });
+    expect(deriveVoiceRouteScreen("/marketplace/ria", "riaId=ria_123")).toEqual(
+      {
+        screen: "marketplace_ria_profile",
+        subview: "profile",
+      },
+    );
   });
 
   it("preserves receipts, gmail, support, and retired Finance redirect context", () => {
@@ -117,7 +127,9 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_gmail_panel",
       subview: "actions",
     });
-    expect(deriveVoiceRouteScreen("/one/profile?tab=account&panel=support")).toEqual({
+    expect(
+      deriveVoiceRouteScreen("/one/profile?tab=account&panel=support"),
+    ).toEqual({
       screen: "profile_support_panel",
       subview: "account",
     });
@@ -171,15 +183,21 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "ria_clients",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/ria/clients/client-123", "tab=access")).toEqual({
+    expect(
+      deriveVoiceRouteScreen("/ria/clients/client-123", "tab=access"),
+    ).toEqual({
       screen: "ria_client_workspace",
       subview: "access",
     });
-    expect(deriveVoiceRouteScreen("/ria/clients/client-123/accounts/account-1")).toEqual({
+    expect(
+      deriveVoiceRouteScreen("/ria/clients/client-123/accounts/account-1"),
+    ).toEqual({
       screen: "ria_client_account_detail",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/ria/clients/client-123/requests/request-1")).toEqual({
+    expect(
+      deriveVoiceRouteScreen("/ria/clients/client-123/requests/request-1"),
+    ).toEqual({
       screen: "ria_client_request_detail",
       subview: null,
     });

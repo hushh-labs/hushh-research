@@ -142,6 +142,11 @@ Rules:
 - `event:` line must match envelope `event`.
 - `round`/`phase` are explicit producer metadata; frontend must not infer them.
 - Every stream ends with exactly one terminal `decision` or `error`.
+- Provider startup, first-event, between-event, and total deadlines are
+  bounded. A stalled provider iterator cannot leave the analysis open forever.
+- Internal model reasoning is never appended to the visible transcript.
+- The browser coalesces token paints to one update per animation frame while
+  preserving every envelope and the exact final transcript.
 
 ### Portfolio Import Quality Gate Semantics
 
@@ -219,13 +224,16 @@ The `RenaissanceService` provides lookup methods used by the losers analysis end
 
 | Parameter          | Value                      |
 | ------------------ | -------------------------- |
-| Model              | Gemini 3 Flash             |
+| Model              | `gemini-3.6-flash`          |
 | SDK                | `google.genai` (new SDK)   |
-| Thinking Mode      | HIGH (full reasoning)      |
+| Thinking Mode      | MEDIUM                     |
 | Hosted auth        | Vertex workload ADC through the Cloud Run service identity |
 | Streaming          | Token-by-token via `stream_gemini_response` |
 
-The LLM client is initialized in `hushh_mcp/operons/kai/llm.py` with graceful fallback if `google.genai` is not available.
+The text client uses the global Vertex endpoint, omits legacy sampling controls
+for Gemini 3.6, and records response-chunk count, first-visible-response
+latency, total latency, and attempt count in sanitized logs. The canonical SSE
+envelope remains unchanged.
 
 ---
 
@@ -243,7 +251,7 @@ Analysis results are stored in the PKM under `financial.analysis.decisions` (fin
 
 | Error                   | Handling                                           |
 | ----------------------- | -------------------------------------------------- |
-| LLM rate limit (429)    | Exponential backoff: 1s, 2s, 4s, max 3 retries    |
+| LLM rate limit (429)    | One bounded retry authority: 2s then 4s, max 3 attempts |
 | LLM timeout             | Graceful degradation; continue with degraded metadata |
 | Agent failure           | Continue stream in degraded mode; preserve final decision |
 | Invalid consent token   | 401 response, abort analysis                       |

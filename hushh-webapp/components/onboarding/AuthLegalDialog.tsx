@@ -10,12 +10,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -99,19 +98,23 @@ export function AuthLegalDialog({
     return (
       <>
         <Dialog open={false} onOpenChange={onOpenChange} modal={false} />
-        <Drawer open={false} onOpenChange={onOpenChange} />
+        <Sheet open={false} onOpenChange={onOpenChange} />
       </>
     );
   }
 
   if (isMobile) {
     return (
-      <Drawer open={isOpen} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[85dvh] rounded-t-[28px] border-t border-border/80 bg-background/98">
-          <DrawerHeader className="border-b border-border/80 bg-background/96 px-5 py-4 text-left backdrop-blur-xl">
+      <Sheet modal open={isOpen} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-[var(--app-card-radius-feature)] border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0"
+        >
+          <div className="border-b border-border/50 px-5 pb-3">
             <div className="flex items-center justify-between gap-3">
-              <DrawerTitle>{doc.title}</DrawerTitle>
-              <DrawerClose asChild>
+              <SheetTitle className="text-left">{doc.title}</SheetTitle>
+              <SheetClose asChild>
                 <Button
                   type="button"
                   variant="ghost"
@@ -122,14 +125,14 @@ export function AuthLegalDialog({
                 >
                   <X className="h-4 w-4" />
                 </Button>
-              </DrawerClose>
+              </SheetClose>
             </div>
-          </DrawerHeader>
-          <div className="max-h-[calc(85dvh-4.5rem)] overflow-y-auto px-5 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-5">
+          </div>
+          <div className="overflow-y-auto overscroll-contain px-5 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-5">
             <LegalDocBody doc={doc} sourceUrl={sourceUrl} />
           </div>
-        </DrawerContent>
-      </Drawer>
+        </SheetContent>
+      </Sheet>
     );
   }
 

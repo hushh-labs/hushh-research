@@ -96,24 +96,27 @@ grant_type=client_credentials
 The returned access token belongs in `Authorization: Bearer <access-token>`.
 No refresh token is issued for the client-credentials grant.
 
-## Agentforce registration through the Salesforce trusted connector
+## Agentforce through the MuleSoft trusted connector
 
-An installed Salesforce AgentExchange package uses its own per-org Hussh
-execute app and key bundle. It is the single decryption source. This does not
-change the five-tool catalog or make every tool an Agentforce action. Tool 5 is
-secure connector delivery: it remains available only to that trusted connector
-after approval and is blocked from the Agentforce planner.
+The selected enterprise target uses a partner-authorized MuleSoft connector
+with its own Hussh execute app and key bundle. It is the decryption source. This
+does not change the five-tool catalog or make every tool an Agentforce action.
+Tool 5 is secure connector delivery: it remains available only to trusted
+MuleSoft code after approval and is blocked from the Agentforce planner.
 
 The trusted connector's OAuth application, the person's consent, and the
-connector key are separate authorities. The installed connector authenticates
-to Hussh using its per-org execute app. Agentforce never receives a Hussh
-credential or connector private key.
+connector key are separate authorities. Agentforce receives only the
+authorized Salesforce record or metadata-only delivery status; it never
+receives a Hussh credential, export envelope, or connector private key.
 
 Hussh keeps its direct Agentforce profile catalog-only; personal tool calls
 return the safe terminal state `REQUIRES_SECURE_CONSENT_FLOW`. A trusted
-connector does not remove direct-host constraints. The exact key custody, tool
-policy, crypto procedure, UAT checks, and production gate are in the canonical
-[Salesforce AgentExchange trusted connector](../../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md)
+connector does not remove direct-host constraints. AgentExchange remains
+optional for a Salesforce action or user experience and is not required for
+decryption. The exact key custody, tool policy, crypto procedure, UAT checks,
+and production gate are in the canonical [MuleSoft trusted connector for
+Salesforce and
+Agentforce](../../../consent-protocol/docs/reference/mulesoft-agentforce-secure-relay.md)
 guide.
 
 ## Consent lifecycle
@@ -231,7 +234,10 @@ or execute it. Create, update, and delete remain explicit, idempotent,
 reviewable intents with post-operation readback.
 
 The CRM plane and Consent MCP plane may share MuleSoft infrastructure, but
-they do not share credentials, schemas, authorization, or payload meaning.
+they do not share authority. Consent delivery requires a partner app plus an
+exact grant; CRM mutation requires the signed-in owner, typed intent, trusted
+confirmation, bound record, idempotent execution, and readback. They keep
+independent credentials, policies, correlation, schemas, audit, and recovery.
 
 ## Troubleshooting by observable result
 
@@ -252,4 +258,4 @@ person-specific tool call.
 | Decryption authentication fails | Wrong private key, wrong canonical AAD, changed envelope, or mixed ciphertext/tag ordering. | Verify the registered key ID and fingerprint, then follow the reference algorithm exactly. |
 | Manifest and live tools differ | Package/deployment drift. | Treat the live `tools/list` response as runtime evidence and stop registration until the intended v0.4 deployment is confirmed. |
 
-> **Acceptance gate.** Approve a trusted connector only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test its per-org execute app through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context. Enable an Agentforce personalized experience only after target-org UAT confirms that exact host boundary is supported.
+> **Acceptance gate.** Approve a trusted connector only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test its dedicated partner execute app through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context. Enable an Agentforce personalized experience only after target-org UAT confirms that exact host boundary is supported.

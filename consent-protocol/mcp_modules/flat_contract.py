@@ -12,6 +12,10 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from hushh_mcp.consent.connector_crypto_profiles import (
+    available_connector_wrapping_algorithms,
+)
+
 FLAT_PROFILE = "flat"
 LOCAL_INFORMATION_JSON_MAX_CHARS = 120_000
 _CORE_TOOL_NAMES = (
@@ -132,7 +136,7 @@ _CONNECTOR_KEY_ID_INPUT = _field(
 _CONNECTOR_ALGORITHM_INPUT = _field(
     "string",
     "Optional wrapping algorithm. It must be X25519-AES256-GCM and is supplied with an unregistered connector key bundle; a registered app may omit it or must supply the exact registered value.",
-    enum=["X25519-AES256-GCM"],
+    enum=list(available_connector_wrapping_algorithms()),
 )
 
 

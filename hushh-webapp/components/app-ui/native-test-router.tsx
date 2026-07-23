@@ -9,6 +9,7 @@ import { isOneSetupRoute } from "@/lib/navigation/routes";
 let lastAppliedInitialRoute: string | null = null;
 let lastAppliedInitialRouteRequest: { route: string; appliedAt: number } | null = null;
 let lastAppliedExpectedRouteRecovery: { key: string; appliedAt: number } | null = null;
+let settledExpectedRouteKey: string | null = null;
 
 const NATIVE_TEST_CONFIG_UPDATED_EVENT = "hushh:native-test-config-updated";
 const EXPECTED_ROUTE_RECOVERY_RETRY_MS = 5_000;
@@ -85,6 +86,17 @@ function canRecoverToExpectedRoute() {
   return bridge.bootstrapState === "vault_unlocked";
 }
 
+function expectedRouteKey(
+  initialRoute: string,
+  expectedRoute: string | null,
+): string {
+  const runId =
+    typeof window === "undefined"
+      ? ""
+      : String(window.__HUSHH_NATIVE_TEST__?.uiFlowRunId || "");
+  return [runId, initialRoute, expectedRoute || ""].join("|");
+}
+
 export function NativeTestRouter() {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,6 +129,20 @@ export function NativeTestRouter() {
 
       missingConfigAttempts = 0;
       const currentRoute = `${pathname}${window.location.search || ""}`;
+      const expectationKey = expectedRouteKey(
+        config.initialRoute,
+        config.expectedRoute,
+      );
+      if (
+        config.expectedRoute &&
+        sameRoute(currentRoute, config.expectedRoute)
+      ) {
+        // Route injection is an admission aid, not permanent navigation
+        // ownership. Once the expected screen has rendered, release it so
+        // close/back controls can prove real app behavior instead of being
+        // immediately pushed back by the test harness.
+        settledExpectedRouteKey = expectationKey;
+      }
       if (
         isAcceptedOneSetupFallback(
           currentRoute,
@@ -135,6 +161,9 @@ export function NativeTestRouter() {
       }
 
       if (lastAppliedInitialRoute === config.initialRoute) {
+        if (settledExpectedRouteKey === expectationKey) {
+          return true;
+        }
         const now = Date.now();
         const redirectTarget = getRedirectTarget(config.initialRoute);
         const recoveryKey = [

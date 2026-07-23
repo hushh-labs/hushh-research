@@ -20,6 +20,7 @@
  */
 @source "../components/one-location/redesign";
 @source "../components/one-location/live-map.tsx";
+@source "../components/one-location/location-immersive-map.tsx";
 
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
@@ -2646,14 +2647,29 @@ html.native-ios {
        chrome disagree, especially in mobile WebKit. */
     background-color: var(--background) !important;
   }
-  html.native-ios body {
-    padding-top: 0;
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
-  html {
-    overflow-x: hidden;
-  }
+html.native-ios body {
+  padding-top: 0;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* The Capacitor Google Maps renderer is a native surface below the WebView.
+ * Only the immersive Map route opts into this class, so its shell layers must
+ * be transparent while the controls above remain regular web UI. Keeping the
+ * override route-scoped prevents native maps from changing any other screen. */
+html.one-location-map-native,
+html.one-location-map-native body,
+html.one-location-map-native [data-app-shell-root="true"],
+html.one-location-map-native [data-app-scroll-root="true"],
+html.one-location-map-native [data-app-shell-content="true"],
+html.one-location-map-native .one-location-map {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html {
+  overflow-x: hidden;
+}
 }
 /* Lighter blur variant for performance-critical areas */
 .backdrop-blur-optimized {

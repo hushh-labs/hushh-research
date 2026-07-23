@@ -2017,6 +2017,8 @@ def test_mcp_request_authenticates_before_resolving_identifier(monkeypatch):
 
 
 def test_mcp_export_resolves_internal_token_by_app_and_grant(monkeypatch):
+    audit_events: list[dict[str, object]] = []
+
     class _FakeConsentDBService:
         async def get_consent_export_by_grant(self, grant_id: str, *, app_id: str):
             assert grant_id == "req_0123456789abcdef0123456789ab"
@@ -2025,6 +2027,10 @@ def test_mcp_export_resolves_internal_token_by_app_and_grant(monkeypatch):
                 "consent_token": "HCT:internal-only",
                 "user_id": "firebase_uid_internal",
             }
+
+        async def insert_event(self, **kwargs):
+            audit_events.append(kwargs)
+            return 1
 
     async def _load(**kwargs):
         assert kwargs["consent_token"] == "HCT:internal-only"
@@ -2070,6 +2076,26 @@ def test_mcp_export_resolves_internal_token_by_app_and_grant(monkeypatch):
     assert response.json()["status"] == "success"
     assert "HCT:internal-only" not in response.text
     assert "firebase_uid_internal" not in response.text
+    assert len(audit_events) == 1
+    assert audit_events[0]["action"] == "READ"
+    assert "request_id" not in audit_events[0]
+    assert audit_events[0]["metadata"] == {
+        "event_schema": "consent_export_read/v1",
+        "event_kind": "export_issued",
+        "outcome": "released",
+        "app_id": "app_demo_123",
+        "grant_ref": None,
+        "export_id": "a" * 32,
+        "export_revision": 1,
+        "expected_scope": "attr.financial.portfolio.*",
+        "coverage_kind": "exact",
+        "connector_key_id": "connector_demo",
+        "recipient_key_fingerprint": None,
+        "wrapping_alg": None,
+        "delivery_surface": "mcp_inline",
+        "delivered_bytes": 128,
+        "correlation_ref": None,
+    }
 
 
 def test_mcp_export_hides_cross_app_grant(monkeypatch):
@@ -2144,6 +2170,7 @@ def test_public_profile_export_returns_safe_projection_and_audits(monkeypatch):
 
 def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypatch):
     consent_token = "token_existing_1234"  # noqa: S105 - test fixture token id
+    audit_events: list[dict[str, object]] = []
 
     class _FakeConsentDBService:
         async def get_consent_export(self, token_id: str):
@@ -2177,6 +2204,10 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
                 "ciphertext_sha256": f"sha256:{'c' * 64}",
                 "ciphertext_bytes": 10,
             }
+
+        async def insert_event(self, **kwargs):
+            audit_events.append(kwargs)
+            return 1
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == consent_token
@@ -2223,6 +2254,74 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
     assert "resource_link" not in payload
     assert payload["export_envelope"]["ciphertext_bytes"] == 10
     assert "data" not in payload
+    assert len(audit_events) == 1
+    event = audit_events[0]
+    assert event["action"] == "READ"
+    assert event.get("request_id") is None
+    assert event["scope"] == "attr.financial.*"
+    assert event["metadata"]["event_schema"] == "consent_export_read/v1"
+    assert event["metadata"]["grant_ref"] == "req_existing_1234"
+    assert event["metadata"]["coverage_kind"] == "superset"
+    assert event["metadata"]["delivery_surface"] == "developer_api_inline"
+    assert event["metadata"]["delivered_bytes"] == 10
+    assert "encrypted_data" not in event["metadata"]
+    assert "wrapped_key_bundle" not in event["metadata"]
+
+
+def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
+    consent_token = "token_existing_1234"  # noqa: S105 - test fixture token id
+
+    class _FakeConsentDBService:
+        async def get_consent_export(self, _token_id: str):
+            return {
+                "scope": "attr.financial.*",
+                "encrypted_data": "must-not-be-released",
+                "is_strict_zero_knowledge": True,
+                "envelope_version": 2,
+                "app_id": "app_demo_123",
+                "export_id": "123e4567-e89b-12d3-a456-426614174000",
+                "export_revision": 1,
+                "refresh_status": "current",
+                "ciphertext_bytes": 20,
+            }
+
+        async def insert_event(self, **_kwargs):
+            raise RuntimeError("audit unavailable")
+
+    async def _validate(_token: str, expected_scope=None):  # noqa: ANN001
+        assert expected_scope == "attr.financial.*"
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user_123",
+                agent_id="developer:app_demo_123",
+                scope_str="attr.financial.*",
+                scope=SimpleNamespace(value="attr.financial.*"),
+                expires_at=123456789,
+            ),
+        )
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _validate)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/v1/scoped-export?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "consent_token": consent_token,
+            "expected_scope": "attr.financial.*",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_code"] == "EXPORT_AUDIT_UNAVAILABLE"
+    assert "must-not-be-released" not in response.text
 
 
 def test_scoped_export_invalidates_legacy_export(monkeypatch):

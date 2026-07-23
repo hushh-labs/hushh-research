@@ -65,7 +65,7 @@ update/delete success result through an explicit `isError: false` transport
 policy plus a post-mutation readback.
 
 Hussh maps the public field catalogue with the manifest-owned
-`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.5-flash`. It
+`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.6-flash`. It
 receives only object and field metadata, not CRM records, verified profile
 values, identifiers, credentials, consent material, or vault material. Its
 validated result is cached by schema fingerprint for 24 hours. A mapping failure
@@ -103,6 +103,19 @@ Secret Manager references authenticate `initialize` and `tools/list` and the
 gateway returns its expected catalog. This proves the Hussh-to-Omni-Gateway
 leg. Schema/read/write verification remains a separate CRM capability check;
 writes always stay behind the intent and explicit-confirmation lifecycle.
+
+## Consent-export decryptor target
+
+The current gateway/Connected Systems transport above is shipped. Extending the
+same partner-authorized MuleSoft boundary with a reviewed Java 17/JCA
+`X25519-AES256-GCM` decryptor is a separate, UAT-gated target. It keeps the
+canonical five-tool Hussh MCP contract and current envelope v2 unchanged,
+decrypts only after an exact approved grant, writes purpose-approved fields,
+and returns metadata-only status for Agentforce.
+
+This user-information export path is distinct from the existing
+PBKDF2/AES-CBC compatibility used to protect connector credentials at rest.
+Neither mechanism substitutes for the other.
 
 Never put live gateway URLs, private CIDRs, VPN/tunnel material, secret values,
 or encrypted credential blobs in the repository, logs, screenshots, or docs.

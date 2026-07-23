@@ -9,6 +9,8 @@ export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids"
 export const KAI_MARKET_PATH = "/one/kai";
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
+export type KaiPortfolioSection =
+  "holdings" | "allocation" | "performance" | "sources";
 
 function withQuery(
   pathname: string,
@@ -35,6 +37,12 @@ export function buildKaiMarketRoute(
 ) {
   const { tab: _ignoredTab, ...safeEntries } = entries;
   return withQuery(KAI_MARKET_PATH, { tab, ...safeEntries });
+}
+
+export function buildKaiPortfolioSectionRoute(
+  section: KaiPortfolioSection,
+): string {
+  return `${KAI_MARKET_PATH}/portfolio/${section}`;
 }
 
 export function financeRoutePathname(value: string | null | undefined): string {
@@ -125,7 +133,8 @@ export const ROUTES = {
   LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
-  LEGACY_KAI_OPTIMIZE: "/kai/optimize",
+  /** One-release redirect only. Optimize is no longer a product surface. */
+  LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -142,9 +151,14 @@ export const ROUTES = {
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
   KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
+  KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
+  KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",
+  KAI_PORTFOLIO_PERFORMANCE: "/one/kai/portfolio/performance",
+  KAI_PORTFOLIO_SOURCES: "/one/kai/portfolio/sources",
   KAI_DASHBOARD: buildKaiMarketRoute("portfolio"),
   KAI_ANALYSIS: buildKaiMarketRoute("analysis"),
-  KAI_OPTIMIZE: "/one/kai/optimize",
+  /** One-release redirect only. Optimize is no longer a product surface. */
+  KAI_OPTIMIZE_COMPAT: "/one/kai/optimize",
 } as const;
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {

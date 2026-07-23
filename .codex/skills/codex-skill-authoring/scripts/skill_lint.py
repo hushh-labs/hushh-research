@@ -627,9 +627,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     if comms_skill.exists():
         skill_text = comms_skill.read_text(encoding="utf-8")
         required_skill_phrases = [
-            "default to exactly two named outputs",
-            "`Brief reply`",
-            "`Detailed reply`",
+            "default to one sendable reply",
             "canonical GitHub markdown doc links on `main`, not repo-relative paths",
             "maintained top-level doc first",
             "Founder Wiki North-Star Probe",
@@ -645,10 +643,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         rules_text = reply_rules.read_text(encoding="utf-8")
         required_rules_phrases = [
             "All public links must be full GitHub URLs on `main`",
-            "default output must include exactly:",
-            "`Brief reply`",
-            "`Detailed reply`",
-            "`Firmer reply`",
+            "return one sendable answer by default",
             "Do not answer with repo-relative paths unless the user explicitly wants repo-local references.",
             "Keep normal Q&A lean",
             "Founder Wiki North-Star Probe",
@@ -663,7 +658,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     if community_playbook.exists():
         playbook_text = community_playbook.read_text(encoding="utf-8")
         required_playbook_phrases = [
-            "For drafted reply/Q&A requests, default to:",
+            "For drafted reply/Q&A requests, default to one sendable reply.",
             "full GitHub `blob/main` links",
         ]
         for phrase in required_playbook_phrases:
@@ -678,8 +673,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         impact_fields = workflow.get("impact_fields", [])
         common_failures = workflow.get("common_failures", [])
         expected_deliverables = {
-            "Brief reply",
-            "Detailed reply",
+            "one sendable reply",
             "claim classification for material premise corrections",
             "repo-backed GitHub doc citations",
         }
@@ -688,7 +682,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 errors.append(
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response deliverable `{value}`"
                 )
-        expected_impacts = {"GitHub doc links used", "Claim classification used", "Reply variants provided"}
+        expected_impacts = {"GitHub doc links used", "Claim classification used", "Reply is immediately sendable"}
         for value in expected_impacts:
             if value not in impact_fields:
                 errors.append(
@@ -697,7 +691,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         expected_failures = {
             "repo-relative paths instead of canonical GitHub doc links",
             "accepting contributor wording as repo truth",
-            "bloated drafted-reply variants beyond Brief/Detailed without need",
+            "unnecessary drafted-reply variants or memo structure",
         }
         for value in expected_failures:
             if value not in common_failures:
@@ -705,9 +699,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response failure mode `{value}`"
                 )
         forbidden_values = {
-            "default reply variant",
-            "detailed reply variant",
-            "missing required drafted-reply variants",
+            "Brief reply",
+            "Detailed reply",
+            "optional firmer reply variant when correction is needed",
         }
         for value in forbidden_values:
             if value in deliverables or value in common_failures:
@@ -1131,9 +1125,9 @@ def validate_truth_first_contract(errors: list[str]) -> None:
     if community_workflow.exists():
         workflow = load_json(community_workflow)
         deliverables = workflow.get("deliverables", [])
-        if "Brief reply" not in deliverables or "Detailed reply" not in deliverables:
+        if "one sendable reply" not in deliverables:
             errors.append(
-                f"{community_workflow.relative_to(REPO_ROOT)}: community workflow must use Brief/Detailed reply outputs"
+                f"{community_workflow.relative_to(REPO_ROOT)}: community workflow must use one sendable reply output"
             )
 
 

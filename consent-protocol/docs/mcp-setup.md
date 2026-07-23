@@ -57,6 +57,18 @@ client credentials are alternate authentication methods for the same developer
 app identity. They do not select a different endpoint, tool list, or consent
 lifecycle.
 
+### Connector crypto profiles
+
+`connector_wrapping_alg` is a typed, allowlisted connector crypto-profile
+selector. It is bound to the consent request, grant, and registered key, then
+checked again while producing an export; it is not negotiated by a model and
+cannot be changed while reusing a request or grant. Today the only enabled
+value is `X25519-AES256-GCM`, using consent-export envelope v2. A
+Salesforce-specific value is intentionally absent until the package team
+provides an exact recipient-key exchange and a target-org
+unwrap/decrypt/tamper test vector. Do not use a free-form profile, an Apex-only
+AES claim, or a second MCP endpoint as a workaround.
+
 ## Public Tool Surface
 
 The hosted public developer lane exposes five consent tools:
@@ -175,19 +187,19 @@ the bearer header. Do not work around either path with stdio, `?token=`, or an
 unauthenticated endpoint. OAuth authenticates the connector only; each read
 still follows the scoped consent lifecycle and encryption rules above.
 
-### Salesforce AgentExchange trusted connector
+### MuleSoft trusted connector for Salesforce and Agentforce
 
 > **Important current boundary.** Hussh preserves one canonical five-tool
 > catalog. A direct Agentforce MCP profile is catalog-only. Personalized
-> consent calls run only in customer-installed Salesforce/AgentExchange package
-> code using a separate, operations-provisioned Hussh execute app. Its client
-> credential is never a user identity. The canonical guide is
-> [Salesforce AgentExchange trusted connector](./reference/mulesoft-agentforce-secure-relay.md).
+> consent calls run through a partner-authorized MuleSoft connector using a
+> separate, operations-provisioned Hussh execute app. Its client credential is
+> never a user identity. Agentforce reads the authorized Salesforce record or
+> metadata-only delivery status. The canonical guide is [MuleSoft trusted
+> connector for Salesforce and Agentforce](./reference/mulesoft-agentforce-secure-relay.md).
 
-#### Legacy MuleSoft Exchange registration (not selected)
+#### MuleSoft Exchange registration artifact
 
-This retained compatibility path is not part of the Salesforce AgentExchange
-implementation. MuleSoft Exchange cannot attach Hussh OAuth credentials while it fetches an
+MuleSoft Exchange cannot attach Hussh OAuth credentials while it fetches an
 MCP URL for publication. Use **Upload MCP file**, not Fetch MCP URL, and upload
 the generated registration projection:
 
@@ -208,27 +220,27 @@ npm run gateway:generate
 npm run print-mulesoft-exchange-manifest
 ```
 
-Configure the package's per-org Hussh execute application's OAuth client ID and
-secret only in its protected connector runtime. Agentforce does not receive or
-store the Hussh secret.
+Configure the partner connector's Hussh execute application's OAuth client ID
+and secret only in its protected runtime. Agentforce does not receive or store
+the Hussh secret.
 
 The generated `hushh-agentforce-mcp-manifest.json` remains a diagnostic
-handoff/reference artifact, not the file to upload to Exchange. New Salesforce
-package integrations consume its `salesforceAgentExchangeHandoff` object.
-`mulesoftAgentforceHandoff` is legacy compatibility output and not part of this
-selected integration.
+handoff/reference artifact, not the file to upload to Exchange. Its
+`mulesoftAgentforceHandoff` object is the selected, UAT-gated operational
+boundary. `salesforceAgentExchangeHandoff` remains an optional action-facade
+compatibility view; it is not the selected decryptor.
 
 - A trusted connector calls Hussh at `https://api.uat.hushh.ai/mcp/` over
   Streamable HTTP with a provisioned **bearer credential** or OAuth client
   credentials for its Hussh execute application. Bearer is first-class.
-- The AgentExchange package is not a key store. After installation, its trusted
-  connector code generates/imports the per-org X25519 key pair, retains the
-  private key outside Agentforce, and sends only the public bundle to Hussh.
+- The partner-controlled MuleSoft/JCA runtime generates or imports the X25519
+  key pair, retains the private key outside Agentforce, and sends only the
+  public bundle to Hussh.
 - API Catalog registration is tools-only and uses the exact five generated
   hyphenated definitions. Tool 5, `get-encrypted-scoped-export`, stays inside
-  trusted connector code and is blocked from the Agentforce planner. Map
-  `structuredContent` as the canonical successful result; `content[0].text`
-  is a compatibility mirror and not a second planner result.
+  trusted MuleSoft connector code and is blocked from the Agentforce planner.
+  Map `structuredContent` as the canonical successful result;
+  `content[0].text` is a compatibility mirror and not a second planner result.
 - Client credentials do not represent a Hussh user. The supplied identifier
   selects the consent subject; explicit approval and the scoped grant remain
   mandatory before encrypted information is returned.
@@ -264,7 +276,7 @@ local process. There is one endpoint and one consent lifecycle.
   telemetry stay per-system. The operator stores the one-time raw bearer token
   or OAuth client secret only in the partner's secret manager. Hussh stores the
   public X25519 key and fingerprint only, never the partner private key.
-### Salesforce Agentforce: package connector UAT
+### MuleSoft and Agentforce UAT
 
 Salesforce supports Streamable HTTP and OAuth client credentials for MCP, but
 its current [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5)
@@ -273,23 +285,24 @@ user IDs or personalized responses. Hussh therefore treats the direct
 Agentforce profile as catalog-only. It rejects personalized tool calls with
 `REQUIRES_SECURE_CONSENT_FLOW`; that protection must not be relaxed.
 
-An installed Salesforce package uses its own per-org Hussh execute app and
+The partner-authorized MuleSoft connector uses its own Hussh execute app and
 connector key. It may supply the complete public key bundle with each consent
 request in compatibility/UAT mode, but production should register one active
-public key per app/org and omit that bundle from routine calls. The private key
-must stay in a customer-controlled KMS/HSM or reviewed connector crypto
-runtime, never in Agentforce or the package artifact.
+public key per partner environment and omit that bundle from routine calls.
+The private key stays in customer-controlled KMS/HSM custody or a reviewed
+connector crypto runtime, never in Agentforce or a package artifact.
 
-Production use requires Salesforce confirmation of the exact branded host
-boundary. The implementation and UAT checklist are in [Salesforce AgentExchange
-trusted connector](./reference/mulesoft-agentforce-secure-relay.md).
+Production use requires a MuleSoft Java/JCA round-trip and Salesforce
+write/readback proof. The implementation and UAT checklist are in [MuleSoft
+trusted connector for Salesforce and
+Agentforce](./reference/mulesoft-agentforce-secure-relay.md).
 
-Print the versioned, non-secret Salesforce handoff before configuring an
-installed package:
+Print the selected versioned, non-secret MuleSoft handoff before configuring
+the connector:
 
 ```bash
 cd packages/hushh-mcp
-npx hushh-mcp --print-salesforce-agentexchange-handoff
+npx hushh-mcp --print-mulesoft-agentforce-handoff
 ```
 
 This catalog is generated from the runtime and has exactly five tools:

@@ -80,7 +80,22 @@ class ManagedGeminiRuntimeBinding:
             raise ValueError("Managed Vertex location is invalid")
         return clean_model
 
-    def build_direct_client(self) -> Any:
+    def locations_for_model(self, model: str) -> tuple[str, ...]:
+        """Return configured endpoints compatible with the model contract."""
+        from .registry import resolve_model_entry
+
+        clean_model = self.validate_model(model)
+        supported = resolve_model_entry("gemini", clean_model).supported_vertex_locations
+        if not supported:
+            return self.locations
+        locations = tuple(location for location in self.locations if location in supported)
+        if not locations:
+            raise RuntimeError(
+                f"Managed Gemini model {clean_model!r} has no configured supported Vertex location"
+            )
+        return locations
+
+    def build_direct_client(self, *, model: str | None = None) -> Any:
         from google import genai
 
         if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
@@ -93,15 +108,16 @@ class ManagedGeminiRuntimeBinding:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return genai.Client(vertexai=False, api_key=key)
 
-        if len(self.locations) == 1:
+        locations = self.locations_for_model(model) if model else self.locations
+        if len(locations) == 1:
             return genai.Client(
                 vertexai=True,
                 project=self.project,
-                location=self.primary_location,
+                location=locations[0],
             )
         return VertexRegionalClient(
             project=self.project,
-            locations=self.locations,
+            locations=locations,
             client_factory=genai.Client,
             cooldown_seconds=_vertex_location_cooldown_seconds(),
         )

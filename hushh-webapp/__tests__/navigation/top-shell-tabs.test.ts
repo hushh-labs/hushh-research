@@ -33,6 +33,10 @@ describe("top shell contextual tabs", () => {
       id: "finance",
       activeValue: "portfolio",
     });
+    expect(resolveTopShellTabSet("/one/kai/portfolio/holdings")).toBeNull();
+    expect(resolveTopShellTabSet("/one/kai/portfolio/allocation")).toBeNull();
+    expect(resolveTopShellTabSet("/one/kai/portfolio/performance")).toBeNull();
+    expect(resolveTopShellTabSet("/one/kai/portfolio/sources")).toBeNull();
     expect(
       resolveTopShellRouteProfile("/one/kai/?tab=analysis").model,
     ).toMatchObject({

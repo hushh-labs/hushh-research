@@ -13,7 +13,6 @@ Canonical action-ID reference is the generated action gateway:
   route.analysis_history   → open Analysis History tab
   route.consents           → open Consents tab
   route.profile            → open Profile tab
-  route.kai_optimize       → open Optimize tab
   analysis.start           → begin stock analysis (requires symbol slot)
   analysis.resume_active   → resume the currently running analysis
   analysis.cancel_active   → cancel the currently running analysis
@@ -214,16 +213,6 @@ async def handle_kai_open_profile(args: dict[str, Any]) -> list[TextContent]:
     return _ok(
         action_id="route.profile",
         message="Opening your profile.",
-        completion_mode="route_settle",
-    )
-
-
-async def handle_kai_open_optimize(args: dict[str, Any]) -> list[TextContent]:
-    """Navigate to the Optimize tab."""
-    logger.info("kai_tool.navigate action=route.kai_optimize")
-    return _ok(
-        action_id="route.kai_optimize",
-        message="Opening portfolio optimization.",
         completion_mode="route_settle",
     )
 

@@ -15,7 +15,10 @@ from typing import Any
 
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -1404,7 +1407,10 @@ class PKMAgentLabService:
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
-        config = genai_types.GenerateContentConfig(
+        active_model = model_override or manifest.model or GEMINI_MODEL
+        config = build_generate_content_config(
+            genai_types,
+            active_model,
             temperature=0.0,
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
@@ -1441,7 +1447,7 @@ class PKMAgentLabService:
             try:
                 response = await asyncio.wait_for(
                     self.client.aio.models.generate_content(
-                        model=model_override or manifest.model or GEMINI_MODEL,
+                        model=active_model,
                         contents=prompt,
                         config=config,
                     ),

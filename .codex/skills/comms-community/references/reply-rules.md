@@ -13,10 +13,7 @@ Use these rules for public community responses:
 8. Public/community replies should link markdown docs only, not source files. `.py`, `.ts`, `.tsx`, `.yaml`, `.json` are internal context, not public citation material.
 9. Internal repo-backed Q&A may cite source files or GitHub issue/PR links when they directly prove the point and the user asked for evidence or the premise needs correction.
 10. All public links must be full GitHub URLs on `main`, not relative paths. Format: `https://github.com/hushh-labs/hushh-research/blob/main/<path>`. Append `#L<n>` or `#L<start>-L<end>` only when pointing to a specific passage.
-11. For drafted Q&A / teammate-share replies, default output must include exactly:
-   - `Brief reply`
-   - `Detailed reply`
-   - `Firmer reply` only when the user explicitly asks for sharper wording or the premise is materially wrong enough that a separate correction helps
+11. For drafted Q&A / teammate-share replies, return one sendable answer by default. Add another variant only when the user explicitly asks for an alternative tone, more detail, or a sharper correction.
 12. When maintained docs answer the question, link those GitHub docs first. Do not answer with repo-relative paths unless the user explicitly wants repo-local references.
 13. Never use em-dashes (`—` U+2014) or en-dashes (`–` U+2013). Use commas, periods, parentheses, colons, or hyphens.
 14. Choose references that directly prove the answer for that exact question.
@@ -61,10 +58,8 @@ Use these rules for public community responses:
    - file/module exists in the current tree
    - concern is visible in current tests, logs, or code when feasible
    - otherwise answer that the report is not grounded in the current repo snapshot
-39. When the user asks for reply variants, emit `Brief reply` and `Detailed reply` by default.
-40. `Brief reply` should be short, actionable, and sendable without editing.
-41. `Detailed reply` should explain only the extra repo evidence, current-state boundary, and next step needed to unblock the teammate.
-42. Add `Firmer reply` only when requested or when the premise is materially wrong enough that a separate correction is useful.
+39. Default to one sendable response. Provide variants only when the user explicitly asks for alternatives or a materially different tone or depth would change the decision.
+40. The default response must be immediately sendable, short, actionable, and evidence-backed.
 43. Optional evidence links are only worth adding when they materially improve the answer:
    - source-file links for internal Q&A
    - issue/PR links when the concern is tied to open review or active branch work
@@ -103,11 +98,18 @@ Use these rules for public community responses:
    - if X truly does not exist, name the smallest contract where it belongs
    - do not draft a reply that treats an unverified "missing" claim as fact
 51. Keep normal Q&A lean:
-   - do not output three variants unless `Firmer reply` adds real value
-   - do not add memo-like headings beyond `Brief reply` and `Detailed reply`
-   - do not repeat the same point in both replies unless the detailed version needs it for clarity
+   - return one sendable answer unless the user asks for variants
+   - do not add memo-style labels to a short reply
+   - do not repeat the same point across requested variants unless needed for clarity
    - do not include implementation inventories unless the user asks for exact files or proof
    - prefer one crisp correction plus one concrete next PR boundary
+52. For partner and teammate technical discussions, keep the interaction collaborative and natural:
+   - lead with the operational answer, limit, or decision the person can use now
+   - use plain language, contractions, and one idea per sentence; do not lead with protocol internals
+   - state a platform constraint as an assumption when the partner must confirm it, for example `If 131K is the final action-response limit, we will stay below it.`
+   - distinguish `what happens today`, `what we will enforce`, and `what we need from the partner` in no more than three short paragraphs
+   - describe scale in product terms first, such as `small record`, `collection`, or `document`, then name the technical boundary only if it helps the decision
+   - end with a shared next step, not a unilateral handoff or a vague promise
 
 ## Discord Native Formatting Mode
 

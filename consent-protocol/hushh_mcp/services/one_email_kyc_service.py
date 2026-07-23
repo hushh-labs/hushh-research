@@ -55,6 +55,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     _genai_types = None  # type: ignore
 
+from hushh_mcp.runtime_providers import build_generate_content_config
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url, frontend_origin
@@ -2456,7 +2457,9 @@ class OneEmailKycService:
         types_mod = _genai_types if _genai_types is not None else _kai_llm.types
         if client is None or types_mod is None:
             return None
-        config = types_mod.GenerateContentConfig(
+        config = build_generate_content_config(
+            types_mod,
+            model_name,
             temperature=KAI_LLM_TEMPERATURE,
             max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
             response_mime_type="application/json",
@@ -4630,7 +4633,9 @@ class OneEmailKycService:
         if client is None or types_mod is None:
             return _gemini_unavailable_payload("Gemini unavailable for KYC LLM redraft")
 
-        config = types_mod.GenerateContentConfig(
+        config = build_generate_content_config(
+            types_mod,
+            model_name,
             system_instruction=system_instruction,
             temperature=KAI_LLM_TEMPERATURE,
             max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
@@ -4833,7 +4838,9 @@ class OneEmailKycService:
                 code="ONE_KYC_LLM_UNAVAILABLE",
             )
 
-        config = types_mod.GenerateContentConfig(
+        config = build_generate_content_config(
+            types_mod,
+            model_name,
             system_instruction=system_instruction,
             temperature=KAI_LLM_TEMPERATURE,
             max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,

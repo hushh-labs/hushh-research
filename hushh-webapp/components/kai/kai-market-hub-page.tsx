@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { SwipeViews } from "@/components/app-ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -36,12 +39,17 @@ export function KaiMarketHubPage() {
     FINANCE_TAB_DEFINITION,
     searchParams.get(FINANCE_TAB_DEFINITION.queryParam),
   ) as PortfolioTab;
+  const [visibleTab, setVisibleTab] = useState<PortfolioTab>(activeTab);
 
   const setActiveTab = (tab: PortfolioTab) => {
     const destination = FINANCE_TAB_DEFINITION.tabs.find(
       (candidate) => candidate.value === tab,
     );
-    if (!destination || destination.href === `${KAI_MARKET_PATH}?tab=${activeTab}`) return;
+    if (
+      !destination ||
+      destination.href === `${KAI_MARKET_PATH}?tab=${activeTab}`
+    )
+      return;
     beginRouteTransition(
       destination.href,
       () => router.replace(destination.href, { scroll: false }),
@@ -49,6 +57,10 @@ export function KaiMarketHubPage() {
       "contextual",
     );
   };
+
+  useEffect(() => {
+    setVisibleTab(activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -95,21 +107,31 @@ export function KaiMarketHubPage() {
     >
       <SwipeViews
         tabSetId={FINANCE_TAB_DEFINITION.id}
-        activeValue={activeTab}
+        activeValue={visibleTab}
         options={FINANCE_TAB_DEFINITION.tabs}
-        onSelectionChange={(value) => setActiveTab(value as PortfolioTab)}
+        onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
+        onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
         panelInset="page"
       >
         <div className="h-full w-full">
-          <AppPageContentRegion><KaiPreviewRouter /></AppPageContentRegion>
-        </div>
-        <div className="h-full w-full">
           <AppPageContentRegion>
-            <KaiFlow userId={user.uid} mode="dashboard" vaultOwnerToken={vaultOwnerToken ?? ""} onStateChange={setFlowState} />
+            <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
         <div className="h-full w-full">
-          <AppPageContentRegion><KaiAnalysisPageContent /></AppPageContentRegion>
+          <AppPageContentRegion>
+            <KaiFlow
+              userId={user.uid}
+              mode="dashboard"
+              vaultOwnerToken={vaultOwnerToken ?? ""}
+              onStateChange={setFlowState}
+            />
+          </AppPageContentRegion>
+        </div>
+        <div className="h-full w-full">
+          <AppPageContentRegion>
+            <KaiAnalysisPageContent />
+          </AppPageContentRegion>
         </div>
       </SwipeViews>
     </AppPageShell>

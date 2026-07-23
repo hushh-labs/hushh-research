@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 from mcp.types import TextContent
 
+from hushh_mcp.consent.connector_crypto_profiles import get_connector_crypto_profile
 from hushh_mcp.consent.export_envelope import ConsentExportEnvelopeSubmissionV2
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
@@ -156,7 +157,11 @@ def _project_hosted_crypto(data: dict[str, Any]) -> dict[str, Any] | None:
         if not value or len(value) > maximum:
             return None
         safe_wrapped[key] = value
-    if safe_wrapped["wrapping_alg"] != "X25519-AES256-GCM":
+    try:
+        profile = get_connector_crypto_profile(str(safe_wrapped["wrapping_alg"]))
+    except ValueError:
+        return None
+    if profile.envelope_version != 2:
         return None
 
     try:

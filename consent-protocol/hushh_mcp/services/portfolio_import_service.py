@@ -1954,7 +1954,11 @@ Statement text (first 12000 chars):
 {text[:12000]}
 """
 
-            config = types.GenerateContentConfig(
+            from hushh_mcp.runtime_providers import build_generate_content_config
+
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.3,
                 max_output_tokens=8192,
             )
@@ -2283,7 +2287,11 @@ Extract data into the following nested objects:
             types.Part(inline_data=types.Blob(mime_type="application/pdf", data=pdf_base64)),
         ]
 
-        config = types.GenerateContentConfig(
+        from hushh_mcp.runtime_providers import build_generate_content_config
+
+        config = build_generate_content_config(
+            types,
+            model_to_use,
             temperature=0.1,  # Low temperature for accuracy
             max_output_tokens=32768,  # Large output for comprehensive data
         )
@@ -3142,7 +3150,11 @@ Content sample:
 {text_sample[:6000]}
 """.strip()
 
-            config = types.GenerateContentConfig(
+            from hushh_mcp.runtime_providers import build_generate_content_config
+
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.0,
                 max_output_tokens=256,
                 response_mime_type="application/json",

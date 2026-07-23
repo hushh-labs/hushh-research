@@ -4,6 +4,10 @@ apply plugin: 'kotlin-android'
 def releaseSigningProperties = new Properties()
 def releaseSigningPropertiesFile = new File(rootProject.projectDir.parentFile, ".env.local.d/android/release-signing.properties")
 def hasReleaseSigning = releaseSigningPropertiesFile.exists()
+// A package/SHA-restricted Android Maps SDK key. It is intentionally supplied
+// by the build environment and never committed. An empty value builds a safe
+// unavailable Map surface instead of falling back to the browser/server key.
+def googleMapsApiKey = (System.getenv("NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY") ?: project.findProperty("GOOGLE_MAPS_ANDROID_API_KEY") ?: "").replace('"', '\\"')
 if (hasReleaseSigning) {
     releaseSigningProperties.load(new FileInputStream(releaseSigningPropertiesFile))
 }
@@ -18,6 +22,7 @@ android {
         versionCode 2
         versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        resValue "string", "google_maps_key", googleMapsApiKey
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from google.adk.events import Event, EventActions
 from google.genai import types as genai_types
@@ -136,7 +138,18 @@ async def test_managed_text_runtime_fails_over_only_before_observable_output(mon
     monkeypatch.setattr(
         text_runtime.ManagedGeminiRuntimeBinding,
         "from_environment",
-        classmethod(lambda cls: type("Binding", (), {"locations": ("primary", "secondary")})()),
+        classmethod(
+            lambda cls: type(
+                "Binding",
+                (),
+                {
+                    "locations_for_model": lambda self, _model: (
+                        "primary",
+                        "secondary",
+                    )
+                },
+            )()
+        ),
     )
     attempts: list[str | None] = []
 
@@ -179,7 +192,18 @@ async def test_managed_text_runtime_never_replays_after_tool_boundary(monkeypatc
     monkeypatch.setattr(
         text_runtime.ManagedGeminiRuntimeBinding,
         "from_environment",
-        classmethod(lambda cls: type("Binding", (), {"locations": ("primary", "secondary")})()),
+        classmethod(
+            lambda cls: type(
+                "Binding",
+                (),
+                {
+                    "locations_for_model": lambda self, _model: (
+                        "primary",
+                        "secondary",
+                    )
+                },
+            )()
+        ),
     )
     attempts: list[str | None] = []
 
@@ -248,6 +272,40 @@ async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
     ]
 
     assert [event.text for event in events] == ["You prefer concise summaries."]
+
+
+@pytest.mark.asyncio
+async def test_bounded_adk_events_times_out_stalled_first_event(monkeypatch):
+    async def stalled():
+        await asyncio.sleep(0.05)
+        yield object()
+
+    monkeypatch.setattr(text_runtime, "_FIRST_EVENT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(text_runtime, "_TOTAL_TURN_TIMEOUT_SECONDS", 0.1)
+
+    with pytest.raises(asyncio.TimeoutError):
+        async for _ in text_runtime._bounded_adk_events(stalled()):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_bounded_adk_events_times_out_stalled_followup(monkeypatch):
+    first = object()
+
+    async def stalled():
+        yield first
+        await asyncio.sleep(0.05)
+        yield object()
+
+    monkeypatch.setattr(text_runtime, "_BETWEEN_EVENT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(text_runtime, "_TOTAL_TURN_TIMEOUT_SECONDS", 0.1)
+
+    observed = []
+    with pytest.raises(asyncio.TimeoutError):
+        async for event in text_runtime._bounded_adk_events(stalled()):
+            observed.append(event)
+
+    assert observed == [first]
 
 
 async def test_text_runtime_rejects_silent_model_completion(monkeypatch):

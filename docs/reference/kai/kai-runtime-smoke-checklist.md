@@ -36,9 +36,12 @@ Runtime truth note:
    - `/one/kai/import`
    - `/one/kai`
    - `/one/kai/plaid/oauth/return`
-   - `/one/kai/portfolio`
+   - `/one/kai?tab=portfolio`
+   - `/one/kai/portfolio/holdings`
+   - `/one/kai/portfolio/allocation`
+   - `/one/kai/portfolio/performance`
+   - `/one/kai/portfolio/sources`
    - `/one/kai/analysis`
-   - `/one/kai/optimize`
  4. Verify required voice routes are present and reachable in the protected API surface:
    - `/api/kai/voice/capability`
    - `/api/kai/voice/realtime/session`

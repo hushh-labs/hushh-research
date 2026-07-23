@@ -604,7 +604,10 @@ class LocationChatService:
         Returns (reply, errored, state_changed, directives, prompts).
         """
         types = self._types
-        config = types.GenerateContentConfig(
+        from hushh_mcp.operons.kai.llm import build_kai_generation_config
+
+        config = build_kai_generation_config(
+            types,
             system_instruction=self._system_prompt,
             tools=[types.Tool(function_declarations=_function_declarations_v2(types))],
             temperature=0.2,

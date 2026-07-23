@@ -6,12 +6,16 @@ export type VoiceRouteScreenInfo = {
   subview?: string | null;
 };
 
-function toSearchParams(searchParams?: URLSearchParams | string): URLSearchParams {
+function toSearchParams(
+  searchParams?: URLSearchParams | string,
+): URLSearchParams {
   if (searchParams instanceof URLSearchParams) {
     return new URLSearchParams(searchParams.toString());
   }
   if (typeof searchParams === "string") {
-    const normalized = searchParams.startsWith("?") ? searchParams.slice(1) : searchParams;
+    const normalized = searchParams.startsWith("?")
+      ? searchParams.slice(1)
+      : searchParams;
     return new URLSearchParams(normalized);
   }
   return new URLSearchParams();
@@ -19,10 +23,13 @@ function toSearchParams(searchParams?: URLSearchParams | string): URLSearchParam
 
 export function deriveVoiceRouteScreen(
   pathname: string,
-  searchParams?: URLSearchParams | string
+  searchParams?: URLSearchParams | string,
 ): VoiceRouteScreenInfo {
   const [normalizedPath, rawQuery = ""] = String(pathname || "").split("?");
-  const query = searchParams === undefined ? new URLSearchParams(rawQuery) : toSearchParams(searchParams);
+  const query =
+    searchParams === undefined
+      ? new URLSearchParams(rawQuery)
+      : toSearchParams(searchParams);
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }
@@ -107,6 +114,18 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === "/one/kai/portfolio") {
     return { screen: "kai_portfolio_dashboard", subview: null };
   }
+  if (normalizedPath === ROUTES.KAI_PORTFOLIO_HOLDINGS) {
+    return { screen: "kai_portfolio_holdings", subview: null };
+  }
+  if (normalizedPath === ROUTES.KAI_PORTFOLIO_ALLOCATION) {
+    return { screen: "kai_portfolio_allocation", subview: null };
+  }
+  if (normalizedPath === ROUTES.KAI_PORTFOLIO_PERFORMANCE) {
+    return { screen: "kai_portfolio_performance", subview: null };
+  }
+  if (normalizedPath === ROUTES.KAI_PORTFOLIO_SOURCES) {
+    return { screen: "kai_portfolio_sources", subview: null };
+  }
   if (
     normalizedPath === "/kai/investments" ||
     normalizedPath === "/one/kai/investments" ||
@@ -142,12 +161,11 @@ export function deriveVoiceRouteScreen(
       subview,
     };
   }
-  if (
-    normalizedPath.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
-  ) {
+  if (normalizedPath.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)) {
     return {
       screen: "kai_analysis",
-      subview: query.get("tab") || (query.get("focus") === "active" ? "active" : null),
+      subview:
+        query.get("tab") || (query.get("focus") === "active" ? "active" : null),
     };
   }
   if (
@@ -157,10 +175,10 @@ export function deriveVoiceRouteScreen(
     return { screen: "import", subview: null };
   }
   if (
-    normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE) ||
-    normalizedPath.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE)
+    normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE_COMPAT) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE_COMPAT)
   ) {
-    return { screen: "kai_optimize", subview: null };
+    return { screen: "kai_portfolio_dashboard", subview: "overview" };
   }
   if (normalizedPath === ROUTES.RIA_HOME) {
     return { screen: "ria_home", subview: query.get("tab") || null };
@@ -176,12 +194,21 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath.startsWith(`${ROUTES.RIA_CLIENTS}/`)) {
     if (normalizedPath.includes("/accounts/")) {
-      return { screen: "ria_client_account_detail", subview: query.get("tab") || null };
+      return {
+        screen: "ria_client_account_detail",
+        subview: query.get("tab") || null,
+      };
     }
     if (normalizedPath.includes("/requests/")) {
-      return { screen: "ria_client_request_detail", subview: query.get("tab") || null };
+      return {
+        screen: "ria_client_request_detail",
+        subview: query.get("tab") || null,
+      };
     }
-    return { screen: "ria_client_workspace", subview: query.get("tab") || "overview" };
+    return {
+      screen: "ria_client_workspace",
+      subview: query.get("tab") || "overview",
+    };
   }
   if (normalizedPath.startsWith(ROUTES.RIA_WORKSPACE)) {
     return { screen: "ria_workspace", subview: query.get("tab") || null };
@@ -210,7 +237,10 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_LOCATION) {
     return { screen: "one_location", subview: query.get("tab") || null };
   }
-  if (normalizedPath === ROUTES.GMAIL || normalizedPath === ROUTES.LEGACY_GMAIL) {
+  if (
+    normalizedPath === ROUTES.GMAIL ||
+    normalizedPath === ROUTES.LEGACY_GMAIL
+  ) {
     return { screen: "gmail", subview: null };
   }
   if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
@@ -308,7 +338,10 @@ export function deriveVoiceRouteScreen(
       return { screen: "profile_my_data", subview: detail || null };
     }
     if (panel === "regulatory") {
-      return { screen: "profile_regulatory", subview: query.get("tab") || null };
+      return {
+        screen: "profile_regulatory",
+        subview: query.get("tab") || null,
+      };
     }
     return { screen: "profile_account", subview: detail || panel || null };
   }

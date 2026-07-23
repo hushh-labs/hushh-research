@@ -106,9 +106,16 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`
 - `/one/kai/alpaca/oauth/return`
-- `/one/kai/portfolio`
+- `/one/kai?tab=portfolio`
+- `/one/kai/portfolio/holdings`
+- `/one/kai/portfolio/allocation`
+- `/one/kai/portfolio/performance`
+- `/one/kai/portfolio/sources`
 - `/one/kai/analysis`
-- `/one/kai/optimize`
+
+`/kai/optimize` and `/one/kai/optimize` are one-release compatibility
+redirects to the canonical Portfolio tab. They are not product, native,
+command, or voice surfaces.
 
 Detail entrypoints that require an identifier use query-backed static routes so Capacitor export stays compatible:
 
@@ -126,7 +133,7 @@ canonical public-workspace destinations are `/welcome?tab=developers`,
 are semantic routes: they are individually indexed by the runtime topology
 maintenance contract even when Next.js mounts one physical page file.
 
-Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases remain redirect-only.
+Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Portfolio overview is the tab scene; its finite detail routes live under `/one/kai/portfolio/*` and intentionally suppress the Finance swipe tabs. Legacy `/kai/*` aliases remain redirect-only.
 
 `/one/kai/news` is a finite Market workspace, not a fourth Finance tab. The Market preview's **All news** control opens it, and its shared top-shell back control returns to Market. Its opaque server cursor addresses one cached market-news snapshot: requesting another page must slice that snapshot rather than initiate another provider fetch.
 

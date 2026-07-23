@@ -45,12 +45,17 @@ BYOK values default to `developer_api`, so no storage migration is required.
 The value never appears in a URL, relay ticket, browser storage, native
 preferences, Postgres, logs, telemetry, action contracts, or model prompts.
 
-The bounded credential/readiness probe uses `gemini-3.1-flash-lite`. Successful
-setup proves authentication, model access, billing/quota availability, and one
-minimal generation without paying for an agentic 3.5 Flash turn. Normal typed
-private-agent reasoning uses the manifest-owned `gemini-3.5-flash`; managed
+The bounded credential/readiness probe uses the same manifest-owned
+`gemini-3.6-flash` model as normal typed private-agent reasoning. Successful
+setup therefore proves authentication, exact-model access, billing/quota
+availability, and one minimal generation before a key can be saved. Managed
 voice uses `gemini-live-2.5-flash-native-audio`. No standalone TTS fallback is
 configured.
+
+Gemini 3.6 text requests use the global Vertex endpoint and omit legacy
+sampling controls. The runtime retains `thinking_level` for bounded reasoning;
+it does not send `temperature`, `top_p`, `top_k`, `candidate_count`, or
+`thinking_budget` to 3.6.
 
 ## Live Compatibility Registry
 

@@ -67,6 +67,15 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _parse_impact_score(value: Any) -> int | float | None:
+    """Normalize optional model-authored impact scores without aborting a run."""
+    parsed = _safe_float(value)
+    if parsed is None:
+        return None
+    bounded = min(10.0, max(0.0, parsed))
+    return int(bounded) if bounded.is_integer() else round(bounded, 2)
+
+
 def _format_currency(value: Any) -> str:
     parsed = _safe_float(value)
     if parsed is None:
@@ -433,9 +442,6 @@ class DebateEngine:
                 stream_error_message = str(chunk.get("message") or "Unknown streaming error")
                 logger.error(f"[{agent_name}] Stream error: {stream_error_message}")
 
-            # Artificial "Thinking" Delay to prevent "Dummy" feel
-            await asyncio.sleep(0.05)
-
             # --- REAL-TIME XML PARSING ---
             # Parse the accumulating response to find completed XML tags
             # We use a simple regex approach on the full_response to find *new* tags
@@ -502,6 +508,14 @@ class DebateEngine:
             )
             for match in impact_iter:
                 impact_content = match.group(4).strip()
+                impact_score = _parse_impact_score(match.group(3))
+                if impact_score is None:
+                    logger.warning(
+                        "[%s] Ignoring malformed portfolio impact score in round %s",
+                        agent_name,
+                        round_num,
+                    )
+                    continue
                 impact_id = f"imp_{hash(impact_content)}"
                 if impact_id not in self.emitted_ids:
                     self.emitted_ids.add(impact_id)
@@ -511,7 +525,7 @@ class DebateEngine:
                             "type": "impact",
                             "classification": match.group(1),  # risk/opportunity
                             "magnitude": match.group(2),  # high/med/low
-                            "score": int(match.group(3)),  # 0-10
+                            "score": impact_score,  # 0-10, fractional values preserved
                             "content": impact_content,
                             "agent": agent_name,
                             "round": round_num,
@@ -581,57 +595,6 @@ class DebateEngine:
                         },
                     }
 
-        # One agent-local retry for transient provider throttling (429/resource exhausted).
-        if (
-            not full_response
-            and stream_error_message
-            and self._is_retryable_stream_error(stream_error_message)
-            and not (self._disconnection_event and self._disconnection_event.is_set())
-        ):
-            retry_delay = 2.0
-            yield {
-                "event": "agent_error",
-                "data": {
-                    "agent": agent_name,
-                    "error": stream_error_message,
-                    "retryable": True,
-                    "retrying": True,
-                    "retry_in_seconds": retry_delay,
-                    "round": round_num,
-                    "phase": phase,
-                },
-            }
-            logger.warning(
-                "[%s] Stream hit retryable limit, retrying from same turn in %.1fs",
-                agent_name,
-                retry_delay,
-            )
-            await asyncio.sleep(retry_delay)
-            stream_error_message = None
-            async for chunk in stream_gemini_response(prompt, agent_name=agent_name):
-                if chunk.get("type") == "token":
-                    text = chunk.get("text", "")
-                    full_response += text
-                    yield {
-                        "event": "agent_token",
-                        "data": {
-                            "agent": agent_name,
-                            "text": text,
-                            "type": "token",
-                            "round": round_num,
-                            "phase": phase,
-                        },
-                    }
-                    if self._disconnection_event is not None and self._disconnection_event.is_set():
-                        return
-                elif chunk.get("type") == "error":
-                    stream_error_message = str(chunk.get("message") or "Unknown streaming error")
-                    logger.error(f"[{agent_name}] Retry stream error: {stream_error_message}")
-                await asyncio.sleep(0.03)
-
-        # Additional pause after full generation to let it sink in before next agent
-        await asyncio.sleep(1.0)
-
         # Fallback if empty (Gemini error or timeout)
         if not full_response:
             used_fallback = True
@@ -655,7 +618,7 @@ class DebateEngine:
                     "phase": phase,
                 },
             }
-            # Keep the stream visually alive even on fallback so UX does not "freeze".
+            # Preserve the streaming envelope without adding synthetic latency.
             words = full_response.split()
             for idx, word in enumerate(words):
                 if self._disconnection_event is not None and self._disconnection_event.is_set():
@@ -671,7 +634,6 @@ class DebateEngine:
                         "phase": phase,
                     },
                 }
-                await asyncio.sleep(0.012)
 
         self.current_statements[agent_name] = full_response
 

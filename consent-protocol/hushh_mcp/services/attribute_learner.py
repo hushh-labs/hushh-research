@@ -14,7 +14,10 @@ from typing import Optional
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +111,9 @@ class AttributeLearner:
                 assistant_response=assistant_response,
             )
 
-            config = genai_types.GenerateContentConfig(
+            config = build_generate_content_config(
+                genai_types,
+                GEMINI_MODEL,
                 response_mime_type="application/json",
                 temperature=0.1,  # Low temperature for consistent extraction
             )

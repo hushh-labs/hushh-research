@@ -35,7 +35,6 @@ handle_kai_open_dashboard = _mod.handle_kai_open_dashboard
 handle_kai_open_history = _mod.handle_kai_open_history
 handle_kai_open_home = _mod.handle_kai_open_home
 handle_kai_open_import = _mod.handle_kai_open_import
-handle_kai_open_optimize = _mod.handle_kai_open_optimize
 handle_kai_open_profile = _mod.handle_kai_open_profile
 handle_kai_resume_active_analysis = _mod.handle_kai_resume_active_analysis
 get_manifest_action_ids = _mod.get_manifest_action_ids
@@ -125,7 +124,6 @@ NAV_CASES = [
     (handle_kai_open_import, "route.kai_import", "route_settle"),
     (handle_kai_open_consent, "route.consents", "route_settle"),
     (handle_kai_open_profile, "route.profile", "route_settle"),
-    (handle_kai_open_optimize, "route.kai_optimize", "route_settle"),
     (handle_kai_open_home, "route.kai_home", "route_settle"),
     (handle_kai_navigate_back, "route.back", "route_settle"),
     (handle_kai_resume_active_analysis, "analysis.resume_active", "route_settle"),
@@ -188,7 +186,6 @@ ALL_HANDLERS = [
     (handle_kai_open_history, {}),
     (handle_kai_open_consent, {}),
     (handle_kai_open_profile, {}),
-    (handle_kai_open_optimize, {}),
     (handle_kai_open_home, {}),
     (handle_kai_navigate_back, {}),
     (handle_kai_resume_active_analysis, {}),

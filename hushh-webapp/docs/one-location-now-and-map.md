@@ -26,14 +26,43 @@ available through the active share detail surfaces.
 
 ## Your Map
 
-`/one/location/map` remains an immersive route, but Maps is temporarily
-unavailable while the native SDK, restricted platform keys, device rendering,
-and lifecycle proof are completed. The route suppresses persistent chrome and
-does not load, decrypt, capture, or persist coordinates.
+`/one/location/map` is an immersive private map. It suppresses the app top
+shell, Agent Bar, bottom navigation, and ambient chrome. A person must accept
+the Google Maps renderer disclosure before it initializes.
+
+- Ghost Mode is the default. It hides the owner from Your Map without changing
+  any direct private share or its background publisher.
+- The map returns only fresh (90-second default), active, recipient-scoped
+  `foreground_map_visible` ciphertext. It never promotes a direct or
+  background-share envelope onto the map.
+- Opening Map never captures location. **Locate me** is the explicit
+  foreground action that can publish a fresh encrypted Map envelope to the
+  owner’s already-active private recipients.
+- Decryption happens only in foreground device memory. Closing the route
+  destroys the renderer and clears marker state. Coordinates are not added to
+  storage, logs, route data, or map preference records.
+- Web, iOS, and Android use the official Capacitor Google Maps renderer; there
+  is no iframe or single-point fallback. Missing restricted platform keys shows
+  a safe unavailable state without decrypting coordinates.
+- The people surface is one matched-geometry control: it expands into search,
+  visibility, and framing controls, then morphs into a 64px map button so the
+  map remains unobstructed. Selecting a person or Show everyone minimizes it.
+- Local development and injected native UI-test sessions expose a **Demo**
+  control with fictional people. Demo markers stay in process memory and
+  perform no preference, envelope, or share writes. **Locate me** continues to
+  use the actual browser/native location provider while Demo is active. The
+  control is unavailable in ordinary production sessions.
+
+Builds must inject separate restricted values for
+`NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY`,
+`NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY`, and
+`NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY`. They must never reuse the backend
+Maps key or be committed to source.
 
 ## Verification
 
-Run `npm run verify:surface-map`, `npm run verify:capacitor:plugins`, focused
-Location tests, and typecheck. Native release verification must confirm multiple
-markers, permission parity, suppressed chrome, and a Back return to
-`/one/location` in the same vault session.
+Run `npm run verify:surface-map`, `npm run verify:capacitor:static`, focused
+Location tests, typecheck, and native builds. Native release verification must
+confirm multiple markers, Ghost Mode, foreground-only update behavior,
+suppressed chrome, and a Back return to `/one/location` in the same vault
+session.

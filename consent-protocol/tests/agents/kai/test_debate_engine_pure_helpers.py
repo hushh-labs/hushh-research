@@ -17,6 +17,7 @@ import pytest
 from hushh_mcp.agents.kai.debate_engine import (
     _format_currency,
     _format_percent,
+    _parse_impact_score,
     _safe_float,
 )
 
@@ -85,6 +86,25 @@ class TestSafeFloat:
 
     def test_negative_float_string(self):
         assert _safe_float("-9.99") == -9.99
+
+
+class TestParseImpactScore:
+    def test_integer_score_stays_integer(self):
+        assert _parse_impact_score("8") == 8
+
+    def test_fractional_score_is_preserved(self):
+        assert _parse_impact_score("8.5") == 8.5
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("-2", 0), ("11.4", 10)],
+    )
+    def test_score_is_clamped_to_contract_range(self, raw, expected):
+        assert _parse_impact_score(raw) == expected
+
+    @pytest.mark.parametrize("raw", ["", "high", None, True])
+    def test_malformed_score_is_ignored(self, raw):
+        assert _parse_impact_score(raw) is None
 
 
 # ---------------------------------------------------------------------------

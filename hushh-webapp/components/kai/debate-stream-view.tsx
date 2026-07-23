@@ -785,6 +785,41 @@ export function DebateStreamView({
   const decisionNotifiedRef = useRef(false);
   const finalizingNotifiedRef = useRef(false);
   const persistedNotifiedRef = useRef(false);
+  const tokenPaintFrameRef = useRef<number | null>(null);
+  const pendingTokenPaintRef = useRef<{ round1: boolean; round2: boolean }>({
+    round1: false,
+    round2: false,
+  });
+
+  const flushTokenPaint = useCallback(() => {
+    tokenPaintFrameRef.current = null;
+    const pending = pendingTokenPaintRef.current;
+    pendingTokenPaintRef.current = { round1: false, round2: false };
+    if (pending.round1) {
+      setRound1States({ ...round1StatesRef.current });
+    }
+    if (pending.round2) {
+      setRound2States({ ...round2StatesRef.current });
+    }
+  }, []);
+
+  const queueTokenPaint = useCallback(
+    (round: 1 | 2) => {
+      pendingTokenPaintRef.current[round === 1 ? "round1" : "round2"] = true;
+      if (tokenPaintFrameRef.current !== null) return;
+      tokenPaintFrameRef.current = window.requestAnimationFrame(flushTokenPaint);
+    },
+    [flushTokenPaint]
+  );
+
+  const cancelTokenPaint = useCallback(() => {
+    if (tokenPaintFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenPaintFrameRef.current);
+      tokenPaintFrameRef.current = null;
+    }
+    pendingTokenPaintRef.current = { round1: false, round2: false };
+  }, []);
+
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)
@@ -920,6 +955,7 @@ export function DebateStreamView({
     setDecision(null);
     setInsights([]);
     setRetryCountdown(null);
+    cancelTokenPaint();
     decisionNotifiedRef.current = false;
     finalizingNotifiedRef.current = false;
     persistedNotifiedRef.current = false;
@@ -927,7 +963,7 @@ export function DebateStreamView({
     // Reset refs
     round1StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
     round2StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
-  }, []);
+  }, [cancelTokenPaint]);
 
   const resolveRoundForEnvelope = useCallback((data: StreamPayload): 1 | 2 => {
     if (data.round === 2 || data.round === "2") return 2;
@@ -942,6 +978,9 @@ export function DebateStreamView({
     (envelope: KaiStreamEnvelope) => {
       const resolvedEventType = envelope.event;
       const data = envelope.payload as StreamPayload;
+      if (resolvedEventType !== "agent_token") {
+        flushTokenPaint();
+      }
       setLoading(false);
       setRetryCountdown(null);
 
@@ -1031,19 +1070,7 @@ export function DebateStreamView({
             };
           }
 
-          const setter = r === 1 ? setRound1States : setRound2States;
-          setter((prev) => {
-            const current = prev[ag];
-            if (!current) return prev;
-            return {
-              ...prev,
-              [ag]: {
-                ...current,
-                stage: current.stage === "idle" ? "active" : current.stage,
-                text: toInvestorStreamText((current.text || "") + txt),
-              },
-            };
-          });
+          queueTokenPaint(r);
           break;
         }
         case "agent_complete": {
@@ -1268,6 +1295,7 @@ export function DebateStreamView({
     },
     [
       currentRunId,
+      flushTokenPaint,
       onDecisionReady,
       pickSource,
       pickSourceKind,
@@ -1276,6 +1304,7 @@ export function DebateStreamView({
       runId,
       setBusyOperation,
       ticker,
+      queueTokenPaint,
       updateAgentState,
       userId,
     ]
@@ -1498,12 +1527,14 @@ export function DebateStreamView({
 
     return () => {
       cancelled = true;
+      cancelTokenPaint();
       if (unsubscribeRun) unsubscribeRun();
       if (unsubscribeState) unsubscribeState();
       setBusyOperation("stock_analysis_stream", false);
     };
   }, [
     applyEnvelope,
+    cancelTokenPaint,
     onDecisionPersisted,
     portfolioContextOverride,
     portfolioSource,

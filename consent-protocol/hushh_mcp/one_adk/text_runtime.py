@@ -11,8 +11,10 @@ while avoiding process-local session loss as a second source of chat truth.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
@@ -47,6 +49,9 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 logger = logging.getLogger(__name__)
 
 OneTextEventKind = Literal["token", "directive", "boundary"]
+_FIRST_EVENT_TIMEOUT_SECONDS = 20.0
+_BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
+_TOTAL_TURN_TIMEOUT_SECONDS = 90.0
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,36 @@ class OneTextStreamEvent:
 
 class OneTextEmptyResponseError(RuntimeError):
     """Raised when the model turn produces neither user-visible text nor a directive."""
+
+
+async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
+    """Bound ADK startup, idle gaps, and total turn time without changing events."""
+    iterator = source.__aiter__()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _TOTAL_TURN_TIMEOUT_SECONDS
+    saw_event = False
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            timeout = min(
+                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else _FIRST_EVENT_TIMEOUT_SECONDS,
+                remaining,
+            )
+            try:
+                event = await asyncio.wait_for(anext(iterator), timeout=timeout)
+            except StopAsyncIteration:
+                return
+            saw_event = True
+            yield event
+    finally:
+        close = getattr(iterator, "aclose", None)
+        if callable(close):
+            try:
+                await asyncio.wait_for(close(), timeout=1.0)
+            except Exception:
+                logger.debug("one_text_stream_close_failed", exc_info=True)
 
 
 def _runtime_model(
@@ -271,12 +306,15 @@ async def _stream_one_text_turn_once(
     emitted_directives: set[str] = set()
     saw_partial_text = False
     emitted_visible_output = False
-    async for event in runner.run_async(
+    started_at = time.perf_counter()
+    first_visible_at: float | None = None
+    source = runner.run_async(
         user_id=clean_user_id,
         session_id=session.id,
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
-    ):
+    )
+    async for event in _bounded_adk_events(source):
         if _event_crosses_replay_boundary(event):
             yield OneTextStreamEvent(kind="boundary")
         for directive in _event_directives(event):
@@ -285,6 +323,8 @@ async def _stream_one_text_turn_once(
                 continue
             emitted_directives.add(fingerprint)
             emitted_visible_output = True
+            if first_visible_at is None:
+                first_visible_at = time.perf_counter()
             yield OneTextStreamEvent(kind="directive", directive=directive)
 
         text = _event_text(event)
@@ -293,17 +333,28 @@ async def _stream_one_text_turn_once(
         if bool(getattr(event, "partial", False)):
             saw_partial_text = True
             emitted_visible_output = True
+            if first_visible_at is None:
+                first_visible_at = time.perf_counter()
             yield OneTextStreamEvent(kind="token", text=text)
             continue
         is_final_response = getattr(event, "is_final_response", None)
         if not saw_partial_text and callable(is_final_response) and is_final_response():
             emitted_visible_output = True
+            if first_visible_at is None:
+                first_visible_at = time.perf_counter()
             yield OneTextStreamEvent(kind="token", text=text)
 
     if not emitted_visible_output:
         raise OneTextEmptyResponseError(
             "One text runtime completed without visible text or a directive"
         )
+    logger.info(
+        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
+        runtime_model,
+        (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
+        round((time.perf_counter() - started_at) * 1000),
+        len(emitted_directives),
+    )
 
 
 async def stream_one_text_turn(
@@ -327,7 +378,8 @@ async def stream_one_text_turn(
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
     if runtime_mode == "hushh_managed_vertex":
-        locations = tuple(ManagedGeminiRuntimeBinding.from_environment().locations)
+        binding = ManagedGeminiRuntimeBinding.from_environment()
+        locations = tuple(binding.locations_for_model(runtime_model))
 
     last_index = len(locations) - 1
     for index, location in enumerate(locations):

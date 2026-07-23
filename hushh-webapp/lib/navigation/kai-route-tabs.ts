@@ -1,7 +1,16 @@
-import { KAI_MARKET_PATH, ROUTES, buildKaiMarketRoute } from "@/lib/navigation/routes";
+import {
+  KAI_MARKET_PATH,
+  ROUTES,
+  buildKaiMarketRoute,
+} from "@/lib/navigation/routes";
 
 export const KAI_ROUTE_TABS = [
-  { id: "market", label: "Market", href: buildKaiMarketRoute("market"), prefetchHref: buildKaiMarketRoute("market") },
+  {
+    id: "market",
+    label: "Market",
+    href: buildKaiMarketRoute("market"),
+    prefetchHref: buildKaiMarketRoute("market"),
+  },
   {
     id: "dashboard",
     label: "Portfolio",
@@ -42,8 +51,7 @@ export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
   if (
     pathname.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO) ||
     pathname.startsWith("/kai/dashboard") ||
-    pathname.startsWith("/one/kai/dashboard") ||
-    pathname.startsWith(ROUTES.KAI_OPTIMIZE)
+    pathname.startsWith("/one/kai/dashboard")
   ) {
     return "dashboard";
   }
@@ -52,12 +60,13 @@ export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
 
 export function getAdjacentKaiRouteHref(
   pathname: string,
-  direction: "next" | "prev"
+  direction: "next" | "prev",
 ): string | null {
   const activeTab = activeKaiRouteTabFromPath(pathname);
   const currentIndex = KAI_ROUTE_TABS.findIndex((tab) => tab.id === activeTab);
   if (currentIndex < 0) return null;
-  const targetIndex = direction === "next" ? currentIndex + 1 : currentIndex - 1;
+  const targetIndex =
+    direction === "next" ? currentIndex + 1 : currentIndex - 1;
   const target = KAI_ROUTE_TABS[targetIndex];
   return target ? target.href : null;
 }

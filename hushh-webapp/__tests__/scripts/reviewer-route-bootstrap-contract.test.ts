@@ -9,14 +9,22 @@ const scripts = [
 ];
 
 describe("reviewer route bootstrap contract", () => {
-  it.each(scripts)("accepts the governed RIA onboarding redirect in %s", (relativePath) => {
-    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  it.each(scripts)(
+    "accepts the governed RIA onboarding redirect in %s",
+    (relativePath) => {
+      const source = readFileSync(
+        new URL(relativePath, import.meta.url),
+        "utf8",
+      );
 
-    expect(source).toContain(
-      'const REVIEWER_BOOTSTRAP_ROUTE_IDS = [REVIEWER_BOOTSTRAP_ROUTE, "/ria/onboarding"]'
-    );
-    expect(source).toContain("waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS)");
-  });
+      expect(source).toMatch(
+        /const REVIEWER_BOOTSTRAP_ROUTE_IDS = \[\s*REVIEWER_BOOTSTRAP_ROUTE,\s*"\/ria\/onboarding",?\s*\]/,
+      );
+      expect(source).toContain(
+        "waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS)",
+      );
+    },
+  );
 
   it("accepts state-aware destinations for Kai onboarding compatibility redirects", () => {
     const verifierPath = scripts[0];
@@ -45,13 +53,19 @@ describe("reviewer route bootstrap contract", () => {
       "/ria/clients/[userId]/requests/[requestId]",
       "native-route-ria-client-request-detail",
     ],
-  ])("keeps a terminal reviewer beacon in RIA compatibility mode for %s", (relativePath, routeId, marker) => {
-    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  ])(
+    "keeps a terminal reviewer beacon in RIA compatibility mode for %s",
+    (relativePath, routeId, marker) => {
+      const source = readFileSync(
+        new URL(relativePath, import.meta.url),
+        "utf8",
+      );
 
-    expect(source).toContain(`routeId: "${routeId}"`);
-    expect(source).toContain(`marker: "${marker}"`);
-    expect(source).toContain('dataState: "unavailable-valid"');
-  });
+      expect(source).toContain(`routeId: "${routeId}"`);
+      expect(source).toContain(`marker: "${marker}"`);
+      expect(source).toContain('dataState: "unavailable-valid"');
+    },
+  );
 
   it("keeps a terminal reviewer beacon in RIA picks setup compatibility mode", () => {
     const source = readFileSync(

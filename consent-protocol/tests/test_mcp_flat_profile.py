@@ -106,6 +106,7 @@ def test_salesforce_agentexchange_handoff_preserves_the_catalog_and_boundary() -
     handoff = get_salesforce_agentexchange_handoff()
 
     assert handoff["integrationTarget"] == "salesforce-agentexchange"
+    assert handoff["selectionStatus"] == "optional-action-facade"
     assert handoff["upstream"] == {
         "transport": "streamable-http",
         "path": "/mcp/",
@@ -152,10 +153,15 @@ def test_salesforce_agentexchange_handoff_preserves_the_catalog_and_boundary() -
     }
 
 
-def test_mulesoft_handoff_remains_a_compatible_implementation_view() -> None:
+def test_mulesoft_handoff_is_the_selected_compatible_implementation_view() -> None:
     handoff = get_mulesoft_agentforce_handoff()
     assert handoff["integrationTarget"] == "mulesoft-agentforce"
     assert handoff["implementation"] == "mulesoft-secure-relay"
+    assert handoff["selectionStatus"] == "selected-target-uat-gated"
+    assert handoff["connectorRequirements"]["keyCustody"] == ("partner-controlled-mulesoft-runtime")
+    assert handoff["executionBoundary"]["agentforceInformationSource"] == (
+        "authorized-salesforce-record-or-metadata-status"
+    )
     assert handoff["agentforce"]["agentActionPolicy"]["connectorOnlyTool"] == (
         "get-encrypted-scoped-export"
     )

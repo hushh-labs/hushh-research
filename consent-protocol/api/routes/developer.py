@@ -36,11 +36,11 @@ from api.developer_auth import (
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.utils.firebase_admin import get_firebase_auth_app
-from hushh_mcp.consent.export_envelope import (
-    connector_key_fingerprint,
-    digest_bytes,
-    scope_handle_for_machine_scope,
+from hushh_mcp.consent.connector_crypto_profiles import (
+    X25519_AES256_GCM,
+    get_connector_crypto_profile,
 )
+from hushh_mcp.consent.export_envelope import digest_bytes, scope_handle_for_machine_scope
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import (
@@ -82,7 +82,7 @@ _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
 _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
-_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONNECTOR_WRAPPING_ALG = X25519_AES256_GCM
 _CONSENT_EXPORT_MAX_RAW_BYTES = max(
     1,
     min(
@@ -298,7 +298,7 @@ class MCPConsentRequest(BaseModel):
     refresh_policy: Literal["snapshot", "continuous_until_expiry"] = "snapshot"
     connector_public_key: str | None = Field(default=None, min_length=40, max_length=128)
     connector_key_id: str | None = Field(default=None, min_length=1, max_length=128)
-    connector_wrapping_alg: Literal["X25519-AES256-GCM"] | None = None
+    connector_wrapping_alg: str | None = Field(default=None, min_length=1, max_length=128)
     country_iso2: str | None = Field(default=None, min_length=2, max_length=2)
     country: str | None = Field(default=None, min_length=2, max_length=64)
 
@@ -484,33 +484,40 @@ def _validate_public_approval_timeout_minutes(approval_timeout_minutes: int) -> 
 
 
 def _validate_connector_wrapping_alg(connector_wrapping_alg: str) -> str:
-    # Crypto-agility seam: today exactly one wrapping algorithm is accepted. To
-    # scale 1 -> N, promote _CONNECTOR_WRAPPING_ALG to an allow-list set and check
-    # membership here, and mirror the values in the request_consent tool schema
-    # enum. The algorithm is ALWAYS validated server-side against this allow-list;
-    # it is deterministic connector configuration and must never be inferred by a
-    # model (JWT alg:none downgrade class of risk).
+    # This selector is deterministic connector configuration, never model
+    # negotiation. A new profile requires an authenticated envelope version and
+    # interoperable connector proof before it can enter this registry.
     normalized = str(connector_wrapping_alg or "").strip()
-    if normalized == _CONNECTOR_WRAPPING_ALG:
-        return normalized
+    try:
+        return str(get_connector_crypto_profile(normalized).wrapping_alg)
+    except ValueError:
+        pass
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail={
             "error_code": "INVALID_CONNECTOR_WRAPPING_ALG",
-            "message": f"connector_wrapping_alg must be {_CONNECTOR_WRAPPING_ALG}",
+            "message": "connector_wrapping_alg is not an enabled Hussh connector crypto profile.",
         },
     )
 
 
-def _validate_connector_public_key(connector_public_key: str) -> str:
+def _validate_connector_public_key(
+    connector_public_key: str,
+    *,
+    wrapping_alg: str = _CONNECTOR_WRAPPING_ALG,
+) -> str:
     try:
-        return str(connector_key_fingerprint(connector_public_key))
+        return str(
+            get_connector_crypto_profile(wrapping_alg).fingerprint_recipient_key(
+                connector_public_key
+            )
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error_code": "INVALID_CONNECTOR_PUBLIC_KEY",
-                "message": "connector_public_key must be one base64-encoded 32-byte X25519 key.",
+                "message": "connector_public_key does not match the selected connector crypto profile.",
             },
         ) from exc
 
@@ -1797,7 +1804,8 @@ async def _request_consent_impl(
             str(payload.connector_wrapping_alg)
         )
         recipient_key_fingerprint = _validate_connector_public_key(
-            str(payload.connector_public_key)
+            str(payload.connector_public_key),
+            wrapping_alg=connector_wrapping_alg,
         )
     elif payload.refresh_policy != "snapshot":
         raise HTTPException(
@@ -2299,6 +2307,78 @@ async def _load_scoped_export_or_raise(
     return principal, token_obj, export_data
 
 
+async def _record_scoped_export_read(
+    *,
+    request: Request,
+    service: ConsentDBService,
+    principal: DeveloperPrincipal,
+    user_id: str,
+    granted_scope: str,
+    expected_scope: str | None,
+    export_data: dict[str, Any],
+    delivery_surface: str,
+    delivered_bytes: int,
+) -> None:
+    """Persist one metadata-only issuance event before returning ciphertext.
+
+    READ is intentionally not linked through ``request_id`` because consent
+    lifecycle state is derived from the latest event for that request. The
+    opaque grant and export references live in metadata so the delivery stays
+    auditable without changing request/grant state or exposing ciphertext.
+    """
+
+    wrapped_key_bundle = export_data.get("wrapped_key_bundle")
+    bundle = wrapped_key_bundle if isinstance(wrapped_key_bundle, dict) else {}
+    try:
+        await service.insert_event(
+            user_id=user_id,
+            agent_id=principal.agent_id,
+            scope=granted_scope,
+            action="READ",
+            token_id=f"READ_{uuid.uuid4().hex}",
+            scope_description="Encrypted scoped export issued",
+            expires_at=_optional_int(export_data.get("expires_at")),
+            metadata={
+                "event_schema": "consent_export_read/v1",
+                "event_kind": "export_issued",
+                "outcome": "released",
+                "app_id": principal.app_id,
+                "grant_ref": _optional_str(export_data.get("grant_id")),
+                "export_id": _optional_str(export_data.get("export_id")),
+                "export_revision": _optional_int(export_data.get("export_revision")),
+                "expected_scope": expected_scope,
+                "coverage_kind": (
+                    "exact" if not expected_scope or expected_scope == granted_scope else "superset"
+                ),
+                "connector_key_id": _optional_str(
+                    export_data.get("connector_key_id") or bundle.get("connector_key_id")
+                ),
+                "recipient_key_fingerprint": _optional_str(
+                    export_data.get("recipient_key_fingerprint")
+                ),
+                "wrapping_alg": _optional_str(
+                    export_data.get("connector_wrapping_alg") or bundle.get("wrapping_alg")
+                ),
+                "delivery_surface": delivery_surface,
+                "delivered_bytes": max(0, int(delivered_bytes)),
+                "correlation_ref": _optional_str(getattr(request.state, "request_id", None)),
+            },
+        )
+    except Exception as exc:
+        logger.error(
+            "scoped_export_read_audit_failed surface=%s exception_type=%s",
+            delivery_surface,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "EXPORT_AUDIT_UNAVAILABLE",
+                "message": "The encrypted export could not be released with a durable audit event.",
+            },
+        ) from exc
+
+
 @developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)
 async def get_scoped_export(
     payload: DeveloperScopedExportRequest,
@@ -2348,6 +2428,17 @@ async def get_scoped_export(
                 "message": "Encrypted export bytes are unavailable.",
             },
         )
+    await _record_scoped_export_read(
+        request=request,
+        service=service,
+        principal=principal,
+        user_id=payload.user_id,
+        granted_scope=granted_scope,
+        expected_scope=expected_scope,
+        export_data=export_data,
+        delivery_surface="developer_api_inline",
+        delivered_bytes=int(export_data.get("ciphertext_bytes") or 0),
+    )
     return DeveloperScopedExportResponse(
         status="success",
         user_id=payload.user_id,
@@ -2396,7 +2487,8 @@ async def get_mcp_scoped_export(
         token=None,
         authorization=authorization,
     )
-    export = await ConsentDBService().get_consent_export_by_grant(
+    service = ConsentDBService()
+    export = await service.get_consent_export_by_grant(
         payload.grant_ref,
         app_id=principal.app_id,
     )
@@ -2432,6 +2524,17 @@ async def get_mcp_scoped_export(
     granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
     export_id = str(export_data.get("export_id") or "")
     export_revision = int(export_data.get("export_revision") or 1)
+    await _record_scoped_export_read(
+        request=request,
+        service=service,
+        principal=principal,
+        user_id=user_id,
+        granted_scope=granted_scope,
+        expected_scope=expected_scope,
+        export_data=export_data,
+        delivery_surface="mcp_inline",
+        delivered_bytes=int(export_data.get("ciphertext_bytes") or 0),
+    )
     return {
         "status": "success",
         "granted_scope": granted_scope,

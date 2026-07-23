@@ -355,7 +355,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.location.map",
-      "purpose": "Show authorized shared locations on an immersive map without proposing unavailable controls.",
+      "purpose": "Show fresh, authorized private location shares on an immersive map. Capture location only after the person explicitly taps Locate me.",
       "screen": "one_location_map",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1520,11 +1520,11 @@
   {
     "route": "/kai/optimize",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/optimize surface.",
+    "exemptionReason": "Compatibility redirect for the retired Optimize workspace returns to the canonical Portfolio tab.",
     "voicePlaybook": {
       "playbookId": "route.kai.optimize",
-      "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-      "screen": "kai_optimize",
+      "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1538,33 +1538,24 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/kai/optimize",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/one/kai/optimize/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack",
-        "PageHeader"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "One-release compatibility redirect for the retired Optimize workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.optimize",
-      "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-      "screen": "kai_optimize",
-      "entryCue": "You can say “Open Optimize Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_optimize",
-      "happyPathActionIds": ["route.kai_optimize"],
+      "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+      "screen": "kai_portfolio_dashboard",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1574,9 +1565,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/optimize",
-      "returnPolicy": "stay",
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1749,6 +1740,126 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/holdings",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": ["AppPageShell", "KaiFlow"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.holdings",
+      "purpose": "Review the positions in the active portfolio without exposing the Finance tab pager.",
+      "screen": "kai_portfolio_holdings",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route exposes read and source-authorized holding controls only.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/allocation",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": ["AppPageShell", "KaiFlow"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.allocation",
+      "purpose": "Review portfolio allocation using only real source-backed composition.",
+      "screen": "kai_portfolio_allocation",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route is read-only unless a visible source-authorized control is selected.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/performance",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": ["AppPageShell", "KaiFlow"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.performance",
+      "purpose": "Review source-backed portfolio value and performance evidence.",
+      "screen": "kai_portfolio_performance",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route never fabricates a time series when source history is unavailable.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/sources",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": ["AppPageShell", "KaiFlow"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.sources",
+      "purpose": "Choose and manage the active portfolio source.",
+      "screen": "kai_portfolio_sources",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Source changes settle only after the existing portfolio source service confirms them.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

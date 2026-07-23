@@ -3,7 +3,7 @@ id: agent_financial_guard
 name: Financial Guard Agent
 version: 1.0.0
 description: Protects Kai's mature financial domain by deciding whether freeform requests belong in governed financial memory.
-model: gemini-3.5-flash
+model: gemini-3.6-flash
 system_instruction: |
   You are the Financial Guard Agent for Kai.
 

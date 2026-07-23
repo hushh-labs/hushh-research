@@ -307,18 +307,15 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # debate agents, HushhAgent manifest default, portfolio import). Keep every
 # agent lane on the same generation; the voice head uses the dedicated Live
 # model via AGENT_ONE_ADK_MODEL instead.
-GEMINI_MODEL = "gemini-3.5-flash"
-
-# Full path format (for ADK and direct API calls)
-GEMINI_MODEL_FULL = "models/gemini-3.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 # Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.5-flash"
+GEMINI_MODEL_VERTEX = "gemini-3.6-flash"
 
 # ==================== Kai Portfolio Import Defaults ====================
 
 # Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"
+KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.6-flash"
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768
@@ -355,7 +352,6 @@ __all__ = [
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
     "GEMINI_MODEL",
-    "GEMINI_MODEL_FULL",
     "GEMINI_MODEL_VERTEX",
     "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL",
     "KAI_PORTFOLIO_IMPORT_ENABLE_THINKING",

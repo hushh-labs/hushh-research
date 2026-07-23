@@ -149,10 +149,33 @@ function routeSort(left, right) {
 
 const routeOverrides = {
   "/one/location/map": {
+    api_dependencies: [
+      {
+        service_file: "lib/one-location/service.ts",
+        service_methods: ["getMapState", "updateMapPreferences", "getState", "storeEnvelope"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+        native_transport: "CapacitorHttp direct backend via the shared One Location service",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        package: "@capacitor/google-maps",
+        integration: "Capacitor sync-managed native renderer; no handwritten plugin bridge",
+        ios: "Restricted bundle-ID Maps SDK key passed to GoogleMap.create",
+        android: "Restricted package/SHA Maps SDK key plus transparent map route layers",
+      },
+      {
+        package: "@capacitor/app",
+        integration: "Foreground lifecycle gates the bounded map refresh loop",
+      },
+    ],
     thread_and_consent_contract: {
-      availability: "temporarily unavailable pending secure native Maps provisioning",
-      coordinate_storage: "none; the paused route does not load or decrypt coordinates",
-      location_capture: "not available while Maps is paused",
+      baseline_transport: "Active recipient-scoped ciphertext only; no public or iframe fallback",
+      coordinate_storage: "foreground renderer memory only; preferences contain no coordinates",
+      location_capture: "explicit Locate me action only; opening the route never captures or watches location",
+      visibility: "Ghost Mode by default; foreground map publication never promotes direct/background envelopes",
     },
   },
   "/one/kai/news": {

@@ -387,8 +387,33 @@ export type OneLocationEncryptedEnvelope = {
   senderEphemeralPublicKeyJwk: JsonWebKey;
   capturedAt: string;
   sourcePlatform: LocationSourcePlatform;
+  /**
+   * Privacy boundary for this ciphertext. Only foreground_map_visible is
+   * eligible for Your Map; direct/background shares are never promoted.
+   */
+  publicationContext?:
+    | "private_background"
+    | "private_foreground"
+    | "foreground_map_visible";
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
+};
+
+export type OneLocationMapPreferences = {
+  presenceMode: "ghost" | "foreground_private";
+  rendererConsentVersion?: string | null;
+  updatedAt?: string | null;
+};
+
+export type OneLocationMapMarker = {
+  grant: OneLocationGrant;
+  envelope: OneLocationEncryptedEnvelope;
+};
+
+export type OneLocationMapState = {
+  preferences: OneLocationMapPreferences;
+  freshnessSeconds: number;
+  markers: OneLocationMapMarker[];
 };
 
 export interface ShareTarget {

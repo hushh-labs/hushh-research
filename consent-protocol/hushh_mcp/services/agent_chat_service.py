@@ -25,6 +25,7 @@ from hushh_mcp.one_adk.text_runtime import (
     stream_one_text_turn,
 )
 from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
     build_managed_runtime_client,
     build_runtime_client,
 )
@@ -41,7 +42,6 @@ from hussh_sdk import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_AGENT_CHAT_MODEL = "gemini-3.5-flash"
 GEMINI_BYOK_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key"
 KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
 ONE_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
@@ -96,7 +96,6 @@ _APP_SURFACE_ACTION_IDS: dict[str, str] = {
     "portfolio_import": "route.kai_import",
     "portfolio_dashboard": "route.kai_dashboard",
     "analysis_history": "route.analysis_history",
-    "optimize": "route.kai_optimize",
     "market_home": "route.kai_home",
     "connected_systems": "route.profile_connected_systems",
 }
@@ -226,14 +225,6 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         ),
         "route.analysis_history",
         "Open Analysis History",
-    ),
-    (
-        re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to|start|run)\b.*\b(?:optimize|optimise|rebalance)\b",
-            re.IGNORECASE,
-        ),
-        "route.kai_optimize",
-        "Open Optimize Surface",
     ),
     (
         re.compile(
@@ -1032,7 +1023,9 @@ class AgentChatService:
         self._client = None
         self._settings = None
         self.runtime_manifest = load_one_agent_runtime_manifest()
-        self.model = (model or self.runtime_manifest.model.name or DEFAULT_AGENT_CHAT_MODEL).strip()
+        self.model = (model or self.runtime_manifest.model.name).strip()
+        if not self.model:
+            raise ValueError("Agent Chat manifest must declare a runtime model")
         self._vault_key_hex = vault_key_hex
 
     @property
@@ -1129,7 +1122,9 @@ class AgentChatService:
         )
         model_config = self.runtime_manifest.model
         provider = model_config.provider.strip().lower()
-        model_name = (model_config.name or self.model or DEFAULT_AGENT_CHAT_MODEL).strip()
+        model_name = (model_config.name or self.model).strip()
+        if not model_name:
+            raise ValueError("Agent Chat runtime model is missing")
         # Managed manifests never point at a key. BYOK is a turn-local override
         # whose encrypted PKM reference belongs to the runtime configuration,
         # not to the authored agent identity.
@@ -1658,7 +1653,9 @@ class AgentChatService:
             action_plan=action_plan,
             pkm_context=pkm_context,
         )
-        config = genai_types.GenerateContentConfig(
+        config = build_generate_content_config(
+            genai_types,
+            runtime_model,
             system_instruction=self.runtime_manifest.system_instruction,
             temperature=0.7,
             max_output_tokens=4096,
@@ -1783,7 +1780,9 @@ class AgentChatService:
                         history=history,
                         pkm_context=pkm_context,
                     ),
-                    config=genai_types.GenerateContentConfig(
+                    config=build_generate_content_config(
+                        genai_types,
+                        runtime_model,
                         system_instruction=AGENT_ACTION_PLANNER_PROMPT,
                         temperature=0.0,
                         max_output_tokens=256,
