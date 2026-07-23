@@ -37,6 +37,7 @@ const {
   mockTrackEvent,
   mockRouterPush,
   mockRouterReplace,
+  mockRouterBack,
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
@@ -69,6 +70,7 @@ const {
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
   mockRouterReplace: vi.fn(),
+  mockRouterBack: vi.fn(),
   mockSearchParamsGet: vi.fn(),
   mockSearchParams: {
     get: vi.fn(),
@@ -84,6 +86,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mockRouterPush,
     replace: mockRouterReplace,
+    back: mockRouterBack,
   }),
   useSearchParams: () => mockSearchParams,
 }));
@@ -727,7 +730,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("always runs the canonical Location journey in setup mode and settles Back separately", async () => {
+  it("leaves setup with browser Back without marking onboarding complete or skipped", async () => {
     const onSetupComplete = vi.fn();
     const onSetupSkip = vi.fn();
     window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
@@ -746,7 +749,8 @@ describe("OneLocationAgentPage", () => {
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(onSetupSkip).toHaveBeenCalledTimes(1);
+    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+    expect(onSetupSkip).not.toHaveBeenCalled();
     expect(onSetupComplete).not.toHaveBeenCalled();
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),

@@ -69,6 +69,7 @@ type OneLocationOnboardingFlowProps = {
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
   onRequestNotifications: () => Promise<void>;
+  onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   requireLocationToComplete?: boolean;
@@ -104,7 +105,7 @@ const WELCOME_ORBIT_ITEMS = [
 
 const ONBOARDING_IMAGE_SOURCES = [
   ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
-  "/one-location/onboarding/feature-checkin-pin.webp",
+  "/one-location/onboarding/feature-checkin-pin-transparent.webp",
 ] as const;
 
 const AVATAR_TONES = [
@@ -380,8 +381,8 @@ function WelcomeScreen({
 
 type UseCaseCardProps = {
   tag: string;
-  title: string;
-  body: string;
+  titleLines: readonly [string, string];
+  bodyLines: readonly [string, string];
   alertText: string;
   kind: "sms" | "share" | "checkin";
   tone: "danger" | "success" | "info";
@@ -441,15 +442,22 @@ function UseCaseArt({
         </>
       ) : null}
       {kind === "checkin" ? (
-        // eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export.
-        <img
-          src="/one-location/onboarding/feature-checkin-pin.webp"
-          alt=""
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          className="absolute right-[4%] top-[12%] h-[118px] w-[118px] object-contain drop-shadow-[0_14px_16px_rgba(22,169,149,0.2)] dark:brightness-90"
-        />
+        <span
+          className="absolute right-[5%] top-[12%] h-[96px] w-[96px]"
+          data-one-checkin-art
+        >
+          <span className="absolute bottom-[7%] left-[5%] h-[31%] w-[90%] rounded-[50%] border border-[#16a895]/20 bg-[radial-gradient(ellipse_at_center,rgba(22,168,149,0.16)_0%,rgba(22,168,149,0.05)_48%,transparent_72%)] dark:border-[#42d6c2]/20 dark:bg-[radial-gradient(ellipse_at_center,rgba(66,214,194,0.16)_0%,rgba(66,214,194,0.04)_50%,transparent_74%)]" />
+          <span className="absolute bottom-[13%] left-[20%] h-[20%] w-[61%] rounded-[50%] border border-[#16a895]/25 dark:border-[#42d6c2]/25" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
+            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_12px_13px_rgba(22,169,149,0.22)] dark:brightness-90"
+          />
+        </span>
       ) : null}
       <span
         className="absolute bottom-[13%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 px-3 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
@@ -484,8 +492,8 @@ function UseCaseArt({
 
 function UseCaseCard({
   tag,
-  title,
-  body,
+  titleLines,
+  bodyLines,
   alertText,
   kind,
   tone,
@@ -500,7 +508,7 @@ function UseCaseCard({
     >
       <span className={cn("absolute inset-y-0 left-0 w-1", colors.line)} />
       <div
-        className="relative z-10 flex h-full min-h-0 w-[60%] min-w-0 flex-col justify-center py-4 pl-5 pr-2"
+        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-5 pr-2"
         data-one-use-case-copy
       >
         <span
@@ -512,17 +520,27 @@ function UseCaseCard({
         >
           {tag}
         </span>
-        <h2
-          className="mt-3 text-[20px] font-bold leading-[1.12] text-[#091126] dark:text-white"
+        <div
+          role="heading"
+          aria-level={2}
+          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[18px] font-bold leading-[1.12] text-[#091126] dark:text-white"
           data-one-use-case-title
         >
-          {title}
-        </h2>
+          {titleLines.map((line) => (
+            <span key={line} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
+        </div>
         <p
-          className="mt-2 text-[15px] leading-[1.38] text-[#777d88] dark:text-[#aeb8c7]"
+          className="mt-2 text-[13px] leading-[1.34] text-[#777d88] dark:text-[#aeb8c7]"
           data-one-use-case-body
         >
-          {body}
+          {bodyLines.map((line) => (
+            <span key={line} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
         </p>
       </div>
       <UseCaseArt kind={kind} alertText={alertText} />
@@ -593,8 +611,11 @@ function FeaturesScreen({
       >
         <UseCaseCard
           tag="SMS - Save My Soul"
-          title="Need help, but can't call or speak?"
-          body="Send an emergency SMS with your live location to trusted contacts."
+          titleLines={["Need help, but", "can't call or speak?"]}
+          bodyLines={[
+            "Send an emergency SMS with your",
+            "live location to trusted contacts.",
+          ]}
           alertText="Sent to 3 contacts"
           kind="sms"
           tone="danger"
@@ -602,8 +623,11 @@ function FeaturesScreen({
         />
         <UseCaseCard
           tag="Share location"
-          title={'Still answering "Where are you?"'}
-          body="Share your live location safely in one tap. Stop anytime."
+          titleLines={["Still answering", '"Where are you?"']}
+          bodyLines={[
+            "Share your live location safely in",
+            "one tap. Stop anytime.",
+          ]}
           alertText="Location shared securely"
           kind="share"
           tone="info"
@@ -611,8 +635,8 @@ function FeaturesScreen({
         />
         <UseCaseCard
           tag="Check in"
-          title="Meeting up, but can't find each other?"
-          body="Check in once so everyone sees your exact spot."
+          titleLines={["Meeting up, but", "can't find each other?"]}
+          bodyLines={["Check in once so everyone sees", "your exact spot."]}
           alertText="Checked in at Gate 3"
           kind="checkin"
           tone="success"
@@ -638,11 +662,12 @@ function FeaturesScreen({
         </PrimaryButton>
       </div>
       <style>{`
-        @media (max-width: 370px) {
-          [data-one-use-case-copy] { width: 64%; padding-left: 16px; }
-          [data-one-use-case-title] { font-size: 18px; }
-          [data-one-use-case-body] { font-size: 13px; }
-          [data-one-use-case-art] { width: 43%; }
+        @media (max-width: 400px) {
+          [data-one-use-case-copy] { width: 65%; padding-left: 16px; padding-right: 4px; }
+          [data-one-use-case-tag] { padding: 3px 10px; font-size: 10.5px; }
+          [data-one-use-case-title] { margin-top: 7px; font-size: 16px; }
+          [data-one-use-case-body] { margin-top: 6px; font-size: 11px; }
+          [data-one-use-case-art] { width: 42%; }
         }
         @media (max-height: 760px) {
           [data-one-feature-screen] { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
@@ -658,7 +683,7 @@ function FeaturesScreen({
           [data-one-use-case-kind="sms"] > div span span:last-child { margin-top: 2px; font-size: 8px; }
           [data-one-use-case-kind="share"] > span:nth-child(5) { width: 54px; height: 54px; }
           [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 26px; height: 26px; }
-          [data-one-use-case-kind="checkin"] > img { width: 76px; height: 76px; }
+          [data-one-checkin-art] { width: 68px; height: 68px; }
           [data-one-use-case-alert] { right: 2%; bottom: 8%; padding: 4px 8px; font-size: 8px; }
           [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
           [data-one-use-case-alert] > span:first-child svg { width: 10px; height: 10px; }
@@ -672,6 +697,31 @@ function FeaturesScreen({
           [data-one-use-case-body] { font-size: 10px; }
           [data-one-use-case-art] { width: 39%; }
           [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
+        }
+        @media (max-width: 370px) {
+          [data-one-use-case-copy] { width: 64%; padding-left: 14px; padding-right: 3px; }
+          [data-one-use-case-title] { font-size: 14px; }
+          [data-one-use-case-body] { font-size: 9.5px; }
+          [data-one-use-case-art] { width: 40%; }
+        }
+        @media (max-width: 340px) {
+          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
+          [data-one-use-case-card] { border-radius: 16px; }
+          [data-one-use-case-copy] { width: 65%; padding: 5px 2px 5px 12px; }
+          [data-one-use-case-tag] { padding: 1px 7px; font-size: 8px; }
+          [data-one-use-case-title] { margin-top: 3px; font-size: 13px; line-height: 1.05; }
+          [data-one-use-case-body] { margin-top: 3px; font-size: 9px; line-height: 1.12; }
+          [data-one-use-case-art] { width: 39%; }
+          [data-one-use-case-kind="sms"] > div { width: 48px; height: 48px; border-width: 4px; }
+          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 15px; }
+          [data-one-use-case-kind="sms"] > div span span:last-child { font-size: 6px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 42px; height: 42px; }
+          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 20px; height: 20px; }
+          [data-one-checkin-art] { width: 50px; height: 50px; }
+          [data-one-use-case-alert] { right: 1%; bottom: 5%; padding: 2px 4px; font-size: 6px; gap: 2px; }
+          [data-one-use-case-alert] > span:first-child { width: 10px; height: 10px; }
+          [data-one-use-case-alert] > span:first-child svg { width: 8px; height: 8px; }
+          [data-one-use-case-alert] > svg { width: 9px; height: 9px; }
         }
       `}</style>
     </div>
@@ -1042,6 +1092,7 @@ export function OneLocationOnboardingFlow({
   onSendConnectionRequests,
   onRequestLocation,
   onRequestNotifications,
+  onBack,
   onComplete,
   onSkip = onComplete,
   requireLocationToComplete = false,
@@ -1113,6 +1164,16 @@ export function OneLocationOnboardingFlow({
     setLeaving(true);
     try {
       await onSkip();
+    } catch {
+      setLeaving(false);
+    }
+  };
+
+  const runBack = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      await onBack();
     } catch {
       setLeaving(false);
     }
@@ -1200,7 +1261,7 @@ export function OneLocationOnboardingFlow({
       >
         {screen === "welcome" ? (
           <WelcomeScreen
-            onBack={() => void runSkip()}
+            onBack={() => void runBack()}
             onSkip={() => void runSkip()}
             onStart={openFeatures}
             leaving={leaving}

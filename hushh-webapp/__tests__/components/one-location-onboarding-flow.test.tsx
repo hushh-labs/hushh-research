@@ -71,6 +71,7 @@ function renderFlow(
     }),
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
     onRequestNotifications: vi.fn().mockResolvedValue(undefined),
+    onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
     ...overrides,
@@ -90,7 +91,7 @@ afterEach(() => {
 });
 
 describe("OneLocationOnboardingFlow", () => {
-  it("renders the new welcome screen and lets the user leave safely", () => {
+  it("keeps first-screen Back separate from Skip", () => {
     const props = renderFlow();
 
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
@@ -110,7 +111,8 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+    expect(props.onSkip).not.toHaveBeenCalled();
   });
 
   it("fits the supplied-art use cases into one non-scrolling screen", () => {
@@ -146,20 +148,26 @@ describe("OneLocationOnboardingFlow", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Need help, but can't call or speak?"),
+      screen.getByRole("heading", {
+        name: "Need help, but can't call or speak?",
+      }),
     ).toBeTruthy();
     expect(
-      screen.getByText('Still answering "Where are you?"'),
+      screen.getByRole("heading", {
+        name: 'Still answering "Where are you?"',
+      }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Meeting up, but can't find each other?"),
+      screen.getByRole("heading", {
+        name: "Meeting up, but can't find each other?",
+      }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
       screen
         .getByTestId("location-use-case-checkin")
         .querySelector(
-          'img[src="/one-location/onboarding/feature-checkin-pin.webp"]',
+          'img[src="/one-location/onboarding/feature-checkin-pin-transparent.webp"]',
         ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
