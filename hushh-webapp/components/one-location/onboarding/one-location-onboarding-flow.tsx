@@ -12,6 +12,7 @@ import { preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
   Loader2,
   MapPin,
   Navigation,
@@ -196,12 +197,14 @@ function PrimaryButton({
   disabled = false,
   busy = false,
   inverse = false,
+  className,
 }: {
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
   inverse?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -214,6 +217,7 @@ function PrimaryButton({
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
+        className,
       )}
     >
       {busy ? (
@@ -228,10 +232,12 @@ function OnboardingSkipButton({
   onClick,
   disabled = false,
   inverse = false,
+  floating = false,
 }: {
   onClick: () => void;
   disabled?: boolean;
   inverse?: boolean;
+  floating?: boolean;
 }) {
   return (
     <button
@@ -239,10 +245,12 @@ function OnboardingSkipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-11 rounded-full px-2 text-[16px] font-bold disabled:opacity-50",
-        inverse
+        "rounded-full text-[16px] font-bold disabled:opacity-50",
+        floating
+          ? "h-10 min-h-10 bg-white px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)]"
+          : inverse
           ? "text-white"
-          : "text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+          : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
       Skip
@@ -382,7 +390,7 @@ function WelcomeScreen({
 type UseCaseCardProps = {
   tag: string;
   titleLines: readonly [string, string];
-  bodyLines: readonly [string, string];
+  bodyLines: readonly string[];
   alertText: string;
   kind: "sms" | "share" | "checkin";
   tone: "danger" | "success" | "info";
@@ -419,12 +427,12 @@ function UseCaseArt({
       aria-hidden="true"
     >
       {kind === "sms" ? (
-        <div className="absolute right-[12%] top-[22%] flex h-[98px] w-[98px] items-center justify-center rounded-full border-[9px] border-[#fff0f0] bg-[#ef302f] text-center text-white shadow-[0_13px_26px_rgba(239,48,47,0.22)] dark:border-[#4b2528]">
+        <div className="absolute right-[12%] top-[22%] flex h-[98px] w-[98px] items-center justify-center rounded-full border-[14px] border-[#fff0f0] bg-[#ef302f] text-center text-white shadow-[0_13px_26px_rgba(239,48,47,0.22)] dark:border-[#4b2528]">
           <span>
-            <span className="block text-[25px] font-extrabold leading-none">
+            <span className="block text-[19px] font-extrabold leading-none">
               SMS
             </span>
-            <span className="mt-1 block text-[10px] font-bold">
+            <span className="mt-1 block text-[8px] font-bold">
               Tap for help
             </span>
           </span>
@@ -432,18 +440,18 @@ function UseCaseArt({
       ) : null}
       {kind === "share" ? (
         <>
-          <span className="absolute bottom-[34%] left-[15%] h-3 w-3 rounded-full bg-[#61a8ff] ring-4 ring-[#dbeeff] dark:ring-[#183e69]" />
-          <span className="absolute bottom-[39%] left-[25%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute bottom-[45%] left-[34%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute bottom-[51%] left-[43%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute right-[15%] top-[24%] flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#288af0] text-white shadow-[0_13px_26px_rgba(40,138,240,0.28)]">
-            <Navigation className="h-9 w-9 fill-current" strokeWidth={1.5} />
+          <span className="absolute bottom-[34%] left-[36%] h-3 w-3 rounded-full bg-[#61a8ff] ring-4 ring-[#dbeeff] dark:ring-[#183e69]" />
+          <span className="absolute bottom-[40%] left-[45%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute bottom-[46%] left-[53%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute bottom-[52%] left-[61%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
+          <span className="absolute right-[10%] top-[24%] flex h-[50px] w-[50px] items-center justify-center rounded-full bg-[#288af0] text-white shadow-[0_13px_26px_rgba(40,138,240,0.28)]">
+            <Navigation className="h-[26px] w-[26px] fill-current" strokeWidth={1.5} />
           </span>
         </>
       ) : null}
       {kind === "checkin" ? (
         <span
-          className="absolute right-[5%] top-[12%] h-[96px] w-[96px]"
+          className="absolute right-[5%] top-[12%] h-[68px] w-[68px]"
           data-one-checkin-art
         >
           <span className="absolute bottom-[7%] left-[5%] h-[31%] w-[90%] rounded-[50%] border border-[#16a895]/20 bg-[radial-gradient(ellipse_at_center,rgba(22,168,149,0.16)_0%,rgba(22,168,149,0.05)_48%,transparent_72%)] dark:border-[#42d6c2]/20 dark:bg-[radial-gradient(ellipse_at_center,rgba(66,214,194,0.16)_0%,rgba(66,214,194,0.04)_50%,transparent_74%)]" />
@@ -460,7 +468,10 @@ function UseCaseArt({
         </span>
       ) : null}
       <span
-        className="absolute bottom-[13%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 px-3 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]"
+        className={cn(
+          "absolute bottom-[19%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]",
+          kind === "sms" ? "px-3.5" : "px-2.5",
+        )}
         data-one-use-case-alert
       >
         {kind !== "sms" ? (
@@ -502,13 +513,13 @@ function UseCaseCard({
   const colors = USE_CASE_TONES[tone];
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[24px] border border-black/[0.04] bg-[#fbfcfe] shadow-[0_8px_26px_rgba(21,41,70,0.08)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
+      className="relative h-full min-h-0 overflow-hidden rounded-[22px] border border-black/[0.03] bg-white shadow-[0_8px_26px_rgba(21,41,70,0.09)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
       data-testid={testId}
       data-one-use-case-card
     >
-      <span className={cn("absolute inset-y-0 left-0 w-1", colors.line)} />
+      <span className={cn("absolute inset-y-0 left-0 w-[5px]", colors.line)} />
       <div
-        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-5 pr-2"
+        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-4 pr-2"
         data-one-use-case-copy
       >
         <span
@@ -523,7 +534,7 @@ function UseCaseCard({
         <div
           role="heading"
           aria-level={2}
-          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[18px] font-bold leading-[1.12] text-[#091126] dark:text-white"
+          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[16px] font-bold leading-[1.18] text-[#091126] dark:text-white"
           data-one-use-case-title
         >
           {titleLines.map((line) => (
@@ -583,22 +594,29 @@ function FeaturesScreen({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-5 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] dark:bg-[#0c1017]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f5f5f7] pb-[max(env(safe-area-inset-bottom,0px),11px)] pl-6 pr-5 pt-[max(env(safe-area-inset-top,0px),55px)] dark:bg-[#0c1017]"
       data-one-feature-screen
     >
-      <header className="flex h-[clamp(48px,7dvh,64px)] shrink-0 items-center justify-between">
+      <header
+        className="flex h-[42px] shrink-0 items-center justify-between"
+        data-one-feature-header
+      >
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          className="press-scale flex h-[42px] w-[42px] items-center justify-center rounded-full bg-white text-[#7b8088] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-white/[0.08] dark:text-white"
           aria-label="Go back"
         >
-          <ArrowLeft className="h-6 w-6" />
+          <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+        <OnboardingSkipButton
+          floating
+          onClick={onSkip}
+          disabled={leaving}
+        />
       </header>
       <h1
-        className="shrink-0 text-[clamp(30px,4.4dvh,39px)] font-bold leading-[1.04] tracking-normal text-[#091126] dark:text-[#f6f8fc]"
+        className="mt-[15px] shrink-0 text-[32px] font-bold leading-[1.05] tracking-[-0.02em] text-[#091126] dark:text-[#f6f8fc]"
         data-one-feature-heading
       >
         Stay connected
@@ -606,15 +624,16 @@ function FeaturesScreen({
         when you need it.
       </h1>
       <div
-        className="mt-[clamp(8px,1.8dvh,20px)] grid min-h-0 flex-1 grid-rows-3 gap-[clamp(7px,1.35dvh,16px)]"
+        className="mt-[18px] grid min-h-0 flex-1 grid-rows-3 gap-3"
         data-one-feature-grid
       >
         <UseCaseCard
-          tag="SMS - Save My Soul"
-          titleLines={["Need help, but", "can't call or speak?"]}
+          tag="SMS · Save my soul"
+          titleLines={["Need help,", "but can’t call or speak?"]}
           bodyLines={[
-            "Send an emergency SMS with your",
-            "live location to trusted contacts.",
+            "Send an emergency SMS",
+            "with your live location to",
+            "trusted contacts.",
           ]}
           alertText="Sent to 3 contacts"
           kind="sms"
@@ -623,19 +642,19 @@ function FeaturesScreen({
         />
         <UseCaseCard
           tag="Share location"
-          titleLines={["Still answering", '"Where are you?"']}
+          titleLines={["Still answering", "“Where are you?”"]}
           bodyLines={[
             "Share your live location safely in",
             "one tap. Stop anytime.",
           ]}
-          alertText="Location shared securely"
+          alertText="Shared securely"
           kind="share"
           tone="info"
           testId="location-use-case-trip"
         />
         <UseCaseCard
           tag="Check in"
-          titleLines={["Meeting up, but", "can't find each other?"]}
+          titleLines={["Meeting up,", "but can’t find each other?"]}
           bodyLines={["Check in once so everyone sees", "your exact spot."]}
           alertText="Checked in at Gate 3"
           kind="checkin"
@@ -644,21 +663,25 @@ function FeaturesScreen({
         />
       </div>
       <p
-        className="shrink-0 pt-[clamp(4px,0.9dvh,12px)] text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]"
+        className={cn(
+          "shrink-0 pt-2 text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+          !waitingForLocation && !permissionBusy && "sr-only",
+        )}
         aria-live="polite"
       >
         {status}
       </p>
       <div
-        className="mt-[clamp(4px,0.8dvh,10px)] shrink-0"
+        className="mt-[11px] shrink-0"
         data-one-feature-cta
       >
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
+          className="h-[52px] min-h-[52px]"
         >
-          {waitingForLocation ? "Allow location" : "Continue"}
+          Continue
         </PrimaryButton>
       </div>
       <style>{`
@@ -670,7 +693,10 @@ function FeaturesScreen({
           [data-one-use-case-art] { width: 42%; }
         }
         @media (max-height: 760px) {
-          [data-one-feature-screen] { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 24px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+          }
           [data-one-feature-heading] { font-size: 29px; }
           [data-one-use-case-card] { border-radius: 20px; }
           [data-one-use-case-copy] { width: 64%; padding: 8px 6px 8px 16px; }
@@ -678,7 +704,7 @@ function FeaturesScreen({
           [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
           [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
           [data-one-use-case-art] { width: 42%; }
-          [data-one-use-case-kind="sms"] > div { width: 64px; height: 64px; border-width: 5px; }
+          [data-one-use-case-kind="sms"] > div { width: 76px; height: 76px; border-width: 10px; }
           [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 18px; }
           [data-one-use-case-kind="sms"] > div span span:last-child { margin-top: 2px; font-size: 8px; }
           [data-one-use-case-kind="share"] > span:nth-child(5) { width: 54px; height: 54px; }
@@ -687,7 +713,7 @@ function FeaturesScreen({
           [data-one-use-case-alert] { right: 2%; bottom: 8%; padding: 4px 8px; font-size: 8px; }
           [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
           [data-one-use-case-alert] > span:first-child svg { width: 10px; height: 10px; }
-          [data-one-feature-cta] button { min-height: 44px; }
+          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
         }
         @media (max-height: 680px) {
           [data-one-feature-heading] { font-size: 26px; }

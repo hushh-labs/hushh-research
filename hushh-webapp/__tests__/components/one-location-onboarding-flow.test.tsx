@@ -125,9 +125,21 @@ describe("OneLocationOnboardingFlow", () => {
     ).firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
+    expect(featureSurface?.className).toContain("bg-[#f5f5f7]");
+    expect(featureSurface?.className).toContain("pl-6");
+    expect(featureSurface?.className).toContain("pr-5");
+    expect(featureSurface?.className).toContain(
+      "pt-[max(env(safe-area-inset-top,0px),55px)]",
+    );
     expect(
       document.querySelector("[data-one-feature-grid]")?.className,
     ).toContain("grid-rows-3");
+    expect(
+      document.querySelector("[data-one-feature-grid]")?.className,
+    ).toContain("mt-[18px]");
+    expect(
+      document.querySelector("[data-one-feature-cta] button")?.className,
+    ).toContain("h-[52px]");
     for (const card of document.querySelectorAll("[data-one-use-case-card]")) {
       expect(card.className).toContain("h-full");
       expect(card.className).toContain("min-h-0");
@@ -149,19 +161,21 @@ describe("OneLocationOnboardingFlow", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Need help, but can't call or speak?",
+        name: "Need help, but can’t call or speak?",
       }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: 'Still answering "Where are you?"',
+        name: "Still answering “Where are you?”",
       }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Meeting up, but can't find each other?",
+        name: "Meeting up, but can’t find each other?",
       }),
     ).toBeTruthy();
+    expect(screen.getByText("SMS · Save my soul")).toBeTruthy();
+    expect(screen.getByText("Shared securely")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
       screen
@@ -207,8 +221,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Allow location" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();

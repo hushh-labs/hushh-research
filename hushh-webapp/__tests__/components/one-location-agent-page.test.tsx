@@ -841,7 +841,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
     expect(
-      screen.getByRole("button", { name: "Allow location" }),
+      screen.getByRole("button", { name: "Continue" }),
     ).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
