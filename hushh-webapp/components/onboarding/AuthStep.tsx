@@ -1042,16 +1042,16 @@ export function AuthStep({
       </button>
 
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col"
+        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
         style={{
           height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
           minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
         }}
+        data-auth-content-block
       >
-        {/* Hero + buttons anchor to the bottom of the screen (justify-end),
-            not vertically centered, so the whole sign-in surface sits within
-            comfortable one-thumb reach on tall phones. */}
-        <div className="flex flex-1 flex-col items-center justify-end px-6 pb-2 text-center">
+        {/* Center the complete sign-in group as one visual block while the
+            fixed Back control remains independently anchored above it. */}
+        <div className="flex flex-none flex-col items-center px-6 pb-2 text-center">
           {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
               chrome (badge circle removed by design). */}
           <div
