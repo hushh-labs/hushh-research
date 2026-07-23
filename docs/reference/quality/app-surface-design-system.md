@@ -153,6 +153,13 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     the full screen route crossfade. Full pathname changes use the shared
     `300ms` exit and `360ms` enter envelope. `SwipeViews` publishes selection
     on Embla `select`; `settle` may only reconcile a different final snap.
+    A top-tab press requests compositor motion before query settlement, and
+    drag progress writes only to the owning tab strip—not an inherited root
+    variable that invalidates the whole document. Vertical pane-content
+    changes must not reinitialize the horizontal pager; only viewport-width
+    changes may do so. The shared tab strip uses one moving low-emphasis
+    selection wash plus the accent underline, both attached to the same live
+    swipe position.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -277,6 +284,11 @@ Rules:
 5. `SettingsRow` is the default interactive list row contract and should be reused outside Profile when the surface is row-like.
    Inset separators align beneath a real leading icon/visual; a text-only row
    uses a symmetric full-width hairline rather than a fabricated icon inset.
+   Profile nested routes inherit `separatorInset` and compact row density from
+   their stack boundary through `SettingsPresentationProvider`; child panels
+   must not fall back to the older full-width-divider or comfortable-density
+   treatment merely because they are rendered below Account, Appearance,
+   Security, Memory, Access, Support, Gmail, or Connected Systems.
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.

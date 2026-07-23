@@ -45,6 +45,8 @@ def test_sample_brokerage_fixture_has_expected_holdings() -> None:
 
     assert len(sample["holdings"]) == 20
     assert sample["account_info"]["brokerage"] == "Demo Brokerage"
+    assert sample["account_info"]["statement_period_start"] == "2026-06-01"
+    assert sample["account_info"]["statement_period_end"] == "2026-06-30"
 
 
 def test_reviewer_export_projects_the_approved_brokerage_information() -> None:
@@ -70,6 +72,10 @@ def test_reviewer_export_projects_the_approved_brokerage_information() -> None:
 
     assert len(payload["financial"]["portfolio"]["holdings"]) == 20
     assert payload["financial"]["portfolio"]["account_info"]["brokerage"] == "Demo Brokerage"
+    assert (
+        payload["financial"]["portfolio"]["account_info"]["statement_period_start"] == "2026-06-01"
+    )
+    assert payload["financial"]["portfolio"]["account_info"]["statement_period_end"] == "2026-06-30"
     assert content_revision == 7
     assert manifest_revision == manifest["manifest_version"]
 

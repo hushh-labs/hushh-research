@@ -17,7 +17,7 @@ describe("ProfileStackNavigator", () => {
             content: <div>Checking your saved domains</div>,
           },
         ]}
-      />
+      />,
     );
 
     expect(screen.getByText("Checking your saved domains")).toBeTruthy();
@@ -32,7 +32,7 @@ describe("ProfileStackNavigator", () => {
             content: <div>Financial domain ready</div>,
           },
         ]}
-      />
+      />,
     );
 
     expect(screen.queryByText("Checking your saved domains")).toBeNull();
@@ -43,7 +43,7 @@ describe("ProfileStackNavigator", () => {
       <ProfileStackNavigator
         rootContent={<div>Root workspace</div>}
         entries={[]}
-      />
+      />,
     );
 
     expect(screen.getByText("Root workspace")).toBeTruthy();
@@ -56,7 +56,7 @@ describe("ProfileStackNavigator", () => {
       "utf8",
     );
 
-    expect(source).not.toContain('overflow-hidden bg-background');
+    expect(source).not.toContain("overflow-hidden bg-background");
   });
 
   it("uses the shared PageHeader and app gutter tokens for every nested Profile screen", () => {
@@ -70,5 +70,8 @@ describe("ProfileStackNavigator", () => {
     expect(source).toContain('testId="profile-stack-page-header"');
     expect(source).toContain("px-[var(--page-inline-gutter-standard)]");
     expect(source).toContain("pt-[var(--page-header-section-gap)]");
+    expect(source).toContain("<SettingsPresentationProvider");
+    expect(source).toContain("separatorInset");
+    expect(source).toContain('density="compact"');
   });
 });

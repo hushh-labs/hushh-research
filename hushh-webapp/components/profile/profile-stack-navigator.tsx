@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 const STACK_TRANSITION_MS = 260;
 
 export type ProfileStackEntry = {
@@ -25,7 +26,10 @@ function screensMatch(left: ProfileStackEntry[], right: ProfileStackEntry[]) {
   });
 }
 
-function stackPrefixMatches(current: ProfileStackEntry[], next: ProfileStackEntry[]) {
+function stackPrefixMatches(
+  current: ProfileStackEntry[],
+  next: ProfileStackEntry[],
+) {
   if (current.length === 0 || next.length === 0) return false;
   const sharedLength = Math.min(current.length, next.length) - 1;
   if (sharedLength <= 0) return true;
@@ -100,14 +104,20 @@ export function ProfileStackNavigator({
       return;
     }
 
-    if (stackPrefixMatches(renderedEntries, entries) && nextLength > currentLength) {
+    if (
+      stackPrefixMatches(renderedEntries, entries) &&
+      nextLength > currentLength
+    ) {
       setRenderedEntries(entries);
       setActiveIndex(currentLength);
       requestAnimationFrame(() => setActiveIndex(nextLength));
       return;
     }
 
-    if (stackPrefixMatches(renderedEntries, entries) && nextLength < currentLength) {
+    if (
+      stackPrefixMatches(renderedEntries, entries) &&
+      nextLength < currentLength
+    ) {
       setActiveIndex(nextLength);
       pruneTimerRef.current = window.setTimeout(() => {
         setRenderedEntries(entries);
@@ -122,7 +132,8 @@ export function ProfileStackNavigator({
   useEffect(() => {
     if (typeof document === "undefined") return;
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = activeIndex > 0 ? "hidden" : previousOverflow;
+    document.body.style.overflow =
+      activeIndex > 0 ? "hidden" : previousOverflow;
     return () => {
       document.body.style.overflow = previousOverflow;
     };
@@ -145,7 +156,9 @@ export function ProfileStackNavigator({
       isRoot: true,
     },
     ...renderedEntries.map((entry) => {
-      const liveEntry = entries.find((candidate) => candidate.key === entry.key);
+      const liveEntry = entries.find(
+        (candidate) => candidate.key === entry.key,
+      );
       return {
         ...(liveEntry || entry),
         isRoot: false,
@@ -168,7 +181,9 @@ export function ProfileStackNavigator({
             className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden"
           >
             {entry.isRoot ? (
-              <div className="flex min-h-full flex-1 flex-col">{entry.content}</div>
+              <div className="flex min-h-full flex-1 flex-col">
+                {entry.content}
+              </div>
             ) : (
               <>
                 <StackHeader
@@ -186,7 +201,12 @@ export function ProfileStackNavigator({
                     className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:pb-10"
                     data-profile-stack-content="true"
                   >
-                    {entry.content}
+                    <SettingsPresentationProvider
+                      separatorInset
+                      density="compact"
+                    >
+                      {entry.content}
+                    </SettingsPresentationProvider>
                   </div>
                 </div>
               </>

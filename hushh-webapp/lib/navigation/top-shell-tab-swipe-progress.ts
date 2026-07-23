@@ -14,6 +14,7 @@ const DEFAULT_STATE: TopShellTabSwipeState = Object.freeze({
 
 const states = new Map<string, TopShellTabSwipeState>();
 const listeners = new Map<string, Set<() => void>>();
+const TOP_SHELL_TAB_SELECTION_EVENT = "hushh:top-shell-tab-selection";
 
 function positionVariable(tabSetId: string): string {
   return `--top-shell-tab-swipe-${tabSetId.replace(/[^a-zA-Z0-9_-]/g, "-")}-position`;
@@ -41,8 +42,15 @@ export function setTopShellTabSwipeState(
   if (typeof document !== "undefined") {
     const variable = positionVariable(tabSetId);
     const value = String(next.position);
-    if (document.documentElement.style.getPropertyValue(variable) !== value) {
-      document.documentElement.style.setProperty(variable, value);
+    // Keep drag-frame style invalidation inside the tiny tab strip. Writing
+    // this inherited variable on <html> forced the entire app (including
+    // chart-heavy Finance panes) through style recalculation on every frame.
+    const tabStrip = document.querySelector<HTMLElement>(
+      `[data-top-shell-tab-set="${CSS.escape(tabSetId)}"]`,
+    );
+    const styleOwner = tabStrip ?? document.documentElement;
+    if (styleOwner.style.getPropertyValue(variable) !== value) {
+      styleOwner.style.setProperty(variable, value);
     }
   }
 
@@ -61,6 +69,41 @@ export function setTopShellTabSwipeState(
   }
   states.set(tabSetId, next);
   listeners.get(tabSetId)?.forEach((listener) => listener());
+}
+
+/** Requests an immediate visual pane selection before query navigation settles. */
+export function requestTopShellTabSelection(
+  tabSetId: string,
+  value: string,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(TOP_SHELL_TAB_SELECTION_EVENT, {
+      detail: { tabSetId, value },
+    }),
+  );
+}
+
+export function subscribeTopShellTabSelection(
+  listener: (selection: { tabSetId: string; value: string }) => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const handle = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (
+      !detail ||
+      typeof detail !== "object" ||
+      !("tabSetId" in detail) ||
+      !("value" in detail) ||
+      typeof detail.tabSetId !== "string" ||
+      typeof detail.value !== "string"
+    ) {
+      return;
+    }
+    listener({ tabSetId: detail.tabSetId, value: detail.value });
+  };
+  window.addEventListener(TOP_SHELL_TAB_SELECTION_EVENT, handle);
+  return () => window.removeEventListener(TOP_SHELL_TAB_SELECTION_EVENT, handle);
 }
 
 function subscribe(tabSetId: string, listener: () => void): () => void {

@@ -5,11 +5,13 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
   scrollProgress: 0,
   scrollTo: vi.fn<(index: number) => void>(),
+  reInit: vi.fn(),
   listeners: new Map<string, () => void>(),
   ref: vi.fn(),
   options: null as Record<string, unknown> | null,
@@ -24,6 +26,7 @@ vi.mock("embla-carousel-react", () => ({
         selectedScrollSnap: () => embla.selectedIndex,
         scrollProgress: () => embla.scrollProgress,
         scrollTo: embla.scrollTo,
+        reInit: embla.reInit,
         on: (event: string, listener: () => void) => {
           embla.listeners.set(event, listener);
         },
@@ -45,6 +48,7 @@ describe("SwipeViews", () => {
     embla.selectedIndex = 0;
     embla.scrollProgress = 0;
     embla.scrollTo.mockClear();
+    embla.reInit.mockClear();
     embla.listeners.clear();
     embla.options = null;
   });
@@ -136,7 +140,24 @@ describe("SwipeViews", () => {
 
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
     expect(onSelectionCommit).toHaveBeenCalledWith("second");
-    expect(embla.options).toMatchObject({ duration: 20 });
+    expect(embla.options).toMatchObject({
+      duration: 16,
+      dragThreshold: 6,
+      watchResize: false,
+    });
+  });
+
+  it("starts pane motion immediately when the shared top tab is pressed", () => {
+    render(
+      <SwipeViews tabSetId="instant" activeValue="first" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    requestTopShellTabSelection("instant", "second");
+
+    expect(embla.scrollTo).toHaveBeenCalledWith(1);
   });
 
   it("keeps the shared tab progress attached to the pane through snap settle", () => {

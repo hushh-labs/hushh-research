@@ -20,12 +20,18 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
-import { decryptLocationEnvelope, encryptLocationForRecipient } from "@/lib/one-location/encryption";
+import {
+  decryptLocationEnvelope,
+  encryptLocationForRecipient,
+} from "@/lib/one-location/encryption";
 import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { getBrowserMapsApiKey, getNativeMapsApiKey } from "@/lib/one-location/maps-config";
+import {
+  getBrowserMapsApiKey,
+  getNativeMapsApiKey,
+} from "@/lib/one-location/maps-config";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
@@ -40,10 +46,15 @@ import {
   locationMapDemoPeople,
 } from "@/lib/testing/location-map-demo";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
 
 const RENDERER_CONSENT_VERSION = "google-maps-renderer-v1";
 const MAP_ID = "one-location-private-map";
+const MAP_ACCENT_CONTROL_CLASSNAME =
+  "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
+const MAP_ACCENT_ACTIVE_CLASSNAME =
+  "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)]";
 
 type RenderMarker = {
   key: string;
@@ -70,17 +81,21 @@ function personInitials(label: string): string {
 function mapApiKey(): string {
   if (!isNative()) return getBrowserMapsApiKey();
   const platform = getPlatform();
-  return platform === "ios" || platform === "android" ? getNativeMapsApiKey(platform) : "";
+  return platform === "ios" || platform === "android"
+    ? getNativeMapsApiKey(platform)
+    : "";
 }
 
 function markerSignature(markers: RenderMarker[]): string {
   return markers
-    .map((marker) => [
-      marker.key,
-      marker.point.latitude.toFixed(6),
-      marker.point.longitude.toFixed(6),
-      marker.point.capturedAt,
-    ].join(":"))
+    .map((marker) =>
+      [
+        marker.key,
+        marker.point.latitude.toFixed(6),
+        marker.point.longitude.toFixed(6),
+        marker.point.capturedAt,
+      ].join(":"),
+    )
     .join("|");
 }
 
@@ -131,8 +146,9 @@ async function frameMarkers(
 /**
  * Full-screen private-map surface. It only receives ciphertext for active
  * recipient-scoped grants, decrypts it in foreground memory, and destroys both
- * renderer and coordinates on unmount. Opening this route never captures the
- * device's location or starts a background watcher.
+ * renderer and coordinates on unmount. Opening this route requests one
+ * foreground location fix so the initial camera settles on the current device;
+ * it never starts a background watcher or publishes that fix to recipients.
  */
 export function LocationImmersiveMap() {
   const searchParams = useSearchParams();
@@ -144,7 +160,8 @@ export function LocationImmersiveMap() {
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLDivElement | null>(null);
-  const peopleTrayRef = useRef<HTMLDivElement | null>(null);
+  const peopleTrayRef = useRef<HTMLElement | null>(null);
+  const peopleTrayBodyRef = useRef<HTMLDivElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
@@ -152,20 +169,78 @@ export function LocationImmersiveMap() {
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
+  const entryLocationRequestedRef = useRef(false);
+  const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
-  const [preferences, setPreferences] = useState<OneLocationMapPreferences>({ presenceMode: "ghost" });
+  const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
+    presenceMode: "ghost",
+  });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
+  const [trayExpandedHeight, setTrayExpandedHeight] = useState(224);
   const [closing, setClosing] = useState(false);
   const [mapReady, setMapReady] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unavailable" | "error">("idle");
+  const [entryLocationSettled, setEntryLocationSettled] = useState(false);
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "ready" | "unavailable" | "error"
+  >("idle");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+
+  const captureCurrentLocation =
+    useCallback((): Promise<PlainLocationPoint> => {
+      if (locationCaptureRef.current) return locationCaptureRef.current;
+      const request = OneLocationService.captureCurrentPosition();
+      locationCaptureRef.current = request;
+      void request.then(
+        () => {
+          if (locationCaptureRef.current === request) {
+            locationCaptureRef.current = null;
+          }
+        },
+        () => {
+          if (locationCaptureRef.current === request) {
+            locationCaptureRef.current = null;
+          }
+        },
+      );
+      return request;
+    }, []);
+
+  const focusSelfPoint = useCallback(
+    async (
+      point: PlainLocationPoint,
+      options: { animate: boolean; select: boolean },
+    ) => {
+      const currentLocation: RenderMarker = {
+        key: "current-device-location",
+        kind: "self",
+        label: "You",
+        point,
+        tint: { r: 0, g: 122, b: 255, a: 255 },
+      };
+      setSelfMarker(currentLocation);
+      if (options.select) setSelected(currentLocation);
+      if (auth.userId) {
+        const workspace = readLocationWorkspaceMemory(auth.userId);
+        writeLocationWorkspaceMemory(auth.userId, {
+          ...workspace,
+          myLocationPoint: point,
+        });
+      }
+      await mapRef.current?.setCamera({
+        coordinate: { lat: point.latitude, lng: point.longitude },
+        zoom: zoomForAccuracy(point.accuracyM),
+        animate: options.animate,
+      });
+    },
+    [auth.userId],
+  );
 
   useEffect(() => {
     if (!auth.userId || demoMode) return;
@@ -200,9 +275,14 @@ export function LocationImmersiveMap() {
       const resolved = await Promise.all(
         state.markers.map(async (marker): Promise<RenderMarker | null> => {
           try {
-            const point = await decryptLocationEnvelope({ userId: auth.userId!, envelope: marker.envelope });
+            const point = await decryptLocationEnvelope({
+              userId: auth.userId!,
+              envelope: marker.envelope,
+            });
             return {
-              key: marker.envelope.id || `${marker.grant.id}:${marker.envelope.capturedAt}`,
+              key:
+                marker.envelope.id ||
+                `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
               label: displayLabel(marker),
               kind: "person",
@@ -270,7 +350,9 @@ export function LocationImmersiveMap() {
         // The disclosure remains available; do not misrepresent a transient
         // bootstrap error as a location or consent failure.
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [auth.userId, demoMode, vaultOwnerToken]);
 
   useEffect(() => {
@@ -292,7 +374,9 @@ export function LocationImmersiveMap() {
     if (isNative()) {
       void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
         if (isActive) void refresh();
-      }).then((listener) => { appListener = listener; });
+      }).then((listener) => {
+        appListener = listener;
+      });
     }
     return () => {
       window.clearInterval(timer);
@@ -312,16 +396,25 @@ export function LocationImmersiveMap() {
       document.documentElement.classList.add("one-location-map-native");
       document.body.classList.add("one-location-map-native");
     }
+    const cachedPoint = readLocationWorkspaceMemory(
+      auth.userId,
+    ).myLocationPoint;
     void GoogleMap.create({
       id: MAP_ID,
       element: mapElement.current,
       apiKey,
       forceCreate: true,
       config: {
-        center: initialDemoModeRef.current
-          ? { lat: 37.7749, lng: -122.4194 }
-          : { lat: 20, lng: 0 },
-        zoom: initialDemoModeRef.current ? 11 : 2,
+        center: cachedPoint
+          ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
+          : initialDemoModeRef.current
+            ? { lat: 37.7749, lng: -122.4194 }
+            : { lat: 20, lng: 0 },
+        zoom: cachedPoint
+          ? zoomForAccuracy(cachedPoint.accuracyM)
+          : initialDemoModeRef.current
+            ? 11
+            : 2,
         disableDefaultUI: true,
       },
     })
@@ -346,17 +439,88 @@ export function LocationImmersiveMap() {
         });
         setMapReady(true);
       })
-      .catch(() => { if (!cancelled) setStatus("unavailable"); });
+      .catch(() => {
+        if (!cancelled) setStatus("unavailable");
+      });
     return () => {
       cancelled = true;
       setMapReady(false);
     };
-  }, [rendererReady]);
+  }, [auth.userId, rendererReady]);
+
+  useEffect(() => {
+    if (
+      !rendererReady ||
+      !mapReady ||
+      !auth.userId ||
+      entryLocationRequestedRef.current
+    ) {
+      return;
+    }
+    entryLocationRequestedRef.current = true;
+    let cancelled = false;
+    const cachedPoint = readLocationWorkspaceMemory(
+      auth.userId,
+    ).myLocationPoint;
+
+    void (async () => {
+      if (cachedPoint) {
+        framedInitialMarkersRef.current = true;
+        await focusSelfPoint(cachedPoint, { animate: false, select: false });
+      }
+      try {
+        const point = await captureCurrentLocation();
+        if (cancelled) return;
+        framedInitialMarkersRef.current = true;
+        await focusSelfPoint(point, { animate: true, select: false });
+      } catch {
+        // Entry focus is best-effort. The explicit Locate control remains
+        // available for denied permissions, disabled services, or timeouts.
+      } finally {
+        if (!cancelled) setEntryLocationSettled(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    auth.userId,
+    captureCurrentLocation,
+    focusSelfPoint,
+    mapReady,
+    rendererReady,
+  ]);
 
   const visibleMarkers = useMemo(
     () => (selfMarker ? [...markers, selfMarker] : markers),
     [markers, selfMarker],
   );
+
+  useEffect(() => {
+    if (!rendererReady || !peopleTrayBodyRef.current) return;
+    const body = peopleTrayBodyRef.current;
+    let frame: number | null = null;
+    const publishHeight = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        const bodyHeight = Math.ceil(body.getBoundingClientRect().height);
+        // The expanded header is 72px. The body owns its viewport cap, so this
+        // remains a concrete pixel height that WebKit can interpolate reliably.
+        setTrayExpandedHeight(Math.max(168, 72 + bodyHeight));
+      });
+    };
+    publishHeight();
+    const observer = new ResizeObserver(publishHeight);
+    observer.observe(body);
+    window.addEventListener("resize", publishHeight);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", publishHeight);
+    };
+  }, [rendererReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -398,7 +562,8 @@ export function LocationImmersiveMap() {
     if (!map || !mapReady) return;
     let cancelled = false;
     void (async () => {
-      if (markerIdsRef.current.length) await map.removeMarkers(markerIdsRef.current);
+      if (markerIdsRef.current.length)
+        await map.removeMarkers(markerIdsRef.current);
       const mapMarkers: Marker[] = visibleMarkers.map((marker) => ({
         coordinate: { lat: marker.point.latitude, lng: marker.point.longitude },
         // Labels stay in the local HTML tray/search index. The native Google
@@ -406,7 +571,9 @@ export function LocationImmersiveMap() {
         // never the private recipient name.
         title: marker.kind === "self" ? "Your location" : "Private location",
         snippet:
-          marker.kind === "self" ? "Your current location" : "Sharing privately now",
+          marker.kind === "self"
+            ? "Your current location"
+            : "Sharing privately now",
         tintColor: marker.tint,
         zIndex: marker.kind === "self" ? 10 : 1,
       }));
@@ -424,13 +591,21 @@ export function LocationImmersiveMap() {
       } else {
         await map.disableClustering();
       }
-      if (!framedInitialMarkersRef.current && visibleMarkers.length > 0) {
+      if (
+        entryLocationSettled &&
+        !framedInitialMarkersRef.current &&
+        visibleMarkers.length > 0
+      ) {
         framedInitialMarkersRef.current = true;
         await frameMarkers(map, visibleMarkers);
       }
-    })().catch(() => { if (!cancelled) setStatus("error"); });
-    return () => { cancelled = true; };
-  }, [mapReady, visibleMarkers]);
+    })().catch(() => {
+      if (!cancelled) setStatus("error");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [entryLocationSettled, mapReady, visibleMarkers]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -450,7 +625,8 @@ export function LocationImmersiveMap() {
     if (!vaultOwnerToken) return;
     setBusy("presence");
     try {
-      const nextMode = preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
+      const nextMode =
+        preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
       if (demoMode) {
         setPreferences((current) => ({
           ...current,
@@ -463,12 +639,21 @@ export function LocationImmersiveMap() {
         );
         return;
       }
-      const next = await OneLocationService.updateMapPreferences({ vaultOwnerToken, presenceMode: nextMode });
+      const next = await OneLocationService.updateMapPreferences({
+        vaultOwnerToken,
+        presenceMode: nextMode,
+      });
       setPreferences(next);
-      toast.success(nextMode === "ghost" ? "Ghost Mode is on." : "Map visibility is ready. Tap Locate me to appear.");
+      toast.success(
+        nextMode === "ghost"
+          ? "Ghost Mode is on."
+          : "Map visibility is ready. Tap Locate me to appear.",
+      );
     } catch {
       toast.error("Map visibility could not be updated.");
-    } finally { setBusy(null); }
+    } finally {
+      setBusy(null);
+    }
   }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
@@ -489,51 +674,62 @@ export function LocationImmersiveMap() {
     if (!vaultOwnerToken) return;
     setBusy("locate");
     try {
-      const point = await OneLocationService.captureCurrentPosition();
-      const currentLocation: RenderMarker = {
-        key: "current-device-location",
-        kind: "self",
-        label: "You",
-        point,
-        tint: { r: 0, g: 122, b: 255, a: 255 },
-      };
-      setSelfMarker(currentLocation);
-      setSelected(currentLocation);
-      if (auth.userId && !demoMode) {
-        const workspace = readLocationWorkspaceMemory(auth.userId);
-        writeLocationWorkspaceMemory(auth.userId, {
-          ...workspace,
-          myLocationPoint: point,
-        });
-      }
-      await mapRef.current?.setCamera({
-        coordinate: { lat: point.latitude, lng: point.longitude },
-        zoom: zoomForAccuracy(point.accuracyM),
-        animate: true,
-      });
+      const point = await captureCurrentLocation();
+      await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
         return;
       }
       if (preferences.presenceMode !== "foreground_private") {
-        toast.message("Your location is visible only to you. Turn off Ghost Mode to appear to active private recipients.");
+        toast.message(
+          "Your location is visible only to you. Turn off Ghost Mode to appear to active private recipients.",
+        );
         return;
       }
       const state = await OneLocationService.getState(vaultOwnerToken);
-      const recipientsByKey = new Map(state.recipients.map((recipient) => [`${recipient.userId}:${recipient.keyId}`, recipient]));
-      const grants = state.ownerGrants.filter((grant) => grant.status === "active" && !!grant.id);
-      await Promise.all(grants.map(async (grant) => {
-        const recipient = recipientsByKey.get(`${grant.recipientUserId}:${grant.recipientKeyId}`);
-        if (!recipient?.publicKeyJwk || !recipient.keyId) return;
-        const envelope = await encryptLocationForRecipient({ point, recipientPublicKeyJwk: recipient.publicKeyJwk, recipientKeyId: recipient.keyId });
-        envelope.publicationContext = "foreground_map_visible";
-        await OneLocationService.storeEnvelope({ vaultOwnerToken, grantId: grant.id, envelope });
-      }));
-      toast.success("Your active private recipients can see this foreground update.");
+      const recipientsByKey = new Map(
+        state.recipients.map((recipient) => [
+          `${recipient.userId}:${recipient.keyId}`,
+          recipient,
+        ]),
+      );
+      const grants = state.ownerGrants.filter(
+        (grant) => grant.status === "active" && !!grant.id,
+      );
+      await Promise.all(
+        grants.map(async (grant) => {
+          const recipient = recipientsByKey.get(
+            `${grant.recipientUserId}:${grant.recipientKeyId}`,
+          );
+          if (!recipient?.publicKeyJwk || !recipient.keyId) return;
+          const envelope = await encryptLocationForRecipient({
+            point,
+            recipientPublicKeyJwk: recipient.publicKeyJwk,
+            recipientKeyId: recipient.keyId,
+          });
+          envelope.publicationContext = "foreground_map_visible";
+          await OneLocationService.storeEnvelope({
+            vaultOwnerToken,
+            grantId: grant.id,
+            envelope,
+          });
+        }),
+      );
+      toast.success(
+        "Your active private recipients can see this foreground update.",
+      );
     } catch {
       toast.error("We could not update your location.");
-    } finally { setBusy(null); }
-  }, [auth.userId, demoMode, preferences.presenceMode, vaultOwnerToken]);
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    captureCurrentLocation,
+    demoMode,
+    focusSelfPoint,
+    preferences.presenceMode,
+    vaultOwnerToken,
+  ]);
 
   const filteredPeople = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
@@ -544,7 +740,8 @@ export function LocationImmersiveMap() {
   }, [markers, searchQuery]);
 
   const markerCountLabel = useMemo(
-    () => `${markers.length} ${markers.length === 1 ? "person" : "people"} on Your Map`,
+    () =>
+      `${markers.length} ${markers.length === 1 ? "person" : "people"} on Your Map`,
     [markers.length],
   );
 
@@ -628,7 +825,7 @@ export function LocationImmersiveMap() {
         className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
-          className="pointer-events-auto !h-14 !w-14 touch-manipulation border border-border/50 !bg-background/95 !text-foreground shadow-lg backdrop-blur-md hover:!bg-background"
+          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
           aria-label="Back to Location"
           data-testid="one-location-map-close"
           disabled={closing}
@@ -643,7 +840,7 @@ export function LocationImmersiveMap() {
         </ShellActionSurface>
         {rendererReady ? (
           <ShellActionSurface
-            className="pointer-events-auto !h-14 !w-14 touch-manipulation border border-border/50 !bg-background/95 !text-foreground shadow-lg backdrop-blur-md hover:!bg-background"
+            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
             aria-label="Show my location"
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
@@ -659,14 +856,17 @@ export function LocationImmersiveMap() {
           data-testid="one-location-map-disclosure"
           style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
         >
-          <MapPin className="h-6 w-6 text-primary" />
+          <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             Your Map renders active private shares with Google Maps. One sends
             Google only the map request; coordinates stay encrypted until this
             device decrypts an approved share.
           </p>
-          <Button className="mt-4 w-full" onClick={() => void acceptRenderer()}>
+          <Button
+            className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+            onClick={() => void acceptRenderer()}
+          >
             Continue to Your Map
           </Button>
           {demoAvailable ? (
@@ -684,7 +884,9 @@ export function LocationImmersiveMap() {
       ) : null}
       {rendererReady && status === "unavailable" ? (
         <section className="absolute inset-x-4 bottom-4 z-20 rounded-3xl bg-background/95 p-5 shadow-xl">
-          <h1 className="font-semibold">Your Map needs secure map configuration</h1>
+          <h1 className="font-semibold">
+            Your Map needs secure map configuration
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             No location was captured or exposed. Try again after the app’s
             restricted Maps key is configured.
@@ -692,41 +894,53 @@ export function LocationImmersiveMap() {
         </section>
       ) : null}
       {rendererReady && status !== "unavailable" ? (
-        <div
+        <section
           ref={peopleTrayRef}
-          className="absolute left-1/2 z-20 will-change-[width] motion-reduce:transition-none"
+          className="absolute left-1/2 z-20 isolate overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
           data-testid="one-location-map-people-tray"
           data-state={trayExpanded ? "expanded" : "collapsed"}
           style={{
             bottom: "max(0.75rem, env(safe-area-inset-bottom))",
             transform: "translateX(-50%)",
-            transition:
-              "width 500ms cubic-bezier(0.34, 1.56, 0.64, 1)",
             width: trayExpanded
-              ? "min(34rem, calc(100vw - 1.5rem))"
-              : "4rem",
+              ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
+              : "3.5rem",
+            height: trayExpanded ? `${trayExpandedHeight}px` : "3.5rem",
+            borderRadius: trayExpanded ? "1.75rem" : "999px",
+            transition: [
+              `width ${motionDurations.xl}ms ${motionEasings.emphasized}`,
+              `height ${motionDurations.xl}ms ${motionEasings.emphasized}`,
+              `border-radius ${motionDurations.xl}ms ${motionEasings.emphasized}`,
+              `box-shadow ${motionDurations.md}ms ${motionEasings.emphasized}`,
+            ].join(", "),
+            willChange: "width, height, border-radius",
           }}
         >
-          <section
-            className={`overflow-hidden border border-border/50 bg-background/95 shadow-2xl backdrop-blur-xl transition-[max-height,border-radius,background-color,box-shadow] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:transition-none ${
+          <button
+            type="button"
+            className={`group relative flex w-full touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
-                ? "max-h-[30rem] rounded-[1.75rem]"
-                : "max-h-16 rounded-full"
+                ? "h-[4.5rem] px-3 pb-2 pt-2.5"
+                : "h-14 justify-center p-0"
             }`}
+            style={{
+              transition: [
+                `height ${motionDurations.xl}ms ${motionEasings.emphasized}`,
+                `padding ${motionDurations.xl}ms ${motionEasings.emphasized}`,
+              ].join(", "),
+            }}
+            aria-expanded={trayExpanded}
+            aria-label={
+              trayExpanded ? "Minimize map controls" : "Expand map controls"
+            }
+            data-testid="one-location-map-tray-toggle"
+            onClick={() => setTrayExpanded((current) => !current)}
           >
-            <button
-              type="button"
-              className={`group relative flex w-full touch-manipulation items-center text-left transition-[height,padding] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
-                trayExpanded ? "h-[4.5rem] px-3 pb-2 pt-2.5" : "h-16 justify-center p-0"
-              }`}
-              aria-expanded={trayExpanded}
-              aria-label={trayExpanded ? "Minimize map controls" : "Expand map controls"}
-              data-testid="one-location-map-tray-toggle"
-              onClick={() => setTrayExpanded((current) => !current)}
-            >
             <span
-              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-foreground/20 transition-[opacity,transform] duration-300 group-hover:bg-foreground/35 ${
-                trayExpanded ? "scale-x-100 opacity-100" : "scale-x-75 opacity-0"
+              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--app-accent-border)] transition-[opacity,transform,background-color] duration-300 group-hover:bg-[var(--app-accent)] ${
+                trayExpanded
+                  ? "scale-x-100 opacity-100"
+                  : "scale-x-75 opacity-0"
               }`}
             />
             <span
@@ -737,9 +951,9 @@ export function LocationImmersiveMap() {
               }`}
               aria-hidden={trayExpanded}
             >
-              <UsersRound className="h-6 w-6 stroke-[2.25]" />
+              <UsersRound className="h-6 w-6 stroke-[2.25] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
               {markers.length > 0 ? (
-                <span className="absolute right-2 top-2 grid min-h-5 min-w-5 place-items-center rounded-full bg-foreground px-1 text-[10px] font-semibold leading-none text-background">
+                <span className="absolute right-1.5 top-1.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-semibold leading-none text-[var(--app-accent-fg)]">
                   {markers.length > 9 ? "9+" : markers.length}
                 </span>
               ) : null}
@@ -773,7 +987,7 @@ export function LocationImmersiveMap() {
                     {markerCountLabel}
                   </span>
                   {demoMode ? (
-                    <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
+                    <span className="rounded-full bg-[var(--app-accent-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
                       Demo
                     </span>
                   ) : null}
@@ -782,152 +996,176 @@ export function LocationImmersiveMap() {
                   Active private shares only
                 </span>
               </span>
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted/80 text-muted-foreground transition-colors group-hover:bg-muted group-hover:text-foreground">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
                 <ChevronDown className="h-4 w-4" />
               </span>
             </span>
-            </button>
+          </button>
 
+          <div
+            className={`absolute inset-x-0 top-[4.5rem] motion-reduce:transition-none ${
+              trayExpanded
+                ? "translate-y-0 opacity-100"
+                : "pointer-events-none translate-y-2 opacity-0"
+            }`}
+            data-testid="one-location-map-tray-body"
+            style={{
+              transition: [
+                `opacity ${motionDurations.sm}ms ${motionEasings.emphasized}`,
+                `transform ${motionDurations.md}ms ${motionEasings.emphasized}`,
+              ].join(", "),
+            }}
+            aria-hidden={!trayExpanded}
+            inert={!trayExpanded}
+          >
             <div
-              className={`origin-bottom overflow-hidden transition-[max-height,opacity,transform] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:transition-none ${
-                trayExpanded
-                  ? "max-h-[25rem] translate-y-0 scale-[1] opacity-100"
-                  : "pointer-events-none max-h-0 translate-y-4 scale-[0.96] opacity-0"
-              }`}
-              aria-hidden={!trayExpanded}
-              inert={!trayExpanded}
+              ref={peopleTrayBodyRef}
+              className="max-h-[min(25rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
             >
-            <div className="min-h-0 overflow-hidden">
-              <div className="px-3 pb-3 pt-1">
-                <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <span className="sr-only">Find a person on Your Map</span>
-                  <Input
-                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
-                    data-testid="one-location-map-search"
-                    inputMode="search"
-                    placeholder="Find a person"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                  />
-                </label>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <span className="sr-only">Find a person on Your Map</span>
+                <Input
+                  className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
+                  data-testid="one-location-map-search"
+                  inputMode="search"
+                  placeholder="Find a person"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+              </label>
 
-                <div
-                  className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  data-testid="one-location-map-people"
-                >
-                  {filteredPeople.map((person) => {
-                    const selectedPerson = selected?.key === person.key;
-                    return (
-                      <button
-                        key={person.key}
-                        type="button"
-                        className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                          selectedPerson
-                            ? "border-foreground/30 bg-foreground text-background"
-                            : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                        }`}
-                        aria-label={`Show ${person.label} on the map`}
-                        data-testid="one-location-map-person"
-                        onClick={() => void focusMarker(person)}
-                      >
-                        <span
-                          className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
-                          style={{
-                            backgroundColor: person.tint
-                              ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                              : "var(--app-accent)",
-                          }}
-                        >
-                          {personInitials(person.label)}
-                        </span>
-                        <span className="max-w-28 truncate font-medium">
-                          {person.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {filteredPeople.length === 0 ? (
-                    <p className="py-2 pl-1 text-sm text-muted-foreground">
-                      No matching person is active.
-                    </p>
-                  ) : null}
-                </div>
-
-                {selected ? (
-                  <div
-                    className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
-                    data-testid="one-location-map-selection"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{selected.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {selected.kind === "self"
-                          ? "Your current location"
-                          : "Sharing privately now"}
-                      </p>
-                    </div>
-                    <Button size="sm" variant="ghost" onClick={() => void showEveryone()}>
-                      Show everyone
-                    </Button>
-                  </div>
-                ) : null}
-
-                <div
-                  className={`mt-3 grid gap-2 ${
-                    demoAvailable ? "grid-cols-3" : "grid-cols-2"
-                  }`}
-                >
-                  {demoAvailable ? (
-                    <Button
-                      className="h-11 min-w-0 rounded-2xl px-2"
-                      variant={demoMode ? "default" : "secondary"}
-                      aria-pressed={demoMode}
-                      data-testid="one-location-map-demo-toggle"
-                      onClick={toggleDemoPeople}
+              <div
+                className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                data-testid="one-location-map-people"
+              >
+                {filteredPeople.map((person) => {
+                  const selectedPerson = selected?.key === person.key;
+                  return (
+                    <button
+                      key={person.key}
+                      type="button"
+                      className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
+                        selectedPerson
+                          ? MAP_ACCENT_ACTIVE_CLASSNAME
+                          : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
+                      }`}
+                      aria-label={`Show ${person.label} on the map`}
+                      data-testid="one-location-map-person"
+                      onClick={() => void focusMarker(person)}
                     >
-                      <UsersRound className="h-4 w-4 shrink-0" />
-                      <span className="truncate">
-                        {demoMode ? "Demo on" : "Demo"}
+                      <span
+                        className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
+                        style={{
+                          backgroundColor: person.tint
+                            ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                            : "var(--app-accent)",
+                        }}
+                      >
+                        {personInitials(person.label)}
                       </span>
-                    </Button>
-                  ) : null}
-                  <Button
-                    className="h-11 min-w-0 justify-between rounded-2xl px-2.5"
-                    variant="secondary"
-                    disabled={busy === "presence"}
-                    onClick={() => void setPresence()}
-                  >
-                    <span className="truncate">
-                      {preferences.presenceMode === "ghost"
-                        ? demoAvailable ? "Ghost" : "Ghost Mode"
-                        : "Visible"}
-                    </span>
-                    {preferences.presenceMode === "ghost" ? (
-                      <EyeOff className="h-4 w-4 shrink-0" />
-                    ) : (
-                      <Eye className="h-4 w-4 shrink-0" />
-                    )}
-                  </Button>
-                  <Button
-                    className="h-11 min-w-0 rounded-2xl px-2"
-                    variant="secondary"
-                    disabled={visibleMarkers.length === 0}
-                    onClick={() => void showEveryone()}
-                  >
-                    {demoAvailable ? "Everyone" : "Show everyone"}
-                  </Button>
-                </div>
-                {status === "error" ? (
-                  <p className="mt-2 text-center text-xs text-destructive">
-                    Some locations could not be refreshed.
+                      <span className="max-w-28 truncate font-medium">
+                        {person.label}
+                      </span>
+                    </button>
+                  );
+                })}
+                {filteredPeople.length === 0 ? (
+                  <p className="py-2 pl-1 text-sm text-muted-foreground">
+                    No matching person is active.
                   </p>
                 ) : null}
               </div>
+
+              {selected ? (
+                <div
+                  className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-muted/80 px-3"
+                  data-testid="one-location-map-selection"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {selected.label}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selected.kind === "self"
+                        ? "Your current location"
+                        : "Sharing privately now"}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void showEveryone()}
+                  >
+                    Show everyone
+                  </Button>
+                </div>
+              ) : null}
+
+              <div
+                className={`mt-3 grid gap-2 ${
+                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
+                }`}
+              >
+                {demoAvailable ? (
+                  <Button
+                    className={`h-11 min-w-0 rounded-2xl px-2 ${
+                      demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
+                    }`}
+                    variant="secondary"
+                    aria-pressed={demoMode}
+                    data-testid="one-location-map-demo-toggle"
+                    onClick={toggleDemoPeople}
+                  >
+                    <UsersRound className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {demoMode ? "Demo on" : "Demo"}
+                    </span>
+                  </Button>
+                ) : null}
+                <Button
+                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
+                    preferences.presenceMode === "foreground_private"
+                      ? MAP_ACCENT_ACTIVE_CLASSNAME
+                      : ""
+                  }`}
+                  variant="secondary"
+                  aria-pressed={
+                    preferences.presenceMode === "foreground_private"
+                  }
+                  disabled={busy === "presence"}
+                  onClick={() => void setPresence()}
+                >
+                  <span className="truncate">
+                    {preferences.presenceMode === "ghost"
+                      ? demoAvailable
+                        ? "Ghost"
+                        : "Ghost Mode"
+                      : "Visible"}
+                  </span>
+                  {preferences.presenceMode === "ghost" ? (
+                    <EyeOff className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <Eye className="h-4 w-4 shrink-0" />
+                  )}
+                </Button>
+                <Button
+                  className="h-11 min-w-0 rounded-2xl px-2"
+                  variant="secondary"
+                  disabled={visibleMarkers.length === 0}
+                  onClick={() => void showEveryone()}
+                >
+                  {demoAvailable ? "Everyone" : "Show everyone"}
+                </Button>
+              </div>
+              {status === "error" ? (
+                <p className="mt-2 text-center text-xs text-destructive">
+                  Some locations could not be refreshed.
+                </p>
+              ) : null}
             </div>
-            </div>
-          </section>
-        </div>
+          </div>
+        </section>
       ) : null}
     </main>
   );

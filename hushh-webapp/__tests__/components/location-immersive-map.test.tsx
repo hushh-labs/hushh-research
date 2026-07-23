@@ -44,11 +44,8 @@ const serviceHarness = vi.hoisted(() => ({
 }));
 
 const navigationHarness = vi.hoisted(() => ({
-  beginRouteTransition: vi.fn(
-    (
-      _href: string,
-      navigate: () => void,
-    ) => navigate(),
+  beginRouteTransition: vi.fn((_href: string, navigate: () => void) =>
+    navigate(),
   ),
   replace: vi.fn(),
 }));
@@ -151,6 +148,18 @@ beforeEach(() => {
     markers: [],
     preferences: { presenceMode: "ghost" },
   });
+  serviceHarness.captureCurrentPosition.mockResolvedValue({
+    latitude: 37.776,
+    longitude: -122.418,
+    accuracyM: 12,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "ios",
+  });
+  serviceHarness.getState.mockResolvedValue({
+    recipients: [],
+    ownerGrants: [],
+  });
+  serviceHarness.storeEnvelope.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -180,15 +189,36 @@ describe("LocationImmersiveMap demo experience", () => {
       "aria-pressed",
       "true",
     );
-    expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("one-location-map-demo-toggle")).toHaveClass(
+      "bg-[var(--app-accent)]",
+      "text-[var(--app-accent-fg)]",
+    );
+    expect(screen.getByTestId("one-location-map-close")).toHaveClass(
+      "!bg-[var(--app-accent-surface)]",
+      "!text-[var(--app-accent-deep)]",
+    );
+    await waitFor(() => {
+      expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledTimes(1);
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith({
+        coordinate: { lat: 37.776, lng: -122.418 },
+        zoom: 16,
+        animate: true,
+      });
+    });
+    expect(mapHarness.map.fitBounds).not.toHaveBeenCalled();
     expect(serviceHarness.getMapState).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByTestId("one-location-map-search"), {
       target: { value: "Jordan" },
     });
     expect(screen.getAllByTestId("one-location-map-person")).toHaveLength(1);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Show Jordan Lee on the map" }),
+    const jordanButton = screen.getByRole("button", {
+      name: "Show Jordan Lee on the map",
+    });
+    fireEvent.click(jordanButton);
+    expect(jordanButton).toHaveClass(
+      "bg-[var(--app-accent)]",
+      "text-[var(--app-accent-fg)]",
     );
     await waitFor(() => {
       expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
@@ -199,25 +229,39 @@ describe("LocationImmersiveMap demo experience", () => {
         }),
       );
     });
-    expect(
-      screen.getByTestId("one-location-map-tray-toggle"),
-    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("one-location-map-tray-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
-      width: "4rem",
+      width: "3.5rem",
+      height: "3.5rem",
+      borderRadius: "999px",
     });
-    expect(
-      screen.getByTestId("one-location-map-people-tray").firstElementChild,
-    ).toHaveClass("max-h-16", "rounded-full");
+    expect(screen.getByTestId("one-location-map-tray-body")).toHaveClass(
+      "pointer-events-none",
+      "translate-y-2",
+      "opacity-0",
+    );
     fireEvent.click(screen.getByTestId("one-location-map-tray-toggle"));
-    expect(
-      screen.getByTestId("one-location-map-tray-toggle"),
-    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("one-location-map-tray-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
-      width: "min(34rem, calc(100vw - 1.5rem))",
+      width:
+        "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))",
+      height: "168px",
+      borderRadius: "1.75rem",
     });
+    expect(screen.getByTestId("one-location-map-tray-body")).toHaveClass(
+      "translate-y-0",
+      "opacity-100",
+    );
 
     fireEvent.click(screen.getByTestId("one-location-map-locate"));
     await waitFor(() => {
+      expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledTimes(2);
       expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
         expect.objectContaining({
           coordinate: { lat: 37.776, lng: -122.418 },

@@ -3,7 +3,9 @@
     "holder_name": "Demo Investor",
     "account_number": "XXXX-XXXX",
     "account_type": "Self-Directed Investing",
-    "brokerage": "Demo Brokerage"
+    "brokerage": "Demo Brokerage",
+    "statement_period_start": "2026-06-01",
+    "statement_period_end": "2026-06-30"
   },
   "account_summary": {
     "beginning_value": 1639938.44,
