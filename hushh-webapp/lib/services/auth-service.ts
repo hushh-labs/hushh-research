@@ -460,23 +460,45 @@ export class AuthService {
         "🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...",
       );
 
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      // The Capawesome Android Google provider can return to the WebView
+      // without settling its saved Capacitor call when the provider activity
+      // is recreated. HusshAuth owns an ActivityResultLauncher and the
+      // Firebase exchange on Android, so use that native contract there.
+      // iOS keeps the Capawesome path, which is its canonical implementation.
+      let nativeAuthUser: AuthUser | NonNullable<
+        Awaited<
+          ReturnType<typeof FirebaseAuthentication.signInWithGoogle>
+        >["user"]
+      >;
+      let idToken = "";
+      let accessToken: string | undefined;
+      if (Capacitor.getPlatform() === "android") {
+        const result = await HushhAuth.signIn();
+        nativeAuthUser = result.user;
+        idToken = result.idToken;
+        accessToken = result.accessToken;
+      } else {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        if (!result.user) {
+          throw new Error("Invalid response from native sign-in");
+        }
+        nativeAuthUser = result.user;
+        const nativeIdTokenResult =
+          await FirebaseAuthentication.getIdToken();
+        idToken =
+          nativeIdTokenResult.token || result.credential?.idToken || "";
+        accessToken = result.credential?.accessToken;
+      }
 
       this.debugLog("✅ [AuthService] Native sign-in returned result");
 
-      if (!result.user) {
+      if (!nativeAuthUser) {
         this.debugError(
           "❌ [AuthService] Invalid response from native sign-in",
         );
         toast.error("Invalid native auth response", { id: toastId });
         throw new Error("Invalid response from native sign-in");
       }
-
-      const nativeIdTokenResult = await FirebaseAuthentication.getIdToken();
-      const idToken =
-        nativeIdTokenResult.token || result.credential?.idToken || "";
-      const accessToken = result.credential?.accessToken;
-      const nativeAuthUser = result.user; // AuthUser type
 
       this.debugLog("✅ [AuthService] Got native ID token");
 

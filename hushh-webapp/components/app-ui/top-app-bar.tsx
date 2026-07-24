@@ -25,6 +25,7 @@ import {
   ChartNoAxesCombined,
   Check,
   ChevronDown,
+  ChevronRight,
   Code2,
   Database,
   FileCheck2,
@@ -90,6 +91,7 @@ import type { Persona } from "@/lib/services/ria-service";
 import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
+  type TopShellBreadcrumbItem,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -353,6 +355,69 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
   return header.getBoundingClientRect().bottom <= readTopShellReservedHeight();
 }
 
+/* ── TopShellBreadcrumbTrail ───────────────────────────────────────── */
+/**
+ * Renders the resolved breadcrumb items as a compact, tappable trail beside the
+ * back arrow once the user is inside an inner/subagent route (e.g.
+ * `Kai › Analysis › AAPL run`). Ancestor crumbs navigate back to their level;
+ * the last crumb is the current, non-interactive location. The back arrow still
+ * owns single-step back; this trail is the multi-level "go back and forth"
+ * affordance. Uses currentColor so it tracks the ambient top-surface tone.
+ */
+function TopShellBreadcrumbTrail({ items }: { items: TopShellBreadcrumbItem[] }) {
+  if (!items.length) return null;
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      data-testid="top-app-bar-breadcrumb-trail"
+      className="top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-[15px] font-medium text-current"
+    >
+      {items.map((item, index) => {
+        const isLast = index === items.length - 1;
+        return (
+          <span
+            key={`${item.label}-${index}`}
+            className="flex min-w-0 items-center gap-1"
+          >
+            {index > 0 ? (
+              <ChevronRight
+                className="h-3.5 w-3.5 shrink-0 opacity-40"
+                aria-hidden
+              />
+            ) : null}
+            {item.href && !isLast ? (
+              <button
+                type="button"
+                className="max-w-[9rem] shrink-0 truncate opacity-65 transition-opacity hover:opacity-100"
+                onClick={() =>
+                  requestInternalAppNavigation({
+                    href: item.href!,
+                    scroll: false,
+                    source: "tap",
+                    transitionMode: "full",
+                  })
+                }
+              >
+                {item.label}
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  "min-w-0 truncate",
+                  isLast ? "font-semibold" : "opacity-65",
+                )}
+                aria-current={isLast ? "page" : undefined}
+              >
+                {item.label}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 /* ── AppTopShell ───────────────────────────────────────────────────── */
 export interface AppTopShellProps {
   className?: string;
@@ -584,6 +649,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     () => getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
     [normalizedPathname, primaryHeaderOutOfView],
   );
+  const breadcrumbTrailItems = useMemo(() => {
+    const raw = topShellBreadcrumb?.items ?? [];
+    // Inner/"subagent" routes read as "Kai > Analysis", not
+    // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
+    return raw.length > 0 && raw[0]?.label === "One" ? raw.slice(1) : raw;
+  }, [topShellBreadcrumb]);
+  const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],
@@ -762,7 +834,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                 <div
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
-                  style={{ width: "var(--top-bar-side-w)" }}
+                  style={{
+                    // Collapse the fixed side gutter to the back button's width
+                    // when a breadcrumb trail is showing, so the trail sits
+                    // right beside the back arrow instead of centered.
+                    width: hasBreadcrumbTrail ? "auto" : "var(--top-bar-side-w)",
+                  }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
                     <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
@@ -819,10 +896,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions ? "justify-start" : "justify-center",
+                    showOnboardingActions || hasBreadcrumbTrail
+                      ? "justify-start"
+                      : "justify-center",
                   )}
                 >
-                  {centerTitle ? (
+                  {hasBreadcrumbTrail ? (
+                    <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
+                  ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
                       <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                         <DropdownMenu>

@@ -124,14 +124,8 @@ export function QuickActionsSection({
 }) {
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between px-1">
+      <div className="flex items-center px-1">
         <h2 className={SECTION_HEADING}>{title}</h2>
-        <span className="inline-flex items-center gap-[7px] rounded-full bg-[#eef2f8] px-3 py-1.5 dark:bg-white/10">
-          <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent)]" />
-          <span className="text-[13px] font-semibold text-black/55 dark:text-muted-foreground">
-            Live features
-          </span>
-        </span>
       </div>
       <div
         className={cn(
