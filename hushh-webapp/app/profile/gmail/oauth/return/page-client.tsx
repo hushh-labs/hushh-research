@@ -44,6 +44,7 @@ export default function ProfileGmailOAuthReturnPageClient({
   const startedRef = useRef(false);
   const { user, loading } = useAuth();
   const [stage, setStage] = useState<CompleteStage>("loading");
+  
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
       return;
     }
-
+    setStage("loading");
     startedRef.current = true;
     void (async () => {
       try {
@@ -150,7 +151,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       <AppPageShell
         as="div"
         width="reading"
-        className="flex min-h-[60vh] items-center justify-center"
+        className="flex min-h-[70vh] items-center justify-center"
         nativeTest={{
           routeId: "/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
@@ -160,7 +161,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           errorMessage: error,
         }}
       >
-        <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
+        <AppPageContentRegion className="flex min-h-[70vh] items-center justify-center">
           <HushhLoader
             label={
               stage === "redirecting"
@@ -177,7 +178,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     <AppPageShell
       as="div"
       width="reading"
-      className="flex min-h-[60vh] items-center justify-center"
+      className="flex min-h-[70vh] items-center justify-center"
       nativeTest={{
         routeId: "/profile/gmail/oauth/return",
         marker: "native-route-profile-gmail-return",
@@ -187,7 +188,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         errorMessage: error,
       }}
     >
-      <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
+      <AppPageContentRegion className="flex min-h-[70vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
           <h1 className="text-lg font-semibold text-foreground">Gmail connection needs attention</h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
