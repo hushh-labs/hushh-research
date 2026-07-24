@@ -168,7 +168,8 @@ export function KaiAnalysisPageContent() {
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
   const [historyCount, setHistoryCount] = useState(0);
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
+  // Landing shows the summary "table"; debate is its own ?view=debate route.
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("summary");
   const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
@@ -420,12 +421,41 @@ export function KaiAnalysisPageContent() {
     [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
-  const handleWorkspaceTabChange = useCallback((value: string) => {
-    setWorkspaceTab(value as WorkspaceTab);
-    requestAnimationFrame(() => {
-      workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-    });
-  }, []);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+  const setWorkspaceView = useCallback(
+    (value: WorkspaceTab) => {
+      setWorkspaceTab(value);
+      const params = new URLSearchParams(searchParamsRef.current.toString());
+      const onDebateRoute = params.get("view") === "debate";
+      if (value === "debate") {
+        // Debate is its own back-navigable route under Analysis.
+        params.set("view", "debate");
+        router.push(
+          buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+          { scroll: false },
+        );
+      } else if (onDebateRoute) {
+        // Leaving the debate route returns to the summary/detailed table.
+        params.delete("view");
+        router.replace(
+          buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+          { scroll: false },
+        );
+      }
+      // summary <-> detailed within the table view stays local-only state.
+    },
+    [router],
+  );
+  const handleWorkspaceTabChange = useCallback(
+    (value: string) => {
+      setWorkspaceView(value as WorkspaceTab);
+      requestAnimationFrame(() => {
+        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      });
+    },
+    [setWorkspaceView],
+  );
 
   const handleLiveDecisionReady = useCallback(
     (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
@@ -791,15 +821,15 @@ export function KaiAnalysisPageContent() {
     return { status: "succeeded", summary: "Analysis history opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_debate_tab", () => {
-    setWorkspaceTab("debate");
-    return { status: "succeeded", summary: "Debate tab opened." };
+    setWorkspaceView("debate");
+    return { status: "succeeded", summary: "Debate opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_summary_tab", () => {
-    setWorkspaceTab("summary");
+    setWorkspaceView("summary");
     return { status: "succeeded", summary: "Summary tab opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_detailed_tab", () => {
-    setWorkspaceTab("detailed");
+    setWorkspaceView("detailed");
     return { status: "succeeded", summary: "Detailed analysis opened." };
   });
   useLocalOnboardingActionHandler("analysis.cancel_active", () => {
