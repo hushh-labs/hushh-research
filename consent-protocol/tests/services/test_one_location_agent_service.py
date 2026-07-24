@@ -217,11 +217,15 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
 
 def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
-    response = EnvelopeReadProbe().view_latest_envelope(
+    service = EnvelopeReadProbe()
+    response = service.view_latest_envelope(
         recipient_user_id="user_b",
         grant_id="00000000-0000-0000-0000-000000000001",
     )
 
+    stale_cleanup_sql = next(sql for sql in service.calls if "WITH stale AS" in sql)
+    assert "UPDATE one_location_share_grants AS target_grant" in stale_cleanup_sql
+    assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
     assert "latitude" not in json.dumps(response)

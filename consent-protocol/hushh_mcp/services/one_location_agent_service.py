@@ -2073,11 +2073,15 @@ class OneLocationAgentService:
               LIMIT 500
               FOR UPDATE SKIP LOCKED
             )
-            UPDATE one_location_share_grants grant
+            UPDATE one_location_share_grants AS target_grant
             SET status = 'expired', updated_at = NOW()
             FROM stale
-            WHERE grant.id = stale.id
-            RETURNING grant.id, grant.owner_user_id, grant.recipient_user_id, grant.expires_at
+            WHERE target_grant.id = stale.id
+            RETURNING
+              target_grant.id,
+              target_grant.owner_user_id,
+              target_grant.recipient_user_id,
+              target_grant.expires_at
             """,
             {"user_id": user_id},
         )
