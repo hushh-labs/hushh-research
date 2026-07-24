@@ -158,17 +158,17 @@ if [ -f "$BACKEND_SOURCE" ]; then
   add_check "backend_source_file" "pass" "${BACKEND_SOURCE#$REPO_ROOT/}"
 else
   if [ "$PROFILE" = "local" ]; then
-    add_check "backend_source_file" "fail" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}"
+    add_check "backend_source_file" "fail" "Missing ${BACKEND_SOURCE#$REPO_ROOT/} — run: cp ${BACKEND_SOURCE#$REPO_ROOT/}.example ${BACKEND_SOURCE#$REPO_ROOT/}"
     SOURCE_READY=false
   else
-    add_check "backend_source_file" "warn" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}; local backend is not required for $PROFILE"
+    add_check "backend_source_file" "warn" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}; local backend is not required for $PROFILE — run: cp ${BACKEND_SOURCE#$REPO_ROOT/}.example ${BACKEND_SOURCE#$REPO_ROOT/} when ready"
   fi
 fi
 
 if [ -f "$FRONTEND_SOURCE" ]; then
   add_check "frontend_source_file" "pass" "${FRONTEND_SOURCE#$REPO_ROOT/}"
 else
-  add_check "frontend_source_file" "fail" "Missing ${FRONTEND_SOURCE#$REPO_ROOT/}"
+  add_check "frontend_source_file" "fail" "Missing ${FRONTEND_SOURCE#$REPO_ROOT/} — run: cp ${FRONTEND_SOURCE#$REPO_ROOT/}.example ${FRONTEND_SOURCE#$REPO_ROOT/}"
   SOURCE_READY=false
 fi
 
