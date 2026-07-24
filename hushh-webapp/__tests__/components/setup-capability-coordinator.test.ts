@@ -34,7 +34,10 @@ describe("setup capability journey settlement", () => {
     ).toBe("/one");
   });
 
-  it("lands a finished Location setup on its workspace without widening skip", () => {
+  it("keeps a finished Location setup on the hub while overall setup is still incomplete", () => {
+    // The master "Finish setup" (which requires Connections) is not done yet,
+    // so finishing Location must return the user to /one/setup — not jump
+    // straight into the Location workspace.
     expect(
       resolveSetupCapabilityTerminalTarget({
         capabilityId: "location",
@@ -42,7 +45,7 @@ describe("setup capability journey settlement", () => {
         hasExplicitIncompleteSetup: true,
         kind: "finish",
       }),
-    ).toBe("/one/location");
+    ).toBe("/one/setup");
     expect(
       resolveSetupCapabilityTerminalTarget({
         capabilityId: "location",
@@ -51,6 +54,28 @@ describe("setup capability journey settlement", () => {
         kind: "skip",
       }),
     ).toBe("/one/setup");
+  });
+
+  it("lands a finished Location setup on its workspace once overall setup is resolved", () => {
+    // Overall setup is complete (Finish setup done), so finishing Location may
+    // hand off directly to the Location workspace.
+    expect(
+      resolveSetupCapabilityTerminalTarget({
+        capabilityId: "location",
+        journeyMode: "root",
+        hasExplicitIncompleteSetup: false,
+        kind: "finish",
+      }),
+    ).toBe("/one/location");
+    // Skip never widens into the workspace shortcut.
+    expect(
+      resolveSetupCapabilityTerminalTarget({
+        capabilityId: "location",
+        journeyMode: "root",
+        hasExplicitIncompleteSetup: false,
+        kind: "skip",
+      }),
+    ).toBe("/one/location");
     expect(
       resolveSetupCapabilityTerminalTarget({
         capabilityId: "location",
@@ -67,3 +92,4 @@ describe("setup capability journey settlement", () => {
     );
   });
 });
+
