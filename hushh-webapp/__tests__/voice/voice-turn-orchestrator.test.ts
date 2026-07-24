@@ -344,6 +344,46 @@ describe("VoiceTurnOrchestrator", () => {
     );
   });
 
+  it("rejects durable memory reads when vault runtime context is missing", async () => {
+    const retrieveDurableSpy = vi.spyOn(voiceMemoryStore, "retrieveDurable");
+    const onDebug = vi.fn();
+
+    const orchestrator = new VoiceTurnOrchestrator({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key_material",
+      getAppRuntimeState: () => undefined,
+      getVoiceContext: () => undefined,
+      onVoiceResponse: vi.fn().mockResolvedValue({
+        shortTermMemoryWrite: false,
+      }),
+      speak: vi.fn().mockResolvedValue(undefined),
+      onStageChange: vi.fn(),
+      onDebug,
+      onAssistantText: vi.fn(),
+    });
+
+    await orchestrator.processTranscript({
+      transcript: "Analyze NVDA",
+      source: "microphone",
+    });
+
+    expect(retrieveDurableSpy).not.toHaveBeenCalled();
+    expect(onDebug).toHaveBeenCalledWith(
+      "durable_memory_read_rejected",
+      expect.objectContaining({
+        reason: "missing_vault_context",
+      })
+    );
+    expect(planKaiVoiceIntentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plannerV2: expect.objectContaining({
+          memoryRetrieved: [],
+        }),
+      })
+    );
+  });
+
   it("passes execution_allowed and needs_confirmation through to dispatch", async () => {
     const onVoiceResponse = vi.fn().mockResolvedValue({
       shortTermMemoryWrite: false,
