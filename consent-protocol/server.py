@@ -1,4 +1,4 @@
-# consent-protocol/server.py
+﻿# consent-protocol/server.py
 """
 FastAPI Server for Hussh Consent Protocol Agents
 
@@ -114,12 +114,14 @@ from api.middlewares.rate_limit import limiter  # noqa: E402
 from api.routes import (  # noqa: E402
     account,
     agents,
+    compliance,
     connected_systems,
     consent,
     db_proxy,
     debug_firebase,
     developer,
     health,
+    mobile_sync,
     notifications,
     session,
     sse,
@@ -199,7 +201,7 @@ def _consent_error_payload(exc: Exception, request: Request) -> dict:
 
     trace_id comes from request.state (set by observability_middleware) so
     the caller can correlate the response with server-side logs.
-    Integrated by Abdul Gaffar — canonical error-boundary mapping.
+    Integrated by Abdul Gaffar â€” canonical error-boundary mapping.
     """
     trace_id = getattr(request.state, "request_id", None) or get_request_id()
     return {
@@ -296,6 +298,12 @@ app.include_router(db_proxy.router)
 # SSE routes for real-time consent notifications (/api/consent/events/...)
 app.include_router(sse.router)
 
+# Mobile sync endpoint (/sync/consent-state)
+app.include_router(mobile_sync.router)
+
+# GDPR compliance endpoints (/compliance/export, /compliance/forget-me)
+app.include_router(compliance.router)
+
 # Push notification token registration (/api/notifications/register)
 app.include_router(notifications.router)
 
@@ -363,7 +371,7 @@ app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
 logger.info(
-    "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
+    "ðŸš€ Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )
 
 
@@ -385,8 +393,8 @@ async def startup_pool_and_iam_cache() -> None:
     in-flight API request.  That means the first real user request after a
     worker restart pays:
 
-      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
-      • ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
+      â€¢ ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
+      â€¢ ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
                    checks, each ~50-80 ms over the Cloud SQL proxy)
 
     By forcing pool creation and running _batch_tables_exist() here we move
@@ -397,7 +405,7 @@ async def startup_pool_and_iam_cache() -> None:
     -----------------
     Non-fatal: if the DB is unreachable at startup (e.g. local dev without
     the Cloud SQL proxy running), we log a warning and continue.  The
-    per-request fallback in _ensure_iam_schema_ready() still works — it will
+    per-request fallback in _ensure_iam_schema_ready() still works â€” it will
     just pay the cold-start cost on the first request as before.
     startup_required_schema_guard (below) will enforce hard failure in
     production if the DB is truly missing.
@@ -432,7 +440,7 @@ async def startup_pool_and_iam_cache() -> None:
                     sorted(missing),
                 )
     except Exception as exc:
-        # Non-fatal at this stage — startup_required_schema_guard handles
+        # Non-fatal at this stage â€” startup_required_schema_guard handles
         # production enforcement below.
         logger.warning(
             "startup.pool_and_iam_cache_seed_failed reason=%s  "
@@ -532,7 +540,7 @@ async def startup_required_schema_guard():
     """Fail fast when the runtime database is missing core contract tables.
 
     Note: startup_pool_and_iam_cache (above) already acquired and released a
-    pool connection, so get_pool() here returns the already-warm singleton —
+    pool connection, so get_pool() here returns the already-warm singleton â€”
     no second TLS handshake is paid.
     """
     from db.connection import get_pool
@@ -697,7 +705,7 @@ async def startup_consent_revocation_worker() -> None:
     the server starts cleanly even when the DB is temporarily unreachable.
 
     Canonical attach point: hushh_mcp/services/revocation_worker.py
-    Integrated by Abdul Gaffar — canonical temporal-consent boundary.
+    Integrated by Abdul Gaffar â€” canonical temporal-consent boundary.
     """
     try:
         from hushh_mcp.services.consent_db import ConsentDBService
@@ -712,7 +720,7 @@ async def startup_consent_revocation_worker() -> None:
         )
         logger.info("startup.consent_revocation_worker_registered interval_s=300")
     except Exception as exc:
-        # Non-fatal: log and continue — per-request token validation still
+        # Non-fatal: log and continue â€” per-request token validation still
         # enforces expiry via validate_token(); the worker is a DB consistency aid.
         logger.warning(
             "startup.consent_revocation_worker_failed reason=%s",
