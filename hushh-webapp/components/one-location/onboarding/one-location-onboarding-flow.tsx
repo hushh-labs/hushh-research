@@ -547,9 +547,10 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute bottom-[22%] right-[5%] w-[74%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
+            className="absolute bottom-[24%] right-[9%] w-[58%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
             data-one-checkin-art
           />
+
 
         </>
       ) : null}
