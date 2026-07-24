@@ -174,8 +174,10 @@ describe("OneLocationOnboardingFlow", () => {
         name: "Meeting up, but can’t find each other?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("SMS · Save my soul")).toBeTruthy();
+    expect(screen.getByText("SMS · Save My Soul")).toBeTruthy();
     expect(screen.getByText("Shared securely")).toBeTruthy();
+    expect(screen.getByText("Check-in sent")).toBeTruthy();
+
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
       screen
