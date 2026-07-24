@@ -122,7 +122,7 @@ def main() -> int:
         relative = path.relative_to(REPO_ROOT).as_posix()
         if relative in ALLOWED_LEGACY_PATHS:
             continue
-        if not path.exists():
+        if not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
