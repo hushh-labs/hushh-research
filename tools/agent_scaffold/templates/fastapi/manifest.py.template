@@ -1,0 +1,8 @@
+AGENT_NAME = "{{AGENT_NAME}}"
+
+VERSION = "1.0.0"
+
+SCOPES = [
+    "memory.read",
+    "memory.write"
+]

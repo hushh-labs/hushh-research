@@ -1,0 +1,10 @@
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {
+        "agent": "{{AGENT_NAME}}",
+        "status": "running"
+    }
