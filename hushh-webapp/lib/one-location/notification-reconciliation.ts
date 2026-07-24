@@ -4,6 +4,8 @@ import type {
   OneLocationState,
 } from "@/lib/one-location/types";
 import {
+  ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
+  ONE_LOCATION_SMS_EMERGENCY_PROFILE,
   privacySafeOneLocationNotificationLabel,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
@@ -40,7 +42,9 @@ function networkCounterpartyId(
   connection: OneLocationNetworkConnection,
   userId: string,
 ): string {
-  return connection.userAId === userId ? connection.userBId : connection.userAId;
+  return connection.userAId === userId
+    ? connection.userBId
+    : connection.userAId;
 }
 
 export function buildOneLocationNotificationPayloads(
@@ -82,7 +86,9 @@ export function buildOneLocationNotificationPayloads(
     ) {
       continue;
     }
-    const payload: OneLocationNotificationPayload = { type: "location_share_created" };
+    const payload: OneLocationNotificationPayload = {
+      type: "location_share_created",
+    };
     addValue(payload, "grant_id", grant.id);
     addValue(payload, "owner_user_id", grant.ownerUserId);
     addValue(
@@ -97,12 +103,29 @@ export function buildOneLocationNotificationPayloads(
     addValue(payload, "duration_hours", grant.durationHours);
     addValue(payload, "share_kind", grant.shareKind);
     addValue(payload, "share_message", grant.shareMessage);
+    if (grant.shareKind === "sos") {
+      addValue(
+        payload,
+        "notification_profile",
+        ONE_LOCATION_SMS_EMERGENCY_PROFILE,
+      );
+      addValue(
+        payload,
+        "notification_category",
+        ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
+      );
+    }
     payloads.push(payload);
   }
 
   for (const request of state.requests ?? []) {
-    if (request.ownerUserId === normalizedUserId && request.status === "pending") {
-      const payload: OneLocationNotificationPayload = { type: "location_access_request" };
+    if (
+      request.ownerUserId === normalizedUserId &&
+      request.status === "pending"
+    ) {
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_request",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "requester_user_id", request.requesterUserId);
       addValue(
@@ -128,14 +151,18 @@ export function buildOneLocationNotificationPayloads(
       "Location owner",
     );
     if (request.status === "approved" && request.approvedGrantId) {
-      const payload: OneLocationNotificationPayload = { type: "location_access_approved" };
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_approved",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "grant_id", request.approvedGrantId);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
       payloads.push(payload);
     } else if (request.status === "denied") {
-      const payload: OneLocationNotificationPayload = { type: "location_access_denied" };
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_denied",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
@@ -169,8 +196,14 @@ export function buildOneLocationNotificationPayloads(
   }
 
   for (const referral of state.referrals ?? []) {
-    if (referral.referredUserId !== normalizedUserId || referral.status !== "pending") continue;
-    const payload: OneLocationNotificationPayload = { type: "location_referral_invite" };
+    if (
+      referral.referredUserId !== normalizedUserId ||
+      referral.status !== "pending"
+    )
+      continue;
+    const payload: OneLocationNotificationPayload = {
+      type: "location_referral_invite",
+    };
     addValue(payload, "referral_id", referral.id);
     addValue(payload, "request_id", referral.requestId);
     addValue(payload, "grant_id", referral.grantId);
@@ -203,7 +236,8 @@ export function buildOneLocationNotificationPayloads(
   for (const connection of state.networkConnections ?? []) {
     if (
       connection.status !== "active" ||
-      (connection.userAId !== normalizedUserId && connection.userBId !== normalizedUserId)
+      (connection.userAId !== normalizedUserId &&
+        connection.userBId !== normalizedUserId)
     ) {
       continue;
     }

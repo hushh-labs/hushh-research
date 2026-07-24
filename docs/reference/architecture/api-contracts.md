@@ -182,6 +182,17 @@ ciphertext, movement trails, raw owner identity, or reverse-geocoded enrichment.
 The maintained architecture reference is
 [One Location Agent](./one-location-agent.md).
 
+Save My Soul grants preserve the ordinary `location_share_created` notification
+contract and add emergency presentation metadata when `share_kind=sos`:
+`notification_profile=one_location_sms_emergency` and
+`notification_category=ONE_LOCATION_SMS_EMERGENCY`. Clients must recognize the
+explicit profile and retain `share_kind=sos` as a compatibility fallback.
+Presentation is intentionally platform-specific: the visible web/native shell
+uses the shared red alarm card, Android routes through the dedicated
+`one_location_sms_emergency_v1` high-importance channel, and iOS background
+delivery uses the matching category plus `one_location_sms_alarm.wav`. The
+profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
+
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
 

@@ -2578,3 +2578,9 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     assert len(service.notifications) == 1
     assert service.notifications[0]["title"] == "SMS · Save my soul"
     assert service.notifications[0]["body"] == "User A: Come get me"
+    assert service.notifications[0]["data"]["notification_profile"] == (
+        "one_location_sms_emergency"
+    )
+    assert service.notifications[0]["data"]["notification_category"] == (
+        "ONE_LOCATION_SMS_EMERGENCY"
+    )

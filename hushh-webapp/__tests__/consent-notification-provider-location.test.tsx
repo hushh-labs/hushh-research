@@ -221,6 +221,56 @@ describe("global One Location notification provider", () => {
     );
   });
 
+  it("renders emergency SMS as a persistent alarm popup and keeps its alert metadata", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            notification: {
+              title: "SMS · Save my soul",
+              body: "Alex: Come get me",
+            },
+            data: {
+              type: "location_share_created",
+              grant_id: "grant-sms-emergency-1",
+              owner_display_label: "Alex",
+              share_kind: "sos",
+              share_message: "Come get me",
+              notification_profile: "one_location_sms_emergency",
+              notification_category: "ONE_LOCATION_SMS_EMERGENCY",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        duration: 30000,
+        className: expect.stringContaining("one-location-emergency-toast"),
+      }),
+    );
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    expect(screen.getByRole("alert")).toHaveAttribute(
+      "data-one-location-emergency-sms-alert",
+    );
+    expect(screen.getByText("Emergency SMS")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /open live location/i }),
+    ).toBeInTheDocument();
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "one_location_share:grant-sms-emergency-1",
+        metadata: expect.objectContaining({ shareKind: "sos" }),
+      }),
+    );
+  });
+
   it("queues a foreground push received during auth hydration and drains it once for the matching user", async () => {
     mocks.auth.user = null;
     const view = renderProvider();

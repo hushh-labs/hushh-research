@@ -2852,6 +2852,14 @@ class OneLocationAgentService:
                 "duration_hours": str(duration),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
+                **(
+                    {
+                        "notification_profile": "one_location_sms_emergency",
+                        "notification_category": "ONE_LOCATION_SMS_EMERGENCY",
+                    }
+                    if resolved_kind == "sos"
+                    else {}
+                ),
                 **({"share_message": share_message} if share_message else {}),
             },
         )

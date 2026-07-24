@@ -1,11 +1,20 @@
 package com.hushh.app.plugins.HushhNotifications
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.graphics.Color
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.os.Build
 import android.util.Log
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.hushh.app.R
 import com.hushh.app.plugins.shared.BackendUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -31,11 +40,55 @@ class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
 
+    override fun load() {
+        super.load()
+        ensureEmergencySmsChannel(context)
+    }
+
+    private fun ensureEmergencySmsChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val manager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return
+        if (manager.getNotificationChannel(EMERGENCY_SMS_CHANNEL_ID) != null) return
+
+        val alarmSound =
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val audioAttributes =
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        val channel =
+            NotificationChannel(
+                EMERGENCY_SMS_CHANNEL_ID,
+                context.getString(R.string.sms_emergency_channel_name),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = context.getString(R.string.sms_emergency_channel_description)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 240, 120, 240, 120, 520)
+                enableLights(true)
+                lightColor = Color.RED
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setBypassDnd(false)
+                setSound(alarmSound, audioAttributes)
+            }
+        manager.createNotificationChannel(channel)
+        Log.i(TAG, "Emergency SMS notification channel ready")
+    }
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    companion object {
+        const val EMERGENCY_SMS_CHANNEL_ID = "one_location_sms_emergency_v1"
+    }
 
     private fun getBackendUrl(call: PluginCall? = null): String {
         return BackendUrl.resolve(bridge, call, "HushhNotifications")
