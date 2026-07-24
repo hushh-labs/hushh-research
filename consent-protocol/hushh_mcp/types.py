@@ -2,7 +2,7 @@
 
 from typing import Literal, NewType, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from hushh_mcp.constants import ConsentScope
 
@@ -15,6 +15,7 @@ AgentID = NewType("AgentID", str)
 
 
 class HushhConsentToken(BaseModel):
+    model_config = ConfigDict()  # Pydantic v2: explicit config keeps Pylance happy with instance methods
     token: str
     user_id: UserID
     agent_id: AgentID
@@ -25,6 +26,19 @@ class HushhConsentToken(BaseModel):
     signature: str
     commercial: bool = False  # True if token authorizes monetized/commercial agent usage
 
+    def is_expired(self, current_time_ms: int) -> bool:
+        """
+        Token expire aagi-irukka nu check pannum.
+        Input: Current time in milliseconds.
+        Output: True if expired, False otherwise.
+        """
+        return current_time_ms > self.expires_at
+
+    def is_active(self, current_time_ms: int) -> bool:
+        """
+        Token ippo valid-ah irukka nu check pannum.
+        """
+        return self.issued_at <= current_time_ms <= self.expires_at
 
 # ==================== TrustLink ====================
 
