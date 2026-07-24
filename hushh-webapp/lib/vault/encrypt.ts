@@ -16,10 +16,44 @@ export interface EncryptedPayload {
   algorithm: 'aes-256-gcm';
 }
 
+const VAULT_KEY_HEX_LENGTH = 64; // AES-256 needs 32 bytes = 64 hex chars
+const VAULT_KEY_HEX_REGEX = /^[0-9a-fA-F]+$/;
+
+/**
+ * Validate a hex-encoded AES-256 vault key.
+ *
+ * Throws a clear error for malformed input rather than silently:
+ *   - Throwing a cryptic `Cannot read properties of null` (empty string)
+ *   - Producing a wrong-sized key from odd-length hex
+ *   - Coercing non-hex chars to `0` bytes — which silently uses an
+ *     all-zero key, equivalent to no encryption.
+ *
+ * Exported so other vault code can pre-validate keys before passing them
+ * around (e.g., before storing a derived key, before crossing a boundary).
+ */
+export function validateVaultKeyHex(vaultKeyHex: unknown): asserts vaultKeyHex is string {
+  if (typeof vaultKeyHex !== "string") {
+    throw new TypeError(
+      `Vault key must be a string, got ${vaultKeyHex === null ? "null" : typeof vaultKeyHex}`
+    );
+  }
+  if (vaultKeyHex.length !== VAULT_KEY_HEX_LENGTH) {
+    throw new RangeError(
+      `Vault key must be exactly ${VAULT_KEY_HEX_LENGTH} hex characters (256 bits); got ${vaultKeyHex.length}`
+    );
+  }
+  if (!VAULT_KEY_HEX_REGEX.test(vaultKeyHex)) {
+    throw new RangeError(
+      "Vault key must contain only hexadecimal characters (0-9, a-f, A-F)"
+    );
+  }
+}
+
 export async function encryptData(
   plaintext: string,
   vaultKeyHex: string
 ): Promise<EncryptedPayload> {
+  validateVaultKeyHex(vaultKeyHex);
   const keyBytes = new Uint8Array(
     vaultKeyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
   );
@@ -77,6 +111,7 @@ export async function decryptData(
   payload: EncryptedPayload,
   vaultKeyHex: string
 ): Promise<string> {
+  validateVaultKeyHex(vaultKeyHex);
   const keyBytes = new Uint8Array(
     vaultKeyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
   );
