@@ -85,9 +85,16 @@ export function resolveSetupCapabilityTerminalTarget({
   hasExplicitIncompleteSetup: boolean;
   kind: "finish" | "skip";
 }): string {
+  // A capability may prefer to hand off straight to its own workspace after a
+  // Finish (e.g. Location). That shortcut is only safe once the overall
+  // first-run setup is actually resolved. If setup is still explicitly
+  // incomplete — the master "Finish setup" (which requires Connections) has
+  // not been completed yet — finishing an individual capability like Location
+  // must return the user to the /one/setup hub, never jump into the workspace.
   if (
     kind === "finish" &&
     journeyMode !== "individual" &&
+    !hasExplicitIncompleteSetup &&
     LAND_ON_WORKSPACE_AFTER_FINISH.has(capabilityId)
   ) {
     return resolveCapabilityHandoffTarget(capabilityId);
