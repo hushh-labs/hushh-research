@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+chromadb
+sentence-transformers
+pydantic
+python-jose
+passlib
+numpy
