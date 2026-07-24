@@ -17,14 +17,10 @@ export async function copyToClipboard(value: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(value);
       return true;
-    } catch {
-      // Fall through to the textarea fallback below.
-    }
+    } catch { /* Fallback */ }
   }
 
-  if (!canUseDocument()) {
-    return false;
-  }
+  if (!canUseDocument()) return false;
 
   const textarea = document.createElement("textarea");
   textarea.value = value;
@@ -41,7 +37,8 @@ export async function copyToClipboard(value: string): Promise<boolean> {
     textarea.select();
     textarea.setSelectionRange(0, textarea.value.length);
     return document.execCommand("copy");
-  } catch {
+  } catch (err) {
+    console.error("Clipboard failure:", err);
     return false;
   } finally {
     textarea.remove();
