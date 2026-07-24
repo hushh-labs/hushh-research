@@ -19,6 +19,8 @@ import {
 import { primeConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
+
+
 type CompleteStage = "loading" | "completing" | "redirecting" | "error";
 
 function resolveErrorMessage(error: unknown): string {
@@ -47,7 +49,16 @@ export default function ProfileGmailOAuthReturnPageClient({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading || startedRef.current) return;
+    if (loading) {
+  return;
+}
+
+if (
+  startedRef.current &&
+  user?.uid
+) {
+  return;
+}
 
     const liveError = String(searchParams.get("error") || "").trim();
     const liveErrorDescription = String(searchParams.get("error_description") || "").trim();
@@ -62,24 +73,30 @@ export default function ProfileGmailOAuthReturnPageClient({
       return;
     }
 
-    const code = liveCode || initialCode;
-    const state = liveState || initialState;
-    if (!code || !state) {
-      setStage("error");
-      setError("Missing OAuth code or state. Start Connect Gmail again from Profile.");
-      return;
-    }
+  
 
-    if (!user?.uid) {
-      const redirectTarget =
-        typeof window !== "undefined"
-          ? `${window.location.pathname}${window.location.search}`
-          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
-      router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
-      return;
-    }
+const code = liveCode || initialCode;
+const state = liveState || initialState;
 
-    startedRef.current = true;
+if (!code || !state) {
+  setStage("error");
+  setError("Missing OAuth code or state. Start Connect Gmail again from Profile.");
+  return;
+}
+
+if (!user?.uid) {
+  const redirectTarget =
+    typeof window !== "undefined"
+      ? `${window.location.pathname}${window.location.search}`
+      : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
+
+  router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
+  return;
+}
+
+    if (user?.uid) {
+  startedRef.current = true;
+}
     void (async () => {
       try {
         setStage("completing");
@@ -105,6 +122,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         stashProfileGmailReturnStatus(status);
 
         setStage("redirecting");
+        
         router.replace(buildProfileGmailReturnPath());
       } catch (completeError) {
         if (isRecoverableGmailOAuthReplayError(completeError)) {
