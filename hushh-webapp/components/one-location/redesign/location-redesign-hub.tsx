@@ -1472,7 +1472,9 @@ function SosFlow({
       onEditContacts={onEditContacts}
       recipientLabel={vm.recipientLabel}
       isRecipientShareReady={vm.isRecipientShareReady}
+      myLocationPoint={vm.myLocationPoint}
     />
+
   );
 }
 
