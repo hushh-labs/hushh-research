@@ -28,8 +28,25 @@ describe("top shell back action", () => {
     ).toMatchObject({ mode: "replace" });
   });
 
+  it("returns the profile root to its tagged origin with a push (not replace)", () => {
+    // Opening Profile from Location tags ?from=/one/location. Back from the
+    // bare profile root pushes to that origin — the reported "back jumps to the
+    // dashboard" glitch. No panel/detail is open, so it's a push, not a replace.
+    const action = resolveTopShellBackAction({
+      pathname: "/one/profile",
+      searchParams: new URLSearchParams("from=/one/location"),
+    });
+    expect(action).toEqual({ href: "/one/location", mode: "push" });
+
+    // No origin → historic default (One dashboard).
+    expect(
+      resolveTopShellBackAction({ pathname: "/one/profile" }),
+    ).toEqual({ href: "/one", mode: "push" });
+  });
+
   it("executes the same explicit navigation contract as the top bar", () => {
     const router = { push: vi.fn(), replace: vi.fn() };
+
 
     expect(
       navigateTopShellBack({
