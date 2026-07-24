@@ -175,6 +175,8 @@ const oneMarketRootClassName = cn(
   "dark:[--one-blue:var(--app-accent)] dark:[--one-link:var(--app-accent-deep)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
+  "[--one-news-neutral:#dfe1e6] [--one-news-neutral-ink:#565a63]",
+  "dark:[--one-news-neutral:#8e8e93] dark:[--one-news-neutral-ink:#ffffff]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
   "[--one-orange:#ff9500] [--one-orange-t:rgba(255,149,0,0.14)]",
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
@@ -382,7 +384,7 @@ function oneMarketNewsCoverClassName(row: KaiHomeNewsItem): string {
   const tone = oneMarketNewsTone(row);
   if (tone === "positive") return "bg-[color:var(--one-up)]";
   if (tone === "negative") return "bg-[color:var(--one-down)]";
-  return "bg-[#8e8e93]";
+  return "bg-[color:var(--one-news-neutral)]";
 }
 
 function oneMarketNewsContext(row: KaiHomeNewsItem): string {
@@ -702,9 +704,17 @@ function OneMarketNewsCover({
   }, [logoUrl]);
 
   const showLogo = Boolean(logoUrl) && !logoFailed;
+  // The neutral cover is a light surface in light mode, so its newspaper glyph
+  // and wave switch to a readable ink instead of always-white. Positive and
+  // negative covers stay vivid with white foreground.
+  const coverInk =
+    !showLogo && oneMarketNewsTone(row) === "neutral"
+      ? "var(--one-news-neutral-ink)"
+      : "#ffffff";
 
   return (
     <div
+      style={{ color: coverInk }}
       className={cn(
         "relative flex h-[116px] items-center justify-center overflow-hidden",
         "after:pointer-events-none after:absolute after:inset-y-0 after:-left-[80%] after:w-[60%] after:skew-x-[-20deg] after:bg-[linear-gradient(105deg,transparent,rgba(255,255,255,0.44),transparent)] after:transition-[left] after:duration-700 group-hover/news:after:left-[130%]",
@@ -724,7 +734,7 @@ function OneMarketNewsCover({
         />
       ) : (
         <>
-          <span className="relative grid h-11 w-11 place-items-center rounded-2xl bg-white/18 text-white shadow-[0_2px_4px_rgba(0,0,0,0.16)]">
+          <span className="relative grid h-11 w-11 place-items-center rounded-2xl bg-current/[0.18] text-current shadow-[0_2px_4px_rgba(0,0,0,0.16)]">
             <Newspaper className="h-6 w-6" aria-hidden="true" />
           </span>
           <svg
@@ -741,7 +751,7 @@ function OneMarketNewsCover({
                     ? "M0 20 L20 24 L40 14 L60 18 L80 8 L100 12 L100 30 L0 30 Z"
                     : "M0 22 L20 16 L40 20 L60 10 L80 14 L100 6 L100 30 L0 30 Z"
               }
-              fill="#ffffff"
+              fill="currentColor"
             />
           </svg>
         </>

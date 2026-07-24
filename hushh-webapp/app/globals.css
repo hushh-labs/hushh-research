@@ -422,7 +422,7 @@ textarea {
     var(--app-safe-area-top-probe)
   );
   --app-top-bar-height: 72px;
-  --kai-route-tabs-height: 32px;
+  --kai-route-tabs-height: 42px;
   --kai-route-tabs-content-gap: 14px;
   /* Global top-shell geometry contract (consumed by providers + top-app-bar).
    * Keep these tokens defined at root so web and native share deterministic spacing. */
@@ -2778,26 +2778,32 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   /* Percentages vary with a device's safe-area inset and can begin fading
      inside the tab row. Pin the opaque tint to the exact shell boundary,
      then dissolve only in the visual tail below the active underline. */
+  /* Multi-stop ease so the tail below the tab underline dissolves smoothly
+     instead of stepping through a single mid alpha. Stops are fractions of the
+     resolved fade tail (--top-fade-active) so they stay in order and adapt to
+     the device safe-area inset. */
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0,
     #000 var(--top-shell-reserved-height),
-    rgba(0, 0, 0, 0.38)
-      calc(
-        var(--top-shell-reserved-height) +
-          var(--top-ambient-tab-tail-midpoint, 32px)
-      ),
+    rgba(0, 0, 0, 0.82)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.24),
+    rgba(0, 0, 0, 0.5)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.46),
+    rgba(0, 0, 0, 0.2)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.72),
     transparent var(--top-shell-visual-height)
   );
   mask-image: linear-gradient(
     to bottom,
     #000 0,
     #000 var(--top-shell-reserved-height),
-    rgba(0, 0, 0, 0.38)
-      calc(
-        var(--top-shell-reserved-height) +
-          var(--top-ambient-tab-tail-midpoint, 32px)
-      ),
+    rgba(0, 0, 0, 0.82)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.24),
+    rgba(0, 0, 0, 0.5)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.46),
+    rgba(0, 0, 0, 0.2)
+      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.72),
     transparent var(--top-shell-visual-height)
   );
 }
