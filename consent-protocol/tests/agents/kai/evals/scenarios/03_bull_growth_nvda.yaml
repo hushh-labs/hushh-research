@@ -1,0 +1,54 @@
+id: bull_growth_nvda_2024
+category: bull
+ticker: NVDA
+description: |
+  Hyper-growth name with extreme operating leverage. Tests Kai's
+  willingness to recommend growth despite premium valuation when
+  fundamentals justify it.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 130.50
+    gross_margin: 0.748
+    operating_margin: 0.624
+    net_income_billions: 72.88
+    free_cash_flow_billions: 60.85
+    total_debt_billions: 9.71
+    cash_and_equivalents_billions: 38.49
+  business_summary: |
+    Data-center GPUs, networking, automotive AI. Hopper/Blackwell
+    cycle driving revenue +126% YoY. Customer concentration in 4
+    hyperscalers represents key risk.
+
+market_data:
+  price: 142.50
+  market_cap_billions: 3500.0
+  pe_ratio: 48.2
+  forward_pe: 32.1
+  ev_ebitda: 41.5
+  beta: 1.68
+
+sentiment_data:
+  - source: "Bloomberg"
+    headline: "NVDA Blackwell shipments accelerate; supply constraints easing"
+    sentiment: "Bullish"
+  - source: "Barrons"
+    headline: "Hyperscaler capex revisions higher; NVDA primary beneficiary"
+    sentiment: "Bullish"
+  - source: "WSJ"
+    headline: "NVDA partner ecosystem expands; CUDA moat deepens"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Aggressive"
+  time_horizon: "3-5 years"
+  investment_style: ["Growth", "Secular themes"]
+  top_holdings: []
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.55, 0.85]
+notes: |
+  Growth conviction. Multiple is rich but justified by FCF growth.
+  Aggressive risk profile -- BUY is appropriate.

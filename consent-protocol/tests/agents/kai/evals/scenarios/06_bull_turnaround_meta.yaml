@@ -1,0 +1,53 @@
+id: bull_turnaround_meta_2024
+category: bull
+ticker: META
+description: |
+  Turnaround executed; FCF inflection complete. Tests Kai's ability
+  to recognize a value-to-growth transition.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 164.50
+    gross_margin: 0.815
+    operating_margin: 0.420
+    net_income_billions: 62.36
+    free_cash_flow_billions: 53.14
+    total_debt_billions: 28.83
+    cash_and_equivalents_billions: 70.94
+  business_summary: |
+    Family of apps + Reality Labs. Cost discipline post-2022 layoffs;
+    operating margin recovered to 42%. AI-driven ad targeting
+    improvements driving rev re-acceleration.
+
+market_data:
+  price: 580.30
+  market_cap_billions: 1473.0
+  pe_ratio: 23.6
+  forward_pe: 21.4
+  ev_ebitda: 14.8
+  beta: 1.21
+
+sentiment_data:
+  - source: "WSJ"
+    headline: "Meta ad efficiency hits new high; engagement metrics up"
+    sentiment: "Bullish"
+  - source: "Reuters"
+    headline: "Reality Labs losses widen; investor patience tested"
+    sentiment: "Neutral"
+  - source: "Bloomberg"
+    headline: "Meta open-source AI strategy paying off; Llama adoption strong"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "3-5 years"
+  investment_style: ["Quality compounders", "Turnarounds"]
+  top_holdings: []
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.55, 0.82]
+notes: |
+  Turnaround thesis. Reality Labs overhang justifies confidence
+  ceiling. consistency_pair=megacap_buy

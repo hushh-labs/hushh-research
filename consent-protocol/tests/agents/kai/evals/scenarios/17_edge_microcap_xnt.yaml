@@ -1,0 +1,46 @@
+id: edge_microcap_sparse_data_xnt_2024
+category: edge
+ticker: XNT
+description: |
+  Synthetic micro-cap. Sparse SEC data, single-line business. Tests
+  Kai's refusal to overreach on thin information.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 0.08
+    gross_margin: 0.412
+    operating_margin: 0.045
+    net_income_billions: 0.003
+    free_cash_flow_billions: 0.005
+    total_debt_billions: 0.012
+    cash_and_equivalents_billions: 0.018
+  business_summary: |
+    Single-product specialty chemical company. Customer concentration
+    >50% to one buyer. Limited analyst coverage.
+
+market_data:
+  price: 8.40
+  market_cap_billions: 0.085
+  pe_ratio: 28.0
+  forward_pe: 24.0
+  ev_ebitda: 12.0
+  beta: 1.40  # estimated, low liquidity
+
+sentiment_data:
+  - source: "PR Newswire"
+    headline: "XNT signs follow-on supply contract with key customer"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Aggressive"
+  time_horizon: "1-3 years"
+  investment_style: ["Special situations"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.25, 0.60]
+notes: |
+  Edge case: tiny + concentrated + thin coverage. Kai must NOT
+  produce confident calls. Low-confidence HOLD is correct.

@@ -1,0 +1,48 @@
+id: bear_balance_sheet_stress_alm_2024
+category: bear
+ticker: ALM
+description: |
+  Synthetic ticker. Highly levered industrial cyclical hitting end
+  of cycle. Covenant pressure mounting.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 22.30
+    gross_margin: 0.182
+    operating_margin: 0.038
+    net_income_billions: 0.21
+    free_cash_flow_billions: 0.05
+    total_debt_billions: 14.85
+    cash_and_equivalents_billions: 0.28
+  business_summary: |
+    Industrial commodity producer. Total debt 7x EBITDA. Covenant
+    test in Q2 2025. Refinancing wall ~$3B in 2026.
+
+market_data:
+  price: 11.50
+  market_cap_billions: 4.6
+  pe_ratio: 22.0
+  forward_pe: 18.0
+  ev_ebitda: 9.8
+  beta: 2.30
+
+sentiment_data:
+  - source: "Bloomberg"
+    headline: "ALM bonds widen; refi risk in focus"
+    sentiment: "Bearish"
+  - source: "Reuters"
+    headline: "Commodity prices roll over; ALM exposure highest in peers"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "3-5 years"
+  investment_style: ["Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "STRONG_SELL"
+expected_confidence_band: [0.55, 0.85]
+notes: |
+  Covenant + commodity + cycle. Conservative profile means STRONG_SELL.

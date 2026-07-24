@@ -1,0 +1,54 @@
+id: edge_conflicting_signals_pep_2024
+category: edge
+ticker: PEP
+description: |
+  Strong fundamentals + premium valuation + weak top-line growth.
+  Three signals genuinely conflict. Tests debate engine convergence
+  failure handling.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 91.85
+    gross_margin: 0.553
+    operating_margin: 0.158
+    net_income_billions: 9.07
+    free_cash_flow_billions: 7.42
+    total_debt_billions: 47.85
+    cash_and_equivalents_billions: 9.10
+  business_summary: |
+    Diversified beverage + snack. Volumes flat; price/mix carrying
+    growth. GLP-1 demand impact debated. Defensive characteristics.
+
+market_data:
+  price: 165.30
+  market_cap_billions: 227.0
+  pe_ratio: 25.0
+  forward_pe: 21.4
+  ev_ebitda: 14.8
+  beta: 0.51
+
+sentiment_data:
+  - source: "Bloomberg"
+    headline: "PEP Q3 volumes weak; price increases moderating"
+    sentiment: "Bearish"
+  - source: "Reuters"
+    headline: "PepsiCo dividend hike; defensives bid"
+    sentiment: "Bullish"
+  - source: "WSJ"
+    headline: "GLP-1 impact on snack consumption: data still mixed"
+    sentiment: "Neutral"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "5+ years"
+  investment_style: ["Income", "Defensives"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.45, 0.72]
+notes: |
+  Genuinely conflicting. Fundamental: HOLD. Sentiment: mixed (lean
+  HOLD). Valuation: SELL (premium for stagnating top-line). Debate
+  should NOT converge cleanly; HOLD with moderate confidence is right.

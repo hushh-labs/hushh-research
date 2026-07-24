@@ -1,0 +1,51 @@
+id: ambiguous_bank_rates_bac_2024
+category: ambiguous
+ticker: BAC
+description: |
+  Pairs with JPM for consistency check. Similar large-bank macro
+  setup; should yield similar reasoning structure.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 102.45
+    gross_margin: 0.0
+    operating_margin: 0.290
+    net_income_billions: 26.51
+    free_cash_flow_billions: 30.12
+    total_debt_billions: 600.0
+    cash_and_equivalents_billions: 825.0
+  business_summary: |
+    Second-largest US bank. Strong consumer franchise. AOCI overhang
+    from securities portfolio. CET1 ratio 11.8%.
+
+market_data:
+  price: 44.20
+  market_cap_billions: 343.0
+  pe_ratio: 12.8
+  forward_pe: 12.1
+  ev_ebitda: 0
+  beta: 1.32
+
+sentiment_data:
+  - source: "Bloomberg"
+    headline: "BAC trading revenue solid; deposit costs stable"
+    sentiment: "Bullish"
+  - source: "Reuters"
+    headline: "Credit card delinquencies rising; banks build reserves"
+    sentiment: "Bearish"
+  - source: "WSJ"
+    headline: "BAC AOCI position normalizing as Fed cuts"
+    sentiment: "Neutral"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "5+ years"
+  investment_style: ["Income", "Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.45, 0.72]
+notes: |
+  Same macro story as JPM. consistency_pair=large_bank

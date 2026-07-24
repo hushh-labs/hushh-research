@@ -1,0 +1,47 @@
+{
+  "provider": "vllm",
+  "scenarios_run": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "results": [
+    {
+      "scenario": "01_bull_megacap_aapl.yaml",
+      "ok": true,
+      "latency_ms": 1579,
+      "provider_used": "vllm",
+      "model_used": "Qwen/Qwen2.5-3B-Instruct-AWQ",
+      "text": "{\"decision\": \"buy\", \"confidence\": 0.85, \"thesis\": \"AAPL's strong fundamentals and moderate valuation, coupled with positive sentiment, justify a BUY signal given the consensus among specialists.\", \"key_risk\": \"AAPL's recent regulatory scrutiny may disrupt its growth trajectory.\"}",
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 63,
+        "total_tokens": 183
+      }
+    },
+    {
+      "scenario": "07_bear_secular_int.yaml",
+      "ok": true,
+      "latency_ms": 1121,
+      "provider_used": "vllm",
+      "model_used": "Qwen/Qwen2.5-3B-Instruct-AWQ",
+      "text": "{\n  \"decision\": \"sell\",\n  \"confidence\": 0.8,\n  \"thesis\": \"INT is facing a secular decline due to negative comps and growing debt, posing a significant risk to its dividend.\",\n  \"key_risk\": \"The risk of a declining market and deteriorating financial health of INT could lead to a loss of confidence in its ability to sustain dividends and repay debts.\"\n}",
+      "usage": {
+        "prompt_tokens": 111,
+        "completion_tokens": 83,
+        "total_tokens": 194
+      }
+    },
+    {
+      "scenario": "11_ambiguous_dis.yaml",
+      "ok": true,
+      "latency_ms": 968,
+      "provider_used": "vllm",
+      "model_used": "Qwen/Qwen2.5-3B-Instruct-AWQ",
+      "text": "{\n  \"decision\": \"hold\",\n  \"confidence\": 0.5,\n  \"thesis\": \"DIS's stock is currently holding due to mixed signals with legacy issues and improving streaming but ROIC uncertainty.\",\n  \"key_risk\": \"The main risk is the declining legacy performance which could lead to a bear setup in the future.\"\n}",
+      "usage": {
+        "prompt_tokens": 119,
+        "completion_tokens": 71,
+        "total_tokens": 190
+      }
+    }
+  ]
+}

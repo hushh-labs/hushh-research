@@ -1,0 +1,52 @@
+id: bear_regulatory_pharma_2024
+category: bear
+ticker: BMY
+description: |
+  Pharma facing major LOE (loss of exclusivity) cliffs, replenishment
+  pipeline questioned. Tests Kai on regulatory + fundamental headwinds.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 47.45
+    gross_margin: 0.733
+    operating_margin: 0.072
+    net_income_billions: -8.95
+    free_cash_flow_billions: 13.85
+    total_debt_billions: 51.16
+    cash_and_equivalents_billions: 9.13
+  business_summary: |
+    Diversified biopharma. Eliquis and Revlimid LOEs in 2026-2028
+    represent 35%+ of revenue. Pipeline replacement uncertain.
+
+market_data:
+  price: 53.40
+  market_cap_billions: 108.5
+  pe_ratio: 0  # loss
+  forward_pe: 7.8
+  ev_ebitda: 7.4
+  beta: 0.49
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "BMY Phase 3 disappoints; pipeline gap concerns mount"
+    sentiment: "Bearish"
+  - source: "FT"
+    headline: "Big Pharma LOE wave; BMY among most exposed"
+    sentiment: "Bearish"
+  - source: "WSJ"
+    headline: "BMY M&A activity to address pipeline gap"
+    sentiment: "Neutral"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "3-5 years"
+  investment_style: ["Income", "Defensives"]
+  top_holdings: []
+
+expected_recommendation: "SELL"
+expected_confidence_band: [0.40, 0.70]
+notes: |
+  Bear case but partially offset by income/defensive characteristics.
+  HOLD is borderline acceptable; SELL is preferred.

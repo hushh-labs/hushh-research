@@ -1,0 +1,49 @@
+id: bull_quality_smallcap_wso_2024
+category: bull
+ticker: WSO
+description: |
+  Quality small/mid-cap distributor with strong moat and pricing power.
+  Tests Kai's recognition of compounding businesses in unsexy sectors.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 7.27
+    gross_margin: 0.275
+    operating_margin: 0.117
+    net_income_billions: 0.694
+    free_cash_flow_billions: 0.480
+    total_debt_billions: 0.91
+    cash_and_equivalents_billions: 0.46
+  business_summary: |
+    Largest distributor of HVAC/R parts in N. America. Family-controlled,
+    20-year compounder. ROIC ~24%. Industry tailwind from refrigerant
+    transitions and aging US housing stock.
+
+market_data:
+  price: 460.10
+  market_cap_billions: 18.4
+  pe_ratio: 26.5
+  forward_pe: 24.2
+  ev_ebitda: 16.1
+  beta: 0.84
+
+sentiment_data:
+  - source: "Barrons"
+    headline: "Watsco raises dividend; pricing power persists"
+    sentiment: "Bullish"
+  - source: "Bloomberg"
+    headline: "HVAC refrigerant transition accelerates demand"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "5+ years"
+  investment_style: ["Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.60, 0.85]
+notes: |
+  Quality compounder. Conservative profile aligned. Reasonable multiple.

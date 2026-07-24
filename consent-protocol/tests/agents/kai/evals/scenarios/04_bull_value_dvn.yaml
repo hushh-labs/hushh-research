@@ -1,0 +1,54 @@
+id: bull_value_cycle_dvn_2024
+category: bull
+ticker: DVN
+description: |
+  Cheap E&P producer with shareholder return focus. Tests Kai's
+  ability to identify deep-value setups in cyclical sectors.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 15.36
+    gross_margin: 0.495
+    operating_margin: 0.275
+    net_income_billions: 2.92
+    free_cash_flow_billions: 3.22
+    total_debt_billions: 6.21
+    cash_and_equivalents_billions: 0.85
+  business_summary: |
+    Independent oil and gas producer. Permian-focused. Variable
+    dividend + buyback program returning ~70% of FCF to shareholders.
+
+market_data:
+  price: 31.20
+  market_cap_billions: 19.5
+  pe_ratio: 6.7
+  forward_pe: 7.4
+  ev_ebitda: 4.1
+  beta: 2.05
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "Devon raises 2025 capital efficiency target; FCF guidance raised"
+    sentiment: "Bullish"
+  - source: "OilPrice"
+    headline: "Permian production discipline holds; prices stable"
+    sentiment: "Neutral"
+  - source: "Seeking Alpha"
+    headline: "DVN trading at ~25% FCF yield; activist position rumored"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Aggressive"
+  time_horizon: "1-3 years"
+  investment_style: ["Value", "Income"]
+  top_holdings: []
+  sector_exposure:
+    Energy: 0.05
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.55, 0.80]
+notes: |
+  Value setup, energy cyclical. Confidence capped because of
+  oil-price dependence and beta.
