@@ -806,7 +806,7 @@ export function ConsentNotificationProvider({
           duration: isEmergencySms ? 30000 : 10000,
           position: "top-center",
           className: isEmergencySms
-            ? "one-location-emergency-toast !border-destructive/70 !bg-destructive !text-destructive-foreground"
+            ? "one-location-emergency-toast !border-red-500 !bg-red-600 !text-white !shadow-xl !shadow-red-950/25"
             : undefined,
         },
       );

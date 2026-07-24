@@ -251,18 +251,21 @@ describe("global One Location notification provider", () => {
     expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         duration: 30000,
-        className: expect.stringContaining("one-location-emergency-toast"),
+        className: expect.stringMatching(
+          /one-location-emergency-toast.*!bg-red-600.*!text-white/,
+        ),
       }),
     );
     const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
     render(<>{popup}</>);
-    expect(screen.getByRole("alert")).toHaveAttribute(
-      "data-one-location-emergency-sms-alert",
-    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveAttribute("data-one-location-emergency-sms-alert");
+    expect(alert).toHaveClass("text-white");
     expect(screen.getByText("Emergency SMS")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /open live location/i }),
-    ).toBeInTheDocument();
+    const viewLocationButton = screen.getByRole("button", {
+      name: /view live location/i,
+    });
+    expect(viewLocationButton).toHaveClass("bg-white", "text-red-700");
     expect(mocks.startTask).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "one_location_share:grant-sms-emergency-1",
