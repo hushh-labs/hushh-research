@@ -24,6 +24,7 @@ import {
   clearSetupIntent,
   hasSetupIntent,
 } from "@/lib/services/one-setup-intent";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -325,13 +326,19 @@ export function OnboardingJourneyGuard({
     }
   }, [pathname]);
 
-  if (exempt || (!authLoading && !userId)) return <>{children}</>;
-  if (
-    shouldEjectSetupSurface ||
-    (checking && !cachedAdmissionAllowsCurrentRoute) ||
-    authLoading ||
-    redirecting
-  ) {
+  const passThrough = exempt || (!authLoading && !userId);
+  const loaderActive =
+    !passThrough &&
+    (shouldEjectSetupSurface ||
+      (checking && !cachedAdmissionAllowsCurrentRoute) ||
+      authLoading ||
+      redirecting);
+  // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
+  // admission check paints its loader, so the loader never leaks the page frame.
+  useSessionChromeSuppression(loaderActive);
+
+  if (passThrough) return <>{children}</>;
+  if (loaderActive) {
     return (
       <HushhLoader
         label={
