@@ -1,6 +1,5 @@
 "use client";
 
-import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -56,6 +55,11 @@ import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
+import {
+  isLocalConsentPreviewRuntime,
+  loadLocalConsentPreviewModule,
+  syncLocalConsentPreviewSession,
+} from "@/lib/consent/local-consent-preview-gate";
 import {
   useConsentActions,
   useOneLocationConsentActions,
@@ -287,7 +291,7 @@ function isRevocableConsentStatus(status?: string | null) {
 }
 
 function lifecycleLabel(index: number) {
-  return `Lifecycle ${index + 1}`;
+  return `Access ${index + 1}`;
 }
 
 function formatLifecycleEventLabel(event: ConsentTrailEvent) {
@@ -646,16 +650,23 @@ function ConsentEntryRow({
 }) {
   const isIdentifierHistory =
     entry.kind === "history" && Boolean(entry.consent_trails?.length);
+  const counterpartSubtitle =
+    entry.counterpart_email || entry.counterpart_secondary_label || null;
+  const scopeLabel = entry.scope
+    ? entry.scope_description || humanizeConsentScope(entry.scope)
+    : null;
 
   return (
     <button
       type="button"
+      data-testid="consent-entry-row"
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "relative w-full overflow-hidden rounded-[var(--app-card-radius-compact)] border px-4 py-3 text-left transition-colors",
+        "relative w-full overflow-hidden px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
         selected
-          ? "border-accent-border bg-accent-surface"
-          : "border-[color:var(--app-card-border-standard)]/50 bg-[color:var(--app-card-surface-compact)]/55 hover:bg-[color:var(--app-card-surface-compact)]",
+          ? "bg-accent-surface"
+          : "bg-transparent hover:bg-[color:var(--app-card-surface-compact)]/70",
       )}
     >
       <div className="flex items-start gap-3">
@@ -674,30 +685,31 @@ function ConsentEntryRow({
               {formatStatus(entry.status)}
             </Badge>
           </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {entry.counterpart_email ||
-              entry.counterpart_secondary_label ||
-              "Hussh connection"}
-          </p>
+          {counterpartSubtitle ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {counterpartSubtitle}
+            </p>
+          ) : null}
         </div>
       </div>
       {isIdentifierHistory ? (
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <>
+          <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/80">
+            {entrySummary(entry)}
+          </p>
           {entry.issued_at ? (
-            <span className="rounded-full bg-muted/70 px-2.5 py-1">
+            <div className="mt-2 text-xs text-muted-foreground">
               Latest {formatDate(entry.issued_at)}
-            </span>
+            </div>
           ) : null}
-        </div>
+        </>
       ) : (
         <>
           <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/80">
             {entrySummary(entry)}
           </p>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {entry.scope ? (
-              <span>{entry.scope_description || entry.scope}</span>
-            ) : null}
+            {scopeLabel ? <span>{scopeLabel}</span> : null}
             {entry.expires_at ? (
               <span>{formatRelative(entry.expires_at)}</span>
             ) : null}
@@ -729,8 +741,8 @@ function ConsentHistoryLifecycleDetails({
   return (
     <SettingsGroup
       embedded
-      title="Consent history"
-      description="Lifecycle details for this identifier. Each scope trail stays separate and ordered by latest activity."
+      title="Access history"
+      description="See how each type of access changed over time."
     >
       <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
         {trails.map((trail, trailIndex) => {
@@ -916,32 +928,93 @@ function ConsentEntryDetail({
     activeAction?.kind === "deny" &&
     activeAction.requestId === entryRequestId;
   const revokeBusy = entry.scope ? isScopeBusy(entry.scope) : false;
+  const isPendingDecision =
+    (entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+    entry.status === "pending";
+  const isConnectionDecision =
+    isPendingDecision && isConnectionRequestEntry(entry);
+  const isMarketplaceDecision =
+    isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
+  const canChooseDuration =
+    isPendingDecision && !isConnectionDecision && !isMarketplaceDecision;
+  const requestedDurationDays =
+    typeof entry.metadata?.duration_days === "number" ||
+    typeof entry.metadata?.duration_days === "string"
+      ? entry.metadata.duration_days
+      : null;
+  const requestedDurationLabel =
+    formatDurationHours(requestedDurationHours) ||
+    (requestedDurationDays
+      ? formatDurationHours(Number(requestedDurationDays) * 24)
+      : "");
+  const requestDeadline =
+    entry.approval_timeout_at || (isPendingDecision ? entry.expires_at : null);
+  const detailGroupTitle =
+    isConnectionDecision
+      ? "Connection request"
+      : entry.kind === "active_grant"
+      ? "Active access"
+      : entry.kind === "history"
+        ? "History details"
+        : "Request details";
+  const detailGroupDescription =
+    isConnectionDecision
+      ? "Who wants to connect with you and why."
+      : entry.kind === "active_grant"
+      ? "What is currently shared and when access ends."
+      : entry.kind === "history"
+        ? "The recorded outcome and how this access changed over time."
+        : "What is being requested and when you need to decide.";
+  const activityDateLabel =
+    entry.kind === "active_grant"
+      ? "Granted"
+      : entry.kind === "history"
+        ? "Recorded"
+        : "Requested";
   const detailItems = [
     ["Status", formatStatus(entry.status)],
     [
-      "Email or identity",
+      "Contact",
       entry.counterpart_email ||
         entry.counterpart_secondary_label ||
-        "Available in technical details",
+        resolveCounterpartLabel(entry),
     ],
-    ["Scope", entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"],
-    ["Requested at", formatDate(entry.issued_at) || "Unavailable"],
     [
-      "Expires",
-      formatDate(entry.expires_at) ||
-        formatRelative(entry.expires_at) ||
-        "No expiry",
+      isConnectionDecision ? "Relationship" : "Access",
+      isConnectionDecision
+        ? entry.scope_description || "Trusted connection"
+        : entry.scope_description ||
+          (entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"),
     ],
-    requestedDurationHours
+    [activityDateLabel, formatDate(entry.issued_at) || "Unavailable"],
+    isPendingDecision && requestDeadline
       ? [
-          "Requested duration",
-          formatDurationHours(requestedDurationHours) || "Unavailable",
+          "Decision due",
+          formatDate(requestDeadline) ||
+            formatRelative(requestDeadline) ||
+            "Unavailable",
         ]
       : null,
-    entry.chain_request_count && entry.chain_request_count > 1
+    entry.kind === "active_grant"
       ? [
-          "Request trail",
-          `${entry.chain_request_count} request events in this scope chain`,
+          "Ends",
+          formatDate(entry.expires_at) ||
+            formatRelative(entry.expires_at) ||
+            "Expiry unavailable",
+        ]
+      : null,
+    entry.kind === "history" && entry.expires_at
+      ? [
+          "Ended",
+          formatDate(entry.expires_at) ||
+            formatRelative(entry.expires_at) ||
+            "Unavailable",
+        ]
+      : null,
+    isPendingDecision && !isConnectionDecision && requestedDurationLabel
+      ? [
+          "Requested duration",
+          requestedDurationLabel,
         ]
       : null,
     entry.reason ? ["Reason", entry.reason] : null,
@@ -951,54 +1024,42 @@ function ConsentEntryDetail({
     <div className="space-y-4">
       <SettingsGroup
         embedded
-        title="Decision"
-        description="Approve or reject first. Details stay below for review before you decide."
+        title={detailGroupTitle}
+        description={detailGroupDescription}
       >
-        {(entry.kind === "incoming_request" ||
-          isConnectionRequestEntry(entry)) &&
-        entry.status === "pending" ? (
-          <>
-            <SettingsRow
-              title="Decision"
-              description={
-                approvedDurationLabel
-                  ? `Allow access for ${approvedDurationLabel}, or reject the request.`
-                  : "Allow or reject this access request."
-              }
-              trailing={
-                <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
-                  <Button
-                    variant="blue-gradient"
-                    effect="fill"
-                    size="sm"
-                    disabled={requestBusy}
-                    onClick={() =>
-                      onApprove(entry, parseDurationHours(selectedDuration))
-                    }
-                    data-voice-control-id="consent_approve"
-                  >
-                    {approveBusy ? "Allowing..." : "Allow"}
-                  </Button>
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    disabled={requestBusy}
-                    onClick={() => onDeny(entry)}
-                    data-voice-control-id="consent_deny"
-                  >
-                    {denyBusy ? "Rejecting..." : "Don't allow"}
-                  </Button>
-                </div>
-              }
-              stackTrailingOnMobile
-            />
+        <div className="grid gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)] sm:grid-cols-2">
+          {detailItems.map(([label, value]) => (
+            <div key={label} className="min-w-0 space-y-1">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {label}
+              </div>
+              <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
+                {value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SettingsGroup>
+
+      {isPendingDecision ? (
+        <SettingsGroup
+          embedded
+          title="Your decision"
+          description={
+            isConnectionDecision
+              ? "Accept or decline this trusted-connection request."
+              : isMarketplaceDecision
+                ? "Allow or deny delivery of the requested encrypted summary."
+                : "Choose the access duration, then allow or reject the request."
+          }
+        >
+          {canChooseDuration ? (
             <SettingsRow
               title="Access duration"
               description={
                 approvedDurationLabel
-                  ? `Approval will expire after ${approvedDurationLabel}.`
-                  : "Choose how long this approval should stay active."
+                  ? `Access will end after ${approvedDurationLabel}.`
+                  : "Choose how long this access should stay active."
               }
               trailing={
                 <Select
@@ -1020,77 +1081,101 @@ function ConsentEntryDetail({
               }
               stackTrailingOnMobile
             />
-            {entry.scope?.startsWith("attr.") ? (
-              <SettingsRow
-                title="Sharing updates"
-                description={
-                  refreshPolicy === "continuous_until_expiry"
-                    ? "Keep this exact scope current until expiry. Confirmed PKM changes create a fresh encrypted revision for the same approved connector key."
-                    : "Share only this approved encrypted snapshot. Later PKM changes are not sent automatically."
-                }
-                trailing={
-                  <span className="text-sm font-medium text-foreground">
-                    {refreshPolicy === "continuous_until_expiry"
-                      ? "Continuous until expiry"
-                      : "Snapshot"}
-                  </span>
-                }
-                stackTrailingOnMobile
-              />
-            ) : null}
-          </>
-        ) : (
+          ) : null}
+          {canChooseDuration && entry.scope?.startsWith("attr.") ? (
+            <SettingsRow
+              title="Future updates"
+              description={
+                refreshPolicy === "continuous_until_expiry"
+                  ? "Keep the approved information up to date until access ends."
+                  : "Share only the information approved now. Later changes are not shared automatically."
+              }
+              trailing={
+                <span className="text-sm font-semibold text-foreground">
+                  {refreshPolicy === "continuous_until_expiry"
+                    ? "Keep updated"
+                    : "One-time copy"}
+                </span>
+              }
+              stackTrailingOnMobile
+            />
+          ) : null}
           <SettingsRow
-            title="No pending decision"
-            description="This entry is not waiting for an allow or reject decision."
-          />
-        )}
-        {emailHelperHref ? (
-          <SettingsRow
-            title="Email reply"
-            description="Review the email request, access approval, and draft in one place."
-            trailing={
-              <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={emailHelperHref}>Open Email</Link>
-              </Button>
+            title={
+              isConnectionDecision
+                ? "Accept this connection?"
+                : isMarketplaceDecision
+                  ? "Share this summary?"
+                  : "Allow this request?"
             }
-          />
-        ) : null}
-        {locationHref ? (
-          <SettingsRow
-            title="Location sharing"
-            description="Review this location request, active access, and expiry in Location."
-            trailing={
-              <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={locationHref}>Open Location</Link>
-              </Button>
+            description={
+              isConnectionDecision
+                ? "Accept to create a mutual trusted connection, or decline."
+                : isMarketplaceDecision
+                  ? requestedDurationLabel
+                    ? `Allow encrypted access for ${requestedDurationLabel}, or don't allow it.`
+                    : "Allow encrypted access to the requested summary, or don't allow it."
+                  : approvedDurationLabel
+                ? `Allow access for ${approvedDurationLabel}, or don't allow it.`
+                : "Allow or reject this access request."
             }
+            trailing={
+              <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                <Button
+                  variant="blue-gradient"
+                  effect="fill"
+                  size="sm"
+                  disabled={requestBusy}
+                  onClick={() =>
+                    onApprove(
+                      entry,
+                      canChooseDuration
+                        ? parseDurationHours(selectedDuration)
+                        : undefined,
+                    )
+                  }
+                  data-voice-control-id="consent_approve"
+                >
+                  {approveBusy
+                    ? isConnectionDecision
+                      ? "Accepting..."
+                      : "Allowing..."
+                    : isConnectionDecision
+                      ? "Accept"
+                      : "Allow"}
+                </Button>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  disabled={requestBusy}
+                  onClick={() => onDeny(entry)}
+                  data-voice-control-id="consent_deny"
+                >
+                  {denyBusy
+                    ? isConnectionDecision
+                      ? "Declining..."
+                      : "Rejecting..."
+                    : isConnectionDecision
+                      ? "Decline"
+                      : "Don't allow"}
+                </Button>
+              </div>
+            }
+            stackTrailingOnMobile
           />
-        ) : null}
-      </SettingsGroup>
+        </SettingsGroup>
+      ) : null}
 
-      <SettingsGroup
-        embedded
-        title="Request details"
-        description={entrySummary(entry)}
-      >
-        <div className="grid gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)] sm:grid-cols-2">
-          {detailItems.map(([label, value]) => (
-            <div key={label} className="min-w-0 space-y-1">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {label}
-              </div>
-              <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
-                {value}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {entry.kind === "active_grant" && entry.scope ? (
+      {entry.kind === "active_grant" && entry.scope ? (
+        <SettingsGroup
+          embedded
+          title="Manage access"
+          description="Stop future access without removing the activity record."
+        >
           <SettingsRow
-            title="Revoke active access"
-            description="Immediately stop this grant and keep the audit trail intact."
+            title="Stop sharing"
+            description="Revoke this access now. The change remains visible in History."
             trailing={
               <Button
                 variant="none"
@@ -1104,12 +1189,41 @@ function ConsentEntryDetail({
               </Button>
             }
           />
-        ) : null}
+        </SettingsGroup>
+      ) : null}
 
-        {entry.request_url ? (
+      {emailHelperHref || locationHref || entry.request_url || requestRoute ? (
+        <SettingsGroup
+          embedded
+          title="Related workspace"
+          description="Open the app or source connected to this consent."
+        >
+          {emailHelperHref ? (
+            <SettingsRow
+              title="Email reply"
+              description="Review the request and draft reply in Email."
+              trailing={
+                <Button asChild variant="none" effect="fade" size="sm">
+                  <Link href={emailHelperHref}>Open Email</Link>
+                </Button>
+              }
+            />
+          ) : null}
+          {locationHref ? (
+            <SettingsRow
+              title="Location sharing"
+              description="Review this request or access in Location."
+              trailing={
+                <Button asChild variant="none" effect="fade" size="sm">
+                  <Link href={locationHref}>Open Location</Link>
+                </Button>
+              }
+            />
+          ) : null}
+          {entry.request_url ? (
           <SettingsRow
-            title="Open request link"
-            description="Jump to the original request or disclosure surface."
+            title="Original request"
+            description="Go back to where this request started."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
                 <Link
@@ -1125,20 +1239,21 @@ function ConsentEntryDetail({
               </Button>
             }
           />
-        ) : null}
+          ) : null}
 
-        {requestRoute ? (
-          <SettingsRow
-            title="Open client workspace"
-            description="Review the dedicated client workspace, including access state, account branches, Kai parity, and the explorer view."
-            trailing={
-              <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={requestRoute}>Open client</Link>
-              </Button>
-            }
-          />
-        ) : null}
-      </SettingsGroup>
+          {requestRoute ? (
+            <SettingsRow
+              title="Client workspace"
+              description="Review this client's access and connected accounts."
+              trailing={
+                <Button asChild variant="none" effect="fade" size="sm">
+                  <Link href={requestRoute}>Open client</Link>
+                </Button>
+              }
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
 
       {hasGroupedHistory ? (
         <ConsentHistoryLifecycleDetails
@@ -1149,34 +1264,14 @@ function ConsentEntryDetail({
         />
       ) : null}
 
-      {entry.technical_identity?.user_id || entry.request_id || entry.scope ? (
-        <SettingsGroup
-          embedded
-          title="Technical details"
-          description="Stable identifiers stay available here without cluttering the primary review flow."
-        >
-          {entry.technical_identity?.user_id ? (
-            <SettingsRow
-              title="User ID"
-              description={entry.technical_identity.user_id}
-            />
-          ) : null}
-          {entry.request_id ? (
-            <SettingsRow title="Request ID" description={entry.request_id} />
-          ) : null}
-          {entry.scope ? (
-            <SettingsRow title="Scope ID" description={entry.scope} />
-          ) : null}
-        </SettingsGroup>
-      ) : null}
-
-      {!hasGroupedHistory &&
+      {entry.kind === "history" &&
+      !hasGroupedHistory &&
       entry.consent_chain &&
       entry.consent_chain.length > 1 ? (
         <SettingsGroup
           embedded
-          title="Scope trail"
-          description="Recent events for this requester and scope."
+          title="Recent changes"
+          description="The latest changes to this type of access."
         >
           {entry.consent_chain.slice(0, 6).map((event) => (
             <SettingsRow
@@ -1201,13 +1296,13 @@ function ConsentEntryDetail({
           showing it in Active Access read as a duplicate/unrelated "history
           trail" attached to a currently active item. */}
       {!hasGroupedHistory &&
-      entry.kind !== "active_grant" &&
+      entry.kind === "history" &&
       entry.counterpart_id &&
       entry.counterpart_type !== "self" ? (
         <SettingsGroup
           embedded
-          title="Consent timeline"
-          description="Full history of consent changes with this connection."
+          title="Access timeline"
+          description="How access changed with this connection."
         >
           <div className="px-1 py-2">
             <HandshakeTimeline
@@ -1245,6 +1340,7 @@ export function ConsentCenterPage() {
   const consentScopeKey = apiActor === "ria" ? "ria" : "one";
   const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
+  const localConsentPreview = isLocalConsentPreviewRuntime();
   const managerView: "incoming" | "outgoing" = riaOutgoingCompatibilityRoute
     ? "outgoing"
     : "incoming";
@@ -1266,26 +1362,30 @@ export function ConsentCenterPage() {
   const [, startPanelUrlSync] = useTransition();
   const isPanelOpen =
     Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
-  const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
+  const routeQuery = searchParams.get("q") || "";
+  const [searchValue, setSearchValue] = useState(routeQuery);
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
   const retryConsentCenter = () => {
     setMutationTick((value) => value + 1);
   };
   const summaryCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${consentScopeKey}:${mode}`)
+    ? `${CACHE_KEYS.CONSENT_CENTER_SUMMARY(
+        user.uid,
+        `${consentScopeKey}:${mode}`,
+      )}${localConsentPreview ? ":local-preview" : ""}`
     : "consent_center_summary_guest";
   const listSurface =
     tab === "requests" ? "pending" : tab === "history" ? "previous" : "active";
   const listCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_LIST(
+    ? `${CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
         `${consentScopeKey}:${mode}`,
         listSurface,
         deferredQuery,
         page,
         CONSENT_CENTER_PAGE_SIZE,
-      )
+      )}${localConsentPreview ? ":local-preview" : ""}`
     : "consent_center_list_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -1303,11 +1403,21 @@ export function ConsentCenterPage() {
   );
 
   useEffect(() => {
-    const current = searchParams.get("q") || "";
-    if (current !== searchValue) {
-      setSearchValue(current);
+    if (routeQuery !== searchValue) {
+      setSearchValue(routeQuery);
     }
-  }, [searchParams, searchValue]);
+    // searchValue is intentionally omitted: local input should not be reset
+    // while its deferred URL update is still pending.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeQuery]);
+
+  useEffect(() => {
+    if (!syncLocalConsentPreviewSession()) return;
+    if (searchParams.get("preview") === "consent") return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("preview", "consent");
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     if (searchParams.get("mode") !== "connections") return;
@@ -1349,6 +1459,7 @@ export function ConsentCenterPage() {
   // relative to unlock-warm, once per mount) to seal + deliver those requests.
   const marketplaceSweptRef = useRef(false);
   useEffect(() => {
+    if (localConsentPreview) return;
     if (marketplaceSweptRef.current) return;
     if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
     const vaultOwnerToken = getVaultOwnerToken();
@@ -1371,7 +1482,13 @@ export function ConsentCenterPage() {
           error,
         );
       });
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
+  }, [
+    getVaultOwnerToken,
+    isVaultUnlocked,
+    localConsentPreview,
+    user?.uid,
+    vaultKey,
+  ]);
 
   const {
     handleApprove,
@@ -1446,8 +1563,33 @@ export function ConsentCenterPage() {
       isMarketplaceConsent(entry.metadata, entry.scope),
     [],
   );
+  const applyPreviewAction = useCallback(
+    async (
+      action: "approve" | "deny" | "revoke",
+      entry: ConsentCenterEntry,
+      durationHours?: number,
+    ) => {
+      if (!localConsentPreview) return;
+      const previewModule = await loadLocalConsentPreviewModule();
+      if (!previewModule) return;
+      const { applyLocalConsentPreviewMutation } = previewModule;
+      const detail = applyLocalConsentPreviewMutation({
+        action,
+        entry,
+        durationHours,
+      });
+      window.dispatchEvent(
+        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail }),
+      );
+    },
+    [localConsentPreview],
+  );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (localConsentPreview) {
+        void applyPreviewAction("approve", entry, durationHours);
+        return;
+      }
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1481,16 +1623,22 @@ export function ConsentCenterPage() {
       void handleApprove(toPendingConsent(entry, durationHours));
     },
     [
+      applyPreviewAction,
       handleApprove,
       handleLocationApprove,
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
+      localConsentPreview,
       user,
     ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (localConsentPreview) {
+        void applyPreviewAction("deny", entry);
+        return;
+      }
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1524,16 +1672,22 @@ export function ConsentCenterPage() {
       void handleDeny(entry.request_id || entry.id);
     },
     [
+      applyPreviewAction,
       handleDeny,
       handleLocationDeny,
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
+      localConsentPreview,
       user,
     ],
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (localConsentPreview) {
+        void applyPreviewAction("revoke", entry);
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationRevoke(entry);
         return;
@@ -1546,12 +1700,32 @@ export function ConsentCenterPage() {
       void handleRevoke(entry.scope);
     },
     [
+      applyPreviewAction,
       handleLocationRevoke,
       handleMarketplaceRevoke,
       handleRevoke,
       isLocationEntry,
       isMarketplaceEntry,
+      localConsentPreview,
     ],
+  );
+  const revokeScope = useCallback(
+    (scope: string) => {
+      if (localConsentPreview) {
+        void loadLocalConsentPreviewModule().then((previewModule) => {
+          if (previewModule) {
+            const { revokeLocalConsentPreviewScope } = previewModule;
+            const detail = revokeLocalConsentPreviewScope(scope);
+            window.dispatchEvent(
+              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail }),
+            );
+          }
+        });
+        return;
+      }
+      void handleRevoke(scope);
+    },
+    [handleRevoke, localConsentPreview],
   );
 
   const idTokenLoader = async () => user?.getIdToken();
@@ -1618,6 +1792,13 @@ export function ConsentCenterPage() {
       });
     },
   });
+  const currentListResourceData =
+    listResource.data?.surface === listSurface &&
+    listResource.data.query === deferredQuery &&
+    listResource.data.page === page &&
+    listResource.data.limit === CONSENT_CENTER_PAGE_SIZE
+      ? listResource.data
+      : null;
   const forcedMutationRefreshRef = useRef(0);
 
   useEffect(() => {
@@ -1640,15 +1821,15 @@ export function ConsentCenterPage() {
   }, [summaryCacheKey, summaryResource.data]);
 
   useEffect(() => {
-    if (listResource.data) {
-      setRetainedList({ key: listCacheKey, data: listResource.data });
+    if (currentListResourceData) {
+      setRetainedList({ key: listCacheKey, data: currentListResourceData });
     }
-  }, [listCacheKey, listResource.data]);
+  }, [currentListResourceData, listCacheKey]);
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
   const listData =
-    listResource.data ??
+    currentListResourceData ??
     (retainedList?.key === listCacheKey ? retainedList.data : null);
 
   const applyConfirmedConsentMutation = useCallback(
@@ -2161,6 +2342,16 @@ export function ConsentCenterPage() {
     });
   }, [setParam, startPanelUrlSync]);
 
+  useEffect(() => {
+    if (deferredQuery === routeQuery.trim()) return;
+    setParam({
+      q: deferredQuery || null,
+      page: "1",
+      requestId: null,
+      selected: null,
+    });
+  }, [deferredQuery, routeQuery, setParam]);
+
   // When the selected request changes (deep link, list selection, or after the
   // URL finishes clearing), drop the local close override so the panel can open
   // again and stays in sync with the URL.
@@ -2169,163 +2360,189 @@ export function ConsentCenterPage() {
   }, [selectedId, selectedBundleId]);
 
   const pageDescription =
-    actor === "ria"
-      ? "Review access requests, active access, and connections."
-      : managerView === "outgoing"
-        ? "Review outgoing access requests, active access, and connections."
-        : "Review access requests, active access, and connections.";
+    managerView === "outgoing" && tab === "requests"
+      ? "Review access requests you sent and see what still needs a response."
+      : tab === "requests"
+        ? "Decide who can access specific information and for how long."
+        : tab === "active"
+          ? "Review current access and stop sharing when it is no longer needed."
+          : tab === "history"
+            ? "See what was allowed, denied, expired, cancelled, or revoked."
+            : "Review the people and services connected to your private agent.";
   const searchPlaceholder =
-    tab === "connections"
-      ? "Search connections by name, email, scope, or status"
-      : `Search ${tab} by name, email, scope, or reason`;
+    tab === "requests"
+      ? "Search requests"
+      : tab === "active"
+        ? "Search active access"
+        : tab === "history"
+          ? "Search history"
+          : "Search connections";
+  const emptyListMessage = deferredQuery
+    ? `No ${tab === "active" ? "active access" : tab} matches “${deferredQuery}”.`
+    : tab === "requests"
+      ? "No requests need your review."
+      : tab === "active"
+        ? "No one currently has active access."
+        : tab === "history"
+          ? "No consent activity has been recorded yet."
+          : "No connections are available yet.";
+  const loadingListMessage =
+    tab === "requests"
+      ? "Loading requests…"
+      : tab === "active"
+        ? "Loading active access…"
+        : tab === "history"
+          ? "Loading history…"
+          : "Loading connections…";
   return (
     <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
-      <CapabilityExploreCard capabilityId="consent" />
+      {!localConsentPreview ? (
+        <CapabilityExploreCard capabilityId="consent" />
+      ) : null}
       <AppPageHeaderRegion>
         <PageHeader
           title="Consent Center"
           description={pageDescription}
-          accent="neutral"
+          accent="consent"
         />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
         <SurfaceStack>
-          <section className="space-y-4" data-testid="consent-manager-primary">
-            <div className="flex items-center justify-between gap-3">
-              {visibleSnapshot ? (
-                <StaleCacheTimestamp
-                  updatedAt={visibleSnapshot.timestamp}
-                  stale={Boolean(activeListError && items.length > 0)}
-                />
-              ) : (
-                <span />
-              )}
+          {localConsentPreview ? (
+            <div
+              role="status"
+              data-testid="consent-preview-banner"
+              className="flex flex-col gap-3 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">
+                  Layout preview
+                </p>
+                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                  Showing deterministic sample consents. Changes stay in this
+                  browser tab and never reach the backend.
+                </p>
+              </div>
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
-                onClick={retryConsentCenter}
-                aria-label="Refresh consent entries"
-                disabled={isConsentActionRefreshing}
+                className="self-start sm:self-auto"
+                onClick={() =>
+                  setParam({
+                    preview: "live",
+                    requestId: null,
+                    selected: null,
+                    page: "1",
+                  })
+                }
               >
-                <RefreshCcw
-                  className={cn(
-                    "mr-2 h-4 w-4",
-                    isConsentActionRefreshing && "animate-spin",
-                  )}
-                />
-                Refresh
+                Use live data
               </Button>
             </div>
-
-            <SettingsGroup embedded>
-              <div className="px-4 py-4">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={searchValue}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      setSearchValue(next);
-                      setParam({ q: next || null, page: "1" });
-                    }}
-                    placeholder={searchPlaceholder}
-                    className="pl-9"
-                    data-voice-control-id="consent_search"
-                  />
-                </div>
-                {(tab === "connections"
-                  ? centerResource.loading || centerResource.refreshing
-                  : listResource.loading || listResource.refreshing) &&
-                items.length > 0 ? (
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    Refreshing from the latest consent state…
-                  </div>
-                ) : null}
-              </div>
-            </SettingsGroup>
-
+          ) : null}
+          <section className="space-y-4" data-testid="consent-manager-primary">
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
-                <div className="space-y-2 px-2 py-2">
+                <div className="flex items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-3">
+                  <div className="relative min-w-0 flex-1">
+                    <Search
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      value={searchValue}
+                      onChange={(event) => {
+                        setSearchValue(event.target.value);
+                      }}
+                      aria-label={searchPlaceholder}
+                      placeholder={searchPlaceholder}
+                      className="pl-9"
+                      data-voice-control-id="consent_search"
+                    />
+                  </div>
+                  {visibleSnapshot && activeListError && items.length > 0 ? (
+                    <div className="hidden sm:block">
+                      <StaleCacheTimestamp
+                        updatedAt={visibleSnapshot.timestamp}
+                        stale
+                      />
+                    </div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={retryConsentCenter}
+                    aria-label="Refresh consent entries"
+                    disabled={isConsentActionRefreshing}
+                  >
+                    <RefreshCcw
+                      className={cn(
+                        "h-4 w-4 sm:mr-2",
+                        isConsentActionRefreshing && "animate-spin",
+                      )}
+                    />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </Button>
+                </div>
+
+                <div className="divide-y divide-[color:var(--app-card-border-standard)]/45">
                   <AccessibilityStatusAnnouncer
                     message={accessibilityStatusMessage}
                   />
 
                   {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 
-                  {isConsentActionRefreshing && items.length > 0 ? (
-                    <AsyncActionStatus
-                      state="loading"
-                      label="Refreshing consent state..."
-                      compact
-                    />
-                  ) : null}
-
                   {showCompactRetryState ? (
-                    <ApiRetryState
-                      variant="compact"
-                      title="Showing saved consent information"
-                      description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
-                      onRetry={retryConsentCenter}
-                      showRetryAction={false}
-                    />
+                    <div className="p-3">
+                      <ApiRetryState
+                        variant="compact"
+                        title="Showing the last available information"
+                        description="The latest refresh did not finish. You can keep reviewing this list or try again."
+                        onRetry={retryConsentCenter}
+                        showRetryAction={false}
+                      />
+                    </div>
                   ) : null}
 
                   {showFullRetryState && !showSessionRecovery ? (
-                    <ApiRetryState
-                      title="Consent service is unavailable"
-                      description={
-                        consentLoadError
-                          ? `The consent service did not return the latest access state. ${consentLoadError}`
-                          : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
-                      }
-                      onRetry={retryConsentCenter}
-                      showRetryAction={false}
-                    />
+                    <div className="p-3">
+                      <ApiRetryState
+                        title="Consent Center is temporarily unavailable"
+                        description="We could not load the latest access information. Try refreshing in a moment."
+                        onRetry={retryConsentCenter}
+                        showRetryAction={false}
+                      />
+                    </div>
                   ) : null}
 
-                  {listResource.loading &&
+                  {(tab === "connections"
+                    ? centerResource.loading
+                    : listResource.loading) &&
                   items.length === 0 &&
                   !showFullRetryState ? (
-                    <div className="px-3 py-6 text-sm text-muted-foreground">
-                      Loading consent entries…
+                    <div className="px-4 py-8 text-sm text-muted-foreground">
+                      {loadingListMessage}
                     </div>
                   ) : null}
-                  {!listResource.loading &&
+                  {(tab === "connections"
+                    ? !centerResource.loading
+                    : !listResource.loading) &&
                   !showFullRetryState &&
-                  tab !== "connections" &&
                   items.length === 0 ? (
-                    <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No {tab} entries match this view right now.
+                    <div className="px-4 py-8 text-sm text-muted-foreground">
+                      {emptyListMessage}
                     </div>
                   ) : null}
-                  {!centerResource.loading &&
-                  !showFullRetryState &&
-                  tab === "connections" &&
-                  items.length === 0 ? (
-                    <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No connections match this view right now.
-                    </div>
-                  ) : null}
-                  {items.map((entry, index) => (
+                  {items.map((entry) => (
                     <ConsentEntryRow
-                      key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                      key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}`}
                       entry={entry}
                       selected={
-                        // Bug: when nothing is selected, selectedEntry is null,
-                        // so selectedEntry?.id and selectedEntry?.request_id are
-                        // both undefined. Entries without their own request_id
-                        // (e.g. one_location_grant rows) also have
-                        // entry.request_id === undefined, so
-                        // "undefined === undefined" was true and falsely
-                        // highlighted that row as selected on every render -
-                        // this is the row that appeared to randomly "jump" to
-                        // a different entry on every tab switch. Require a
-                        // real selectedEntry (or a matching selectedId) before
-                        // comparing ids at all.
                         Boolean(
                           selectedEntry &&
                           (selectedEntry.id === entry.id ||
@@ -2378,7 +2595,13 @@ export function ConsentCenterPage() {
         }
         description={
           selectedEntry
-            ? `${formatStatus(selectedEntry.status)} request`
+            ? selectedEntry.kind === "active_grant"
+              ? "Active access"
+              : selectedEntry.kind === "history"
+                ? `${formatStatus(selectedEntry.status)} access`
+                : selectedEntry.status === "pending"
+                  ? "Request awaiting your decision"
+                  : `${formatStatus(selectedEntry.status)} request`
             : selectedId
               ? "Resolving the selected consent request."
               : "Choose a consent entry from the list to review details and next actions."
@@ -2467,22 +2690,22 @@ export function ConsentCenterPage() {
           <SettingsGroup
             embedded
             title="Request status"
-            description="This link points to a specific consent request. We resolve it from the current list first, then from the scoped request lookup."
+            description="We’re loading the consent request from this link."
           >
             {selectedRequestResolving ? (
               <SettingsRow
                 title="Loading request"
-                description={`Fetching details for ${selectedId}.`}
+                description="Fetching the latest details."
               />
             ) : selectedRequestNeedsUnlock ? (
               <SettingsRow
                 title="Unlock vault to review"
-                description="This request was not in the current page. Unlock your vault so One can resolve the exact consent request by ID."
+                description="Unlock your vault to load this request securely."
               />
             ) : selectedPendingLookupResource.error ? (
               <SettingsRow
                 title="Could not load request"
-                description={selectedPendingLookupResource.error}
+                description="Refresh the list and try opening the request again."
               />
             ) : selectedRequestMissing ? (
               <SettingsRow
@@ -2504,7 +2727,7 @@ export function ConsentCenterPage() {
             ) : (
               <SettingsRow
                 title="Request not visible"
-                description="The current pending list did not include this request. Refresh from the page header or check the History tab if it was already handled."
+                description="Refresh the list or check History if the request was already handled."
               />
             )}
           </SettingsGroup>
@@ -2526,7 +2749,7 @@ export function ConsentCenterPage() {
               revokeEntry(entry);
             }}
 
-            onRevokeScope={(scope) => void handleRevoke(scope)}
+            onRevokeScope={revokeScope}
             activeAction={activeAction}
             isRequestBusy={isRequestBusy}
             isScopeBusy={isScopeBusy}

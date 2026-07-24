@@ -7,6 +7,11 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
+import {
+  getLocalConsentPreviewList,
+  getLocalConsentPreviewSummary,
+  resetLocalConsentPreviewState,
+} from "@/lib/consent/local-consent-preview";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -24,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   handleLocationApprove: vi.fn(),
   handleLocationDeny: vi.fn(),
   handleLocationRevoke: vi.fn(),
+  localPreview: false,
   busyRequestIds: new Set<string>(),
 
   busyScopes: new Set<string>(),
@@ -46,6 +52,12 @@ vi.mock("@/hooks/use-auth", () => ({
     user: { uid: "user-1", getIdToken: mocks.getIdToken },
     loading: false,
   }),
+}));
+
+vi.mock("@/lib/consent/local-consent-preview-gate", () => ({
+  isLocalConsentPreviewRuntime: () => mocks.localPreview,
+  syncLocalConsentPreviewSession: () => mocks.localPreview,
+  loadLocalConsentPreviewModule: vi.fn().mockResolvedValue(null),
 }));
 
 // CapabilityExploreCard reads useAuth from the firebase context directly, not
@@ -264,10 +276,12 @@ function groupedHistoryListResponse() {
 describe("ConsentCenterPage requestId deep links", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mocks.search =
       "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0";
     mocks.getVaultOwnerToken.mockImplementation(() => "vault-token");
     mocks.isVaultUnlocked = true;
+    mocks.localPreview = false;
     mocks.getSummary.mockResolvedValue(summaryResponse());
     mocks.listEntries.mockResolvedValue(emptyListResponse());
     mocks.handleApprove.mockResolvedValue(undefined);
@@ -292,6 +306,70 @@ describe("ConsentCenterPage requestId deep links", () => {
     installDesktopMediaQuery();
   });
 
+  it.each([
+    {
+      tab: "requests",
+      searchName: "Search requests",
+    },
+    {
+      tab: "active",
+      searchName: "Search active access",
+    },
+    {
+      tab: "history",
+      searchName: "Search history",
+    },
+  ])(
+    "renders a complete paginated $tab layout in local preview mode",
+    async ({ tab, searchName }) => {
+      resetLocalConsentPreviewState(
+        Date.parse("2026-07-23T12:00:00.000Z"),
+      );
+      mocks.localPreview = true;
+      mocks.search = `tab=${tab}&preview=consent`;
+      mocks.getSummary.mockResolvedValue(
+        getLocalConsentPreviewSummary("user-1"),
+      );
+      mocks.listEntries.mockImplementation(
+        ({
+          surface,
+          q,
+          page,
+          limit,
+        }: {
+          surface: "pending" | "active" | "previous";
+          q?: string;
+          page?: number;
+          limit?: number;
+        }) =>
+          Promise.resolve(
+            getLocalConsentPreviewList({
+              userId: "user-1",
+              surface,
+              q,
+              page,
+              limit,
+            }),
+          ),
+      );
+
+      render(<ConsentCenterPage />);
+
+      expect(await screen.findByText("Layout preview")).toBeTruthy();
+      expect(screen.getByText(/never reach the backend/i)).toBeTruthy();
+      expect(
+        screen.getByRole("textbox", { name: searchName }),
+      ).toBeTruthy();
+      expect(await screen.findAllByTestId("consent-entry-row")).toHaveLength(
+        20,
+      );
+      expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Go to next page" }),
+      ).not.toBeDisabled();
+    },
+  );
+
   it("resolves a selected pending request that is not present in the current list page", async () => {
     render(<ConsentCenterPage />);
 
@@ -309,6 +387,85 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.getByText("Shopping receipts")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
+    const requestDetails = screen.getByText("Request details");
+    const decision = screen.getByText("Your decision");
+    expect(
+      requestDetails.compareDocumentPosition(decision) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByText("Technical details")).toBeNull();
+  });
+
+  it("uses connection actions without showing an ignored access duration", async () => {
+    mocks.search = "tab=pending&requestId=connection-1";
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      total: 1,
+      items: [
+        {
+          id: "connection-1",
+          request_id: "connection-1",
+          kind: "connection_request",
+          status: "pending",
+          action: "connection_request",
+          scope: "cap.connections.trusted",
+          scope_description: "Trusted connection",
+          counterpart_type: "investor",
+          counterpart_id: "user-rohan",
+          counterpart_label: "Rohan",
+          issued_at: "2026-07-24T09:00:00.000Z",
+          reason: "Rohan wants to connect with you.",
+          metadata: { request_source: "connection_request" },
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Connection request")).toBeTruthy();
+    expect(screen.getByText("Relationship")).toBeTruthy();
+    expect(screen.getAllByText("Trusted connection").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeTruthy();
+    expect(screen.queryByText("Access duration")).toBeNull();
+    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(screen.queryByText("Ends")).toBeNull();
+  });
+
+  it("shows marketplace requested duration as read-only request context", async () => {
+    mocks.search = "tab=pending&requestId=marketplace-1";
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      total: 1,
+      items: [
+        {
+          id: "marketplace_request:marketplace-1",
+          request_id: "marketplace-1",
+          kind: "incoming_request",
+          status: "pending",
+          action: "REQUESTED",
+          scope: "attr.travel.preferences.*",
+          scope_description: "Travel preference summary",
+          counterpart_type: "investor",
+          counterpart_id: "atlas",
+          counterpart_label: "Atlas Travel",
+          issued_at: "2026-07-24T09:00:00.000Z",
+          approval_timeout_at: "2026-07-27T09:00:00.000Z",
+          metadata: {
+            request_source: "marketplace_access_request",
+            duration_days: 3,
+          },
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Share this summary?")).toBeTruthy();
+    expect(screen.getByText("Requested duration")).toBeTruthy();
+    expect(screen.getAllByText("3 days").length).toBeGreaterThan(0);
+    expect(screen.getByText("Decision due")).toBeTruthy();
+    expect(screen.queryByText("Access duration")).toBeNull();
   });
 
   it("closing the detail panel preserves the active tab instead of reverting to pending", async () => {
@@ -337,7 +494,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     mocks.search = "tab=history&requestId=identifier:macy";
     rerender(<ConsentCenterPage />);
 
-    await screen.findByText("Consent history");
+    await screen.findByText("Access history");
 
     const closeButton = screen.getByRole("button", { name: /close/i });
     await act(async () => {
@@ -452,6 +609,114 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.queryByRole("dialog", { name: "Kushal Trivedi" })).toBeNull();
   });
 
+  it("never reuses rows from the previous Consent Center tab while the next tab loads", async () => {
+    let resolveActive:
+      | ((value: ReturnType<typeof emptyListResponse>) => void)
+      | undefined;
+    let resolveHistory:
+      | ((value: ReturnType<typeof emptyListResponse>) => void)
+      | undefined;
+    const activeResponse = {
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "preview-active",
+          kind: "active_grant",
+          status: "active",
+          counterpart_type: "investor",
+          counterpart_label: "Active location workflow",
+          scope: "location.share",
+        },
+      ],
+    };
+    const historyResponse = {
+      ...emptyListResponse(),
+      surface: "previous",
+      total: 1,
+      items: [
+        {
+          id: "preview-history",
+          kind: "history",
+          status: "revoked",
+          counterpart_type: "developer",
+          counterpart_label: "Revoked location workflow",
+          scope: "location.share",
+        },
+      ],
+    };
+
+    mocks.search = "tab=requests&preview=consent";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 1, active: 1, previous: 1 },
+    });
+    mocks.listEntries.mockImplementation(
+      ({ surface }: { surface: "pending" | "active" | "previous" }) => {
+        if (surface === "active") {
+          return new Promise((resolve) => {
+            resolveActive = resolve;
+          });
+        }
+        if (surface === "previous") {
+          return new Promise((resolve) => {
+            resolveHistory = resolve;
+          });
+        }
+        return Promise.resolve({
+          ...emptyListResponse(),
+          total: 1,
+          items: [
+            {
+              id: "preview-request",
+              request_id: "preview-request",
+              kind: "pending_request",
+              status: "pending",
+              counterpart_type: "investor",
+              counterpart_label: "Pending location workflow",
+              scope: "location.share",
+            },
+          ],
+        });
+      },
+    );
+
+    const { rerender } = render(<ConsentCenterPage />);
+    expect(await screen.findByText("Pending location workflow")).toBeTruthy();
+
+    mocks.search = "tab=active&preview=consent";
+    rerender(<ConsentCenterPage />);
+    await waitFor(() => {
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "active" }),
+      );
+    });
+    expect(screen.queryByText("Pending location workflow")).toBeNull();
+
+    await act(async () => {
+      resolveActive?.(activeResponse);
+    });
+    expect(await screen.findByText("Active location workflow")).toBeTruthy();
+    expect(screen.queryByText("Pending location workflow")).toBeNull();
+
+    mocks.search = "tab=history&preview=consent";
+    rerender(<ConsentCenterPage />);
+    await waitFor(() => {
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "previous" }),
+      );
+    });
+    expect(screen.queryByText("Active location workflow")).toBeNull();
+
+    await act(async () => {
+      resolveHistory?.(historyResponse);
+    });
+    expect(await screen.findByText("Revoked location workflow")).toBeTruthy();
+    expect(screen.queryByText("Pending location workflow")).toBeNull();
+    expect(screen.queryByText("Active location workflow")).toBeNull();
+  });
+
   it("does not falsely highlight a row that lacks its own request_id when nothing is selected", async () => {
     // Regression: the row-selected check was
     //   selectedEntry?.id === entry.id || selectedEntry?.request_id === entry.request_id
@@ -533,6 +798,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       await screen.findByRole("dialog", { name: "Kushal Trivedi" }),
     ).toBeTruthy();
+    expect(screen.getAllByText("Active access").length).toBeGreaterThan(0);
+    expect(screen.getByText("Manage access")).toBeTruthy();
+    expect(screen.queryByText("Your decision")).toBeNull();
+    expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("Consent timeline")).toBeNull();
     expect(
       screen.queryByText(
@@ -656,8 +925,8 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     expect(await screen.findByText("Macy's CRM")).toBeTruthy();
     expect(screen.queryByText("Consent audit timeline")).toBeNull();
-    expect(screen.queryByText("Consent history")).toBeNull();
-    expect(screen.queryByText("Lifecycle 1")).toBeNull();
+    expect(screen.queryByText("Access history")).toBeNull();
+    expect(screen.queryByText("Access 1")).toBeNull();
     expect(screen.queryByText("Shopping profile")).toBeNull();
   });
 
@@ -671,9 +940,12 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Consent history")).toBeTruthy();
-    expect(screen.getByText("Lifecycle 1")).toBeTruthy();
-    expect(screen.getByText("Lifecycle 2")).toBeTruthy();
+    expect(await screen.findByText("Access history")).toBeTruthy();
+    expect(screen.getByText("History details")).toBeTruthy();
+    expect(screen.queryByText("Your decision")).toBeNull();
+    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.getByText("Access 1")).toBeTruthy();
+    expect(screen.getByText("Access 2")).toBeTruthy();
     expect(screen.getAllByText("Shopping profile").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Receipts").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();

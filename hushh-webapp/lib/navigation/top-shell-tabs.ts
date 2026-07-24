@@ -56,7 +56,9 @@ export function buildPublicKnowledgeRoute(tab: PublicKnowledgeTab): string {
 
 /**
  * A Consent Center tab switch deliberately drops list/search/detail state.
- * Keep only the route-owned advisor context and a verified in-app return link.
+ * Keep only the route-owned advisor context, verified in-app return link, and
+ * the explicit local preview opt-in used by the three consent data surfaces.
+ * Connections always stays on its live-data path.
  */
 function buildConsentCenterTabRoute(
   tab: ConsentCenterTab,
@@ -73,6 +75,12 @@ function buildConsentCenterTabRoute(
   const from = searchParams.get("from");
   if (from?.startsWith("/") && !from.startsWith("//")) {
     params.set("from", from);
+  }
+  if (
+    tab !== "connections" &&
+    searchParams.get("preview") === "consent"
+  ) {
+    params.set("preview", "consent");
   }
   return `${ROUTES.CONSENTS}?${params.toString()}`;
 }

@@ -47,7 +47,7 @@ describe("top shell contextual tabs", () => {
 
   it("moves Consent Center state into the shared top shell", () => {
     const tabs = resolveTopShellTabSet(
-      "/one/consent?tab=history&q=tax&page=3&requestId=req_123&from=%2Fone",
+      "/one/consent?tab=history&q=tax&page=3&requestId=req_123&from=%2Fone&preview=consent",
     );
 
     expect(tabs).toMatchObject({
@@ -56,7 +56,10 @@ describe("top shell contextual tabs", () => {
       activeValue: "history",
     });
     expect(tabs?.tabs.find((tab) => tab.value === "active")?.href).toBe(
-      "/one/consent?tab=active&from=%2Fone",
+      "/one/consent?tab=active&from=%2Fone&preview=consent",
+    );
+    expect(tabs?.tabs.find((tab) => tab.value === "connections")?.href).toBe(
+      "/one/consent?tab=connections&from=%2Fone",
     );
     expect(
       resolveTopShellRouteProfile("/one/consent?tab=connections").model,

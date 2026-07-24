@@ -7,6 +7,7 @@ import {
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
+import { loadLocalConsentPreviewModule } from "@/lib/consent/local-consent-preview-gate";
 
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
@@ -475,6 +476,10 @@ export class ConsentCenterService {
     if (uniqueRequestIds.length === 0) {
       return { items: [], missing_request_ids: [] };
     }
+    const localPreview = await loadLocalConsentPreviewModule();
+    if (localPreview) {
+      return localPreview.getLocalConsentPreviewLookup(uniqueRequestIds);
+    }
     const query = new URLSearchParams({ userId: options.userId });
     for (const requestId of uniqueRequestIds) {
       query.append("request_id", requestId);
@@ -512,8 +517,16 @@ export class ConsentCenterService {
     force?: boolean;
   }): Promise<ConsentCenterPageSummary> {
     const actor = options.actor;
-    const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
+    const localPreview =
+      mode === "consents" ? await loadLocalConsentPreviewModule() : null;
+    if (localPreview) {
+      return localPreview.getLocalConsentPreviewSummary(
+        options.userId,
+        actor || "investor",
+      );
+    }
+    const cacheActor = consentCenterCacheActor(actor);
     const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(
       options.userId,
       `${cacheActor}:${mode}`,
@@ -620,6 +633,18 @@ export class ConsentCenterService {
         : null;
     const page = previewTop ? 1 : options.page || 1;
     const limit = previewTop ?? (options.limit || CONSENT_CENTER_PAGE_SIZE);
+    const localPreview =
+      mode === "consents" ? await loadLocalConsentPreviewModule() : null;
+    if (localPreview) {
+      return localPreview.getLocalConsentPreviewList({
+        userId: options.userId,
+        actor: actor || "investor",
+        surface: options.surface,
+        q,
+        page,
+        limit,
+      });
+    }
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
@@ -719,6 +744,16 @@ export class ConsentCenterService {
       page = 1,
       limit = 50,
     } = options;
+    const localPreview = await loadLocalConsentPreviewModule();
+    if (localPreview) {
+      return localPreview.getLocalConsentPreviewHandshakeHistory({
+        userId: "local-consent-preview",
+        counterpartId,
+        actor,
+        page,
+        limit,
+      });
+    }
     const query = new URLSearchParams({
       counterpart_id: counterpartId,
       actor,
