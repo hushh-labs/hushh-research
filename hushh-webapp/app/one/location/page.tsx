@@ -171,9 +171,11 @@ import type {
   OneLocationActivityResponse,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnections,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMemberInvite,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -289,6 +291,7 @@ type BusyState =
   | "circleInvite"
   | "circleRevoke"
   | "namedCircle"
+  | "circleMemberInvite"
   | `sms-contact:${string}`
   | null;
 
@@ -1613,6 +1616,10 @@ export function OneLocationAgentPageContent({
     () => String(searchParams.get("circleInviteToken") || "").trim(),
     [searchParams],
   );
+  const focusedCircleMemberInviteId = useMemo(
+    () => String(searchParams.get("circleInviteId") || "").trim() || null,
+    [searchParams],
+  );
   const [stateEntry, setStateEntry] = useState<{
     userId: string;
     state: OneLocationState;
@@ -1744,6 +1751,23 @@ export function OneLocationAgentPageContent({
   >({});
   const [publicInviteUrl, setPublicInviteUrl] = useState("");
   const [circleInviteUrl, setCircleInviteUrl] = useState("");
+  const [
+    incomingCircleMemberInvites,
+    setIncomingCircleMemberInvites,
+  ] = useState<OneLocationCircleMemberInvite[]>([]);
+  const [
+    incomingCircleMemberInvitesLoading,
+    setIncomingCircleMemberInvitesLoading,
+  ] = useState(false);
+  const [
+    incomingCircleMemberInvitesError,
+    setIncomingCircleMemberInvitesError,
+  ] = useState<string | null>(null);
+  const [
+    resolvedCircleMemberInviteFocusId,
+    setResolvedCircleMemberInviteFocusId,
+  ] = useState<string | null>(null);
+  const circleMemberInviteRequestRef = useRef(0);
   const [namedCircleShareContext, setNamedCircleShareContext] = useState<{
     circleId: string;
     recipientUserId: string;
@@ -4180,6 +4204,50 @@ export function OneLocationAgentPageContent({
     })();
   }, [auth.userId, refresh]);
 
+  const refreshIncomingCircleMemberInvites = useCallback(async () => {
+    const requestId = ++circleMemberInviteRequestRef.current;
+    if (!vaultOwnerToken) {
+      setIncomingCircleMemberInvites([]);
+      setIncomingCircleMemberInvitesLoading(false);
+      setIncomingCircleMemberInvitesError(null);
+      setResolvedCircleMemberInviteFocusId(null);
+      return;
+    }
+    setIncomingCircleMemberInvitesLoading(true);
+    setIncomingCircleMemberInvitesError(null);
+    if (focusedCircleMemberInviteId) {
+      setResolvedCircleMemberInviteFocusId(null);
+    }
+    try {
+      const invites = await OneLocationService.listNamedCircleMemberInvites({
+        vaultOwnerToken,
+        direction: "incoming",
+        status: "pending",
+      });
+      if (requestId === circleMemberInviteRequestRef.current) {
+        setIncomingCircleMemberInvites(invites);
+        setResolvedCircleMemberInviteFocusId(focusedCircleMemberInviteId);
+      }
+    } catch {
+      if (requestId === circleMemberInviteRequestRef.current) {
+        setIncomingCircleMemberInvitesError(
+          "Check your connection and try loading the invitations again.",
+        );
+      }
+    } finally {
+      if (requestId === circleMemberInviteRequestRef.current) {
+        setIncomingCircleMemberInvitesLoading(false);
+      }
+    }
+  }, [focusedCircleMemberInviteId, vaultOwnerToken]);
+
+  useEffect(() => {
+    void refreshIncomingCircleMemberInvites();
+    return () => {
+      circleMemberInviteRequestRef.current += 1;
+    };
+  }, [refreshIncomingCircleMemberInvites, state]);
+
   const handleLoadNamedCircle = useCallback(
     async (circleId: string): Promise<OneLocationCircleDetail> => {
       if (!vaultOwnerToken) throw new Error("Unlock One before opening a Circle.");
@@ -4341,7 +4409,7 @@ export function OneLocationAgentPageContent({
       try {
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
-          text: `Join my ${circle.name} Circle on One with code ${code}. Joining does not share your location automatically.`,
+          text: `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
         });
         if (delivery === "copied") toast.success("Circle code copied.");
@@ -4374,6 +4442,145 @@ export function OneLocationAgentPageContent({
       }
     },
     [scheduleNamedCircleStateRefresh, vaultOwnerToken],
+  );
+
+  const handleLoadNamedCircleEligibleConnections = useCallback(
+    async (
+      circleId: string,
+    ): Promise<OneLocationCircleEligibleConnections> => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before inviting people.");
+      }
+      try {
+        return await OneLocationService.listNamedCircleEligibleConnections({
+          vaultOwnerToken,
+          circleId,
+        });
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(
+            error,
+            "Could not load your eligible connections.",
+          ),
+        );
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const handleInviteNamedCircleConnections = useCallback(
+    async (circleId: string, inviteeUserIds: string[]) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before inviting people.");
+      }
+      if (!inviteeUserIds.length) return;
+      setBusy("circleMemberInvite");
+      try {
+        await OneLocationService.createNamedCircleMemberInvites({
+          vaultOwnerToken,
+          circleId,
+          inviteeUserIds,
+        });
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(
+            error,
+            "Could not send the Circle invitation.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const handleAcceptNamedCircleMemberInvite = useCallback(
+    async (inviteId: string) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before joining a Circle.");
+      }
+      setBusy("circleMemberInvite");
+      try {
+        const circle =
+          await OneLocationService.acceptNamedCircleMemberInvite({
+            vaultOwnerToken,
+            inviteId,
+          });
+        setIncomingCircleMemberInvites((current) =>
+          current.filter((invite) => invite.id !== inviteId),
+        );
+        scheduleNamedCircleStateRefresh();
+        toast.success(`Joined ${circle.name}.`);
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(error, "Could not join the Circle."),
+        );
+      } finally {
+        setBusy(null);
+        void refreshIncomingCircleMemberInvites();
+      }
+    },
+    [
+      refreshIncomingCircleMemberInvites,
+      scheduleNamedCircleStateRefresh,
+      vaultOwnerToken,
+    ],
+  );
+
+  const handleDeclineNamedCircleMemberInvite = useCallback(
+    async (inviteId: string) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before changing a Circle invitation.");
+      }
+      setBusy("circleMemberInvite");
+      try {
+        await OneLocationService.declineNamedCircleMemberInvite({
+          vaultOwnerToken,
+          inviteId,
+        });
+        setIncomingCircleMemberInvites((current) =>
+          current.filter((invite) => invite.id !== inviteId),
+        );
+        toast.success("Circle invitation declined.");
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(
+            error,
+            "Could not decline the Circle invitation.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+        void refreshIncomingCircleMemberInvites();
+      }
+    },
+    [refreshIncomingCircleMemberInvites, vaultOwnerToken],
+  );
+
+  const handleCancelNamedCircleMemberInvite = useCallback(
+    async (inviteId: string) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before changing a Circle invitation.");
+      }
+      setBusy("circleMemberInvite");
+      try {
+        await OneLocationService.cancelNamedCircleMemberInvite({
+          vaultOwnerToken,
+          inviteId,
+        });
+      } catch (error) {
+        throw new Error(
+          oneLocationErrorMessage(
+            error,
+            "Could not cancel the Circle invitation.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [vaultOwnerToken],
   );
 
   const handleLeaveNamedCircle = useCallback(
@@ -5712,6 +5919,12 @@ export function OneLocationAgentPageContent({
     myLocationError,
     recipients: rankedRecipients,
     circles: namedCircles,
+    incomingCircleMemberInvites,
+    incomingCircleMemberInvitesLoading,
+    incomingCircleMemberInvitesError,
+    incomingCircleMemberInviteFocusResolved:
+      !focusedCircleMemberInviteId ||
+      resolvedCircleMemberInviteFocusId === focusedCircleMemberInviteId,
     visibleRecipients,
     activeOwnerGrants,
     // Received grants stay reachable in their focused detail view. Dismissing
@@ -5771,6 +5984,17 @@ export function OneLocationAgentPageContent({
     onCopyNamedCircleCode: handleCopyNamedCircleCode,
     onShareNamedCircleCode: handleShareNamedCircleCode,
     onRemoveNamedCircleMember: handleRemoveNamedCircleMember,
+    onLoadNamedCircleEligibleConnections:
+      handleLoadNamedCircleEligibleConnections,
+    onInviteNamedCircleConnections: handleInviteNamedCircleConnections,
+    onAcceptNamedCircleMemberInvite:
+      handleAcceptNamedCircleMemberInvite,
+    onDeclineNamedCircleMemberInvite:
+      handleDeclineNamedCircleMemberInvite,
+    onCancelNamedCircleMemberInvite:
+      handleCancelNamedCircleMemberInvite,
+    onRetryNamedCircleMemberInvites: () =>
+      void refreshIncomingCircleMemberInvites(),
     onLeaveNamedCircle: handleLeaveNamedCircle,
     onDeleteNamedCircle: handleDeleteNamedCircle,
     prepareNamedCircleShare,

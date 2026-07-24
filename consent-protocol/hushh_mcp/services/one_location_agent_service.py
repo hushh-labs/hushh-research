@@ -2261,6 +2261,52 @@ class OneLocationAgentService:
               )
               LIMIT 500
             ),
+            expired_named_circle_member_invite_candidates AS (
+              SELECT invite.id
+              FROM one_location_circle_member_invites invite
+              WHERE invite.status = 'pending'
+                AND invite.expires_at <= NOW()
+                AND (
+                  :user_id IS NULL
+                  OR invite.inviter_user_id = :user_id
+                  OR invite.invitee_user_id = :user_id
+                )
+              ORDER BY invite.expires_at, invite.id
+              LIMIT 500
+              FOR UPDATE SKIP LOCKED
+            ),
+            expired_named_circle_member_invites AS (
+              UPDATE one_location_circle_member_invites invite
+              SET status = 'expired',
+                  updated_at = NOW()
+              FROM expired_named_circle_member_invite_candidates candidate
+              WHERE invite.id = candidate.id
+              RETURNING invite.id
+            ),
+            stale_named_circle_member_invites AS (
+              SELECT invite.id
+              FROM one_location_circle_member_invites invite
+              WHERE invite.status IN (
+                  'accepted',
+                  'declined',
+                  'cancelled',
+                  'expired'
+                )
+                AND COALESCE(
+                  invite.responded_at,
+                  invite.cancelled_at,
+                  invite.updated_at,
+                  invite.expires_at,
+                  invite.created_at
+                ) <= NOW() - (:hours * INTERVAL '1 hour')
+                AND (
+                  :user_id IS NULL
+                  OR invite.inviter_user_id = :user_id
+                  OR invite.invitee_user_id = :user_id
+                )
+                AND (SELECT COUNT(*) FROM expired_named_circle_member_invites) >= 0
+              LIMIT 500
+            ),
             deleted_events AS (
               DELETE FROM one_location_events e
               WHERE e.grant_id IN (SELECT id FROM stale_grants)
@@ -2345,6 +2391,14 @@ class OneLocationAgentService:
               WHERE code.id IN (SELECT id FROM stale_named_circle_codes)
                 AND (SELECT COUNT(*) FROM deleted_circle_invites) >= 0
               RETURNING id
+            ),
+            deleted_named_circle_member_invites AS (
+              DELETE FROM one_location_circle_member_invites invite
+              WHERE invite.id IN (
+                  SELECT id FROM stale_named_circle_member_invites
+                )
+                AND (SELECT COUNT(*) FROM deleted_named_circle_codes) >= 0
+              RETURNING id
             )
             SELECT
               (SELECT COUNT(*) FROM deleted_grants) AS deleted_grants,
@@ -2354,6 +2408,8 @@ class OneLocationAgentService:
               (SELECT COUNT(*) FROM deleted_public_invites) AS deleted_public_invites,
               (SELECT COUNT(*) FROM deleted_circle_invites) AS deleted_circle_invites,
               (SELECT COUNT(*) FROM deleted_named_circle_codes) AS deleted_named_circle_codes,
+              (SELECT COUNT(*) FROM deleted_named_circle_member_invites)
+                AS deleted_named_circle_member_invites,
               (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
               (SELECT COUNT(*) FROM deleted_events) AS deleted_events
             """,
@@ -2369,6 +2425,9 @@ class OneLocationAgentService:
             "deleted_public_invites": int(row.get("deleted_public_invites") or 0),
             "deleted_circle_invites": int(row.get("deleted_circle_invites") or 0),
             "deleted_named_circle_codes": int(row.get("deleted_named_circle_codes") or 0),
+            "deleted_named_circle_member_invites": int(
+                row.get("deleted_named_circle_member_invites") or 0
+            ),
             "deleted_public_submissions": int(row.get("deleted_public_submissions") or 0),
             "deleted_events": int(row.get("deleted_events") or 0),
             "retention_hours": hours,
@@ -2722,11 +2781,15 @@ class OneLocationAgentService:
         row = self._execute_one(
             """
             SELECT 1
-            FROM connections
-            WHERE status = 'active'
+            FROM connections connection
+            JOIN connection_origins origin
+              ON origin.connection_id = connection.id
+             AND origin.status = 'active'
+             AND origin.origin_kind <> 'named_circle'
+            WHERE connection.status = 'active'
               AND (
-                (user_a_id = :a AND user_b_id = :b)
-                OR (user_a_id = :b AND user_b_id = :a)
+                (connection.user_a_id = :a AND connection.user_b_id = :b)
+                OR (connection.user_a_id = :b AND connection.user_b_id = :a)
               )
             LIMIT 1
             """,
@@ -2756,13 +2819,23 @@ class OneLocationAgentService:
             SELECT
               EXISTS (
                 SELECT 1
-                FROM connections
-                WHERE status = 'active'
+                FROM connections connection
+                JOIN connection_origins origin
+                  ON origin.connection_id = connection.id
+                 AND origin.status = 'active'
+                 AND origin.origin_kind <> 'named_circle'
+                WHERE connection.status = 'active'
                   AND :source_circle_id IS NULL
                   AND (
-                    (user_a_id = :owner_user_id AND user_b_id = :other_user_id)
+                    (
+                      connection.user_a_id = :owner_user_id
+                      AND connection.user_b_id = :other_user_id
+                    )
                     OR
-                    (user_b_id = :owner_user_id AND user_a_id = :other_user_id)
+                    (
+                      connection.user_b_id = :owner_user_id
+                      AND connection.user_a_id = :other_user_id
+                    )
                   )
               ) AS active_connection,
               (
@@ -3080,14 +3153,25 @@ class OneLocationAgentService:
                     text(
                         """
                         SELECT 1
-                        FROM connections
-                        WHERE status = 'active'
+                        FROM connections connection
+                        JOIN connection_origins origin
+                          ON origin.connection_id = connection.id
+                         AND origin.status = 'active'
+                         AND origin.origin_kind <> 'named_circle'
+                        WHERE connection.status = 'active'
                           AND (
-                            (user_a_id = :owner_user_id AND user_b_id = :recipient_user_id)
+                            (
+                              connection.user_a_id = :owner_user_id
+                              AND connection.user_b_id = :recipient_user_id
+                            )
                             OR
-                            (user_b_id = :owner_user_id AND user_a_id = :recipient_user_id)
+                            (
+                              connection.user_b_id = :owner_user_id
+                              AND connection.user_a_id = :recipient_user_id
+                            )
                           )
                         LIMIT 1
+                        FOR SHARE OF connection, origin
                         """
                     ),
                     {

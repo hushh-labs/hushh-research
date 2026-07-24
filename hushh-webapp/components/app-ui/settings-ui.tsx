@@ -247,6 +247,7 @@ export function SettingsRow({
   voiceActionId,
   voiceLabel,
   voicePurpose,
+  ariaPressed,
   testId = "settings-row",
 }: {
   asChild?: boolean;
@@ -270,6 +271,8 @@ export function SettingsRow({
   voiceActionId?: string;
   voiceLabel?: string;
   voicePurpose?: string;
+  /** Selected state for button-backed toggle rows. */
+  ariaPressed?: boolean;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -430,6 +433,7 @@ export function SettingsRow({
             type="button"
             onClick={onClick}
             disabled={disabled}
+            aria-pressed={ariaPressed}
             className={primaryActionClassName}
             {...voiceProps}
           >
@@ -480,7 +484,12 @@ export function SettingsRow({
       ) : null}
       <Comp
         {...(!asChild && onClick
-          ? { type: "button" as const, onClick, disabled }
+          ? {
+              type: "button" as const,
+              onClick,
+              disabled,
+              "aria-pressed": ariaPressed,
+            }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}
         {...voiceProps}

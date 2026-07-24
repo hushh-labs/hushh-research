@@ -6,10 +6,13 @@ import {
   Check,
   Copy,
   KeyRound,
+  Loader2,
   LogOut,
   Pencil,
   Plus,
   RotateCw,
+  Search,
+  Send,
   Share2,
   ShieldCheck,
   Trash2,
@@ -30,6 +33,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   EmptyState,
@@ -38,10 +48,13 @@ import {
 } from "@/components/one-location/redesign/primitives";
 import type {
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnection,
+  OneLocationCircleEligibleConnections,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMember,
+  OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
@@ -70,15 +83,87 @@ function circleFlowErrorMessage(error: unknown, fallback: string): string {
 
 export function CirclesSection({
   circles,
+  incomingInvites,
+  incomingInvitesLoading,
+  incomingInvitesError,
+  focusedInviteId,
+  focusedInviteResolutionReady,
+  inviteBusy,
   onCreate,
   onJoin,
   onOpen,
+  onAcceptInvite,
+  onDeclineInvite,
+  onRetryInvites,
+  onDismissFocusedInvite,
 }: {
   circles: OneLocationCircleSummary[];
+  incomingInvites: OneLocationCircleMemberInvite[];
+  incomingInvitesLoading: boolean;
+  incomingInvitesError: string | null;
+  focusedInviteId: string | null;
+  focusedInviteResolutionReady: boolean;
+  inviteBusy: boolean;
   onCreate: () => void;
   onJoin: () => void;
   onOpen: (circleId: string) => void;
+  onAcceptInvite: (inviteId: string) => Promise<void>;
+  onDeclineInvite: (inviteId: string) => Promise<void>;
+  onRetryInvites: () => void;
+  onDismissFocusedInvite: () => void;
 }) {
+  const [respondingInviteId, setRespondingInviteId] = useState<string | null>(
+    null,
+  );
+  const responseInFlightRef = useRef(false);
+  const focusedInviteElementRef = useRef<HTMLDivElement | null>(null);
+  const focusedInvite = focusedInviteId
+    ? incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (
+      !focusedInvite ||
+      incomingInvitesLoading ||
+      !focusedInviteElementRef.current
+    ) {
+      return;
+    }
+    const element = focusedInviteElementRef.current;
+    element.focus({ preventScroll: true });
+    if (typeof element.scrollIntoView === "function") {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [focusedInvite, incomingInvitesError, incomingInvitesLoading]);
+
+  const respondToInvite = async (
+    invite: OneLocationCircleMemberInvite,
+    decision: "accept" | "decline",
+  ) => {
+    if (responseInFlightRef.current || inviteBusy) return;
+    responseInFlightRef.current = true;
+    setRespondingInviteId(invite.id);
+    try {
+      if (decision === "accept") {
+        await onAcceptInvite(invite.id);
+      } else {
+        await onDeclineInvite(invite.id);
+      }
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(
+          error,
+          decision === "accept"
+            ? "Could not join this Circle."
+            : "Could not decline this invitation.",
+        ),
+      );
+    } finally {
+      responseInFlightRef.current = false;
+      setRespondingInviteId(null);
+    }
+  };
+
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex items-center justify-between gap-3 px-1">
@@ -91,6 +176,117 @@ export function CirclesSection({
           </p>
         </div>
       </div>
+
+      {incomingInvitesError ? (
+        <EmptyState
+          title="Circle invitations unavailable"
+          description={incomingInvitesError}
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              disabled={incomingInvitesLoading}
+              isLoading={incomingInvitesLoading}
+              onClick={onRetryInvites}
+              className="h-11 rounded-full px-5"
+            >
+              Retry
+            </Button>
+          }
+        />
+      ) : null}
+
+      {incomingInvitesLoading &&
+      !incomingInvites.length &&
+      !incomingInvitesError ? (
+        <div
+          role="status"
+          className="flex min-h-16 items-center justify-center gap-2 rounded-2xl bg-muted/35 text-sm text-muted-foreground"
+        >
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Checking Circle invitations…
+        </div>
+      ) : null}
+
+      {incomingInvites.length ? (
+        <SettingsGroup
+          title="Circle invitations"
+          description="Joining connects you with current and future Circle members. Location and SMS stay private until you choose to share."
+          testId="one-location-circle-member-invites"
+        >
+          {incomingInvites.map((invite) => {
+            const responding = respondingInviteId === invite.id;
+            const isFocused = invite.id === focusedInviteId;
+            return (
+              <div
+                key={invite.id}
+                ref={isFocused ? focusedInviteElementRef : undefined}
+                tabIndex={isFocused ? -1 : undefined}
+                className={cn(
+                  "flex min-h-20 flex-col gap-3 px-4 py-3 outline-none sm:flex-row sm:items-center",
+                  isFocused &&
+                    "bg-[color:var(--app-accent-soft)] ring-2 ring-inset ring-[color:var(--app-accent-ring)]",
+                )}
+                data-focused={isFocused || undefined}
+                data-testid={`one-location-circle-invite-${invite.id}`}
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-semibold text-foreground">
+                    {invite.circleName}
+                  </p>
+                  <p className="text-[13px] leading-5 text-muted-foreground">
+                    Invited by {invite.inviterDisplayName}
+                  </p>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={inviteBusy || Boolean(respondingInviteId)}
+                    onClick={() => void respondToInvite(invite, "decline")}
+                    className="h-11 rounded-full px-4"
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={inviteBusy || Boolean(respondingInviteId)}
+                    isLoading={responding}
+                    onClick={() => void respondToInvite(invite, "accept")}
+                    className="h-11 rounded-full px-4"
+                  >
+                    Join
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </SettingsGroup>
+      ) : null}
+
+      {focusedInviteId &&
+      focusedInviteResolutionReady &&
+      !focusedInvite &&
+      !incomingInvitesLoading &&
+      !incomingInvitesError ? (
+        <EmptyState
+          title="Circle invitation no longer available"
+          description="It may have expired, been cancelled or already been answered."
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onDismissFocusedInvite}
+              className="h-11 rounded-full px-5"
+            >
+              Dismiss
+            </Button>
+          }
+        />
+      ) : null}
 
       {circles.length ? (
         <SettingsGroup separatorInset testId="one-location-circle-list">
@@ -200,7 +396,7 @@ export function CreateCircleFlow({
       <TaskFlowHeader
         eyebrow="People"
         title="Create a circle"
-        description="Give this group a name. Joining never starts location sharing automatically."
+        description="Give this group a name. People join only by accepting an invitation or entering its code."
       />
 
       <label className="block space-y-2">
@@ -238,8 +434,8 @@ export function CreateCircleFlow({
       </SettingsGroup>
 
       <TrustNoteCard
-        title="Private by default"
-        description="Membership only makes people eligible to share. Every live-location share still needs an explicit duration and confirmation."
+        title="Connected, still private"
+        description="Circle members become connections with current and future members. Location and SMS stay private until each person chooses to share."
       />
 
       <Button
@@ -368,8 +564,8 @@ export function JoinCircleFlow({
             </div>
           </div>
           <p className="mt-4 text-sm leading-5 text-muted-foreground">
-            Joining adds you to this Circle. It does not share your current or
-            live location.
+            Joining connects you with current and future Circle members. Your
+            location and SMS contacts stay private until you choose to share.
           </p>
         </div>
       ) : null}
@@ -398,7 +594,7 @@ export function JoinCircleFlow({
 
       <TrustNoteCard
         title="No request wait"
-        description="A valid code joins the Circle immediately, while location access remains explicit and revocable."
+        description="A valid code is your consent to join and connect with the Circle. Location access remains explicit, time-limited and revocable."
       />
     </div>
   );
@@ -508,6 +704,9 @@ export function CircleDetailFlow({
   onShareCode,
   onShareWithMember,
   onRemoveMember,
+  onLoadEligibleConnections,
+  onInviteConnections,
+  onCancelMemberInvite,
   onLeave,
   onDelete,
 }: {
@@ -528,6 +727,14 @@ export function CircleDetailFlow({
   ) => Promise<void>;
   onShareWithMember: (circleId: string, userId: string) => void;
   onRemoveMember: (circleId: string, userId: string) => Promise<void>;
+  onLoadEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onInviteConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onCancelMemberInvite: (inviteId: string) => Promise<void>;
   onLeave: (circleId: string) => Promise<void>;
   onDelete: (circleId: string) => Promise<void>;
 }) {
@@ -537,7 +744,28 @@ export function CircleDetailFlow({
     useState<OneLocationCircleInviteCode | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [circleName, setCircleName] = useState("");
+  const [peopleSheetOpen, setPeopleSheetOpen] = useState(false);
+  const [eligibleConnections, setEligibleConnections] = useState<
+    OneLocationCircleEligibleConnection[]
+  >([]);
+  const [pendingInvites, setPendingInvites] = useState<
+    OneLocationCircleMemberInvite[]
+  >([]);
+  const [remainingCapacity, setRemainingCapacity] = useState(0);
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleSubmitting, setPeopleSubmitting] = useState(false);
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
+    null,
+  );
   const loadRequestRef = useRef(0);
+  const peopleRequestRef = useRef(0);
+  const peopleSubmitInFlightRef = useRef(false);
+  const cancelInviteInFlightRef = useRef(false);
 
   const reload = async () => {
     const requestId = ++loadRequestRef.current;
@@ -563,11 +791,16 @@ export function CircleDetailFlow({
   useEffect(() => {
     setCircle(null);
     setInviteCode(null);
+    setPeopleSheetOpen(false);
+    setPeopleSearch("");
+    setSelectedConnectionIds(new Set());
+    peopleRequestRef.current += 1;
     void reload();
     // `onLoad` is a stable page callback. Reload only when the selected id
     // changes; unrelated page refreshes must not refetch the focused detail.
     return () => {
       loadRequestRef.current += 1;
+      peopleRequestRef.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [circleId]);
@@ -576,6 +809,104 @@ export function CircleDetailFlow({
     loadedCircle?.id === circleId ? loadedCircle : null;
   const isOwner = circle?.role === "owner";
   const members = useMemo(() => circle?.members ?? [], [circle?.members]);
+  const filteredEligibleConnections = useMemo(() => {
+    const query = peopleSearch.trim().toLocaleLowerCase();
+    if (!query) return eligibleConnections;
+    return eligibleConnections.filter((connection) =>
+      connection.displayName.toLocaleLowerCase().includes(query),
+    );
+  }, [eligibleConnections, peopleSearch]);
+
+  const loadEligibleConnections = async () => {
+    if (!circle || !isOwner) return;
+    const requestId = ++peopleRequestRef.current;
+    setPeopleLoading(true);
+    setPeopleLoadError(null);
+    try {
+      const result = await onLoadEligibleConnections(circle.id);
+      if (requestId !== peopleRequestRef.current) return;
+      setEligibleConnections(result.eligibleConnections);
+      setPendingInvites(result.pendingInvites);
+      setRemainingCapacity(result.remainingCapacity);
+      setSelectedConnectionIds((current) => {
+        const availableIds = new Set(
+          result.eligibleConnections.map((connection) => connection.userId),
+        );
+        return new Set(
+          [...current]
+            .filter((id) => availableIds.has(id))
+            .slice(0, result.remainingCapacity),
+        );
+      });
+    } catch (error) {
+      if (requestId !== peopleRequestRef.current) return;
+      setPeopleLoadError(
+        circleFlowErrorMessage(error, "Could not load your connections."),
+      );
+    } finally {
+      if (requestId === peopleRequestRef.current) setPeopleLoading(false);
+    }
+  };
+
+  const openPeopleSheet = () => {
+    if (!circle || !isOwner) return;
+    setPeopleSheetOpen(true);
+    setPeopleSearch("");
+    setSelectedConnectionIds(new Set());
+    void loadEligibleConnections();
+  };
+
+  const sendMemberInvites = async () => {
+    if (
+      !circle ||
+      peopleSubmitInFlightRef.current ||
+      !selectedConnectionIds.size
+    ) {
+      return;
+    }
+    const inviteeUserIds = [...selectedConnectionIds];
+    peopleSubmitInFlightRef.current = true;
+    setPeopleSubmitting(true);
+    try {
+      await onInviteConnections(circle.id, inviteeUserIds);
+      toast.success(
+        inviteeUserIds.length === 1
+          ? "Circle invitation sent."
+          : `${inviteeUserIds.length} Circle invitations sent.`,
+      );
+      setSelectedConnectionIds(new Set());
+      await loadEligibleConnections();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not send the invitation."),
+      );
+      // Capacity or eligibility may have changed while the sheet was open.
+      // Reconcile against the server before another tap so stale selections
+      // are trimmed rather than repeatedly submitting a known conflict.
+      await loadEligibleConnections();
+    } finally {
+      peopleSubmitInFlightRef.current = false;
+      setPeopleSubmitting(false);
+    }
+  };
+
+  const cancelMemberInvite = async (inviteId: string) => {
+    if (cancelInviteInFlightRef.current) return;
+    cancelInviteInFlightRef.current = true;
+    setCancellingInviteId(inviteId);
+    try {
+      await onCancelMemberInvite(inviteId);
+      toast.success("Circle invitation cancelled.");
+      await loadEligibleConnections();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not cancel the invitation."),
+      );
+    } finally {
+      cancelInviteInFlightRef.current = false;
+      setCancellingInviteId(null);
+    }
+  };
 
   const generateCode = async () => {
     if (!circle) return;
@@ -711,11 +1042,21 @@ export function CircleDetailFlow({
                     Invite people
                   </p>
                   <p className="mt-0.5 text-sm text-muted-foreground">
-                    Codes expire after 72 hours. Rotating immediately disables
-                    the previous code.
+                    Invite an existing connection directly, or share a code
+                    with someone new.
                   </p>
                 </div>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={openPeopleSheet}
+                className="mt-4 h-11 w-full rounded-full font-semibold"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add people
+              </Button>
               {inviteCode ? (
                 <div className="mt-4 rounded-2xl bg-muted/55 p-4 text-center">
                   <p className="font-mono text-xl font-bold tracking-[0.12em] text-foreground">
@@ -752,7 +1093,7 @@ export function CircleDetailFlow({
                   disabled={busy}
                   isLoading={busy}
                   onClick={() => void generateCode()}
-                  className="mt-4 h-11 w-full rounded-full font-semibold"
+                  className="mt-2 h-11 w-full rounded-full font-semibold"
                 >
                   <KeyRound className="mr-2 h-4 w-4" />
                   Generate invite code
@@ -774,9 +1115,213 @@ export function CircleDetailFlow({
             </div>
           ) : null}
 
+          <Sheet
+            open={peopleSheetOpen}
+            onOpenChange={(open) => {
+              setPeopleSheetOpen(open);
+              if (!open) {
+                peopleRequestRef.current += 1;
+                setPeopleSearch("");
+                setSelectedConnectionIds(new Set());
+              }
+            }}
+          >
+            <SheetContent
+              side="bottom"
+              className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+            >
+              <SheetHeader className="text-left">
+                <SheetTitle>Add people to {circle.name}</SheetTitle>
+                <SheetDescription>
+                  Choose existing connections. They join only after accepting
+                  the Circle invitation; no second Connect request is needed.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
+                <label className="relative block">
+                  <span className="sr-only">Search connections</span>
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={peopleSearch}
+                    onChange={(event) => setPeopleSearch(event.target.value)}
+                    placeholder="Search connections"
+                    className="h-12 w-full rounded-full border border-border bg-muted/40 pl-11 pr-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                  />
+                </label>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  {peopleLoading ? (
+                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Loading connections…
+                    </div>
+                  ) : peopleLoadError ? (
+                    <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
+                      <p className="text-sm text-muted-foreground">
+                        {peopleLoadError}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void loadEligibleConnections()}
+                        className="h-11 rounded-full"
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {remainingCapacity > 0 &&
+                      filteredEligibleConnections.length ? (
+                        <SettingsGroup
+                          title="Your connections"
+                          description={
+                            remainingCapacity === 1
+                              ? "This Circle has room for 1 more person."
+                              : `This Circle has room for ${remainingCapacity} more people.`
+                          }
+                          testId="one-location-circle-eligible-connections"
+                        >
+                          {filteredEligibleConnections.map((connection) => {
+                            const selected = selectedConnectionIds.has(
+                              connection.userId,
+                            );
+                            const selectionAtCapacity =
+                              selectedConnectionIds.size >= remainingCapacity;
+                            return (
+                              <SettingsRow
+                                key={connection.userId}
+                                leading={
+                                  <Avatar className="h-10 w-10 rounded-xl">
+                                    {connection.photoUrl ? (
+                                      <AvatarImage
+                                        src={connection.photoUrl}
+                                        alt=""
+                                      />
+                                    ) : null}
+                                    <AvatarFallback className="rounded-xl">
+                                      {circleInitials(connection.displayName)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                }
+                                title={connection.displayName}
+                                description="Connected on One"
+                                ariaPressed={selected}
+                                disabled={!selected && selectionAtCapacity}
+                                trailing={
+                                  <span
+                                    className={cn(
+                                      "flex h-6 w-6 items-center justify-center rounded-full border",
+                                      selected
+                                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                                        : "border-border bg-background",
+                                    )}
+                                  >
+                                    {selected ? (
+                                      <Check className="h-4 w-4" />
+                                    ) : null}
+                                  </span>
+                                }
+                                onClick={() =>
+                                  setSelectedConnectionIds((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(connection.userId)) {
+                                      next.delete(connection.userId);
+                                    } else if (
+                                      next.size < remainingCapacity
+                                    ) {
+                                      next.add(connection.userId);
+                                    }
+                                    return next;
+                                  })
+                                }
+                                testId={`one-location-circle-eligible-${connection.userId}`}
+                              />
+                            );
+                          })}
+                        </SettingsGroup>
+                      ) : (
+                        <EmptyState
+                          title={
+                            remainingCapacity === 0
+                              ? "This Circle is full"
+                              : peopleSearch.trim()
+                                ? "No matching connections"
+                                : "No connections to add"
+                          }
+                          description={
+                            remainingCapacity === 0
+                              ? "Remove a member before inviting someone else."
+                              : peopleSearch.trim()
+                                ? "Try a different name."
+                                : "Members and pending invitations are hidden. Add someone in Connect first if this list is empty."
+                          }
+                        />
+                      )}
+
+                      {pendingInvites.length ? (
+                        <SettingsGroup
+                          title="Pending invitations"
+                          description="You can cancel an invitation before it is accepted."
+                        >
+                          {pendingInvites.map((invite) => (
+                            <SettingsRow
+                              key={invite.id}
+                              icon={Send}
+                              iconTone="blue"
+                              title={
+                                invite.inviteeDisplayName || "One connection"
+                              }
+                              description="Waiting for them to join"
+                              trailing={
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  disabled={Boolean(cancellingInviteId)}
+                                  isLoading={cancellingInviteId === invite.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void cancelMemberInvite(invite.id);
+                                  }}
+                                  className="h-11 rounded-full px-3 text-destructive hover:text-destructive"
+                                >
+                                  Cancel
+                                </Button>
+                              }
+                            />
+                          ))}
+                        </SettingsGroup>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={
+                    !selectedConnectionIds.size ||
+                    peopleLoading ||
+                    peopleSubmitting ||
+                    Boolean(cancellingInviteId)
+                  }
+                  isLoading={peopleSubmitting}
+                  onClick={() => void sendMemberInvites()}
+                  className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+                >
+                  {selectedConnectionIds.size
+                    ? `Invite ${selectedConnectionIds.size} ${
+                        selectedConnectionIds.size === 1 ? "person" : "people"
+                      }`
+                    : "Select people"}
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+
           <SettingsGroup
             title="Members"
-            description="Membership never shares location automatically."
+            description="Members are connected through this Circle. Location and SMS sharing remain explicit."
             testId="one-location-circle-members"
           >
             {members.map((member) => (
@@ -797,8 +1342,8 @@ export function CircleDetailFlow({
           </SettingsGroup>
 
           <TrustNoteCard
-            title="Explicit sharing only"
-            description="Circle membership is not a live-view permission. Every recipient still gets a separate encrypted, time-limited grant."
+            title="Connected does not mean visible"
+            description="Circle membership is not live-view permission. Every location recipient still needs a separate encrypted, time-limited grant."
           />
 
           {isOwner ? (

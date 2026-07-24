@@ -56,4 +56,86 @@ describe("ConnectionsService", () => {
     expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
     expect(JSON.parse(opts.body as string)).toEqual({ peer_user_id: "u2" });
   });
+
+  it("preserves Circle provenance returned by the connection list", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            connectionId: "c1",
+            userId: "u2",
+            displayName: "Bo",
+            photoUrl: null,
+            createdAt: "2026-07-24T00:00:00Z",
+            connectionKind: "circle",
+            circleIds: ["circle-1"],
+            circleNames: ["Family"],
+            canRemoveDirect: false,
+          },
+        ],
+      }),
+    );
+
+    const items = await ConnectionsService.listConnections({ idToken: "tok" });
+
+    expect(items[0]).toMatchObject({
+      connectionKind: "circle",
+      circleNames: ["Family"],
+      canRemoveDirect: false,
+    });
+  });
+
+  it("prefers canonical Circle objects after direct removal", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        result: {
+          removed: 1,
+          stillConnected: true,
+          connectionKind: "circle",
+          circles: [{ id: "circle-1", name: "Family" }],
+          circleIds: ["stale-circle"],
+          circleNames: ["Stale name"],
+          canRemoveDirect: false,
+        },
+      }),
+    );
+
+    const result = await ConnectionsService.removeConnection({
+      idToken: "tok",
+      connectionId: "connection-1",
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/api/one/connections/connection-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(result.stillConnected).toBe(true);
+    expect(result.circleNames).toEqual(["Family"]);
+    expect(result.circleIds).toEqual(["circle-1"]);
+    expect(result.circles).toEqual([{ id: "circle-1", name: "Family" }]);
+  });
+
+  it("falls back to legacy parallel Circle arrays for old servers", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        result: {
+          removed: 1,
+          stillConnected: true,
+          connectionKind: "circle",
+          circleIds: ["circle-legacy"],
+          circleNames: ["Legacy Family"],
+          canRemoveDirect: false,
+        },
+      }),
+    );
+
+    const result = await ConnectionsService.removeConnection({
+      idToken: "tok",
+      connectionId: "connection-1",
+    });
+
+    expect(result.circles).toEqual([
+      { id: "circle-legacy", name: "Legacy Family" },
+    ]);
+  });
 });

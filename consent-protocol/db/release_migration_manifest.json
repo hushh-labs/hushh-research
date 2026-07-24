@@ -95,7 +95,9 @@
     "114_one_action_directive_ledger.sql",
     "115_one_location_map_presence.sql",
     "116_one_location_sms_contacts.sql",
-    "117_one_location_named_circles.sql"
+    "117_one_location_named_circles.sql",
+    "118_one_location_circle_connection_origins.sql",
+    "119_one_location_circle_member_invites.sql"
   ],
   "groups": {
     "iam": [
@@ -150,7 +152,9 @@
       "114_one_action_directive_ledger.sql",
       "115_one_location_map_presence.sql",
       "116_one_location_sms_contacts.sql",
-      "117_one_location_named_circles.sql"
+      "117_one_location_named_circles.sql",
+      "118_one_location_circle_connection_origins.sql",
+      "119_one_location_circle_member_invites.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

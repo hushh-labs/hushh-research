@@ -277,6 +277,7 @@ class FourUserMemoryService(OneLocationAgentService):
         self.network_connections: dict[str, dict] = {}
         self.trusted_connections: dict[str, dict] = {}
         self.connections: dict[str, dict] = {}
+        self.connection_origins: dict[str, dict] = {}
         self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
@@ -289,16 +290,83 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _seed_connection(self, owner: str, other: str, *, status: str = "active") -> None:
         a, b = sorted((owner, other))
-        self.connections[f"{a}:{b}"] = {
-            "id": f"conn-{a}-{b}",
-            "user_a_id": a,
-            "user_b_id": b,
+        pair_key = f"{a}:{b}"
+        connection = self.connections.setdefault(
+            pair_key,
+            {
+                "id": f"conn-{a}-{b}",
+                "user_a_id": a,
+                "user_b_id": b,
+                "status": status,
+            },
+        )
+        connection["status"] = status
+        origin_key = f"{connection['id']}:direct_request"
+        self.connection_origins[origin_key] = {
+            "id": f"origin-{a}-{b}-direct",
+            "connection_id": connection["id"],
+            "origin_kind": "direct_request",
+            "origin_key": "direct_request",
+            "source_circle_id": None,
             "status": status,
         }
 
     def _seed_named_circle(self, circle_id: str, *user_ids: str) -> None:
-        for user_id in user_ids:
+        members = sorted(set(user_ids))
+        for user_id in members:
             self.named_circle_memberships.add((circle_id, user_id))
+        for index, owner in enumerate(members):
+            for other in members[index + 1 :]:
+                a, b = sorted((owner, other))
+                pair_key = f"{a}:{b}"
+                connection = self.connections.setdefault(
+                    pair_key,
+                    {
+                        "id": f"conn-{a}-{b}",
+                        "user_a_id": a,
+                        "user_b_id": b,
+                        "status": "active",
+                    },
+                )
+                connection["status"] = "active"
+                origin_key = f"{connection['id']}:named_circle:{circle_id}"
+                self.connection_origins[origin_key] = {
+                    "id": f"origin-{a}-{b}-{circle_id}",
+                    "connection_id": connection["id"],
+                    "origin_kind": "named_circle",
+                    "origin_key": f"named_circle:{circle_id}",
+                    "source_circle_id": circle_id,
+                    "status": "active",
+                }
+
+    def _revoke_connection_origin(
+        self,
+        owner: str,
+        other: str,
+        *,
+        origin_kind: str,
+        source_circle_id: str | None = None,
+    ) -> None:
+        a, b = sorted((owner, other))
+        connection = self.connections[f"{a}:{b}"]
+        expected_origin_key = (
+            f"named_circle:{source_circle_id}" if origin_kind == "named_circle" else origin_kind
+        )
+        for origin in self.connection_origins.values():
+            if (
+                origin["connection_id"] == connection["id"]
+                and origin["origin_kind"] == origin_kind
+                and origin["origin_key"] == expected_origin_key
+            ):
+                origin["status"] = "revoked"
+        connection["status"] = (
+            "active"
+            if any(
+                origin["connection_id"] == connection["id"] and origin["status"] == "active"
+                for origin in self.connection_origins.values()
+            )
+            else "revoked"
+        )
 
     def _create_enforced_grant_row(
         self,
@@ -770,6 +838,12 @@ class FourUserMemoryService(OneLocationAgentService):
                     connection.get("user_a_id"),
                     connection.get("user_b_id"),
                 }
+                and any(
+                    origin.get("connection_id") == connection.get("id")
+                    and origin.get("status") == "active"
+                    and origin.get("origin_kind") != "named_circle"
+                    for origin in self.connection_origins.values()
+                )
                 for connection in self.connections.values()
             )
             shared_circle_ids = sorted(
@@ -802,7 +876,12 @@ class FourUserMemoryService(OneLocationAgentService):
                 if conn.get("status") != "active":
                     continue
                 pair = {conn["user_a_id"], conn["user_b_id"]}
-                if pair == {a, b}:
+                if pair == {a, b} and any(
+                    origin.get("connection_id") == conn.get("id")
+                    and origin.get("status") == "active"
+                    and origin.get("origin_kind") != "named_circle"
+                    for origin in self.connection_origins.values()
+                ):
                     return {"exists": 1}
             return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
@@ -1787,6 +1866,7 @@ def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None
     assert result["deleted_referrals"] == 1
     assert result["deleted_public_invites"] == 1
     assert result["deleted_named_circle_codes"] == 0
+    assert result["deleted_named_circle_member_invites"] == 0
     assert result["deleted_public_submissions"] == 1
     assert result["deleted_events"] == 1
     assert old_grant_id not in service.grants
@@ -1802,6 +1882,33 @@ def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None
     assert current_invite_id in service.public_invites
     assert current_submission_id in service.public_submissions
     assert active_event_id in service.events
+
+
+class _TerminalPurgeSqlProbe(OneLocationAgentService):
+    def __init__(self) -> None:
+        self.sql = ""
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        self.sql = sql
+        return {}
+
+
+def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() -> None:
+    service = _TerminalPurgeSqlProbe()
+
+    service._purge_terminal_work(user_id="user_a", older_than_hours=12)
+
+    candidate_start = service.sql.index("expired_named_circle_member_invite_candidates AS")
+    update_start = service.sql.index("expired_named_circle_member_invites AS")
+    candidate_sql = service.sql[candidate_start:update_start]
+    assert "SELECT invite.id" in candidate_sql
+    assert "WHERE invite.status = 'pending'" in candidate_sql
+    assert "ORDER BY invite.expires_at, invite.id" in candidate_sql
+    assert "LIMIT 500" in candidate_sql
+    assert "FOR UPDATE SKIP LOCKED" in candidate_sql
+    assert update_start > candidate_start
+    assert "FROM expired_named_circle_member_invite_candidates candidate" in service.sql
+    assert "WHERE invite.id = candidate.id" in service.sql
 
 
 def test_four_user_location_workflow_contract() -> None:
@@ -2387,7 +2494,7 @@ def test_active_connection_makes_user_a_location_recipient() -> None:
     assert recipient_ids == {"user_b"}
 
 
-def test_shared_named_circle_makes_user_a_location_recipient_without_connection() -> None:
+def test_shared_named_circle_materializes_circle_only_location_recipient() -> None:
     service = FourUserMemoryService()
     service._seed_named_circle(
         "550e8400-e29b-41d4-a716-446655440000",
@@ -2401,7 +2508,10 @@ def test_shared_named_circle_makes_user_a_location_recipient_without_connection(
     }
 
     assert recipient_ids == {"user_b"}
-    assert service.connections == {}
+    assert len(service.connections) == 1
+    assert {origin["origin_kind"] for origin in service.connection_origins.values()} == {
+        "named_circle"
+    }
     assert service.trusted_connections == {}
 
 
@@ -2670,7 +2780,7 @@ def test_create_grant_enforce_connection_allows_connection() -> None:
     assert grant["sourceCircleId"] is None
 
 
-def test_create_grant_circle_membership_derives_revocable_provenance() -> None:
+def test_create_grant_circle_only_connection_derives_revocable_provenance() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",
@@ -2690,6 +2800,76 @@ def test_create_grant_circle_membership_derives_revocable_provenance() -> None:
 
     assert grant["sourceCircleId"] == circle_id
     assert service.grants[grant["id"]]["source_circle_id"] == circle_id
+    assert {
+        origin["origin_kind"]
+        for origin in service.connection_origins.values()
+        if origin["status"] == "active"
+    } == {"named_circle"}
+
+    service.named_circle_memberships.difference_update(
+        {(circle_id, "user_a"), (circle_id, "user_b")}
+    )
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="named_circle",
+        source_circle_id=circle_id,
+    )
+
+    assert next(iter(service.connections.values()))["status"] == "revoked"
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_create_grant_direct_origin_wins_and_survives_circle_origin_revocation() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_connection("user_a", "user_b")
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+    )
+
+    assert grant["sourceCircleId"] is None
+    assert {
+        origin["origin_kind"]
+        for origin in service.connection_origins.values()
+        if origin["status"] == "active"
+    } == {"direct_request", "named_circle"}
+
+    service.named_circle_memberships.difference_update(
+        {(circle_id, "user_a"), (circle_id, "user_b")}
+    )
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="named_circle",
+        source_circle_id=circle_id,
+    )
+
+    assert next(iter(service.connections.values()))["status"] == "active"
+    assert service.grants[grant["id"]]["status"] == "active"
+    assert service._is_location_peer_eligible(
+        owner_user_id="user_a",
+        other_user_id="user_b",
+    )
 
 
 def test_create_grant_rejects_an_unshared_explicit_circle() -> None:
@@ -2781,6 +2961,11 @@ def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -
     )
 
     assert row == {"id": "grant-id", "source_circle_id": circle_id}
+    direct_lookup = next(sql for sql in connection.calls if "FROM connections" in sql)
+    assert "JOIN connection_origins origin" in direct_lookup
+    assert "origin.status = 'active'" in direct_lookup
+    assert "origin.origin_kind <> 'named_circle'" in direct_lookup
+    assert "FOR SHARE OF connection, origin" in direct_lookup
     circle_lock = next(
         index
         for index, sql in enumerate(connection.calls)

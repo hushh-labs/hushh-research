@@ -50,9 +50,11 @@ import type {
   OneLocationAccessRequest,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnections,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -142,6 +144,10 @@ export type LocationHubViewModel = {
   /* data lists */
   recipients: OneLocationRecipient[];
   circles: OneLocationCircleSummary[];
+  incomingCircleMemberInvites: OneLocationCircleMemberInvite[];
+  incomingCircleMemberInvitesLoading: boolean;
+  incomingCircleMemberInvitesError: string | null;
+  incomingCircleMemberInviteFocusResolved: boolean;
   visibleRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
   receivedGrants: OneLocationGrant[];
@@ -224,6 +230,17 @@ export type LocationHubViewModel = {
     circleId: string,
     memberUserId: string,
   ) => Promise<void>;
+  onLoadNamedCircleEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onInviteNamedCircleConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onAcceptNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onDeclineNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onCancelNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onRetryNamedCircleMemberInvites: () => void;
   onLeaveNamedCircle: (circleId: string) => Promise<void>;
   onDeleteNamedCircle: (circleId: string) => Promise<void>;
   prepareNamedCircleShare: (circleId: string, recipientUserId: string) => void;
@@ -344,6 +361,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
   const [flow, setFlow] = useState<FlowKind>("none");
+  const focusedCircleMemberInviteId =
+    String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
   // surface alive until its authored `?action=` update arrives so a stale query
   // snapshot cannot close a newly opened detail flow.
@@ -492,6 +511,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [flow, pathname, router, searchParams, vm],
   );
 
+  const dismissFocusedCircleMemberInvite = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("circleInviteId");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  }, [pathname, router, searchParams]);
+
   // Keep the flow view in sync with the URL action param: the chrome/OS back
   // button strips the param, which closes the flow back to the hub. A direct
   // deep-link to `?action=…` opens the matching flow on load. Resetting the
@@ -629,6 +657,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               openFlow("share");
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
+            onLoadEligibleConnections={
+              vm.onLoadNamedCircleEligibleConnections
+            }
+            onInviteConnections={vm.onInviteNamedCircleConnections}
+            onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
             onDelete={vm.onDeleteNamedCircle}
           />
@@ -756,6 +789,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onCreateCircle={() => openFlow("create-circle")}
               onJoinCircle={() => openFlow("join-circle")}
               onOpenCircle={openCircleDetail}
+              focusedInviteId={focusedCircleMemberInviteId}
+              onDismissFocusedInvite={dismissFocusedCircleMemberInvite}
               onStartShare={() => {
                 vm.clearNamedCircleShareContext();
                 openFlow("share");
@@ -1237,6 +1272,8 @@ function PeopleHub({
   onCreateCircle,
   onJoinCircle,
   onOpenCircle,
+  focusedInviteId,
+  onDismissFocusedInvite,
   onStartShare,
   onAsk,
 }: {
@@ -1246,6 +1283,8 @@ function PeopleHub({
   onCreateCircle: () => void;
   onJoinCircle: () => void;
   onOpenCircle: (circleId: string) => void;
+  focusedInviteId: string | null;
+  onDismissFocusedInvite: () => void;
   onStartShare: () => void;
   onAsk: () => void;
 }) {
@@ -1264,9 +1303,21 @@ function PeopleHub({
       <div className="space-y-5">
         <CirclesSection
           circles={vm.circles}
+          incomingInvites={vm.incomingCircleMemberInvites}
+          incomingInvitesLoading={vm.incomingCircleMemberInvitesLoading}
+          incomingInvitesError={vm.incomingCircleMemberInvitesError}
+          focusedInviteId={focusedInviteId}
+          focusedInviteResolutionReady={
+            vm.incomingCircleMemberInviteFocusResolved
+          }
+          inviteBusy={vm.busy === "circleMemberInvite"}
           onCreate={onCreateCircle}
           onJoin={onJoinCircle}
           onOpen={onOpenCircle}
+          onAcceptInvite={vm.onAcceptNamedCircleMemberInvite}
+          onDeclineInvite={vm.onDeclineNamedCircleMemberInvite}
+          onRetryInvites={vm.onRetryNamedCircleMemberInvites}
+          onDismissFocusedInvite={onDismissFocusedInvite}
         />
 
         <SectionCard
@@ -1322,9 +1373,21 @@ function PeopleHub({
     <div className="space-y-4">
       <CirclesSection
         circles={vm.circles}
+        incomingInvites={vm.incomingCircleMemberInvites}
+        incomingInvitesLoading={vm.incomingCircleMemberInvitesLoading}
+        incomingInvitesError={vm.incomingCircleMemberInvitesError}
+        focusedInviteId={focusedInviteId}
+        focusedInviteResolutionReady={
+          vm.incomingCircleMemberInviteFocusResolved
+        }
+        inviteBusy={vm.busy === "circleMemberInvite"}
         onCreate={onCreateCircle}
         onJoin={onJoinCircle}
         onOpen={onOpenCircle}
+        onAcceptInvite={vm.onAcceptNamedCircleMemberInvite}
+        onDeclineInvite={vm.onDeclineNamedCircleMemberInvite}
+        onRetryInvites={vm.onRetryNamedCircleMemberInvites}
+        onDismissFocusedInvite={onDismissFocusedInvite}
       />
 
       <PersonSearchInput

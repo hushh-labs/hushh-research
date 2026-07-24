@@ -198,7 +198,7 @@ not the product owner for live location.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, and referrals for the authenticated user |
 | POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List active connections and active named-Circle co-members excluding self, with masked labels and public-key readiness only |
@@ -215,13 +215,19 @@ not the product owner for live location.
 | POST | `/api/one/location/circles` | VAULT_OWNER Bearer | Create a bounded named Circle and its owner membership atomically |
 | GET | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Return Circle metadata and the safe member roster to an active member |
 | PATCH | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Owner-only rename/type update |
-| DELETE | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Owner-only soft delete; revokes the active code and Circle-sourced grants |
+| DELETE | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Owner-only soft delete; cancels pending targeted invitations and revokes the active code, Circle connection origins, and Circle-sourced grants while preserving other connection origins |
 | POST | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only create/rotate of a reusable 72-hour code; returns the raw code once and stores only a keyed HMAC digest |
 | DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
+| GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Owner-only list of active direct connections who are not active Circle members, pending targeted invitations, and `remainingCapacity` after active-member and unexpired-invitation reservations, for the Add people picker |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | Owner-only batch create or reuse targeted, expiring Circle invitations for selected existing direct connections; invitation creation grants no membership, location, SMS, trusted edge, or capability |
+| GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming or Circle-owner outgoing targeted invitations, bounded by the requested direction/status |
+| POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance; atomically joins the Circle and creates source-aware canonical connection origins with active members, without creating location/SMS/trusted authorization |
+| POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
+| DELETE | `/api/one/location/circle-member-invites/{invite_id}` | VAULT_OWNER Bearer | Circle owner/inviter cancellation of a pending targeted Circle invitation |
 | POST | `/api/one/location/circle-codes/resolve` | VAULT_OWNER Bearer | Resolve safe Circle preview metadata for a bounded human-entered code |
-| POST | `/api/one/location/circle-codes/join` | VAULT_OWNER Bearer | Atomically join the Circle without creating a connection, trusted edge, SMS selection, location grant, envelope, or capability token |
-| DELETE | `/api/one/location/circles/{circle_id}/members/me` | VAULT_OWNER Bearer | Leave a member role and revoke only Circle-sourced grants involving that member |
-| DELETE | `/api/one/location/circles/{circle_id}/members/{member_user_id}` | VAULT_OWNER Bearer | Owner-only member removal with the same scoped grant/SMS cleanup |
+| POST | `/api/one/location/circle-codes/join` | VAULT_OWNER Bearer | Treat the signed-in user's confirmed Join action as membership consent; atomically joins and creates source-aware canonical connection origins with active members, but no trusted edge, SMS selection, location grant, envelope, or capability token |
+| DELETE | `/api/one/location/circles/{circle_id}/members/me` | VAULT_OWNER Bearer | Leave a member role, revoke that Circle's connection origins touching the member, and revoke only Circle-sourced grants involving that member; direct and other-Circle origins survive |
+| DELETE | `/api/one/location/circles/{circle_id}/members/{member_user_id}` | VAULT_OWNER Bearer | Owner-only member removal with the same source-aware connection, grant, and SMS cleanup |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one eligible recipient identity/key; Circle eligibility, grant replacement, and its audit event commit atomically, and Circle-only eligibility always persists exact `sourceCircleId` provenance |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
@@ -230,7 +236,7 @@ not the product owner for live location.
 | POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
-| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, and related events after the retention window |
+| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window |
 
 ### Agent One invocation preview (not official A2A v1)
 

@@ -9,9 +9,11 @@ import type {
   OneLocationActivityResponse,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnections,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
@@ -316,6 +318,108 @@ export class OneLocationService {
   }): Promise<void> {
     await apiJson(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members/${encodeURIComponent(params.memberUserId)}`,
+      {
+        method: "DELETE",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async listNamedCircleEligibleConnections(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+  }): Promise<OneLocationCircleEligibleConnections> {
+    const response = await apiJson<{
+      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      pendingInvites?: OneLocationCircleMemberInvite[];
+      remainingCapacity?: number;
+    }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return {
+      eligibleConnections:
+        response.eligibleConnections ?? response.connections ?? [],
+      pendingInvites: response.pendingInvites ?? [],
+      remainingCapacity: Math.max(
+        0,
+        Number.isFinite(response.remainingCapacity)
+          ? Number(response.remainingCapacity)
+          : (response.eligibleConnections ?? response.connections ?? []).length,
+      ),
+    };
+  }
+
+  static async createNamedCircleMemberInvites(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    inviteeUserIds: string[];
+  }): Promise<OneLocationCircleMemberInvite[]> {
+    const response = await apiJson<{
+      invites?: OneLocationCircleMemberInvite[];
+      invite?: OneLocationCircleMemberInvite;
+    }>("/api/one/location/circle-member-invites", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        circleId: params.circleId,
+        inviteeUserIds: params.inviteeUserIds,
+      }),
+    });
+    return response.invites ?? (response.invite ? [response.invite] : []);
+  }
+
+  static async listNamedCircleMemberInvites(params: {
+    vaultOwnerToken: string;
+    direction: "incoming" | "outgoing";
+    status?: "pending" | "accepted" | "declined" | "cancelled" | "expired";
+  }): Promise<OneLocationCircleMemberInvite[]> {
+    const search = new URLSearchParams({
+      direction: params.direction,
+      status: params.status ?? "pending",
+    });
+    const response = await apiJson<{
+      invites?: OneLocationCircleMemberInvite[];
+    }>(`/api/one/location/circle-member-invites?${search.toString()}`, {
+      headers: authHeaders(params.vaultOwnerToken),
+    });
+    return response.invites ?? [];
+  }
+
+  static async acceptNamedCircleMemberInvite(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+  }): Promise<OneLocationCircleDetail> {
+    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+      `/api/one/location/circle-member-invites/${encodeURIComponent(params.inviteId)}/accept`,
+      {
+        method: "POST",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.circle;
+  }
+
+  static async declineNamedCircleMemberInvite(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/location/circle-member-invites/${encodeURIComponent(params.inviteId)}/decline`,
+      {
+        method: "POST",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async cancelNamedCircleMemberInvite(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/location/circle-member-invites/${encodeURIComponent(params.inviteId)}`,
       {
         method: "DELETE",
         headers: authHeaders(params.vaultOwnerToken),

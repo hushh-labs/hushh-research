@@ -567,6 +567,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_public_invites": 1,
         "deleted_circle_invites": 0,
         "deleted_named_circle_codes": 0,
+        "deleted_named_circle_member_invites": 0,
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "retention_hours": 12.0,

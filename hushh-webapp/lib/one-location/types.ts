@@ -290,6 +290,45 @@ export type OneLocationCircleInvitePreview = {
   alreadyMember: boolean;
 };
 
+export type OneLocationCircleEligibleConnection = {
+  connectionId: string;
+  userId: string;
+  displayName: string;
+  photoUrl?: string | null;
+  connectedAt?: string | null;
+};
+
+export type OneLocationCircleMemberInviteStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "cancelled"
+  | "expired"
+  | string;
+
+export type OneLocationCircleMemberInvite = {
+  id: string;
+  circleId: string;
+  circleName: string;
+  circleKind: OneLocationCircleKind;
+  inviterUserId: string;
+  inviterDisplayName: string;
+  inviteeUserId: string;
+  inviteeDisplayName?: string | null;
+  inviteePhotoUrl?: string | null;
+  status: OneLocationCircleMemberInviteStatus;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  respondedAt?: string | null;
+  cancelledAt?: string | null;
+};
+
+export type OneLocationCircleEligibleConnections = {
+  eligibleConnections: OneLocationCircleEligibleConnection[];
+  pendingInvites: OneLocationCircleMemberInvite[];
+  remainingCapacity: number;
+};
+
 export type OneLocationNetworkConnection = {
   id: string;
   userAId: string;

@@ -12,7 +12,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from sqlalchemy import text
+
 from db.db_client import get_db
+from hushh_mcp.services.connection_graph_service import (
+    ORIGIN_DIRECT_REQUEST,
+    ORIGIN_LEGACY_INVITE,
+    USER_MANAGEABLE_ORIGIN_KINDS,
+    ConnectionGraphService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +216,25 @@ class ConnectionsService:
             {"owner": owner, "trusted": trusted},
         )
 
+    @staticmethod
+    def _mirror_trusted_edge_in_transaction(conn: Any, owner: str, trusted: str) -> None:
+        conn.execute(
+            text(
+                """
+                INSERT INTO trusted_connections (
+                  owner_user_id, trusted_user_id, status, source, created_at, updated_at
+                )
+                VALUES (:owner, :trusted, 'active', 'connection', NOW(), NOW())
+                ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+                  status = 'active',
+                  revoked_at = NULL,
+                  updated_at = NOW(),
+                  source = 'connection'
+                """
+            ),
+            {"owner": owner, "trusted": trusted},
+        )
+
     def accept_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         req = self._load_request(request_id)
@@ -215,6 +242,9 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
             )
+        requester = str(req.get("requester_user_id"))
+        db = get_db()
+        engine = getattr(db, "engine", None)
         if str(req.get("status")) == "accepted":
             return {"status": "accepted", "requestId": req.get("id"), "connectionId": None}
         if str(req.get("status")) != "pending":
@@ -222,7 +252,77 @@ class ConnectionsService:
                 "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
             )
 
-        requester = str(req.get("requester_user_id"))
+        if engine is not None:
+            with engine.begin() as conn:
+                locked_request = _first_connection_row(
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id, requester_user_id, addressee_user_id, status
+                            FROM connection_requests
+                            WHERE id = CAST(:id AS UUID)
+                            FOR UPDATE
+                            """
+                        ),
+                        {"id": str(req.get("id") or "")},
+                    )
+                )
+                if not locked_request:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_NOT_FOUND",
+                        "Request not found.",
+                        status_code=404,
+                    )
+                if str(locked_request.get("addressee_user_id") or "") != user_id:
+                    raise ConnectionsError(
+                        "CONNECTION_NOT_ADDRESSEE",
+                        "Only the addressee can accept.",
+                        status_code=403,
+                    )
+                locked_status = str(locked_request.get("status") or "")
+                if locked_status == "accepted":
+                    return {
+                        "status": "accepted",
+                        "requestId": locked_request.get("id"),
+                        "connectionId": None,
+                    }
+                if locked_status != "pending":
+                    raise ConnectionsError(
+                        "CONNECTION_NOT_PENDING",
+                        "Request is no longer pending.",
+                        status_code=409,
+                    )
+                requester = str(locked_request.get("requester_user_id") or "")
+                state = ConnectionGraphService.ensure_origin(
+                    conn,
+                    user_x=requester,
+                    user_y=user_id,
+                    origin_kind=ORIGIN_DIRECT_REQUEST,
+                    source_ref=str(locked_request.get("id") or ""),
+                )
+                # Direct acceptance retains the existing mutual trusted-edge
+                # contract. Named Circle origins never call this helper.
+                self._mirror_trusted_edge_in_transaction(conn, requester, user_id)
+                self._mirror_trusted_edge_in_transaction(conn, user_id, requester)
+                conn.execute(
+                    text(
+                        """
+                        UPDATE connection_requests
+                        SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
+                        WHERE id = CAST(:id AS UUID)
+                        """
+                    ),
+                    {"id": str(locked_request.get("id") or "")},
+                )
+            return {
+                "status": "accepted",
+                "requestId": locked_request.get("id"),
+                "connectionId": state["connectionId"],
+            }
+
+        # Compatibility seam for lightweight unit doubles that expose only
+        # execute_raw. Production DatabaseClient always uses the transaction
+        # path above.
         user_a, user_b = self._canonical_pair(requester, user_id)
         conn = self._execute_one(
             """
@@ -285,6 +385,44 @@ class ConnectionsService:
                 "No claimed circle invite for this peer.",
                 status_code=403,
             )
+        db = get_db()
+        engine = getattr(db, "engine", None)
+        if engine is not None:
+            with engine.begin() as conn:
+                locked_proof = _first_connection_row(
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id
+                            FROM trusted_connections
+                            WHERE owner_user_id = :owner
+                              AND trusted_user_id = :trusted
+                              AND status = 'active'
+                              AND source = 'circle_invite'
+                            FOR SHARE
+                            """
+                        ),
+                        {"owner": user_id, "trusted": peer_user_id},
+                    )
+                )
+                if not locked_proof:
+                    raise ConnectionsError(
+                        "CONNECTION_CIRCLE_INVITE_REQUIRED",
+                        "No claimed circle invite for this peer.",
+                        status_code=403,
+                    )
+                state = ConnectionGraphService.ensure_origin(
+                    conn,
+                    user_x=user_id,
+                    user_y=peer_user_id,
+                    origin_kind=ORIGIN_LEGACY_INVITE,
+                )
+                # Legacy two-person invite claiming remains a trusted edge.
+                # Named Circle membership deliberately does not use this path.
+                self._mirror_trusted_edge_in_transaction(conn, user_id, peer_user_id)
+                self._mirror_trusted_edge_in_transaction(conn, peer_user_id, user_id)
+            return {"status": "connected", "connectionId": state["connectionId"]}
+
         user_a, user_b = self._canonical_pair(user_id, peer_user_id)
         conn = self._execute_one(
             """
@@ -461,31 +599,171 @@ class ConnectionsService:
         user_id = (user_id or "").strip()
         rows = self._execute_many(
             """
-            SELECT c.id AS connection_id,
+            SELECT
+                   c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, c.created_at
+                   a.display_name,
+                   a.photo_url,
+                   c.created_at,
+                   COALESCE(provenance.direct_count, 0) AS direct_count,
+                   COALESCE(provenance.circle_count, 0) AS circle_count,
+                   COALESCE(provenance.circles, '[]'::jsonb) AS circles
             FROM connections c
             LEFT JOIN actor_identity_cache a
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*) FILTER (
+                  WHERE origin.origin_kind <> 'named_circle'
+                ) AS direct_count,
+                COUNT(*) FILTER (
+                  WHERE origin.origin_kind = 'named_circle'
+                ) AS circle_count,
+                JSONB_AGG(
+                  jsonb_build_object(
+                    'id', origin.source_circle_id::text,
+                    'name', circle.name
+                  )
+                  ORDER BY origin.source_circle_id::text
+                ) FILTER (
+                  WHERE origin.source_circle_id IS NOT NULL
+                ) AS circles
+              FROM connection_origins origin
+              LEFT JOIN one_location_circles circle
+                ON circle.id = origin.source_circle_id
+               AND circle.status = 'active'
+              WHERE origin.connection_id = c.id
+                AND origin.status = 'active'
+            ) provenance ON TRUE
             WHERE c.status = 'active'
               AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
             ORDER BY c.created_at DESC
             """,
             {"user_id": user_id},
         )
-        return [
-            {
-                "connectionId": str(r.get("connection_id") or ""),
-                "userId": str(r.get("user_id") or ""),
-                "displayName": r.get("display_name"),
-                "photoUrl": r.get("photo_url"),
-                "createdAt": r.get("created_at"),
-            }
-            for r in rows
-        ]
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            direct_count = int(r.get("direct_count") or 0)
+            circle_count = int(r.get("circle_count") or 0)
+            # Backward-compatible read seam for unit doubles and a deployment
+            # window in which an active legacy row has not yet been backfilled.
+            if direct_count == 0 and circle_count == 0:
+                direct_count = 1
+            if direct_count and circle_count:
+                connection_kind = "both"
+            elif circle_count:
+                connection_kind = "circle"
+            else:
+                connection_kind = "direct"
+            raw_circles = r.get("circles")
+            if isinstance(raw_circles, list):
+                circles = [
+                    {
+                        "id": str(circle.get("id") or ""),
+                        "name": str(circle.get("name") or "") or None,
+                    }
+                    for circle in raw_circles
+                    if isinstance(circle, dict) and str(circle.get("id") or "")
+                ]
+            else:
+                legacy_circle_ids = list(r.get("circle_ids") or [])
+                legacy_circle_names = list(r.get("circle_names") or [])
+                circles = [
+                    {
+                        "id": circle_id,
+                        "name": (
+                            legacy_circle_names[index] if index < len(legacy_circle_names) else None
+                        ),
+                    }
+                    for index, circle_id in enumerate(legacy_circle_ids)
+                ]
+            circle_ids = [str(circle["id"]) for circle in circles]
+            circle_names = [str(circle.get("name") or "") for circle in circles]
+            items.append(
+                {
+                    "connectionId": str(r.get("connection_id") or ""),
+                    "userId": str(r.get("user_id") or ""),
+                    "displayName": r.get("display_name"),
+                    "photoUrl": r.get("photo_url"),
+                    "createdAt": r.get("created_at"),
+                    "connectionKind": connection_kind,
+                    "circleIds": circle_ids,
+                    "circleNames": circle_names,
+                    "circles": circles,
+                    "canRemoveDirect": direct_count > 0,
+                }
+            )
+        return items
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        db = get_db()
+        engine = getattr(db, "engine", None)
+        if engine is not None:
+            with engine.begin() as conn:
+                row = _first_connection_row(
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id, user_a_id, user_b_id
+                            FROM connections
+                            WHERE id = CAST(:id AS UUID)
+                              AND (user_a_id = :user_id OR user_b_id = :user_id)
+                            FOR UPDATE
+                            """
+                        ),
+                        {
+                            "id": (connection_id or "").strip(),
+                            "user_id": user_id,
+                        },
+                    )
+                )
+                if not row:
+                    return {
+                        "removed": 0,
+                        "stillConnected": False,
+                        "connectionKind": None,
+                        "circleIds": [],
+                        "circleNames": [],
+                        "circles": [],
+                        "canRemoveDirect": False,
+                    }
+                state = ConnectionGraphService.revoke_origins(
+                    conn,
+                    connection_id=str(row.get("id") or ""),
+                    origin_kinds=USER_MANAGEABLE_ORIGIN_KINDS,
+                )
+                # User removal revokes only the direct/legacy/import trust
+                # source. A surviving named-Circle origin keeps the canonical
+                # connection active but never keeps trusted location edges.
+                conn.execute(
+                    text(
+                        """
+                        UPDATE trusted_connections
+                        SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                        WHERE status = 'active'
+                          AND source = 'connection'
+                          AND (
+                            (owner_user_id = :a AND trusted_user_id = :b)
+                            OR (owner_user_id = :b AND trusted_user_id = :a)
+                          )
+                        """
+                    ),
+                    {
+                        "a": row.get("user_a_id"),
+                        "b": row.get("user_b_id"),
+                    },
+                )
+            return {
+                "removed": 1 if int(state.get("revokedOrigins") or 0) > 0 else 0,
+                "stillConnected": bool(state.get("active")),
+                "connectionKind": state.get("connectionKind"),
+                "circleIds": state.get("circleIds") or [],
+                "circleNames": state.get("circleNames") or [],
+                "circles": state.get("circles") or [],
+                "canRemoveDirect": bool(state.get("canRemoveDirect")),
+            }
+
         # Step 1: Load the row regardless of status, validating membership.
         row = self._execute_one(
             """
@@ -498,7 +776,15 @@ class ConnectionsService:
             {"id": (connection_id or "").strip(), "user_id": user_id},
         )
         if not row:
-            return {"removed": 0}
+            return {
+                "removed": 0,
+                "stillConnected": False,
+                "connectionKind": None,
+                "circleIds": [],
+                "circleNames": [],
+                "circles": [],
+                "canRemoveDirect": False,
+            }
         user_a = row.get("user_a_id")
         user_b = row.get("user_b_id")
         # Step 2: Revoke trusted edges FIRST (idempotent — runs on every call so a
@@ -524,4 +810,23 @@ class ConnectionsService:
             """,
             {"id": (connection_id or "").strip()},
         )
-        return {"removed": 1 if conn else 0}
+        return {
+            "removed": 1 if conn else 0,
+            "stillConnected": False,
+            "connectionKind": None,
+            "circleIds": [],
+            "circleNames": [],
+            "circles": [],
+            "canRemoveDirect": False,
+        }
+
+
+def _first_connection_row(result: Any) -> dict[str, Any] | None:
+    mappings = getattr(result, "mappings", None)
+    row = mappings().first() if callable(mappings) else result.first()
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row
+    mapping = getattr(row, "_mapping", None)
+    return dict(mapping) if mapping is not None else dict(row)

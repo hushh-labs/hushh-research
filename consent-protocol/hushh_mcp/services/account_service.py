@@ -199,6 +199,13 @@ class AccountService:
                    OR claimed_by_user_id = :user_id
                 """
             ),
+            "one_location_circle_member_invites": text(
+                """
+                DELETE FROM one_location_circle_member_invites
+                WHERE inviter_user_id = :user_id
+                   OR invitee_user_id = :user_id
+                """
+            ),
             "one_location_circle_memberships": text(
                 "DELETE FROM one_location_circle_memberships WHERE user_id = :user_id"
             ),
@@ -464,10 +471,12 @@ class AccountService:
         if not all(self._table_exists(conn, table_name) for table_name in core_tables):
             for table_name in core_tables:
                 results[table_name] = True
+            results["one_location_circle_member_invites"] = True
+            results["connection_origins"] = True
             return
 
         params = {"user_id": user_id}
-        (
+        circle_rows = (
             conn.execute(
                 text(
                     """
@@ -483,6 +492,11 @@ class AccountService:
             .mappings()
             .all()
         )
+        circle_ids = {
+            str(row.get("id") or "").strip()
+            for row in circle_rows
+            if str(row.get("id") or "").strip()
+        }
         affected_member_rows = (
             conn.execute(
                 text(
@@ -506,6 +520,24 @@ class AccountService:
             if str(row.get("user_id") or "").strip()
         }
 
+        if circle_ids and self._table_exists(conn, "connection_origins"):
+            from hushh_mcp.services.connection_graph_service import (
+                ConnectionGraphService,
+            )
+            from hushh_mcp.services.one_location_circle_service import (
+                OneLocationCircleService,
+            )
+
+            for circle_id in sorted(circle_ids):
+                ConnectionGraphService.revoke_named_circle_origins(
+                    conn,
+                    source_circle_id=circle_id,
+                )
+                OneLocationCircleService._reconcile_circle_sourced_grants(
+                    conn,
+                    circle_id=circle_id,
+                )
+
         if self._table_exists(conn, "one_location_events") and self._table_exists(
             conn, "one_location_share_grants"
         ):
@@ -518,6 +550,23 @@ class AccountService:
                     WHERE event.grant_id = share_grant.id
                       AND share_grant.source_circle_id = circle.id
                       AND circle.owner_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+
+        if self._table_exists(conn, "one_location_circle_member_invites"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM one_location_circle_member_invites member_invite
+                    WHERE member_invite.inviter_user_id = :user_id
+                       OR member_invite.invitee_user_id = :user_id
+                       OR member_invite.circle_id IN (
+                         SELECT circle.id
+                         FROM one_location_circles circle
+                         WHERE circle.owner_user_id = :user_id
+                       )
                     """
                 ),
                 params,
@@ -537,6 +586,20 @@ class AccountService:
             ),
             params,
         )
+        if self._table_exists(conn, "connection_origins"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM connection_origins origin
+                    USING one_location_circles circle
+                    WHERE origin.source_circle_id = circle.id
+                      AND circle.owner_user_id = :user_id
+                      AND origin.origin_kind = 'named_circle'
+                      AND origin.status = 'revoked'
+                    """
+                ),
+                params,
+            )
         conn.execute(
             text(
                 """
@@ -559,6 +622,8 @@ class AccountService:
                 )
 
         results["one_location_circle_invite_codes"] = True
+        results["one_location_circle_member_invites"] = True
+        results["connection_origins"] = True
         results["one_location_circles"] = True
 
     async def delete_account(
@@ -808,6 +873,7 @@ class AccountService:
             "one_location_public_invite_submissions",
             "one_location_public_invites",
             "one_location_circle_invites",
+            "one_location_circle_member_invites",
             "one_location_circle_memberships",
             "connection_requests",
             "connections",
@@ -986,10 +1052,12 @@ class AccountService:
             "one_location_public_invites": False,
             "one_location_circle_invites": False,
             "one_location_circle_invite_codes": False,
+            "one_location_circle_member_invites": False,
             "one_location_circle_memberships": False,
             "one_location_circles": False,
             "connection_requests": False,
             "connections": False,
+            "connection_origins": False,
             "trusted_connections": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
@@ -1213,6 +1281,7 @@ class AccountService:
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",
+                    "one_location_circle_member_invites",
                     "one_location_circle_memberships",
                     "connection_requests",
                     "connections",

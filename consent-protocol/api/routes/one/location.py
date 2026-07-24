@@ -37,6 +37,8 @@ _GrantId = Annotated[str, Path(min_length=1, max_length=128)]
 _RecipientUserId = Annotated[str, Path(min_length=1, max_length=160)]
 _CircleId = Annotated[str, Path(min_length=36, max_length=36)]
 _CircleMemberUserId = Annotated[str, Path(min_length=1, max_length=160)]
+_CircleMemberInviteId = Annotated[str, Path(min_length=36, max_length=36)]
+_CircleInviteeUserId = Annotated[str, Field(min_length=1, max_length=160)]
 
 
 class _CamelModel(BaseModel):
@@ -122,6 +124,15 @@ class UpdateNamedCircleRequest(_CamelModel):
 
 class NamedCircleCodeRequest(_CamelModel):
     code: str = Field(min_length=12, max_length=32)
+
+
+class CreateCircleMemberInvitesRequest(_CamelModel):
+    circle_id: UUID = Field(alias="circleId")
+    invitee_user_ids: list[_CircleInviteeUserId] = Field(
+        alias="inviteeUserIds",
+        min_length=1,
+        max_length=20,
+    )
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -375,6 +386,33 @@ def get_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/circles/{circle_id}/eligible-connections")
+def list_named_circle_eligible_connections(
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        owner_user_id = _user_id(token_data)
+        service = _circle_service()
+        return {
+            "eligibleConnections": service.list_eligible_direct_connections(
+                owner_user_id=owner_user_id,
+                circle_id=circle_id,
+            ),
+            "pendingInvites": service.list_member_invites(
+                user_id=owner_user_id,
+                circle_id=circle_id,
+                direction="outgoing",
+            ),
+            "remainingCapacity": service.get_remaining_invite_capacity(
+                owner_user_id=owner_user_id,
+                circle_id=circle_id,
+            ),
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.patch("/location/circles/{circle_id}")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def update_named_location_circle(
@@ -522,6 +560,102 @@ def remove_named_location_circle_member(
             member_user_id=member_user_id,
         )
         return {"removed": True}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-member-invites")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def create_named_circle_member_invites(
+    request: Request,
+    payload: CreateCircleMemberInvitesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        owner_user_id = _user_id(token_data)
+        service = _circle_service()
+        invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
+        return {
+            "invites": service.create_member_invites(
+                owner_user_id=owner_user_id,
+                circle_id=str(payload.circle_id),
+                invitee_user_ids=invitee_user_ids,
+            )["invites"]
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/circle-member-invites")
+def list_named_circle_member_invites(
+    direction: str = Query(default="incoming", pattern="^(incoming|outgoing)$"),
+    invite_status: str = Query(default="pending", alias="status", pattern="^pending$"),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del invite_status
+    try:
+        return {
+            "invites": _circle_service().list_member_invites(
+                user_id=_user_id(token_data),
+                direction=direction,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-member-invites/{invite_id}/accept")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def accept_named_circle_member_invite(
+    request: Request,
+    invite_id: _CircleMemberInviteId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        result = _circle_service().accept_member_invite(
+            user_id=_user_id(token_data),
+            invite_id=invite_id,
+        )
+        return {"circle": result["circle"], "invite": result["invite"]}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-member-invites/{invite_id}/decline")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def decline_named_circle_member_invite(
+    request: Request,
+    invite_id: _CircleMemberInviteId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return {
+            "invite": _circle_service().decline_member_invite(
+                user_id=_user_id(token_data),
+                invite_id=invite_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-member-invites/{invite_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def cancel_named_circle_member_invite(
+    request: Request,
+    invite_id: _CircleMemberInviteId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        _circle_service().cancel_member_invite(
+            owner_user_id=_user_id(token_data),
+            invite_id=invite_id,
+        )
+        return {"cancelled": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 

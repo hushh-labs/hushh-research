@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 117,
+  "expected_migration_version": 119,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -710,6 +710,19 @@
       "revoked_at",
       "metadata"
     ],
+    "one_location_circle_member_invites": [
+      "id",
+      "circle_id",
+      "inviter_user_id",
+      "invitee_user_id",
+      "status",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "responded_at",
+      "cancelled_at",
+      "metadata"
+    ],
     "one_location_share_grants": [
       "id",
       "owner_user_id",
@@ -1020,6 +1033,19 @@
       "created_at",
       "updated_at",
       "revoked_at"
+    ],
+    "connection_origins": [
+      "id",
+      "connection_id",
+      "origin_kind",
+      "origin_key",
+      "source_circle_id",
+      "source_ref",
+      "status",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
     ],
     "kai_plaid_items": [
       "item_id",

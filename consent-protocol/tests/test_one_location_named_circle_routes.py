@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from api.routes.one import location
 
 CIRCLE_ID = "550e8400-e29b-41d4-a716-446655440000"
+INVITE_ID = "550e8400-e29b-41d4-a716-446655440002"
 MEMBER_ID = "member-user"
 
 
@@ -30,6 +31,20 @@ class FakeNamedCircleService:
                     "secureLocationReady": True,
                 }
             ],
+        }
+        self.member_invite = {
+            "id": INVITE_ID,
+            "circleId": CIRCLE_ID,
+            "circleName": "Meena Family",
+            "circleKind": "family",
+            "inviterUserId": "owner-user",
+            "inviterDisplayName": "Owner",
+            "inviteeUserId": MEMBER_ID,
+            "inviteeDisplayName": "Member",
+            "status": "pending",
+            "expiresAt": "2026-07-27T00:00:00+00:00",
+            "createdAt": "2026-07-24T00:00:00+00:00",
+            "respondedAt": None,
         }
 
     def _record(self, method: str, **kwargs):
@@ -86,6 +101,47 @@ class FakeNamedCircleService:
 
     def delete_circle(self, **kwargs):
         self._record("delete", **kwargs)
+
+    def list_eligible_direct_connections(self, **kwargs):
+        self._record("eligible", **kwargs)
+        return [
+            {
+                "connectionId": "connection-id",
+                "userId": MEMBER_ID,
+                "displayName": "Member",
+                "photoUrl": None,
+                "connectedAt": "2026-07-20T00:00:00+00:00",
+            }
+        ]
+
+    def list_member_invites(self, **kwargs):
+        self._record("list_member_invites", **kwargs)
+        return [self.member_invite]
+
+    def get_remaining_invite_capacity(self, **kwargs):
+        self._record("remaining_capacity", **kwargs)
+        return 18
+
+    def create_member_invites(self, **kwargs):
+        self._record("create_member_invites", **kwargs)
+        return {"invites": [self.member_invite], "createdInviteIds": [INVITE_ID]}
+
+    def accept_member_invite(self, **kwargs):
+        self._record("accept_member_invite", **kwargs)
+        return {
+            "circle": {**self.circle, "role": "member"},
+            "invite": {**self.member_invite, "status": "accepted"},
+            "accepted": True,
+            "joined": True,
+        }
+
+    def decline_member_invite(self, **kwargs):
+        self._record("decline_member_invite", **kwargs)
+        return {**self.member_invite, "status": "declined"}
+
+    def cancel_member_invite(self, **kwargs):
+        self._record("cancel_member_invite", **kwargs)
+        return True
 
 
 def _client(monkeypatch):
@@ -177,6 +233,56 @@ def test_named_circle_owner_and_member_management_routes(monkeypatch) -> None:
     assert left.json() == {"left": True}
     assert any(method == "remove" for method, _ in service.calls)
     assert any(method == "leave" for method, _ in service.calls)
+
+
+def test_named_circle_targeted_member_invite_routes(monkeypatch) -> None:
+    client, service, current_user = _client(monkeypatch)
+
+    eligible = client.get(f"/api/one/location/circles/{CIRCLE_ID}/eligible-connections")
+    created = client.post(
+        "/api/one/location/circle-member-invites",
+        json={
+            "circleId": CIRCLE_ID,
+            "inviteeUserIds": [MEMBER_ID, MEMBER_ID],
+        },
+    )
+    outgoing = client.get(
+        "/api/one/location/circle-member-invites?direction=outgoing&status=pending"
+    )
+
+    assert eligible.status_code == 200
+    assert eligible.json()["eligibleConnections"][0]["userId"] == MEMBER_ID
+    assert eligible.json()["pendingInvites"][0]["id"] == INVITE_ID
+    assert eligible.json()["remainingCapacity"] == 18
+    assert created.status_code == 200
+    assert len(created.json()["invites"]) == 1
+    assert outgoing.json()["invites"][0]["circleName"] == "Meena Family"
+    assert (
+        service.calls.count(
+            (
+                "create_member_invites",
+                {
+                    "owner_user_id": "owner-user",
+                    "circle_id": CIRCLE_ID,
+                    "invitee_user_ids": [MEMBER_ID],
+                },
+            )
+        )
+        == 1
+    )
+
+    current_user["user_id"] = MEMBER_ID
+    accepted = client.post(f"/api/one/location/circle-member-invites/{INVITE_ID}/accept")
+    declined = client.post(f"/api/one/location/circle-member-invites/{INVITE_ID}/decline")
+
+    assert accepted.status_code == 200
+    assert accepted.json()["invite"]["status"] == "accepted"
+    assert set(accepted.json()) == {"circle", "invite"}
+    assert declined.json()["invite"]["status"] == "declined"
+
+    current_user["user_id"] = "owner-user"
+    cancelled = client.delete(f"/api/one/location/circle-member-invites/{INVITE_ID}")
+    assert cancelled.json() == {"cancelled": True}
 
 
 def test_named_circle_route_bounds_reject_invalid_ids_and_codes(monkeypatch) -> None:

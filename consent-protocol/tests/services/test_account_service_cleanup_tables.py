@@ -64,6 +64,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     assert result["success"] is True
     assert result["account_deleted"] is True
+    assert result["details"]["one_location_circle_member_invites"] is True
+    assert result["details"]["connection_origins"] is True
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     expected_fragments = [
@@ -105,7 +107,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
         "DELETE FROM one_location_circle_invites",
+        "DELETE FROM one_location_circle_member_invites",
         "DELETE FROM one_location_circle_invite_codes",
+        "DELETE FROM connection_origins",
         "DELETE FROM one_location_circle_memberships",
         "DELETE FROM one_location_circles",
         "DELETE FROM connection_requests",
@@ -150,6 +154,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_share_grants"
     )
     assert executed_sql.index("DELETE FROM one_location_circle_invite_codes") < executed_sql.index(
+        "DELETE FROM one_location_circles"
+    )
+    assert executed_sql.index("DELETE FROM one_location_circle_member_invites") < (
+        executed_sql.index("DELETE FROM one_location_circles")
+    )
+    assert executed_sql.index("DELETE FROM connection_origins") < executed_sql.index(
         "DELETE FROM one_location_circles"
     )
     assert executed_sql.index("DELETE FROM one_location_circles") < executed_sql.index(
@@ -208,6 +218,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["success"] is True
     assert result["account_deleted"] is False
     assert result["account_reset"] is True
+    assert result["details"]["one_location_circle_member_invites"] is True
+    assert result["details"]["connection_origins"] is True
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
 
@@ -222,7 +234,9 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_sms_contacts",
+        "DELETE FROM one_location_circle_member_invites",
         "DELETE FROM one_location_circle_invite_codes",
+        "DELETE FROM connection_origins",
         "DELETE FROM one_location_circle_memberships",
         "DELETE FROM one_location_circles",
         "DELETE FROM connection_requests",
@@ -253,6 +267,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
 def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     service = AccountService()
     conn = MagicMock()
+    circle_result = MagicMock()
+    circle_result.mappings.return_value.all.return_value = [{"id": "circle_b"}, {"id": "circle_a"}]
     member_result = MagicMock()
     member_result.mappings.return_value.all.return_value = [
         {"user_id": "owner"},
@@ -261,6 +277,8 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     ]
 
     def execute(query, _params=None):
+        if "SELECT id" in str(query) and "FROM one_location_circles" in str(query):
+            return circle_result
         if "SELECT DISTINCT membership.user_id" in str(query):
             return member_result
         return MagicMock()
@@ -268,10 +286,20 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     conn.execute.side_effect = execute
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
 
-    with patch(
-        "hushh_mcp.services.one_location_circle_service."
-        "OneLocationCircleService._cleanup_ineligible_sms_contacts"
-    ) as cleanup_sms:
+    with (
+        patch(
+            "hushh_mcp.services.one_location_circle_service."
+            "OneLocationCircleService._cleanup_ineligible_sms_contacts"
+        ) as cleanup_sms,
+        patch(
+            "hushh_mcp.services.connection_graph_service."
+            "ConnectionGraphService.revoke_named_circle_origins"
+        ) as revoke_origins,
+        patch(
+            "hushh_mcp.services.one_location_circle_service."
+            "OneLocationCircleService._reconcile_circle_sourced_grants"
+        ) as reconcile_grants,
+    ):
         results: dict[str, bool] = {}
         service._delete_owned_named_circles(
             conn,
@@ -293,13 +321,27 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     circle_delete_index = next(
         index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
     )
-    assert circle_lock_index < event_cleanup_index < circle_delete_index
+    origin_delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM connection_origins" in sql
+    )
+    assert circle_lock_index < event_cleanup_index < origin_delete_index < circle_delete_index
+    assert "origin.status = 'revoked'" in executed_sql[origin_delete_index]
+    assert [call.kwargs["source_circle_id"] for call in revoke_origins.call_args_list] == [
+        "circle_a",
+        "circle_b",
+    ]
+    assert [call.kwargs["circle_id"] for call in reconcile_grants.call_args_list] == [
+        "circle_a",
+        "circle_b",
+    ]
     assert [call.kwargs["user_id"] for call in cleanup_sms.call_args_list] == [
         "member_a",
         "member_b",
         "owner",
     ]
     assert results["one_location_circle_invite_codes"] is True
+    assert results["one_location_circle_member_invites"] is True
+    assert results["connection_origins"] is True
     assert results["one_location_circles"] is True
 
 

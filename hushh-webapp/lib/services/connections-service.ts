@@ -26,7 +26,37 @@ export interface ConnectionSummaryEntry {
   displayName: string | null;
   photoUrl: string | null;
   createdAt: string | null;
+  connectionKind?: "direct" | "circle" | "both";
+  circleIds?: string[];
+  circleNames?: string[];
+  circles?: Array<{ id: string; name: string | null }>;
+  canRemoveDirect?: boolean;
 }
+
+export interface ConnectionCircleSummary {
+  id: string;
+  name: string | null;
+}
+
+export interface RemoveConnectionResult {
+  removed: number;
+  stillConnected: boolean;
+  connectionKind: "direct" | "circle" | "both" | null;
+  circles: ConnectionCircleSummary[];
+  /** Compatibility projections for clients still consuming the old contract. */
+  circleIds: string[];
+  circleNames: string[];
+  canRemoveDirect: boolean;
+}
+
+type RemoveConnectionWireResult = Omit<
+  RemoveConnectionResult,
+  "circles" | "circleIds" | "circleNames"
+> & {
+  circles?: ConnectionCircleSummary[];
+  circleIds?: string[];
+  circleNames?: string[];
+};
 
 export interface ConnectionRequest {
   id: string;
@@ -126,12 +156,32 @@ export class ConnectionsService {
     await jsonOrThrow<unknown>(response);
   }
 
-  static async removeConnection(opts: { idToken: string; connectionId: string }): Promise<void> {
+  static async removeConnection(opts: {
+    idToken: string;
+    connectionId: string;
+  }): Promise<RemoveConnectionResult> {
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.connectionId)}`,
       { method: "DELETE", headers: authHeaders(opts.idToken) },
     );
-    await jsonOrThrow<unknown>(response);
+    const payload = await jsonOrThrow<{ result: RemoveConnectionWireResult }>(
+      response,
+    );
+    const result = payload.result;
+    const circles = Array.isArray(result.circles)
+      ? result.circles
+      : (result.circleIds ?? []).map((id, index) => ({
+          id,
+          name: result.circleNames?.[index] ?? null,
+        }));
+    return {
+      ...result,
+      circles,
+      circleIds: circles.map((circle) => circle.id),
+      circleNames: circles
+        .map((circle) => circle.name)
+        .filter((name): name is string => Boolean(name)),
+    };
   }
 
   static async linkCircleInvite(opts: { idToken: string; peerUserId: string }): Promise<void> {

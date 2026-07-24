@@ -84,6 +84,47 @@ class _RecordingDB:
         return SimpleNamespace(data=rows)
 
 
+class _TxResult:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+
+class _TxConnection:
+    def __init__(self, results):
+        self._results = list(results)
+        self.calls = []
+
+    def execute(self, statement, params=None):
+        self.calls.append((str(statement), params or {}))
+        rows = self._results.pop(0) if self._results else []
+        return _TxResult(rows)
+
+
+class _Begin:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        return self.connection
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        return False
+
+
+class _Engine:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def begin(self):
+        return _Begin(self.connection)
+
+
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
     # 1) load request row -> addressee is user-b (the acceptor)
@@ -231,6 +272,44 @@ def test_list_connections_maps_rows():
         out = svc.list_connections("user-a")
     assert out[0]["userId"] == "user-b"
     assert out[0]["connectionId"] == "conn-1"
+    assert out[0]["connectionKind"] == "direct"
+    assert out[0]["circleIds"] == []
+    assert out[0]["canRemoveDirect"] is True
+
+
+def test_list_connections_reports_ordered_multi_circle_provenance():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "connection_id": "conn-1",
+                    "user_id": "user-b",
+                    "display_name": "Bob",
+                    "photo_url": None,
+                    "created_at": "2026-07-09T00:00:00Z",
+                    "direct_count": 1,
+                    "circle_count": 2,
+                    "circles": [
+                        {"id": "circle-1", "name": "Family"},
+                        {"id": "circle-2", "name": "Family"},
+                    ],
+                }
+            ]
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+    assert out[0]["connectionKind"] == "both"
+    assert out[0]["circleIds"] == ["circle-1", "circle-2"]
+    assert out[0]["circleNames"] == ["Family", "Family"]
+    assert out[0]["circles"] == [
+        {"id": "circle-1", "name": "Family"},
+        {"id": "circle-2", "name": "Family"},
+    ]
+    assert out[0]["canRemoveDirect"] is True
+    assert "ORDER BY origin.source_circle_id::text" in db.calls[0][0]
+    assert "ARRAY_AGG" not in db.calls[0][0]
 
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
@@ -252,7 +331,15 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     )
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-a", "conn-1")
-    assert out == {"removed": 1}
+    assert out == {
+        "removed": 1,
+        "stillConnected": False,
+        "connectionKind": None,
+        "circleIds": [],
+        "circleNames": [],
+        "circles": [],
+        "canRemoveDirect": False,
+    }
     trusted_update_indices = [
         i for i, (sql, _) in enumerate(db.calls) if "UPDATE trusted_connections" in sql
     ]
@@ -265,6 +352,71 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     )
 
 
+def test_remove_direct_origin_preserves_named_circle_connection():
+    svc = _svc()
+    tx = _TxConnection(
+        [
+            [
+                {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                }
+            ],
+            [],
+        ]
+    )
+    db = SimpleNamespace(engine=_Engine(tx))
+    state = {
+        "active": True,
+        "connectionKind": "circle",
+        "circleIds": ["00000000-0000-4000-8000-000000000001"],
+        "circleNames": ["Family"],
+        "circles": [
+            {
+                "id": "00000000-0000-4000-8000-000000000001",
+                "name": "Family",
+            }
+        ],
+        "canRemoveDirect": False,
+        "revokedOrigins": 1,
+    }
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch(
+            "hushh_mcp.services.connections_service.ConnectionGraphService.revoke_origins",
+            return_value=state,
+        ) as revoke,
+    ):
+        out = svc.remove_connection(
+            "user-a",
+            "00000000-0000-4000-8000-000000000002",
+        )
+
+    assert out == {
+        "removed": 1,
+        "stillConnected": True,
+        "connectionKind": "circle",
+        "circleIds": ["00000000-0000-4000-8000-000000000001"],
+        "circleNames": ["Family"],
+        "circles": [
+            {
+                "id": "00000000-0000-4000-8000-000000000001",
+                "name": "Family",
+            }
+        ],
+        "canRemoveDirect": False,
+    }
+    assert set(revoke.call_args.kwargs["origin_kinds"]) == {
+        "direct_request",
+        "legacy_invite",
+        "import",
+    }
+    trusted_update = tx.calls[-1][0]
+    assert "UPDATE trusted_connections" in trusted_update
+    assert "source = 'connection'" in trusted_update
+
+
 def test_remove_connection_returns_zero_when_not_member_or_missing():
     svc = _svc()
     # SELECT returns no row — caller is not a member or id is unknown.
@@ -275,7 +427,15 @@ def test_remove_connection_returns_zero_when_not_member_or_missing():
     )
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-x", "conn-999")
-    assert out == {"removed": 0}
+    assert out == {
+        "removed": 0,
+        "stillConnected": False,
+        "connectionKind": None,
+        "circleIds": [],
+        "circleNames": [],
+        "circles": [],
+        "canRemoveDirect": False,
+    }
     trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
     assert len(trusted_updates) == 0, (
         "No trusted_connections UPDATE should occur when member check fails"
@@ -342,7 +502,15 @@ def test_remove_connection_self_heals_when_already_revoked():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-a", "conn-1")
     # Connection was already revoked, so removed=0.
-    assert out == {"removed": 0}
+    assert out == {
+        "removed": 0,
+        "stillConnected": False,
+        "connectionKind": None,
+        "circleIds": [],
+        "circleNames": [],
+        "circles": [],
+        "canRemoveDirect": False,
+    }
     # The trusted-edge cleanup must still have been attempted (self-healing).
     trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
     assert len(trusted_updates) >= 1, (

@@ -40,7 +40,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_denied"
   | "location_referral_invite"
   | "location_public_invite_submitted"
-  | "location_one_network_joined";
+  | "location_one_network_joined"
+  | "location_circle_member_invite";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -91,6 +92,10 @@ const WORKFLOW_COPY: Record<
   location_one_network_joined: {
     title: "Connected on One",
     fallbackDescription: "A trusted person joined your One Network.",
+  },
+  location_circle_member_invite: {
+    title: "Circle invitation",
+    fallbackDescription: "A connection invited you to join their Circle.",
   },
 };
 
@@ -420,6 +425,7 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_referral_invite":
       return "my_requests";
     case "location_one_network_joined":
+    case "location_circle_member_invite":
       return "people";
     default:
       return "activity";
@@ -609,6 +615,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${networkLabel} is now connected with you on One.`,
+      };
+    case "location_circle_member_invite":
+      return {
+        title: copy.title,
+        description: `${networkLabel} invited you to join a Circle.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };

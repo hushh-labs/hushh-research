@@ -117,20 +117,50 @@ export default function ConnectPageClient() {
       try {
         setBusyId(connection.connectionId);
         const idToken = await user.getIdToken();
-        await ConnectionsService.removeConnection({
+        const result = await ConnectionsService.removeConnection({
           idToken,
           connectionId: connection.connectionId,
         });
-        setConnections((prev) =>
-          prev.filter((c) => c.connectionId !== connection.connectionId),
-        );
-        // Let the directory offer "Connect" again for this person.
-        setPeople((prev) =>
-          prev.map((p) =>
-            p.userId === connection.userId ? { ...p, relationship: "none" } : p,
-          ),
-        );
-        toast.success("Connection removed");
+        if (result.stillConnected) {
+          const circles = result.circles;
+          const circleNames = circles
+            .map((circle) => circle.name)
+            .filter((name): name is string => Boolean(name));
+          setConnections((prev) =>
+            prev.map((item) =>
+              item.connectionId === connection.connectionId
+                ? {
+                    ...item,
+                    connectionKind: result.connectionKind ?? "circle",
+                    circleIds: circles.map((circle) => circle.id),
+                    circleNames,
+                    circles,
+                    canRemoveDirect: result.canRemoveDirect,
+                  }
+                : item,
+            ),
+          );
+          const circleLabel = circleNames.join(", ");
+          toast.success(
+            circleLabel
+              ? `Direct connection removed. Still connected through ${circleLabel}.`
+              : "Direct connection removed. You are still connected through a Circle.",
+          );
+        } else {
+          setConnections((prev) =>
+            prev.filter((c) => c.connectionId !== connection.connectionId),
+          );
+          // Let the directory offer "Connect" again only when no Circle source
+          // keeps the canonical relationship active.
+          setPeople((prev) =>
+            prev.map((p) =>
+              p.userId === connection.userId
+                ? { ...p, relationship: "none" }
+                : p,
+            ),
+          );
+          toast.success("Connection removed");
+        }
       } catch (removeError) {
         toast.error(
           removeError instanceof Error
@@ -206,9 +236,36 @@ export default function ConnectPageClient() {
                   icon={Users}
                   iconTone="blue"
                   title={connection.displayName || connection.userId}
+                  description={
+                    connection.connectionKind === "circle"
+                      ? connection.circleNames?.length
+                        ? `Connected through ${connection.circleNames.join(", ")}`
+                        : "Connected through a Circle"
+                      : connection.connectionKind === "both"
+                        ? connection.circleNames?.length
+                          ? `Direct connection · Also in ${connection.circleNames.join(", ")}`
+                          : "Direct connection · Also connected through a Circle"
+                        : "Direct connection"
+                  }
                   density="compact"
                   trailing={
-                    pendingRemoveId === connection.connectionId ? (
+                    connection.canRemoveDirect === false ? (
+                      connection.circleIds?.[0] ? (
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          onClick={() =>
+                            router.push(
+                              `${ROUTES.ONE_LOCATION}?tab=people&action=circle-detail&circleId=${encodeURIComponent(connection.circleIds?.[0] || "")}`,
+                            )
+                          }
+                        >
+                          View Circle
+                        </Button>
+                      ) : null
+                    ) : pendingRemoveId === connection.connectionId ? (
                       <span className="flex shrink-0 items-center gap-1">
                         <Button
                           type="button"
