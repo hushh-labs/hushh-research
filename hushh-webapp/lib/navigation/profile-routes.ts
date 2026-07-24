@@ -42,7 +42,12 @@ const TRANSIENT_PROFILE_QUERY_KEYS = [
   "filter",
   "page",
   "redirect",
+  // The origin the Profile hub was opened from. Preserved across panel/detail
+  // drilling so the shared top-bar back control can always retrace to the
+  // screen the user came from (avatar tap) instead of defaulting to One home.
+  "from",
 ] as const;
+
 
 export function normalizeProfilePanel(value: string | null): ProfilePanel | null {
   if (

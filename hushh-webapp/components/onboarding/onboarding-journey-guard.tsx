@@ -10,7 +10,6 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
-  isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
@@ -50,13 +49,16 @@ function admissionAllowsCurrentRoute(params: {
   setupSurface: boolean;
 }): boolean {
   const { pathname, setupSurface, state } = params;
+  // Product routes (including the Location workspace at /one/location) stay
+  // gated until the overall first-run setup is resolved via the master
+  // "Finish setup" action, which requires the Connections step. Completing an
+  // individual capability like Location is NOT sufficient on its own — the
+  // user must still return to /one/setup and finish setup before any main
+  // workspace becomes reachable.
   return (
     !hasExplicitIncompleteSetup(state) ||
     setupSurface ||
-    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname) ||
-    // Completed Location setup may open its workspace while the wider setup
-    // funnel remains unresolved. Other product routes stay gated.
-    isCompletedLocationWorkspaceRoute(state.setupCapabilityIds, pathname)
+    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname)
   );
 }
 
