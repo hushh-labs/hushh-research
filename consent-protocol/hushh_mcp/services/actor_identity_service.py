@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -18,9 +19,68 @@ logger = logging.getLogger(__name__)
 
 _IDENTITY_STALE_AFTER = timedelta(hours=24)
 _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
-_IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
-_IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
+_IDENTITY_SYNC_LOCK = threading.Lock()
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw_value = str(os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        logger.warning("actor_identity.invalid_positive_int_env name=%s", name)
+        return default
+
+
+_IDENTITY_SYNC_COOLDOWN_MAX = _positive_int_env("ACTOR_IDENTITY_SYNC_COOLDOWN_MAX", 5000)
+
+
+class _IdentitySyncCooldownStore:
+    """Thread-safe, size-bounded store for per-user identity-sync cooldown deadlines.
+
+    Each unique ``user_id`` that triggers a background sync gets one entry.
+    Without a cap the dict grows to one entry per distinct user ever seen.
+
+    Eviction strategy (triggered only when the store is full and a *new* key
+    arrives):
+    1. Remove all entries whose cooldown deadline has already passed.
+    2. If still at capacity, evict the oldest-inserted entry (FIFO).
+    """
+
+    def __init__(self, max_entries: int = _IDENTITY_SYNC_COOLDOWN_MAX) -> None:
+        self._max = max_entries
+        self._store: dict[str, datetime] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> datetime | None:
+        with self._lock:
+            return self._store.get(key)
+
+    def set(self, key: str, until: datetime) -> None:
+        with self._lock:
+            if key not in self._store and len(self._store) >= self._max:
+                now = datetime.now(timezone.utc)
+                stale = [k for k, exp in self._store.items() if exp <= now]
+                for k in stale:
+                    del self._store[k]
+                while len(self._store) >= self._max:
+                    oldest = next(iter(self._store))
+                    del self._store[oldest]
+            self._store[key] = until
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+_IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
+_IDENTITY_SYNC_COOLDOWN_UNTIL = _IdentitySyncCooldownStore()
 
 
 class ActorIdentityAliasError(RuntimeError):
@@ -47,9 +107,10 @@ class ActorIdentityService:
         if not normalized_user_id or not self._looks_like_firebase_uid(normalized_user_id):
             return False
 
-        existing = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
-        if existing and not existing.done():
-            return False
+        with _IDENTITY_SYNC_LOCK:
+            existing = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
+            if existing and not existing.done():
+                return False
 
         now = datetime.now(timezone.utc)
         cooldown_until = _IDENTITY_SYNC_COOLDOWN_UNTIL.get(normalized_user_id)
@@ -61,13 +122,15 @@ class ActorIdentityService:
         except RuntimeError:
             return False
 
-        _IDENTITY_SYNC_COOLDOWN_UNTIL[normalized_user_id] = now + _IDENTITY_SYNC_COOLDOWN
+        _IDENTITY_SYNC_COOLDOWN_UNTIL.set(normalized_user_id, now + _IDENTITY_SYNC_COOLDOWN)
         task = loop.create_task(self.sync_from_firebase(normalized_user_id, force=force))
-        _IDENTITY_SYNC_TASKS[normalized_user_id] = task
+        with _IDENTITY_SYNC_LOCK:
+            _IDENTITY_SYNC_TASKS[normalized_user_id] = task
 
         def _cleanup(completed: asyncio.Task[dict[str, Any] | None]) -> None:
-            if _IDENTITY_SYNC_TASKS.get(normalized_user_id) is completed:
-                _IDENTITY_SYNC_TASKS.pop(normalized_user_id, None)
+            with _IDENTITY_SYNC_LOCK:
+                if _IDENTITY_SYNC_TASKS.get(normalized_user_id) is completed:
+                    _IDENTITY_SYNC_TASKS.pop(normalized_user_id, None)
             try:
                 completed.result()
             except Exception as exc:

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import session
+from hushh_mcp.services import actor_identity_service as identity_service
 
 
 def _build_app() -> FastAPI:
@@ -254,3 +255,64 @@ def test_user_lookup_legacy_email_query_still_works(monkeypatch: pytest.MonkeyPa
     assert payload["user_id"] == "emailLookupUid1234567890"
     assert payload["email"] == "user@example.com"
     assert payload["display_name"] == "Email Lookup User"
+
+
+def test_user_lookup_writes_real_identity_sync_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "dev-token")
+    monkeypatch.setattr(session, "get_firebase_auth_app", lambda: object())
+
+    uid = "realLookupCooldownUid1234567890"
+    identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+    with identity_service._IDENTITY_SYNC_LOCK:
+        identity_service._IDENTITY_SYNC_TASKS.clear()
+
+    async def _sync_from_firebase(
+        self: identity_service.ActorIdentityService,
+        user_id: str,
+        *,
+        force: bool = False,
+    ) -> dict[str, str | bool]:
+        return {"user_id": user_id, "force": force}
+
+    monkeypatch.setattr(
+        identity_service.ActorIdentityService,
+        "sync_from_firebase",
+        _sync_from_firebase,
+    )
+
+    def _unexpected(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("Unexpected lookup path")
+
+    def _get_user_by_email(email: str, *, app) -> SimpleNamespace:  # noqa: ANN001
+        assert email == "real-sync@example.com"
+        assert app is not None
+        return SimpleNamespace(
+            uid=uid,
+            email="real-sync@example.com",
+            display_name="Real Sync User",
+            photo_url=None,
+            email_verified=True,
+            phone_number=None,
+        )
+
+    monkeypatch.setattr(firebase_auth, "get_user_by_phone_number", _unexpected)
+    monkeypatch.setattr(firebase_auth, "get_user_by_email", _get_user_by_email)
+    monkeypatch.setattr(firebase_auth, "get_user", _unexpected)
+
+    try:
+        client = TestClient(_build_app())
+        response = client.get(
+            "/api/user/lookup",
+            params={"email": "real-sync@example.com"},
+            headers={"X-MCP-Developer-Token": "dev-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["user_id"] == uid
+        assert identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.get(uid) is not None
+    finally:
+        identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+        with identity_service._IDENTITY_SYNC_LOCK:
+            identity_service._IDENTITY_SYNC_TASKS.clear()
