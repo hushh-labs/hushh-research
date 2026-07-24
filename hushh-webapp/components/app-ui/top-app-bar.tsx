@@ -649,6 +649,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     () => getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
     [normalizedPathname, primaryHeaderOutOfView],
   );
+  const breadcrumbTrailItems = useMemo(() => {
+    const raw = topShellBreadcrumb?.items ?? [];
+    // Inner/"subagent" routes read as "Kai > Analysis", not
+    // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
+    return raw.length > 0 && raw[0]?.label === "One" ? raw.slice(1) : raw;
+  }, [topShellBreadcrumb]);
+  const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],
@@ -827,7 +834,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                 <div
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
-                  style={{ width: "var(--top-bar-side-w)" }}
+                  style={{
+                    // Collapse the fixed side gutter to the back button's width
+                    // when a breadcrumb trail is showing, so the trail sits
+                    // right beside the back arrow instead of centered.
+                    width: hasBreadcrumbTrail ? "auto" : "var(--top-bar-side-w)",
+                  }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
                     <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
@@ -884,17 +896,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions ||
-                      (!centerTitle && (topShellBreadcrumb?.items?.length ?? 0) > 0)
+                    showOnboardingActions || hasBreadcrumbTrail
                       ? "justify-start"
                       : "justify-center",
                   )}
                 >
-                  {!centerTitle &&
-                  (topShellBreadcrumb?.items?.length ?? 0) > 0 ? (
-                    <TopShellBreadcrumbTrail
-                      items={topShellBreadcrumb?.items ?? []}
-                    />
+                  {hasBreadcrumbTrail ? (
+                    <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
                       <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
