@@ -30,7 +30,8 @@
     "prepack": "node ./scripts/stage-runtime.mjs",
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
-    "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config"
+    "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config",
+    "test": "node --test tests/test-bootstrap.js"
   },
   "publishConfig": {
     "access": "public"

@@ -141,6 +141,46 @@ add_check() {
   printf '%s|%s|%s\n' "$key" "$status" "$detail" >>"$REPORT_FILE"
 }
 
+check_python_runtime() {
+  local py_cmd=""
+  if [[ -n "${HUSHH_MCP_PYTHON:-}" ]] && command -v "$HUSHH_MCP_PYTHON" &>/dev/null; then
+    py_cmd="$HUSHH_MCP_PYTHON"
+  elif command -v python3 &>/dev/null; then
+    py_cmd="python3"
+  elif command -v python &>/dev/null; then
+    py_cmd="python"
+  fi
+
+  if [[ -z "$py_cmd" ]]; then
+    add_check "python_runtime" "fail" "No Python interpreter found; install Python 3.10+ or set HUSHH_MCP_PYTHON"
+    SOURCE_READY=false
+    return 1
+  fi
+
+  local version_output
+  version_output=$("$py_cmd" -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>/dev/null) || {
+    add_check "python_runtime" "fail" "Found '$py_cmd' but failed to query version; ensure Python 3.10+ is on PATH"
+    SOURCE_READY=false
+    return 1
+  }
+
+  local py_major py_minor
+  read -r py_major py_minor <<< "$version_output"
+
+  if (( py_major < 3 )) || (( py_major == 3 && py_minor < 10 )); then
+    add_check "python_runtime" "fail" "Python ${py_major}.${py_minor} is below the 3.10 floor required; upgrade or set HUSHH_MCP_PYTHON"
+    SOURCE_READY=false
+    return 1
+  fi
+
+  if (( py_major == 3 && py_minor < 13 )); then
+    add_check "python_runtime" "warn" "Python ${py_major}.${py_minor} meets minimum (3.10) but upgrade to 3.13+ recommended"
+    return 0
+  fi
+
+  add_check "python_runtime" "pass" "Python ${py_major}.${py_minor} at $(command -v "$py_cmd")"
+}
+
 EXPECTED_BACKEND_ENV="$(runtime_profile_backend_environment "$PROFILE")"
 EXPECTED_FRONTEND_ENV="$(runtime_profile_frontend_environment "$PROFILE")"
 EXPECTED_BACKEND_MODE="local"
@@ -153,6 +193,15 @@ FRONTEND_ACTIVE="$REPO_ROOT/hushh-webapp/.env.local"
 
 SOURCE_READY=true
 ACTIVE_PROFILE_MATCH=true
+
+check_python_runtime || {
+  while IFS='|' read -r _key _status _detail; do
+    printf '  %-28s FAIL  %s\n' "$_key" "$_detail"
+  done < "$REPORT_FILE"
+  echo "" >&2
+  echo "doctor: aborting — python3 3.10+ is required." >&2
+  exit 1
+}
 
 if [ -f "$BACKEND_SOURCE" ]; then
   add_check "backend_source_file" "pass" "${BACKEND_SOURCE#$REPO_ROOT/}"
