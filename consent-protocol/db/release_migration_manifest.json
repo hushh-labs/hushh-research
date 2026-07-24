@@ -94,7 +94,8 @@
     "113_kai_plaid_portfolio_tables.sql",
     "114_one_action_directive_ledger.sql",
     "115_one_location_map_presence.sql",
-    "116_one_location_sms_contacts.sql"
+    "116_one_location_sms_contacts.sql",
+    "117_one_location_named_circles.sql"
   ],
   "groups": {
     "iam": [
@@ -148,7 +149,8 @@
       "112_dynamic_crm_registry_cache.sql",
       "114_one_action_directive_ledger.sql",
       "115_one_location_map_presence.sql",
-      "116_one_location_sms_contacts.sql"
+      "116_one_location_sms_contacts.sql",
+      "117_one_location_named_circles.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

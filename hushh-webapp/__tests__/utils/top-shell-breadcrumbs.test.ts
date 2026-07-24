@@ -465,6 +465,7 @@ describe("top shell breadcrumbs", () => {
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["privacy", "Privacy"],
+      ["sms-contacts", "SMS contacts"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
       ["needs-review", "Needs my review"],
@@ -475,6 +476,26 @@ describe("top shell breadcrumbs", () => {
       params.set("action", action);
       expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
         backHref: "/one/location",
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "One", href: "/one" },
+          { label: "Location", href: "/one/location" },
+          { label },
+        ],
+      });
+    }
+
+    for (const [action, label] of [
+      ["create-circle", "Create circle"],
+      ["join-circle", "Join circle"],
+      ["circle-detail", "Circle details"],
+    ]) {
+      const params = new URLSearchParams();
+      params.set("action", action);
+      params.set("view", "people");
+      expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
+        backHref: "/one/location?view=people",
         width: "profile",
         align: "center",
         items: [

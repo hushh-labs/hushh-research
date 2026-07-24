@@ -105,9 +105,30 @@ owner/link metadata plus the attached public location snapshot.
 - Invite to One links are hash-only onboarding links. A signed-in visitor must
   complete the normal phone verification gate and unlock their own vault so the
   client can bootstrap only that visitor's One Location recipient key. Claiming
-  creates a metadata-only mutual One Network connection; it never creates a live
-  location grant, exposes private owner profile data, or requests location
-  permission.
+  creates the legacy metadata-only trusted edge; its compatibility client may
+  separately materialize a mutual One Network connection. Claiming never
+  creates a live location grant, exposes private owner profile data, or requests
+  location permission.
+- Named Circles are a separate durable metadata graph backed by
+  `one_location_circles`, `one_location_circle_memberships`, and
+  `one_location_circle_invite_codes`. A valid code joins immediately and
+  bypasses connection-request approval, but creates no `connections` row,
+  `trusted_connections` edge, SMS selection, grant, envelope, or capability.
+- Codes use a 12-character human-safe alphabet, expire after 72 hours, are
+  owner-rotatable, and are stored only as a domain-separated keyed HMAC digest.
+  Raw codes are returned once and must not appear in URLs, logs, analytics, or
+  durable client storage.
+- Active co-membership makes two people eligible to start an explicit share.
+  Every share remains per-recipient, encrypted, duration-bounded, and
+  revocable. Circle-only grants always persist `source_circle_id`; leaving,
+  removal, or deletion revokes only grants derived from that Circle.
+- Circle-backed grant creation, its audit event, and SMS-contact selection lock
+  the Circle and both memberships in the same transaction. Membership removal,
+  Circle deletion, and account cleanup use the matching lock order so a
+  concurrent mutation cannot recreate authority or a stale SMS selection after
+  cleanup.
+- A user may belong to at most 10 active Circles. A Circle has one owner, up to
+  20 active members, and one active invite code.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -197,13 +218,18 @@ cleanup during state/read flows, and hosted environments may call
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
 `ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
-invites, public submissions, and Invite to One links follow the same terminal-state
-retention boundary.
+invites, public submissions, Invite to One links, and expired/revoked named
+Circle codes follow the same terminal-state retention boundary.
 
 ## Native Contract
 
 v1 is foreground-only.
 
+- Named Circle create, join, preview, management, and share flows stay on the
+  native-required static `/one/location` route for web, iOS, and Android.
+- iOS and Android use the existing Capacitor Share plugin for code-only share
+  text. Web uses Web Share with the shared clipboard fallback. This contract
+  intentionally does not claim Universal Links or Android App Links.
 - iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
   Capacitor plugin.
 - Android uses fine/coarse location permissions and the `HushhLocation`

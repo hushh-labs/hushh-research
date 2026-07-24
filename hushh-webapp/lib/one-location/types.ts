@@ -151,6 +151,8 @@ export type OneLocationGrant = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   latestEnvelopeId?: string | null;
+  /** Optional provenance for an explicit share started from a named Circle. */
+  sourceCircleId?: string | null;
   /**
    * Share intent surfaced by the backend so the recipient's notification, bell,
    * and Consent Manager can distinguish an emergency SOS from a friendly
@@ -243,6 +245,51 @@ export type OneLocationCircleInvite = {
   message?: string | null;
 };
 
+export type OneLocationCircleKind = "family" | "friends" | "other";
+export type OneLocationCircleRole = "owner" | "member";
+
+export type OneLocationCircleSummary = {
+  id: string;
+  name: string;
+  kind: OneLocationCircleKind;
+  role: OneLocationCircleRole;
+  memberCount: number;
+  memberLimit: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type OneLocationCircleMember = {
+  userId: string;
+  displayName: string;
+  photoUrl?: string | null;
+  role: OneLocationCircleRole;
+  joinedAt?: string | null;
+  phoneVerified: boolean;
+  secureLocationReady: boolean;
+};
+
+export type OneLocationCircleDetail = OneLocationCircleSummary & {
+  members: OneLocationCircleMember[];
+};
+
+export type OneLocationCircleInviteCode = {
+  id: string;
+  circleId: string;
+  /** Returned once after create/rotate; never persisted by the client. */
+  code: string;
+  expiresAt: string;
+};
+
+export type OneLocationCircleInvitePreview = {
+  name: string;
+  kind: OneLocationCircleKind;
+  ownerDisplayName: string;
+  memberCount: number;
+  expiresAt: string;
+  alreadyMember: boolean;
+};
+
 export type OneLocationNetworkConnection = {
   id: string;
   userAId: string;
@@ -278,6 +325,7 @@ export type OneLocationMyRecipientKey = {
 
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
+  circles?: OneLocationCircleSummary[];
   myRecipientKey?: OneLocationMyRecipientKey | null;
   kaiCircleCandidates?: KaiCircleCandidate[];
   viewerCapabilities?: OneLocationViewerCapabilities;

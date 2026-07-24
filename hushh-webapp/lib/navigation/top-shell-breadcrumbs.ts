@@ -52,12 +52,16 @@ function oneLocationActionLabel(action: string): string {
     share: "Share location",
     ask: "Ask someone",
     invite: "Invite to Circle",
+    "create-circle": "Create circle",
+    "join-circle": "Join circle",
+    "circle-detail": "Circle details",
     "temp-link": "Public link",
     "check-in": "Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
     sos: "Safety",
+    "sms-contacts": "SMS contacts",
     privacy: "Privacy",
   };
   return labels[action] ?? titleizeSegment(action);
@@ -602,8 +606,15 @@ function resolveTopShellBreadcrumbInner(
     // removed to fix the "two back buttons" UX.
     const action = String(searchParams?.get("action") || "").trim();
     if (action) {
+      const returnsToPeople = [
+        "create-circle",
+        "join-circle",
+        "circle-detail",
+      ].includes(action);
       return {
-        backHref: ROUTES.ONE_LOCATION,
+        backHref: returnsToPeople
+          ? `${ROUTES.ONE_LOCATION}?view=people`
+          : ROUTES.ONE_LOCATION,
         width: "profile",
         align: "center",
         items: [

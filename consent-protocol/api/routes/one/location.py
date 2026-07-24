@@ -10,17 +10,23 @@ from __future__ import annotations
 import hmac
 import os
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.google_maps_service import GoogleMapsError, GoogleMapsService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
     location_error_detail,
+)
+from hushh_mcp.services.one_location_circle_service import (
+    OneLocationCircleError,
+    OneLocationCircleService,
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
@@ -29,6 +35,8 @@ _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
 _GrantId = Annotated[str, Path(min_length=1, max_length=128)]
 _RecipientUserId = Annotated[str, Path(min_length=1, max_length=160)]
+_CircleId = Annotated[str, Path(min_length=36, max_length=36)]
+_CircleMemberUserId = Annotated[str, Path(min_length=1, max_length=160)]
 
 
 class _CamelModel(BaseModel):
@@ -50,6 +58,10 @@ class RecipientKeyRequest(_CamelModel):
 class CreateGrantRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
     recipient_key_id: str | None = Field(default=None, alias="recipientKeyId", max_length=160)
+    source_circle_id: UUID | None = Field(
+        default=None,
+        alias="sourceCircleId",
+    )
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
@@ -98,6 +110,20 @@ class ClaimCircleInviteRequest(_CamelModel):
     message: str | None = Field(default=None, max_length=500)
 
 
+class CreateNamedCircleRequest(_CamelModel):
+    name: str = Field(min_length=2, max_length=80)
+    kind: str = Field(default="other", pattern="^(family|friends|other)$")
+
+
+class UpdateNamedCircleRequest(_CamelModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+
+
+class NamedCircleCodeRequest(_CamelModel):
+    code: str = Field(min_length=12, max_length=32)
+
+
 class SubmitPublicInviteRequest(_CamelModel):
     visitor_display_name: str = Field(alias="visitorDisplayName", min_length=2, max_length=120)
     phone_number: str = Field(alias="phoneNumber", min_length=8, max_length=32)
@@ -129,6 +155,10 @@ def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
 
+def _circle_service() -> OneLocationCircleService:
+    return OneLocationCircleService()
+
+
 def _user_id(token_data: dict[str, Any]) -> str:
     return str(token_data.get("user_id") or "").strip()
 
@@ -146,6 +176,11 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 def _handle_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OneLocationAgentError):
         return HTTPException(status_code=exc.status_code, detail=location_error_detail(exc))
+    if isinstance(exc, OneLocationCircleError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
     if exc.__class__.__name__ == "DatabaseExecutionError":
         status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
         return HTTPException(status_code=status_code, detail=database_error_detail(exc))  # type: ignore[arg-type]
@@ -290,6 +325,203 @@ def list_verified_location_recipients(
         return {
             "recipients": _service().list_verified_recipients(owner_user_id=_user_id(token_data))
         }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/circles")
+def list_named_location_circles(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {"circles": _circle_service().list_circles(user_id=_user_id(token_data))}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def create_named_location_circle(
+    request: Request,
+    payload: CreateNamedCircleRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return {
+            "circle": _circle_service().create_circle(
+                owner_user_id=_user_id(token_data),
+                name=payload.name,
+                kind=payload.kind,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/circles/{circle_id}")
+def get_named_location_circle(
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "circle": _circle_service().get_circle(
+                user_id=_user_id(token_data),
+                circle_id=circle_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/circles/{circle_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def update_named_location_circle(
+    request: Request,
+    circle_id: _CircleId,
+    payload: UpdateNamedCircleRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return {
+            "circle": _circle_service().update_circle(
+                owner_user_id=_user_id(token_data),
+                circle_id=circle_id,
+                name=payload.name,
+                kind=payload.kind,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circles/{circle_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def delete_named_location_circle(
+    request: Request,
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        _circle_service().delete_circle(
+            owner_user_id=_user_id(token_data),
+            circle_id=circle_id,
+        )
+        return {"deleted": True}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/{circle_id}/invite-code")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def create_named_location_circle_code(
+    request: Request,
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return {
+            "inviteCode": _circle_service().create_invite_code(
+                owner_user_id=_user_id(token_data),
+                circle_id=circle_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circles/{circle_id}/invite-code")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def revoke_named_location_circle_code(
+    request: Request,
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        _circle_service().revoke_invite_code(
+            owner_user_id=_user_id(token_data),
+            circle_id=circle_id,
+        )
+        return {"revoked": True}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-codes/resolve")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def resolve_named_location_circle_code(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return {
+            "preview": _circle_service().resolve_invite_code(
+                user_id=_user_id(token_data),
+                code=payload.code,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-codes/join")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def join_named_location_circle(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        return _circle_service().join_circle(
+            user_id=_user_id(token_data),
+            code=payload.code,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circles/{circle_id}/members/me")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def leave_named_location_circle(
+    request: Request,
+    circle_id: _CircleId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        _circle_service().leave_circle(
+            user_id=_user_id(token_data),
+            circle_id=circle_id,
+        )
+        return {"left": True}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circles/{circle_id}/members/{member_user_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def remove_named_location_circle_member(
+    request: Request,
+    circle_id: _CircleId,
+    member_user_id: _CircleMemberUserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    try:
+        _circle_service().remove_member(
+            owner_user_id=_user_id(token_data),
+            circle_id=circle_id,
+            member_user_id=member_user_id,
+        )
+        return {"removed": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -514,6 +746,9 @@ def create_location_grant(
                 duration_hours=payload.duration_hours,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
+                source_circle_id=(
+                    str(payload.source_circle_id) if payload.source_circle_id is not None else None
+                ),
                 enforce_connection=True,
             )
         }

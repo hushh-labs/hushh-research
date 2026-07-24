@@ -105,6 +105,11 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
         "DELETE FROM one_location_circle_invites",
+        "DELETE FROM one_location_circle_invite_codes",
+        "DELETE FROM one_location_circle_memberships",
+        "DELETE FROM one_location_circles",
+        "DELETE FROM connection_requests",
+        "DELETE FROM connections",
         "DELETE FROM trusted_connections",
         "DELETE FROM one_location_access_requests",
         "DELETE FROM one_location_envelopes",
@@ -143,6 +148,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM one_location_events") < executed_sql.index(
         "DELETE FROM one_location_share_grants"
+    )
+    assert executed_sql.index("DELETE FROM one_location_circle_invite_codes") < executed_sql.index(
+        "DELETE FROM one_location_circles"
+    )
+    assert executed_sql.index("DELETE FROM one_location_circles") < executed_sql.index(
+        "DELETE FROM one_location_circle_memberships"
     )
     assert executed_sql.index("DELETE FROM one_location_share_grants") < executed_sql.index(
         "DELETE FROM actor_identity_cache"
@@ -211,6 +222,11 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_sms_contacts",
+        "DELETE FROM one_location_circle_invite_codes",
+        "DELETE FROM one_location_circle_memberships",
+        "DELETE FROM one_location_circles",
+        "DELETE FROM connection_requests",
+        "DELETE FROM connections",
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql
@@ -232,6 +248,59 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert "UPDATE runtime_persona_state" in executed_sql
     assert "UPDATE vault_keys" in executed_sql
     assert "setup_completed = NULL" in executed_sql
+
+
+def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    member_result = MagicMock()
+    member_result.mappings.return_value.all.return_value = [
+        {"user_id": "owner"},
+        {"user_id": "member_a"},
+        {"user_id": "member_b"},
+    ]
+
+    def execute(query, _params=None):
+        if "SELECT DISTINCT membership.user_id" in str(query):
+            return member_result
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+
+    with patch(
+        "hushh_mcp.services.one_location_circle_service."
+        "OneLocationCircleService._cleanup_ineligible_sms_contacts"
+    ) as cleanup_sms:
+        results: dict[str, bool] = {}
+        service._delete_owned_named_circles(
+            conn,
+            user_id="owner",
+            results=results,
+        )
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    circle_lock_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "SELECT id" in sql and "FOR UPDATE" in sql
+    )
+    event_cleanup_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "DELETE FROM one_location_events event" in sql
+    )
+    circle_delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
+    )
+    assert circle_lock_index < event_cleanup_index < circle_delete_index
+    assert [call.kwargs["user_id"] for call in cleanup_sms.call_args_list] == [
+        "member_a",
+        "member_b",
+        "owner",
+    ]
+    assert results["one_location_circle_invite_codes"] is True
+    assert results["one_location_circles"] is True
 
 
 @pytest.mark.asyncio

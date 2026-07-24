@@ -32,14 +32,20 @@ function routeValuesFromRoutesTs(source) {
 
 function routeValuesFromAppPages() {
   return walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+    path.basename(filePath) === "page.tsx",
   )
     .map((filePath) => {
-      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const relative = toPosixPath(
+        path.relative(path.join(appRoot, "app"), filePath),
+      );
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
       return route ? `/${route}` : "/";
     })
     .sort();
+}
+
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
 }
 
 /**
@@ -91,9 +97,11 @@ function routeToVoiceContractFile(route) {
 }
 
 function apiTemplateFromRouteFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app/api"), filePath);
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app/api"), filePath),
+  );
   const withoutRoute = relative.replace(/\/route\.ts$/, "");
-  const parts = withoutRoute.split(path.sep).map((part) => {
+  const parts = withoutRoute.split("/").map((part) => {
     const catchAll = part.match(/^\[\.\.\.(.+)\]$/);
     if (catchAll) return `{${catchAll[1]}*}`;
     const dynamic = part.match(/^\[(.+)\]$/);
@@ -148,6 +156,47 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/location": {
+    api_dependencies: [
+      {
+        service_file: "lib/one-location/service.ts",
+        service_methods: [
+          "getState",
+          "listCircles",
+          "getCircle",
+          "createNamedCircle",
+          "updateNamedCircle",
+          "deleteNamedCircle",
+          "createNamedCircleInviteCode",
+          "revokeNamedCircleInviteCode",
+          "resolveNamedCircleCode",
+          "joinNamedCircle",
+          "removeNamedCircleMember",
+          "leaveNamedCircle",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/location/{circles,circle-codes}/*",
+        native_transport:
+          "CapacitorHttp direct backend via the shared One Location service",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        package: "@capacitor/share",
+        integration:
+          "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs",
+      },
+    ],
+    thread_and_consent_contract: {
+      membership_authority:
+        "Circle membership is metadata-only and never creates a connection, SMS selection, or location grant",
+      location_authority:
+        "Every live-location share remains recipient-specific, encrypted, duration-bounded, and explicitly confirmed",
+      invite_code_storage:
+        "Raw codes are returned once for sharing and never persisted by the client or placed in URLs",
+    },
+  },
   "/one/location/map": {
     api_dependencies: [
       {
@@ -462,12 +511,13 @@ function buildSurfaceMap() {
   const inventoryByRoute = new Map(
     (inventory.routes || []).map((route) => [route.route, route]),
   );
-  const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts"),
+  const apiRoutes = walkFiles(
+    path.join(appRoot, "app/api"),
+    (filePath) => path.basename(filePath) === "route.ts",
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
-      file: path.relative(appRoot, filePath),
+      file: toPosixPath(path.relative(appRoot, filePath)),
     }))
     .sort((left, right) => left.template.localeCompare(right.template));
 

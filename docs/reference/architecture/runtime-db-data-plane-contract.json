@@ -358,6 +358,7 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
@@ -370,12 +371,28 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, legacy Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access or reveal only an explicit public snapshot; Invite to One links create metadata-only network readiness and never reveal private grants, ciphertext, or owner identity beyond a safe label.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants and join codes before deletion where possible.",
+      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, public invite token hashes, legacy Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Public invite links can request access or reveal only an explicit public snapshot; Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_named_circle_relationships",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_memberships"
+      ],
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, membership listing, join, removal, leave, and deletion workflows.",
+      "retention_policy": "Active memberships persist while the Circle exists; left, removed, and deleted state is retained only for bounded reconciliation before compaction.",
+      "deletion_behavior": "Delete owned Circles and every membership referencing the deleting account; revoke Circle-sourced active grants without changing unrelated connections or grants.",
+      "trust_boundary": "Named Circle membership is metadata-only eligibility. It never creates a connection, trusted edge, SMS selection, location grant, capability token, envelope, coordinate, or map projection by itself.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_relationship"
     },
     {
       "id": "information_marketplace_requests",

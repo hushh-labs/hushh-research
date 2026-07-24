@@ -95,6 +95,15 @@ class RateLimits:
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
+    # Human-entered Circle codes are deliberately short enough to type. Keep
+    # resolve/join attempts in their own authenticated-user bucket so guessing
+    # cannot consume unrelated consent budgets. RATE_LIMIT_STORAGE_URI remains
+    # the Redis/Memorystore upgrade seam for cross-instance precision.
+    ONE_LOCATION_CIRCLE_JOIN = "10/minute"  # noqa: S105
+
+    # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
+    ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
+
     # Global fallback per IP
     GLOBAL_PER_IP = "100/minute"  # noqa: S105
 

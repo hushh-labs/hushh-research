@@ -199,6 +199,23 @@ class AccountService:
                    OR claimed_by_user_id = :user_id
                 """
             ),
+            "one_location_circle_memberships": text(
+                "DELETE FROM one_location_circle_memberships WHERE user_id = :user_id"
+            ),
+            "connection_requests": text(
+                """
+                DELETE FROM connection_requests
+                WHERE requester_user_id = :user_id
+                   OR addressee_user_id = :user_id
+                """
+            ),
+            "connections": text(
+                """
+                DELETE FROM connections
+                WHERE user_a_id = :user_id
+                   OR user_b_id = :user_id
+                """
+            ),
             "trusted_connections": text(
                 """
                 DELETE FROM trusted_connections
@@ -430,6 +447,119 @@ class AccountService:
         for table_name in table_names:
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
+
+    def _delete_owned_named_circles(
+        self,
+        conn,
+        *,
+        user_id: str,
+        results: dict[str, bool],
+    ) -> None:
+        """Delete owned Circles without orphaning grant audit or SMS state."""
+        core_tables = (
+            "one_location_circles",
+            "one_location_circle_memberships",
+            "one_location_circle_invite_codes",
+        )
+        if not all(self._table_exists(conn, table_name) for table_name in core_tables):
+            for table_name in core_tables:
+                results[table_name] = True
+            return
+
+        params = {"user_id": user_id}
+        (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_circles
+                    WHERE owner_user_id = :user_id
+                    ORDER BY id
+                    FOR UPDATE
+                    """
+                ),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        affected_member_rows = (
+            conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT membership.user_id
+                    FROM one_location_circles circle
+                    JOIN one_location_circle_memberships membership
+                      ON membership.circle_id = circle.id
+                     AND membership.status = 'active'
+                    WHERE circle.owner_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        affected_member_ids = {
+            str(row.get("user_id") or "").strip()
+            for row in affected_member_rows
+            if str(row.get("user_id") or "").strip()
+        }
+
+        if self._table_exists(conn, "one_location_events") and self._table_exists(
+            conn, "one_location_share_grants"
+        ):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM one_location_events event
+                    USING one_location_share_grants share_grant,
+                          one_location_circles circle
+                    WHERE event.grant_id = share_grant.id
+                      AND share_grant.source_circle_id = circle.id
+                      AND circle.owner_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+
+        conn.execute(
+            text(
+                """
+                DELETE FROM one_location_circle_invite_codes invite_code
+                WHERE invite_code.created_by_user_id = :user_id
+                   OR invite_code.circle_id IN (
+                     SELECT circle.id
+                     FROM one_location_circles circle
+                     WHERE circle.owner_user_id = :user_id
+                   )
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                DELETE FROM one_location_circles
+                WHERE owner_user_id = :user_id
+                """
+            ),
+            params,
+        )
+
+        if self._table_exists(conn, "one_location_sms_contacts"):
+            from hushh_mcp.services.one_location_circle_service import (
+                OneLocationCircleService,
+            )
+
+            for member_user_id in sorted(affected_member_ids):
+                OneLocationCircleService._cleanup_ineligible_sms_contacts(
+                    conn,
+                    user_id=member_user_id,
+                )
+
+        results["one_location_circle_invite_codes"] = True
+        results["one_location_circles"] = True
 
     async def delete_account(
         self,
@@ -666,6 +796,11 @@ class AccountService:
         results["push_tokens"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="one_kyc_workflows", params=params)
         results["one_kyc_workflows"] = True
+        self._delete_owned_named_circles(
+            conn,
+            user_id=user_id,
+            results=results,
+        )
         for table_name in (
             "one_location_events",
             "one_location_sms_contacts",
@@ -673,6 +808,9 @@ class AccountService:
             "one_location_public_invite_submissions",
             "one_location_public_invites",
             "one_location_circle_invites",
+            "one_location_circle_memberships",
+            "connection_requests",
+            "connections",
             "trusted_connections",
             "one_location_access_requests",
             "one_location_envelopes",
@@ -847,6 +985,11 @@ class AccountService:
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
             "one_location_circle_invites": False,
+            "one_location_circle_invite_codes": False,
+            "one_location_circle_memberships": False,
+            "one_location_circles": False,
+            "connection_requests": False,
+            "connections": False,
             "trusted_connections": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
@@ -1058,6 +1201,11 @@ class AccountService:
                     params=params,
                 )
                 results["one_kyc_workflows"] = True
+                self._delete_owned_named_circles(
+                    conn,
+                    user_id=user_id,
+                    results=results,
+                )
                 for table_name in (
                     "one_location_events",
                     "one_location_sms_contacts",
@@ -1065,6 +1213,9 @@ class AccountService:
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",
+                    "one_location_circle_memberships",
+                    "connection_requests",
+                    "connections",
                     "trusted_connections",
                     "one_location_access_requests",
                     "one_location_envelopes",

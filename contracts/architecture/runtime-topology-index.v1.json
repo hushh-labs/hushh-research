@@ -847,6 +847,7 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
@@ -862,7 +863,18 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, legacy Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_memberships"
+      ],
+      "id": "one_location_named_circle_relationships",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, membership listing, join, removal, leave, and deletion workflows."
     },
     {
       "data_class": "personal_projection",
@@ -4190,12 +4202,12 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
     "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "2450e780a874943549dfd6c5abb5c83eca1dee1222e70e26244e17b0bb1a83f2",
+    "data_plane": "84189ef97d78b0d8853f4e842e19886e586b5dd7928dd9ae04fef655ea293328",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
     "route_layout": "e8b17d619c2e741ecc03634daeb56ef4d28a2c51250bb859b7d0dff4be95f57e",
-    "surface_map": "1b59ea094944b72064fe966be31317e97afa365cb736eaddc5273177e02b6b9b",
+    "surface_map": "fff23664f428a20b56236114340e8ed38694b62c78e0ce9ea32be66fe6eb72c7",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4209,6 +4221,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 112,
     "semantic_routes": 14,
-    "table_families": 32
+    "table_families": 33
   }
 }
