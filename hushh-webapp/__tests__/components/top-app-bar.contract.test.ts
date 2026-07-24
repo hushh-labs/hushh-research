@@ -202,10 +202,15 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
     expect(source).toContain("requestInternalAppNavigation({");
-    expect(source).toContain("href: ROUTES.PROFILE");
+    // The avatar opens Profile origin-aware (tags the current route as `?from`)
+    // so the shared back control returns to where the user came from instead of
+    // always dropping them on the One dashboard.
+    expect(source).toContain("href: profileOpenHref");
+    expect(source).toContain("const profileOpenHref");
     expect(source).toContain('source: "tap"');
     expect(source).toContain('transitionMode: "full"');
     expect(source).not.toContain("onClick={() => router.push(ROUTES.PROFILE)}");
+
     expect(source).toContain("<AvatarImage");
     expect(source).toContain("<AvatarFallback");
     expect(source).not.toContain('aria-label="Open Connect"');

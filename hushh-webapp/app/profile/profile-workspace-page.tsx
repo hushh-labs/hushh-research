@@ -920,11 +920,21 @@ function ProfilePageContent() {
           detail?: ProfileDetail | null;
         },
         mode: "push" | "replace" = "push",
+
       ) => {
+        // Preserve only the `from` origin marker (not transient vault/return
+        // keys, which must not re-fire while drilling panels) so the shared
+        // top-bar back control can retrace to wherever Profile was opened from,
+        // even after Profile → panel → detail → back all the way out.
+        const originFrom = searchParams.get("from");
+        const originParams = originFrom
+          ? new URLSearchParams({ from: originFrom })
+          : undefined;
         const href = buildProfileRoute({
           panel: typeof next.panel === "undefined" ? activePanel : next.panel,
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
+          searchParams: originParams,
         });
         if (mode === "push") {
           router.push(href, { scroll: false });
@@ -932,8 +942,9 @@ function ProfilePageContent() {
           router.replace(href, { scroll: false });
         }
       },
-    [activeDetail, activePanel, router],
+    [activeDetail, activePanel, router, searchParams],
   );
+
 
   useEffect(() => {
     let cancelled = false;
