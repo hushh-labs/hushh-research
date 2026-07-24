@@ -58,6 +58,7 @@ import {
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
+import { calculateBackoffDelay } from "@/lib/streaming/backoff";
 import {
   getSessionItem,
   removeSessionItem,
@@ -843,6 +844,7 @@ export function ConsentNotificationProvider({
 
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
     let idleHandle: number | null = null;
     let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
     const abortController = new AbortController();
@@ -881,6 +883,10 @@ export function ConsentNotificationProvider({
             ? "push_blocked"
             : "push_failed_fallback_active"
         );
+
+        // Connection succeeded; reset the backoff so the next failure
+        // starts again from baseMs rather than wherever we left off.
+        reconnectAttempt = 0;
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -932,9 +938,18 @@ export function ConsentNotificationProvider({
         setDeliveryDetail(
           error instanceof Error ? error.message : "consent_sse_failed"
         );
+        // Exponential backoff with jitter — see lib/streaming/backoff.ts.
+        // Without this, every connected client retries on the same fixed
+        // schedule, which thundering-herds a recovering server. With this,
+        // retries spread across a window and lengthen on repeated failures.
+        const delay = calculateBackoffDelay(reconnectAttempt, {
+          baseMs: prioritizeRealtime ? 3000 : 6000,
+          maxMs: 60_000,
+        });
+        reconnectAttempt += 1;
         reconnectTimer = globalThis.setTimeout(() => {
           void connect();
-        }, prioritizeRealtime ? 3000 : 6000);
+        }, delay);
       }
     };
 
