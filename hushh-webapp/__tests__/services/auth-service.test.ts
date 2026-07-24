@@ -52,6 +52,7 @@ const {
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
     signOut: vi.fn(),
+    signIn: vi.fn(),
     signInWithApple: vi.fn(),
   },
   mockCapacitor: {
@@ -746,6 +747,60 @@ describe("AuthService.restoreNativeSession", () => {
     expect(
       AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123"),
     ).toBe(false);
+  });
+});
+
+describe("AuthService native Google provider parity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = null;
+  });
+
+  it("uses the app-owned activity-result contract on Android", async () => {
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    vi.mocked(HushhAuth.signIn).mockResolvedValue({
+      idToken: createIdToken(3_600),
+      accessToken: "google-provider-token",
+      user: {
+        id: "android-user",
+        email: "android@example.com",
+        displayName: "Android User",
+        photoUrl: "",
+      },
+    });
+
+    const result = await AuthService.signInWithGoogle();
+
+    expect(HushhAuth.signIn).toHaveBeenCalledTimes(1);
+    expect(FirebaseAuthentication.signInWithGoogle).not.toHaveBeenCalled();
+    expect(result.user.uid).toBe("android-user");
+    expect(result.idToken).toBeTruthy();
+  });
+
+  it("keeps the FirebaseAuthentication provider contract on iOS", async () => {
+    mockCapacitor.getPlatform.mockReturnValue("ios");
+    const nativeUser = {
+      uid: "ios-user",
+      email: "ios@example.com",
+      displayName: "iOS User",
+      photoUrl: "",
+    };
+    vi.mocked(FirebaseAuthentication.signInWithGoogle).mockResolvedValue({
+      user: nativeUser,
+      credential: {
+        idToken: "google-id-token",
+        accessToken: "google-access-token",
+      },
+    } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: createIdToken(3_600),
+    });
+
+    await AuthService.signInWithGoogle();
+
+    expect(FirebaseAuthentication.signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(HushhAuth.signIn).not.toHaveBeenCalled();
   });
 });
 
