@@ -29,6 +29,7 @@ import {
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import {
+  DARK_MAP_STYLES,
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
@@ -416,6 +417,14 @@ export function LocationImmersiveMap() {
             ? 11
             : 2,
         disableDefaultUI: true,
+        // Open dark to match the mobile dark theme. Read the resolved theme from
+        // the <html> `dark` class that next-themes sets, so no camera-recreating
+        // hook dependency is introduced; a cloud-styled mapId can supersede this.
+        styles:
+          typeof document !== "undefined" &&
+          document.documentElement.classList.contains("dark")
+            ? DARK_MAP_STYLES
+            : undefined,
       },
     })
       .then(async (map) => {
@@ -526,29 +535,43 @@ export function LocationImmersiveMap() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     let paddingTimer: number | null = null;
+    let lastPaddingKey = "";
+    // The people tray is a bottom-sheet overlay that animates its height when
+    // expanded. Anchor the camera's bottom inset to the tray's stable bottom
+    // edge plus its COLLAPSED footprint, never its live expanded height, so
+    // toggling the tray open/closed never re-frames (zooms/pans) the map.
+    const COLLAPSED_TRAY_HEIGHT = 56; // 3.5rem, matches the collapsed tray
     const publishPadding = () => {
       const top = topControlsRef.current?.getBoundingClientRect().bottom ?? 72;
-      const trayTop =
-        peopleTrayRef.current?.getBoundingClientRect().top ??
-        window.innerHeight - 160;
-      void map.setPadding({
+      const trayRect = peopleTrayRef.current?.getBoundingClientRect();
+      const trayBottomInset = trayRect
+        ? Math.max(0, window.innerHeight - trayRect.bottom)
+        : 12;
+      const padding = {
         top: Math.ceil(top + 12),
         right: 20,
-        bottom: Math.ceil(window.innerHeight - trayTop + 12),
+        bottom: Math.ceil(trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12),
         left: 20,
-      });
+      };
+      const key = `${padding.top}:${padding.right}:${padding.bottom}:${padding.left}`;
+      // Never re-hit the native bridge with identical padding: a redundant
+      // setPadding can still nudge the camera on some SDK versions.
+      if (key === lastPaddingKey) return;
+      lastPaddingKey = key;
+      void map.setPadding(padding);
     };
     const schedulePadding = () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);
-      // ResizeObserver fires throughout the card-to-button morph. Publish only
-      // after geometry settles so the native bridge does not receive a call on
-      // every animation frame.
+      // ResizeObserver fires throughout the top-controls layout settle. Publish
+      // only after geometry settles so the native bridge does not receive a call
+      // on every animation frame.
       paddingTimer = window.setTimeout(publishPadding, 80);
     };
     publishPadding();
+    // Observe only the top controls (a stable input). The people tray is left
+    // out on purpose: its expand/collapse animation must not drive the camera.
     const observer = new ResizeObserver(schedulePadding);
     if (topControlsRef.current) observer.observe(topControlsRef.current);
-    if (peopleTrayRef.current) observer.observe(peopleTrayRef.current);
     window.addEventListener("resize", schedulePadding);
     return () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);

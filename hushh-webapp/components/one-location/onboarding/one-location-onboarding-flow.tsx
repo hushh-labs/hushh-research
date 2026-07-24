@@ -15,9 +15,10 @@ import {
   ChevronLeft,
   Loader2,
   MapPin,
-  Navigation,
+  ShieldCheck,
   UserPlus,
 } from "lucide-react";
+
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -106,8 +107,9 @@ const WELCOME_ORBIT_ITEMS = [
 
 const ONBOARDING_IMAGE_SOURCES = [
   ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
-  "/one-location/onboarding/feature-checkin-pin-transparent.webp",
+  "/one-location/onboarding/feature-checkin-house-transparent.webp",
 ] as const;
+
 
 const AVATAR_TONES = [
   { background: "#2f80ed", foreground: "#ffffff" },
@@ -412,6 +414,42 @@ const USE_CASE_TONES = {
   },
 } as const;
 
+const CHECKIN_AVATARS = [
+  { label: "A", color: "#8b5cf6" },
+  { label: "J", color: "#3b82f6" },
+  { label: "N", color: "#111827" },
+  { label: "K", color: "#f59e0b" },
+] as const;
+
+/** Minimal, stylised street-map backdrop used behind the share / check-in art. */
+function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
+  const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
+  return (
+    <svg
+      viewBox="0 0 200 168"
+      preserveAspectRatio="xMidYMid slice"
+      className="absolute inset-0 h-full w-full"
+      aria-hidden="true"
+    >
+      <rect width="200" height="168" className="fill-[#edf1f6] dark:fill-[#1b222d]" />
+      {/* green / park blocks */}
+      <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
+      <rect x="150" y="98" width="64" height="74" rx="7" fill={park} />
+      {/* building blocks */}
+      <rect x="122" y="2" width="34" height="30" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
+      <rect x="150" y="8" width="52" height="34" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
+      <rect x="8" y="118" width="44" height="48" rx="5" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
+      {/* road casings */}
+      <path d="M-12 86 H212" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
+      <path d="M100 -12 V180" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
+      <path d="M150 58 L214 122" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="10" fill="none" />
+      {/* road centre hairlines */}
+      <path d="M-12 86 H212" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
+      <path d="M100 -12 V180" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
+    </svg>
+  );
+}
+
 function UseCaseArt({
   kind,
   alertText,
@@ -427,35 +465,72 @@ function UseCaseArt({
       aria-hidden="true"
     >
       {kind === "sms" ? (
-        <div className="absolute right-[12%] top-[22%] flex h-[98px] w-[98px] items-center justify-center rounded-full border-[14px] border-[#fff0f0] bg-[#ef302f] text-center text-white shadow-[0_13px_26px_rgba(239,48,47,0.22)] dark:border-[#4b2528]">
-          <span>
-            <span className="block text-[19px] font-extrabold leading-none">
+        <div
+          className="absolute right-[14%] top-[42%] flex h-[92px] w-[92px] -translate-y-1/2 items-center justify-center"
+          data-one-sms-radar
+        >
+          {/* Radar / alarm pulse rings expanding outward from the red core. */}
+          <span
+            data-one-onboarding-motion
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+          />
+          <span
+            data-one-onboarding-motion
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:0.8s]"
+          />
+          <span
+            data-one-onboarding-motion
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.6s]"
+          />
+          <span
+            data-one-sms-core
+            data-one-onboarding-motion
+            className="relative z-10 flex h-[66px] w-[66px] flex-col items-center justify-center rounded-full bg-[#ef302f] text-center text-white shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+          >
+            <span className="text-[16px] font-bold leading-none tracking-tight">
               SMS
             </span>
-            <span className="mt-1 block text-[8px] font-bold">
-              Tap for help
+            <span className="mt-0.5 text-[8px] font-semibold leading-none opacity-90">
+              Hold 2 s
             </span>
           </span>
         </div>
       ) : null}
+
       {kind === "share" ? (
         <>
-          <span className="absolute bottom-[34%] left-[36%] h-3 w-3 rounded-full bg-[#61a8ff] ring-4 ring-[#dbeeff] dark:ring-[#183e69]" />
-          <span className="absolute bottom-[40%] left-[45%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute bottom-[46%] left-[53%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute bottom-[52%] left-[61%] h-1.5 w-1.5 rounded-full bg-[#338df2]" />
-          <span className="absolute right-[10%] top-[24%] flex h-[50px] w-[50px] items-center justify-center rounded-full bg-[#288af0] text-white shadow-[0_13px_26px_rgba(40,138,240,0.28)]">
-            <Navigation className="h-[26px] w-[26px] fill-current" strokeWidth={1.5} />
+          <MapBackdrop tone="share" />
+          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
+          {/* Dotted live-share route from your dot up to the shared contact. */}
+          <svg
+            viewBox="0 0 200 168"
+            preserveAspectRatio="none"
+            className="absolute inset-0 h-full w-full"
+            aria-hidden="true"
+          >
+            <path
+              d="M46 128 C 84 118, 116 92, 152 56"
+              fill="none"
+              stroke="#338df2"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray="1 9"
+            />
+          </svg>
+          <span className="absolute bottom-[24%] left-[22%] h-3 w-3 rounded-full bg-[#338df2] ring-[3px] ring-white dark:ring-[#171d27]" />
+          <span className="absolute right-[14%] top-[14%] flex h-[34px] w-[34px] items-center justify-center rounded-full border-[3px] border-white bg-[#8b5cf6] text-[13px] font-bold text-white shadow-[0_8px_16px_rgba(124,60,237,0.35)] dark:border-[#171d27]">
+            J
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-[13px] w-[13px] items-center justify-center rounded-full border-2 border-white bg-[#338df2] text-white dark:border-[#171d27]">
+              <Check className="h-1.5 w-1.5" strokeWidth={4} />
+            </span>
           </span>
+
         </>
       ) : null}
       {kind === "checkin" ? (
-        <span
-          className="absolute right-[5%] top-[12%] h-[68px] w-[68px]"
-          data-one-checkin-art
-        >
-          <span className="absolute bottom-[7%] left-[5%] h-[31%] w-[90%] rounded-[50%] border border-[#16a895]/20 bg-[radial-gradient(ellipse_at_center,rgba(22,168,149,0.16)_0%,rgba(22,168,149,0.05)_48%,transparent_72%)] dark:border-[#42d6c2]/20 dark:bg-[radial-gradient(ellipse_at_center,rgba(66,214,194,0.16)_0%,rgba(66,214,194,0.04)_50%,transparent_74%)]" />
-          <span className="absolute bottom-[13%] left-[20%] h-[20%] w-[61%] rounded-[50%] border border-[#16a895]/25 dark:border-[#42d6c2]/25" />
+        <>
+          <MapBackdrop tone="checkin" />
+          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
             src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
@@ -463,25 +538,44 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute inset-0 h-full w-full object-contain drop-shadow-[0_12px_13px_rgba(22,169,149,0.22)] dark:brightness-90"
+            className="absolute right-[34%] top-[3%] h-[38%] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
           />
-        </span>
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
+            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="absolute bottom-[22%] right-[5%] w-[74%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
+            data-one-checkin-art
+          />
+
+        </>
       ) : null}
       <span
         className={cn(
-          "absolute bottom-[19%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.16)] dark:bg-[#f4f7fb]",
-          kind === "sms" ? "px-3.5" : "px-2.5",
+          "absolute bottom-[9%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_6px_18px_rgba(22,35,58,0.18)] dark:bg-[#f4f7fb]",
+          kind === "sms" ? "px-3" : "px-2.5",
         )}
         data-one-use-case-alert
       >
-        {kind !== "sms" ? (
-          <span
-            className={cn(
-              "flex h-4 w-4 items-center justify-center rounded-full text-white",
-              kind === "share" ? "bg-[#338df2]" : "bg-[#16a895]",
-            )}
-          >
-            <Check className="h-3 w-3" strokeWidth={3} />
+        {kind === "share" ? (
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#338df2] text-white">
+            <ShieldCheck className="h-2.5 w-2.5" strokeWidth={2.5} />
+          </span>
+        ) : null}
+        {kind === "checkin" ? (
+          <span className="mr-0.5 flex -space-x-1.5">
+            {CHECKIN_AVATARS.map((avatar) => (
+              <span
+                key={avatar.label}
+                className="flex h-[15px] w-[15px] items-center justify-center rounded-full border border-white text-[7px] font-bold text-white"
+                style={{ backgroundColor: avatar.color }}
+              >
+                {avatar.label}
+              </span>
+            ))}
           </span>
         ) : null}
         <span className="min-w-max shrink-0 whitespace-nowrap">{alertText}</span>
@@ -500,6 +594,7 @@ function UseCaseArt({
     </div>
   );
 }
+
 
 function UseCaseCard({
   tag,
@@ -628,7 +723,7 @@ function FeaturesScreen({
         data-one-feature-grid
       >
         <UseCaseCard
-          tag="SMS · Save my soul"
+          tag="SMS · Save My Soul"
           titleLines={["Need help,", "but can’t call or speak?"]}
           bodyLines={[
             "Send an emergency SMS",
@@ -640,6 +735,7 @@ function FeaturesScreen({
           tone="danger"
           testId="location-use-case-sos"
         />
+
         <UseCaseCard
           tag="Share location"
           titleLines={["Still answering", "“Where are you?”"]}
@@ -656,8 +752,9 @@ function FeaturesScreen({
           tag="Check in"
           titleLines={["Meeting up,", "but can’t find each other?"]}
           bodyLines={["Check in once so everyone sees", "your exact spot."]}
-          alertText="Checked in at Gate 3"
+          alertText="Check-in sent"
           kind="checkin"
+
           tone="success"
           testId="location-use-case-checkin"
         />
@@ -685,12 +782,24 @@ function FeaturesScreen({
         </PrimaryButton>
       </div>
       <style>{`
+        @keyframes oneSmsRadar {
+          0% { transform: scale(0.55); opacity: 0.65; }
+          80% { opacity: 0; }
+          100% { transform: scale(1.35); opacity: 0; }
+        }
+        @keyframes oneSmsCore {
+          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px rgba(239,48,47,0.34); }
+          50% { transform: scale(1.06); box-shadow: 0 18px 34px rgba(239,48,47,0.46); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-one-onboarding-motion] { animation: none !important; }
+        }
         @media (max-width: 400px) {
-          [data-one-use-case-copy] { width: 65%; padding-left: 16px; padding-right: 4px; }
+          [data-one-use-case-copy] { width: 60%; padding-left: 16px; padding-right: 4px; }
           [data-one-use-case-tag] { padding: 3px 10px; font-size: 10.5px; }
           [data-one-use-case-title] { margin-top: 7px; font-size: 16px; }
           [data-one-use-case-body] { margin-top: 6px; font-size: 11px; }
-          [data-one-use-case-art] { width: 42%; }
+          [data-one-use-case-art] { width: 46%; }
         }
         @media (max-height: 760px) {
           [data-one-feature-screen] {
@@ -699,57 +808,53 @@ function FeaturesScreen({
           }
           [data-one-feature-heading] { font-size: 29px; }
           [data-one-use-case-card] { border-radius: 20px; }
-          [data-one-use-case-copy] { width: 64%; padding: 8px 6px 8px 16px; }
+          [data-one-use-case-copy] { width: 60%; padding: 8px 6px 8px 16px; }
           [data-one-use-case-tag] { padding: 2px 10px; font-size: 10px; }
           [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
           [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
-          [data-one-use-case-art] { width: 42%; }
-          [data-one-use-case-kind="sms"] > div { width: 76px; height: 76px; border-width: 10px; }
-          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 18px; }
-          [data-one-use-case-kind="sms"] > div span span:last-child { margin-top: 2px; font-size: 8px; }
-          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 54px; height: 54px; }
-          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 26px; height: 26px; }
-          [data-one-checkin-art] { width: 68px; height: 68px; }
-          [data-one-use-case-alert] { right: 2%; bottom: 8%; padding: 4px 8px; font-size: 8px; }
-          [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
-          [data-one-use-case-alert] > span:first-child svg { width: 10px; height: 10px; }
+          [data-one-use-case-art] { width: 46%; }
+          [data-one-sms-radar] { width: 88px; height: 88px; }
+          [data-one-sms-core] { width: 68px; height: 68px; }
+          [data-one-sms-core] > span:first-child { font-size: 17px; }
+          [data-one-sms-core] > span:last-child { font-size: 8px; }
+          [data-one-use-case-alert] { right: 2%; bottom: 7%; padding: 4px 8px; font-size: 8px; }
+          [data-one-use-case-alert] > span:first-child { height: 13px; }
           [data-one-feature-cta] button { min-height: 44px; height: 44px; }
         }
         @media (max-height: 680px) {
           [data-one-feature-heading] { font-size: 26px; }
-          [data-one-use-case-copy] { width: 66%; padding-left: 14px; }
+          [data-one-use-case-copy] { width: 62%; padding-left: 14px; }
           [data-one-use-case-tag] { font-size: 9px; }
           [data-one-use-case-title] { font-size: 14px; }
           [data-one-use-case-body] { font-size: 10px; }
-          [data-one-use-case-art] { width: 39%; }
+          [data-one-use-case-art] { width: 44%; }
+          [data-one-sms-radar] { width: 78px; height: 78px; }
+          [data-one-sms-core] { width: 60px; height: 60px; }
           [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
         }
         @media (max-width: 370px) {
-          [data-one-use-case-copy] { width: 64%; padding-left: 14px; padding-right: 3px; }
+          [data-one-use-case-copy] { width: 60%; padding-left: 14px; padding-right: 3px; }
           [data-one-use-case-title] { font-size: 14px; }
           [data-one-use-case-body] { font-size: 9.5px; }
-          [data-one-use-case-art] { width: 40%; }
+          [data-one-use-case-art] { width: 46%; }
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
           [data-one-use-case-card] { border-radius: 16px; }
-          [data-one-use-case-copy] { width: 65%; padding: 5px 2px 5px 12px; }
+          [data-one-use-case-copy] { width: 60%; padding: 5px 2px 5px 12px; }
           [data-one-use-case-tag] { padding: 1px 7px; font-size: 8px; }
           [data-one-use-case-title] { margin-top: 3px; font-size: 13px; line-height: 1.05; }
           [data-one-use-case-body] { margin-top: 3px; font-size: 9px; line-height: 1.12; }
-          [data-one-use-case-art] { width: 39%; }
-          [data-one-use-case-kind="sms"] > div { width: 48px; height: 48px; border-width: 4px; }
-          [data-one-use-case-kind="sms"] > div span span:first-child { font-size: 15px; }
-          [data-one-use-case-kind="sms"] > div span span:last-child { font-size: 6px; }
-          [data-one-use-case-kind="share"] > span:nth-child(5) { width: 42px; height: 42px; }
-          [data-one-use-case-kind="share"] > span:nth-child(5) svg { width: 20px; height: 20px; }
-          [data-one-checkin-art] { width: 50px; height: 50px; }
+          [data-one-use-case-art] { width: 46%; }
+          [data-one-sms-radar] { width: 62px; height: 62px; }
+          [data-one-sms-core] { width: 50px; height: 50px; }
+          [data-one-sms-core] > span:first-child { font-size: 14px; }
+          [data-one-sms-core] > span:last-child { font-size: 7px; }
           [data-one-use-case-alert] { right: 1%; bottom: 5%; padding: 2px 4px; font-size: 6px; gap: 2px; }
-          [data-one-use-case-alert] > span:first-child { width: 10px; height: 10px; }
-          [data-one-use-case-alert] > span:first-child svg { width: 8px; height: 8px; }
           [data-one-use-case-alert] > svg { width: 9px; height: 9px; }
         }
       `}</style>
+
     </div>
   );
 }
