@@ -1,4 +1,5 @@
 import { resolveAppRouteLayoutMode } from "@/lib/navigation/app-route-layout";
+import { memoize } from "@/lib/utils/memoize";
 
 export type TopContentOffsetMode = "normal" | "fullscreen-flow";
 export type TopShellRouteProfileId =
@@ -48,7 +49,7 @@ export function shouldShowKaiTabsInTopShell(_pathname: string): boolean {
   return false;
 }
 
-export function resolveTopShellRouteProfile(pathname: string): TopShellRouteProfile {
+function computeTopShellRouteProfile(pathname: string): TopShellRouteProfile {
   const mode = resolveAppRouteLayoutMode(pathname);
 
   switch (mode) {
@@ -63,6 +64,11 @@ export function resolveTopShellRouteProfile(pathname: string): TopShellRouteProf
       return { id: "standard", metrics: DEFAULT_VISIBLE_METRICS };
   }
 }
+
+export const resolveTopShellRouteProfile = memoize(computeTopShellRouteProfile, {
+  maxSize: 64,
+  keyResolver: (pathname) => pathname,
+});
 
 export function resolveTopShellMetrics(pathname: string): TopShellMetrics {
   return resolveTopShellRouteProfile(pathname).metrics;
