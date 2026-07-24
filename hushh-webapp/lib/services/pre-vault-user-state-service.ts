@@ -2,8 +2,10 @@
 
 import { Capacitor } from "@capacitor/core";
 import { apiJson } from "@/lib/services/api-client";
+import { ApiError } from "@/lib/services/api-client";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { retryAsync } from "@/lib/utils/retry";
 
 export type VaultStatus = "placeholder" | "active";
 
@@ -33,6 +35,7 @@ type PreVaultStateUpdatePayload = {
 };
 
 const bootstrapInflight = new Map<string, Promise<PreVaultUserState>>();
+const RETRYABLE_BOOTSTRAP_STATUSES = new Set([429, 502, 503, 504]);
 
 function toMillis(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -87,6 +90,13 @@ async function getAuthHeader(): Promise<string> {
   return `Bearer ${token}`;
 }
 
+function isRetryableBootstrapError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return RETRYABLE_BOOTSTRAP_STATUSES.has(error.status);
+  }
+  return error instanceof TypeError;
+}
+
 export class PreVaultUserStateService {
   static async bootstrapState(
     userId: string,
@@ -105,14 +115,22 @@ export class PreVaultUserStateService {
     }
 
     const authorization = await getAuthHeader();
-    const request = apiJson<BootstrapStateResponse>(resolvePreVaultPath("bootstrap-state"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: authorization,
-      },
-      body: JSON.stringify({ userId }),
-    })
+    const request = retryAsync(
+      () =>
+        apiJson<BootstrapStateResponse>(resolvePreVaultPath("bootstrap-state"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authorization,
+          },
+          body: JSON.stringify({ userId }),
+        }),
+      {
+        retries: 2,
+        delayMs: 200,
+        shouldRetry: isRetryableBootstrapError,
+      }
+    )
       .then((payload) => {
         const normalized = normalizeResponse(userId, payload);
         // Pre-vault bootstrap state changes infrequently and is updated by this service,
