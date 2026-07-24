@@ -2614,7 +2614,29 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/location/{circles,circle-codes}/*",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getState",
+            "listCircles",
+            "getCircle",
+            "createNamedCircle",
+            "updateNamedCircle",
+            "deleteNamedCircle",
+            "createNamedCircleInviteCode",
+            "revokeNamedCircleInviteCode",
+            "resolveNamedCircleCode",
+            "joinNamedCircle",
+            "removeNamedCircleMember",
+            "leaveNamedCircle"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -4207,7 +4229,7 @@
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
     "route_layout": "e8b17d619c2e741ecc03634daeb56ef4d28a2c51250bb859b7d0dff4be95f57e",
-    "surface_map": "fff23664f428a20b56236114340e8ed38694b62c78e0ce9ea32be66fe6eb72c7",
+    "surface_map": "5d9c425cea3f1fe9e2ce83dfd942568756c08a2df8feebafd35de9979fb0a95f",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
