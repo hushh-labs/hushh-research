@@ -1,4 +1,4 @@
-# api/routes/consent.py
+﻿# api/routes/consent.py
 """
 Consent management endpoints (pending, approve, deny, revoke, history, active).
 
@@ -23,6 +23,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares import RateLimits, limiter
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.policy_engine import PolicyViolationError, TenantPolicy, policy_engine
 from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
@@ -55,7 +56,7 @@ _CONSENT_EXPORT_TTL_MS: int = 25 * 60 * 60 * 1000  # 24 h token lifetime + 1 h g
 def _evict_stale_consent_exports() -> int:
     """Remove entries whose token has certainly expired (created_at older than TTL).
 
-    Caller does NOT need to hold any lock — dict mutation in CPython is protected
+    Caller does NOT need to hold any lock â€” dict mutation in CPython is protected
     by the GIL for single operations, and this sweep is only triggered from
     request-handling coroutines (one event-loop thread).
 
@@ -463,11 +464,11 @@ class ConsentApprovalPayload(BaseModel):
     agent_id
         Optional identifier the calling agent declares about itself.
         When present AND the ``X-Client-Id`` header is also present, the
-        two values MUST match — a mismatch returns HTTP 403
+        two values MUST match â€” a mismatch returns HTTP 403
         ``AGENT_ID_CLIENT_ID_MISMATCH`` before any further processing.
 
-    Canonical surface: api.routes.consent — no separate validation service.
-    Integrated by Abdul Gaffar — canonical field-level validation logic.
+    Canonical surface: api.routes.consent â€” no separate validation service.
+    Integrated by Abdul Gaffar â€” canonical field-level validation logic.
     """
 
     # Reject unknown fields with HTTP 422 rather than silently storing them.
@@ -480,8 +481,8 @@ class ConsentApprovalPayload(BaseModel):
     userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
     requestId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
 
-    # Temporal expiry guard — rejects payloads whose approval window has closed.
-    # Prevents stale consent replay.  Integrated by Abdul Gaffar — canonical
+    # Temporal expiry guard â€” rejects payloads whose approval window has closed.
+    # Prevents stale consent replay.  Integrated by Abdul Gaffar â€” canonical
     # temporal-consent boundary (hushh_mcp/consent/consent_schemas.py).
     expiresAt: datetime | None = Field(
         default=None,
@@ -560,7 +561,7 @@ async def approve_consent(
     # X-Client-Id header when both are supplied.  A mismatch indicates the
     # caller is misrepresenting its identity and is rejected before any
     # further auth or DB logic runs.
-    # Integrated by Abdul Gaffar — canonical field-level validation logic.
+    # Integrated by Abdul Gaffar â€” canonical field-level validation logic.
     if _body.agent_id is not None and x_client_id is not None:
         if _body.agent_id != x_client_id:
             logger.warning(
@@ -645,6 +646,39 @@ async def approve_consent(
         requested_duration_hours=requested_duration_hours,
         is_developer_request=is_developer_request,
     )
+
+    # MODULAR COMPLIANCE CHECK: Tenant Policy
+    # If the pending request carries a consent_policy in its metadata, evaluate
+    # it now â€” before issuing any token.  A policy violation blocks the approval
+    # and returns 403 so the request is never written to the DB.
+    # Canonical attach point: hushh_mcp/consent/policy_engine.py â†’ PolicyEngine
+    # Integrated by Abdul Gaffar â€” canonical policy-engine boundary.
+    if isinstance(metadata, dict) and "consent_policy" in metadata:
+        try:
+            _brand_policy = TenantPolicy.from_dict(metadata["consent_policy"])
+            _policy_ctx = policy_engine.build_context(
+                {
+                    "scope": requested_scope,
+                    "userId": userId,
+                    "developer": developer_label,
+                },
+                extra={k: v for k, v in metadata.items() if k != "consent_policy"},
+            )
+            policy_engine.check_or_raise(_policy_ctx, _brand_policy)
+        except PolicyViolationError as _pve:
+            logger.warning(
+                "consent.approve.policy_violation user=%s scope=%s reason=%s",
+                userId,
+                requested_scope,
+                _pve,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "POLICY_VIOLATION",
+                    "message": str(_pve),
+                },
+            )
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -1344,13 +1378,13 @@ async def revoke_consent(
         original_token = token_to_revoke.get("token_id")
         if original_token and not original_token.startswith("REVOKED_"):
             revoke_token(original_token)
-            logger.info("🔒 Token added to in-memory revocation set")
+            logger.info("ðŸ”’ Token added to in-memory revocation set")
 
             # Also delete any associated export data
             await service.delete_consent_export(original_token)
             if original_token in _consent_exports:
                 del _consent_exports[original_token]
-            logger.info("🗑️ Deleted associated export data")
+            logger.info("ðŸ—‘ï¸ Deleted associated export data")
 
         # Generate a NEW unique token_id for the REVOKED event
         # (Cannot reuse original token_id due to UNIQUE constraint on consent_audit table)
@@ -1434,7 +1468,7 @@ async def get_consent_export_data(
         "consent.export_requested token_transport=%s", "bearer" if bearer_token else "query"
     )
 
-    # Validate the consent token — DB-backed revocation check.
+    # Validate the consent token â€” DB-backed revocation check.
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid:
         logger.warning("consent.export_invalid_token reason=%s", reason)
@@ -1450,7 +1484,7 @@ async def get_consent_export_data(
         export_data = _consent_exports[consent_token]
         entry_age_ms = now_ms - int(export_data.get("created_at") or 0)
         if entry_age_ms >= _CONSENT_EXPORT_TTL_MS:
-            # Token has certainly expired — drop the stale cache entry and fall
+            # Token has certainly expired â€” drop the stale cache entry and fall
             # through to the DB path (which will return 404 for expired tokens).
             del _consent_exports[consent_token]
             logger.debug("consent_exports.lazy_evict token expired from cache")
@@ -1478,7 +1512,7 @@ async def get_consent_export_data(
     export_data = await service.get_consent_export(consent_token)
 
     if not export_data:
-        logger.warning("⚠️ No export data found for token (checked cache and DB)")
+        logger.warning("âš ï¸ No export data found for token (checked cache and DB)")
         raise HTTPException(status_code=404, detail="No export data for this token")
     if not export_data.get("is_strict_zero_knowledge"):
         raise HTTPException(
