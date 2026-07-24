@@ -32,8 +32,32 @@ _VOICE_KILL_SWITCH_MESSAGE = (
     "Voice actions are temporarily unavailable. I can still respond and guide you."
 )
 _VOICE_STAGE_TIMING: dict[str, dict[str, float]] = {}
+_VOICE_STAGE_TIMING_TTL_MS = 300_000  # 5 minutes — evict stale turns
 
 
+def _evict_stale_voice_stage_timings() -> None:
+    """Remove turn timing entries that were never finalized.
+
+    Guards against unbounded growth when requests crash or
+    are cancelled before _trace_voice_stage is called with
+    finalize=True.
+    """
+    if not _VOICE_STAGE_TIMING:
+        return
+    now_ms = time.perf_counter() * 1000.0
+    stale_turn_ids = [
+        turn_id
+        for turn_id, entry in _VOICE_STAGE_TIMING.items()
+        if now_ms - entry.get("turn_start_ms", now_ms) > _VOICE_STAGE_TIMING_TTL_MS
+    ]
+    for turn_id in stale_turn_ids:
+        _VOICE_STAGE_TIMING.pop(turn_id, None)
+    if stale_turn_ids:
+        logger.debug(
+            "[VOICE_STAGE_TIMING] evicted %d stale turn(s): %s",
+            len(stale_turn_ids),
+            stale_turn_ids[:5],
+        )
 def _voice_runtime_settings() -> VoiceRuntimeSettings:
     return get_voice_runtime_settings()
 
@@ -244,6 +268,7 @@ def _trace_voice_stage(
 ) -> None:
     if not turn_id:
         return
+    _evict_stale_voice_stage_timings()
     now_ms = time.perf_counter() * 1000.0
     current = _VOICE_STAGE_TIMING.get(turn_id)
     if current is None:
