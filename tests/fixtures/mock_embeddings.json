@@ -1,0 +1,16 @@
+[
+  {
+    "id": "doc_1",
+    "embedding": [0.12, 0.45, 0.78],
+    "metadata": {
+      "title": "Semantic Search Intro"
+    }
+  },
+  {
+    "id": "doc_2",
+    "embedding": [0.91, 0.33, 0.44],
+    "metadata": {
+      "title": "Embedding Validation"
+    }
+  }
+]
