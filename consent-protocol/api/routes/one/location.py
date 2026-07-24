@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
 _GrantId = Annotated[str, Path(min_length=1, max_length=128)]
+_RecipientUserId = Annotated[str, Path(min_length=1, max_length=160)]
 
 
 class _CamelModel(BaseModel):
@@ -52,6 +53,10 @@ class CreateGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
+
+
+class AddSmsContactRequest(_CamelModel):
+    recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -191,6 +196,38 @@ def _require_retention_auth(request: Request) -> None:
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/sms-contacts")
+def add_location_sms_contact(
+    payload: AddSmsContactRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "smsContactUserIds": _service().add_sms_contact(
+                owner_user_id=_user_id(token_data),
+                contact_user_id=payload.recipient_user_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/sms-contacts/{recipient_user_id}")
+def remove_location_sms_contact(
+    recipient_user_id: _RecipientUserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "smsContactUserIds": _service().remove_sms_contact(
+                owner_user_id=_user_id(token_data),
+                contact_user_id=recipient_user_id,
+            )
+        }
     except Exception as exc:
         raise _handle_error(exc) from exc
 

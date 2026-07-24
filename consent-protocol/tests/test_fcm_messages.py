@@ -8,12 +8,25 @@ class _MessagingStub:
             self.body = body
 
     class WebpushNotification:
-        def __init__(self, title=None, body=None, tag=None, require_interaction=None, data=None):
+        def __init__(
+            self,
+            title=None,
+            body=None,
+            tag=None,
+            require_interaction=None,
+            data=None,
+            renotify=None,
+            silent=None,
+            vibrate=None,
+        ):
             self.title = title
             self.body = body
             self.tag = tag
             self.require_interaction = require_interaction
             self.data = data
+            self.renotify = renotify
+            self.silent = silent
+            self.vibrate = vibrate
 
     class WebpushFCMOptions:
         def __init__(self, link=None):
@@ -57,13 +70,48 @@ class _MessagingStub:
             self.headers = headers
             self.payload = payload
 
+    class AndroidNotification:
+        def __init__(
+            self,
+            title=None,
+            body=None,
+            channel_id=None,
+            tag=None,
+            ticker=None,
+            priority=None,
+            visibility=None,
+            vibrate_timings_millis=None,
+        ):
+            self.title = title
+            self.body = body
+            self.channel_id = channel_id
+            self.tag = tag
+            self.ticker = ticker
+            self.priority = priority
+            self.visibility = visibility
+            self.vibrate_timings_millis = vibrate_timings_millis
+
+    class AndroidConfig:
+        def __init__(self, priority=None, notification=None):
+            self.priority = priority
+            self.notification = notification
+
     class Message:
-        def __init__(self, token=None, data=None, notification=None, webpush=None, apns=None):
+        def __init__(
+            self,
+            token=None,
+            data=None,
+            notification=None,
+            webpush=None,
+            apns=None,
+            android=None,
+        ):
             self.token = token
             self.data = data
             self.notification = notification
             self.webpush = webpush
             self.apns = apns
+            self.android = android
 
 
 def test_build_push_message_for_ios_uses_explicit_apns_alert():
@@ -178,6 +226,62 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     assert web.webpush.notification.body == body
     assert ios.notification.body == body
     assert ios.apns.payload.aps.alert.body == body
+
+
+def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
+    android_delivery_target = "android-device-id"
+    ios_delivery_target = "ios-device-id"
+    web_delivery_target = "web-device-id"
+    data = {
+        "type": "location_share_created",
+        "share_kind": "sos",
+        "notification_profile": "one_location_sms_emergency",
+        "notification_category": "ONE_LOCATION_SMS_EMERGENCY",
+    }
+    common = {
+        "data": data,
+        "title": "SMS · Save my soul",
+        "body": "Alex: Come get me",
+        "request_url": "/one/location?section=shared",
+        "notification_tag": "one-location-share:sms-1",
+        "show_alert": True,
+    }
+
+    android = build_push_message(
+        _MessagingStub,
+        token=android_delivery_target,
+        platform="android",
+        **common,
+    )
+    ios = build_push_message(
+        _MessagingStub,
+        token=ios_delivery_target,
+        platform="ios",
+        **common,
+    )
+    web = build_push_message(
+        _MessagingStub,
+        token=web_delivery_target,
+        platform="web",
+        **common,
+    )
+
+    assert android.android.priority == "high"
+    assert android.android.notification.channel_id == "one_location_sms_emergency_v1"
+    assert android.android.notification.priority == "max"
+    assert android.android.notification.vibrate_timings_millis == [
+        0,
+        240,
+        120,
+        240,
+        120,
+        520,
+    ]
+    assert ios.apns.payload.aps.category == "ONE_LOCATION_SMS_EMERGENCY"
+    assert ios.apns.payload.aps.sound == "one_location_sms_alarm.wav"
+    assert web.webpush.notification.renotify is True
+    assert web.webpush.notification.silent is False
+    assert web.webpush.notification.vibrate == [240, 120, 240, 120, 520]
 
 
 def test_build_push_message_without_alert_is_data_only():

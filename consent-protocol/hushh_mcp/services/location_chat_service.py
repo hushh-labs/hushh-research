@@ -97,8 +97,8 @@ _ACTION_RESULT_TEMPLATES = {
     ("view_envelope", "completed"): "Here's the latest location I could open.",
     ("create_public_link", "completed"): "Your public location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
-    ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
-    ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
+    ("sos_panic", "completed"): "SMS sent — your selected contacts are being notified.",
+    ("sos_panic", "cancelled"): "Okay — I didn't send SMS.",
     ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
     ("check_in", "cancelled"): "Okay — I didn't check you in.",
     (
@@ -301,7 +301,7 @@ def _function_declarations_v2(types: Any) -> list:
                     "Ask the device to (re-)prompt the OS location permission dialog. "
                     "Call this whenever the user asks you to (re-)ask for location "
                     "permission, or an action needing the device's location (share, "
-                    "check-in, SOS) failed because permission is missing or was "
+                    "check-in, SMS) failed because permission is missing or was "
                     "previously denied. Coordinate-free; the prompt happens on-device."
                 ),
                 parameters=schema(type=kind.OBJECT, properties={}, required=[]),
@@ -376,7 +376,7 @@ def _function_declarations_v2(types: Any) -> list:
             types.FunctionDeclaration(
                 name="propose_sos_panic",
                 description=(
-                    "Propose an emergency SOS broadcast to all of the user's ready trusted "
+                    "Propose a Save My Soul alert to the user's selected, ready SMS "
                     "contacts. The browser creates 8h grants per recipient, encrypts, "
                     "publishes, and records the incident. Coordinate-free. Call "
                     "request_confirmation first before proposing this."
@@ -794,7 +794,7 @@ class LocationChatService:
             return {
                 "id": action_id,
                 "type": "sos_panic",
-                "summary": "Send an emergency SOS to all your trusted contacts",
+                "summary": "Send SMS to your selected emergency contacts",
             }
         check_in = next((d for d in directives if d.get("type") == "check_in"), None)
         if check_in:

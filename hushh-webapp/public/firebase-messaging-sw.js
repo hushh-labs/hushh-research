@@ -24,12 +24,29 @@ function waitForForegroundDeliveryAck(deliveryId) {
 }
 
 function isHandledByVisibleApp(data) {
-  const type = String(data?.type || "").trim().toLowerCase();
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
   return (
     type.startsWith("location_") ||
     type === "consent_request" ||
     type === "consent_opened" ||
     type === "consent_resolved"
+  );
+}
+
+function isEmergencySmsAlert(data) {
+  const profile = String(data?.notification_profile || "")
+    .trim()
+    .toLowerCase();
+  if (profile === "one_location_sms_emergency") return true;
+  return (
+    String(data?.type || "")
+      .trim()
+      .toLowerCase() === "location_share_created" &&
+    String(data?.share_kind || "")
+      .trim()
+      .toLowerCase() === "sos"
   );
 }
 
@@ -92,13 +109,17 @@ self.addEventListener("push", function (event) {
       data.data?.notification_tag ||
       data.notification?.tag ||
       "consent-request";
-    const requireInteraction =
-      data.notification?.requireInteraction ?? true;
+    const requireInteraction = data.notification?.requireInteraction ?? true;
+    const isEmergencySms = isEmergencySmsAlert(data.data);
     const notificationOptions = {
       body,
       data: { ...(data.data || {}), url },
       tag,
       requireInteraction,
+      icon: "/hushh_icon.png",
+      renotify: isEmergencySms,
+      silent: false,
+      vibrate: isEmergencySms ? [240, 120, 240, 120, 520] : undefined,
     };
     event.waitUntil(
       (async () => {
@@ -126,7 +147,7 @@ self.addEventListener("push", function (event) {
         if (!acknowledged) {
           await self.registration.showNotification(title, notificationOptions);
         }
-      })()
+      })(),
     );
   } catch (_) {
     event.waitUntil(
@@ -149,15 +170,14 @@ self.addEventListener("push", function (event) {
           tag: fallback.tag,
           requireInteraction: fallback.requireInteraction,
         });
-      })()
+      })(),
     );
   }
 });
 
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
-  const url =
-    event.notification.data?.url || self.__HUSHH_FCM_DEFAULT_TARGET__;
+  const url = event.notification.data?.url || self.__HUSHH_FCM_DEFAULT_TARGET__;
   event.waitUntil(
     (async () => {
       await broadcastToClients({
@@ -166,7 +186,7 @@ self.addEventListener("notificationclick", function (event) {
         reason: "notification_click",
       });
       return focusOrOpenClient(url);
-    })()
+    })(),
   );
 });
 
@@ -189,6 +209,6 @@ self.addEventListener("message", function (event) {
         reason: "test_click",
       });
       return focusOrOpenClient(url);
-    })()
+    })(),
   );
 });

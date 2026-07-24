@@ -217,11 +217,15 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
 
 def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
-    response = EnvelopeReadProbe().view_latest_envelope(
+    service = EnvelopeReadProbe()
+    response = service.view_latest_envelope(
         recipient_user_id="user_b",
         grant_id="00000000-0000-0000-0000-000000000001",
     )
 
+    stale_cleanup_sql = next(sql for sql in service.calls if "WITH stale AS" in sql)
+    assert "UPDATE one_location_share_grants AS target_grant" in stale_cleanup_sql
+    assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
     assert "latitude" not in json.dumps(response)
@@ -267,6 +271,7 @@ class FourUserMemoryService(OneLocationAgentService):
         self.network_connections: dict[str, dict] = {}
         self.trusted_connections: dict[str, dict] = {}
         self.connections: dict[str, dict] = {}
+        self.sms_contacts: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -328,6 +333,23 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
         params = params or {}
+        if "FROM one_location_sms_contacts sms" in sql:
+            owner = params.get("owner_user_id") or params.get("user_id")
+            active_connected_ids = {
+                (
+                    connection["user_b_id"]
+                    if connection["user_a_id"] == owner
+                    else connection["user_a_id"]
+                )
+                for connection in self.connections.values()
+                if connection.get("status") == "active"
+                and owner in {connection.get("user_a_id"), connection.get("user_b_id")}
+            }
+            return [
+                {"contact_user_id": contact}
+                for selected_owner, contact in sorted(self.sms_contacts)
+                if selected_owner == owner and contact in active_connected_ids
+            ]
         if "UPDATE one_location_share_grants" in sql and "expires_at <= NOW()" in sql:
             return []
         if "FROM one_location_recipient_keys" in sql and "encrypted_private_key_jwk" in sql:
@@ -605,6 +627,18 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
+            pair = (params["owner_user_id"], params["contact_user_id"])
+            return {"exists": 1} if pair in self.sms_contacts else None
+        if "INSERT INTO one_location_sms_contacts" in sql:
+            pair = (params["owner_user_id"], params["contact_user_id"])
+            self.sms_contacts.add(pair)
+            return {"contact_user_id": params["contact_user_id"]}
+        if "DELETE FROM one_location_sms_contacts" in sql:
+            pair = (params["owner_user_id"], params["contact_user_id"])
+            existed = pair in self.sms_contacts
+            self.sms_contacts.discard(pair)
+            return {"contact_user_id": params["contact_user_id"]} if existed else None
         if "SELECT 1" in sql and "FROM connections" in sql and "status = 'active'" in sql:
             a = params.get("a")
             b = params.get("b")
@@ -2470,3 +2504,87 @@ def test_create_grant_without_enforce_allows_non_connection() -> None:
         duration_hours=1,
     )
     assert grant["recipientUserId"] == "user_b"
+
+
+def test_sms_contacts_are_owner_scoped_idempotent_and_do_not_change_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    before = dict(service.connections)
+
+    assert service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b") == ["user_b"]
+    assert service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b") == ["user_b"]
+    assert service.list_sms_contact_ids(owner_user_id="user_c") == []
+    assert service.connections == before
+
+    assert service.remove_sms_contact(owner_user_id="user_a", contact_user_id="user_b") == []
+    assert service.remove_sms_contact(owner_user_id="user_a", contact_user_id="user_b") == []
+    assert service.connections == before
+
+
+def test_sms_contact_rejects_non_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    assert err.value.code == "LOCATION_SMS_CONTACT_NOT_CONNECTED"
+
+
+def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=8,
+            reason="Come get me",
+            share_kind="sos",
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_SMS_CONTACT_REQUIRED"
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        reason="Come get me",
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    assert grant["shareKind"] == "sos"
+    assert grant["shareMessage"] == "Come get me"
+    assert service.notifications == []
+
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        envelope=encrypted_envelope("key-user_b", "ciphertext"),
+    )
+    assert len(service.notifications) == 1
+    assert service.notifications[0]["title"] == "SMS · Save my soul"
+    assert service.notifications[0]["body"] == "User A: Come get me"
+    assert service.notifications[0]["data"]["notification_profile"] == (
+        "one_location_sms_emergency"
+    )
+    assert service.notifications[0]["data"]["notification_category"] == (
+        "ONE_LOCATION_SMS_EMERGENCY"
+    )

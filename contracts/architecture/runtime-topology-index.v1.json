@@ -856,12 +856,13 @@
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
+        "one_location_sms_contacts",
         "one_location_share_grants"
       ],
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
       "data_class": "personal_projection",
@@ -4187,9 +4188,9 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
-    "agent_registry": "709b9c535294795e9c742993f45eaf6e6d0bf6d60f9c8d0e88118c63aa811577",
+    "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
     "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "65c1849b0757a65887e6d0950a4045bc28dc4fbaae0bb3e053f268e838f8d299",
+    "data_plane": "2450e780a874943549dfd6c5abb5c83eca1dee1222e70e26244e17b0bb1a83f2",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",

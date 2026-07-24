@@ -34,11 +34,26 @@ export const OneLocationStateResource = {
   },
 
   write(userId: string, state: OneLocationState): void {
-    CacheService.getInstance().set(
-      this.key(userId),
-      state,
-      CACHE_TTL.SHORT,
+    CacheService.getInstance().set(this.key(userId), state, CACHE_TTL.SHORT);
+  },
+
+  replaceSmsContactUserIds(userId: string, userIds: string[]): boolean {
+    const snapshot = this.peek(userId);
+    if (!snapshot) return false;
+
+    const smsContactUserIds = Array.from(
+      new Set(
+        userIds.map((value) => String(value || "").trim()).filter(Boolean),
+      ),
     );
+    // Invalidate first so a slower pre-mutation state request cannot overwrite
+    // the authoritative membership returned by the Add/Remove API.
+    this.invalidate(userId);
+    this.write(userId, {
+      ...snapshot.data,
+      smsContactUserIds,
+    });
+    return true;
   },
 
   load(

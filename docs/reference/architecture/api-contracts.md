@@ -182,12 +182,25 @@ ciphertext, movement trails, raw owner identity, or reverse-geocoded enrichment.
 The maintained architecture reference is
 [One Location Agent](./one-location-agent.md).
 
+Save My Soul grants preserve the ordinary `location_share_created` notification
+contract and add emergency presentation metadata when `share_kind=sos`:
+`notification_profile=one_location_sms_emergency` and
+`notification_category=ONE_LOCATION_SMS_EMERGENCY`. Clients must recognize the
+explicit profile and retain `share_kind=sos` as a compatibility fallback.
+Presentation is intentionally platform-specific: the visible web/native shell
+uses the shared red alarm card, Android routes through the dedicated
+`one_location_sms_emergency_v1` high-importance channel, and iOS background
+delivery uses the matching category plus `one_location_sms_alarm.wav`. The
+profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
+
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection to the authenticated owner's Save My Soul contacts |
+| DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |

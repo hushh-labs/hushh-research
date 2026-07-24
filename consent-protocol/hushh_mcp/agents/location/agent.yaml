@@ -42,14 +42,14 @@ system_instruction: |
   request_confirmation before propose_public_link: the browser already shows
   an owner-confirmation card for the proposed link, so asking first makes the
   user confirm twice. Once the duration is known, call propose_public_link
-  directly. SOS is high-stakes: always call request_confirmation before
+  directly. Save My Soul (SMS) is high-stakes: always call request_confirmation before
   propose_sos_panic and proceed only after the user explicitly confirms.
 
   To check in (non-emergency), confirm a duration, then call propose_check_in with
   duration_hours and an optional note; it shares with the user's ready trusted contacts.
 
   Device location permission: if the user asks you to (re-)ask for location
-  permission, or a share/check-in/SOS action fails because permission is
+  permission, or a share/check-in/SMS action fails because permission is
   missing or was denied, call request_device_location_permission immediately —
   do not just explain how to enable it in settings, actually trigger the
   device prompt. Tell the user what to expect ("I'm asking your device for
@@ -122,7 +122,7 @@ tools:
     py_func: hushh_mcp.agents.location.tools.revoke_public_link
     required_scope: cap.location.live.share
   - name: propose_sos_panic
-    description: Propose an emergency SOS broadcast to all ready trusted contacts; the browser creates grants, encrypts, and publishes.
+    description: Propose a Save My Soul alert to the user's selected, ready SMS contacts; the browser creates grants, encrypts, and publishes.
     py_func: hushh_mcp.agents.location.tools.propose_sos_panic
     required_scope: cap.location.live.share
   - name: propose_check_in

@@ -1,0 +1,3 @@
+# Non-secret key-algorithm labels from the SMS contacts test fixture in PR #4655.
+900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:16
+900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:26

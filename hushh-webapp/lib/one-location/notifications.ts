@@ -3,7 +3,8 @@
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 
-export const ONE_LOCATION_GRANT_OPENED_EVENT = "hushh:one-location-grant-opened";
+export const ONE_LOCATION_GRANT_OPENED_EVENT =
+  "hushh:one-location-grant-opened";
 export const ONE_LOCATION_NOTIFICATION_OPEN_PARAM = "locationNotification";
 export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
@@ -79,11 +80,13 @@ const WORKFLOW_COPY: Record<
   },
   location_referral_invite: {
     title: "Location referral pending",
-    fallbackDescription: "A trusted person referred you into a location request flow.",
+    fallbackDescription:
+      "A trusted person referred you into a location request flow.",
   },
   location_public_invite_submitted: {
     title: "Public location request",
-    fallbackDescription: "Someone requested location access from your public link.",
+    fallbackDescription:
+      "Someone requested location access from your public link.",
   },
   location_one_network_joined: {
     title: "Connected on One",
@@ -136,13 +139,19 @@ function writeOpenedGrantIds(userId: string, grantIds: string[]): void {
   }
 }
 
-export function isOneLocationGrantOpened(userId: string | null | undefined, grantId: string): boolean {
+export function isOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): boolean {
   const normalizedGrantId = String(grantId || "").trim();
   if (!userId || !normalizedGrantId) return false;
   return readOpenedGrantIds(userId).includes(normalizedGrantId);
 }
 
-export function markOneLocationGrantOpened(userId: string | null | undefined, grantId: string): void {
+export function markOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): void {
   const normalizedUserId = String(userId || "").trim();
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedUserId || !normalizedGrantId) return;
@@ -181,9 +190,7 @@ function readSeenNotificationIds(userId: string): Set<string> {
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
-      ? new Set(
-          parsed.map((item) => String(item || "").trim()).filter(Boolean),
-        )
+      ? new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))
       : new Set();
   } catch {
     return new Set();
@@ -199,7 +206,8 @@ function writeSeenNotificationIds(userId: string, ids: Set<string>): void {
     // Cap the stored history so it can never grow unbounded.
     const MAX_SEEN = 500;
     const all = Array.from(ids).filter(Boolean);
-    const trimmed = all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
+    const trimmed =
+      all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
     storage.setItem(
       seenNotificationsStorageKey(normalizedUserId),
       JSON.stringify(trimmed),
@@ -312,7 +320,9 @@ export function oneLocationGrantTaskId(grantId: string): string {
 export function dismissOneLocationShareNotification(grantId: string): void {
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedGrantId) return;
-  AppBackgroundTaskService.dismissTask(oneLocationGrantTaskId(normalizedGrantId));
+  AppBackgroundTaskService.dismissTask(
+    oneLocationGrantTaskId(normalizedGrantId),
+  );
 }
 
 export function oneLocationWorkflowTaskId(
@@ -325,7 +335,10 @@ export function oneLocationWorkflowTaskId(
 export function buildOneLocationNotificationHref(grantId: string): string {
   const params = new URLSearchParams();
   params.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
-  params.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+  params.set(
+    ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+    ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+  );
   params.set(ONE_LOCATION_SECTION_PARAM, "shared");
   return `/one/location?${params.toString()}`;
 }
@@ -380,7 +393,10 @@ export function buildOneLocationWorkflowHref(params: {
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
-    query.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+    query.set(
+      ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+      ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+    );
   }
   const suffix = query.toString();
   return suffix ? `/one/location?${suffix}` : "/one/location";
@@ -419,7 +435,8 @@ export function privacySafeOneLocationNotificationLabel(
   fallback = "A trusted person",
 ): string {
   const normalized = String(value || "").trim();
-  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized)) return fallback;
+  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized))
+    return fallback;
   return normalized.replace(MASKED_PHONE_SUFFIX_PATTERN, "").trim() || fallback;
 }
 
@@ -435,29 +452,47 @@ export function privacySafeOneLocationNotificationBody(
   return normalized.replace(MASKED_PHONE_BODY_PATTERN, "").trim() || fallback;
 }
 
-export function locationShareNotificationDescription(ownerLabel?: string | null): string {
+export function locationShareNotificationDescription(
+  ownerLabel?: string | null,
+): string {
   const label = privacySafeOneLocationNotificationLabel(ownerLabel);
   return `${label} shared location access with you.`;
 }
 
 /** The share intents a recipient notification can represent. */
 export type OneLocationShareKind = "sos" | "check_in" | "drive_to" | "share";
+export const ONE_LOCATION_SMS_EMERGENCY_PROFILE = "one_location_sms_emergency";
+export const ONE_LOCATION_SMS_EMERGENCY_CATEGORY = "ONE_LOCATION_SMS_EMERGENCY";
+
+export function isOneLocationSmsEmergencyAlert(params: {
+  shareKind?: string | null;
+  notificationProfile?: string | null;
+}): boolean {
+  return (
+    String(params.notificationProfile || "")
+      .trim()
+      .toLowerCase() === ONE_LOCATION_SMS_EMERGENCY_PROFILE ||
+    normalizeOneLocationShareKind(params.shareKind) === "sos"
+  );
+}
 
 export function normalizeOneLocationShareKind(
   value?: string | null,
 ): OneLocationShareKind {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "sos") return "sos";
   if (normalized === "check_in" || normalized === "checkin") return "check_in";
   if (normalized === "drive_to" || normalized === "drive") return "drive_to";
   return "share";
 }
 
-/** Short, human tag per share kind for badges/labels (SOS / Check-In / Share). */
+/** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {
     case "sos":
-      return "SOS";
+      return "SMS";
     case "check_in":
       return "Check-In";
     case "drive_to":
@@ -469,9 +504,8 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
 
 /**
  * Kind-aware title + description for a received location share so the recipient
- * instantly sees WHAT it is (emergency SOS vs friendly Check-In vs plain share)
- * and WHY. A Check-In note is surfaced verbatim ("<Owner>: <message>"); SOS gets
- * urgent dedicated copy; a plain share keeps the neutral line.
+ * instantly sees WHAT it is (Save My Soul vs friendly Check-In vs plain share)
+ * and WHY. Fixed SMS and Check-In messages are surfaced with the sender label.
  */
 export function locationShareNotificationCopy(params: {
   ownerLabel?: string | null;
@@ -483,8 +517,10 @@ export function locationShareNotificationCopy(params: {
   const kind = normalizeOneLocationShareKind(params.shareKind);
   if (kind === "sos") {
     return {
-      title: "SOS alert",
-      description: `${label} triggered an SOS and is sharing live location with you. Open to view it now.`,
+      title: "SMS · Save my soul",
+      description: message
+        ? `${label}: ${message}`
+        : `${label} sent an SMS and shared live location with you. Open to view it now.`,
     };
   }
   if (kind === "check_in") {
@@ -507,7 +543,6 @@ export function locationShareNotificationCopy(params: {
   };
 }
 
-
 export function locationWorkflowNotificationCopy(params: {
   type: OneLocationWorkflowNotificationType;
   ownerLabel?: string | null;
@@ -522,9 +557,16 @@ export function locationWorkflowNotificationCopy(params: {
     params.requesterLabel,
     "Someone",
   );
-  const referringLabel = privacySafeOneLocationNotificationLabel(params.referringLabel);
-  const visitorLabel = privacySafeOneLocationNotificationLabel(params.visitorLabel, "Someone");
-  const networkLabel = privacySafeOneLocationNotificationLabel(params.networkLabel);
+  const referringLabel = privacySafeOneLocationNotificationLabel(
+    params.referringLabel,
+  );
+  const visitorLabel = privacySafeOneLocationNotificationLabel(
+    params.visitorLabel,
+    "Someone",
+  );
+  const networkLabel = privacySafeOneLocationNotificationLabel(
+    params.networkLabel,
+  );
 
   switch (params.type) {
     case "location_share_created":
@@ -616,7 +658,8 @@ export function recordOneLocationShareNotification(params: {
 }): boolean {
   const userId = String(params.userId || "").trim();
   const grantId = String(params.grantId || "").trim();
-  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId)) return false;
+  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId))
+    return false;
   // The recipient explicitly stopped watching this share - never re-notify.
   if (isOneLocationGrantUnwatched(userId, grantId)) return false;
 
@@ -629,9 +672,10 @@ export function recordOneLocationShareNotification(params: {
   // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
   // "Open" deep-link into the recipient's "Shared with me" section, so the
   // share is reachable from the bell - not only the transient toast. The copy is
-  // kind-aware so the bell entry reads "SOS alert" / "Check-in shared" (with the
+  // kind-aware so the bell entry reads "SMS · Save my soul" / "Check-in shared" (with the
   // note) / "Location shared" instead of one generic line for every share.
-  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
+  const ownerLabel =
+    String(params.ownerLabel || "").trim() || "A trusted person";
   const shareKind = normalizeOneLocationShareKind(params.shareKind);
   const { title, description } = locationShareNotificationCopy({
     ownerLabel,
@@ -664,7 +708,6 @@ export function recordOneLocationShareNotification(params: {
   notifyConsentSurfaceRefresh("location_share_created", grantId);
   return true;
 }
-
 
 export function recordOneLocationWorkflowNotification(params: {
   userId: string;
@@ -713,28 +756,50 @@ export function recordOneLocationWorkflowNotification(params: {
   return true;
 }
 
-
-export function playOneLocationNotificationSound(): void {
+export function playOneLocationNotificationSound(
+  shareKind?: string | null,
+): void {
   if (typeof window === "undefined") return;
+  const isEmergency = normalizeOneLocationShareKind(shareKind) === "sos";
+  if (isEmergency && typeof navigator !== "undefined" && navigator.vibrate) {
+    navigator.vibrate([240, 120, 240, 120, 520]);
+  }
   const audioContextConstructor =
     window.AudioContext ||
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
   if (!audioContextConstructor) return;
 
   try {
     const context = new audioContextConstructor();
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, context.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(660, context.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+    const startedAt = context.currentTime;
+    oscillator.type = isEmergency ? "square" : "sine";
+    if (isEmergency) {
+      for (const offset of [0, 0.34, 0.68]) {
+        const pulseStart = startedAt + offset;
+        oscillator.frequency.setValueAtTime(980, pulseStart);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          620,
+          pulseStart + 0.2,
+        );
+        gain.gain.setValueAtTime(0.0001, pulseStart);
+        gain.gain.exponentialRampToValueAtTime(0.1, pulseStart + 0.025);
+        gain.gain.setValueAtTime(0.1, pulseStart + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.0001, pulseStart + 0.24);
+      }
+    } else {
+      oscillator.frequency.setValueAtTime(880, startedAt);
+      oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.12);
+      gain.gain.setValueAtTime(0.0001, startedAt);
+      gain.gain.exponentialRampToValueAtTime(0.08, startedAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.22);
+    }
     oscillator.connect(gain);
     gain.connect(context.destination);
     oscillator.start();
-    oscillator.stop(context.currentTime + 0.24);
+    oscillator.stop(startedAt + (isEmergency ? 0.94 : 0.24));
     oscillator.onended = () => {
       void context.close().catch(() => undefined);
     };

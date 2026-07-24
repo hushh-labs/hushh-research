@@ -5,6 +5,7 @@ import FirebaseAuth
 import FirebaseMessaging
 import GoogleSignIn
 import UserNotifications
+import AVFoundation
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -12,6 +13,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentReviewAction = "CONSENT_REVIEW"
     private static let consentApproveAction = "CONSENT_APPROVE"
     private static let consentDenyAction = "CONSENT_DENY"
+    private static let emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"
+    private static let emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"
+    private static let emergencySmsProfile = "one_location_sms_emergency"
+    private static let emergencySmsSound = "one_location_sms_alarm.wav"
 
     var window: UIWindow?
     private let nativeTestConfig = NativeTestConfiguration()
@@ -37,6 +42,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Configure the delegate so notification presentation and tap handling work
         // after the app explicitly requests permission from the notification init flow.
         UNUserNotificationCenter.current().delegate = self
+        prepareEmergencySmsSound()
         registerNotificationCategories()
         Messaging.messaging().delegate = self
         logNotificationSettings(context: "didFinishLaunching")
@@ -132,6 +138,17 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         print(
             "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
         )
+        let profile = String(
+            describing: notification.request.content.userInfo["notification_profile"] ?? ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if profile == Self.emergencySmsProfile {
+            // The shared Capacitor UI renders the assertive red emergency card and
+            // plays its three-pulse alarm. Suppress the duplicate iOS foreground
+            // banner/sound while retaining the badge; background delivery still
+            // uses the APNs category and generated custom sound.
+            completionHandler([.badge])
+            return
+        }
         // Present as a real system notification even while the app is active.
         completionHandler([.banner, .list, .sound, .badge])
     }
@@ -187,8 +204,93 @@ private extension AppDelegate {
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
-        UNUserNotificationCenter.current().setNotificationCategories([consentCategory])
-        print("✅ [AppDelegate] Registered notification categories: \(Self.consentNotificationCategory)")
+        let emergencyOpenAction = UNNotificationAction(
+            identifier: Self.emergencySmsOpenAction,
+            title: "Open live location",
+            options: [.foreground]
+        )
+        let emergencyCategory = UNNotificationCategory(
+            identifier: Self.emergencySmsNotificationCategory,
+            actions: [emergencyOpenAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([
+            consentCategory,
+            emergencyCategory,
+        ])
+        print(
+            "✅ [AppDelegate] Registered notification categories: \(Self.consentNotificationCategory), \(Self.emergencySmsNotificationCategory)"
+        )
+    }
+
+    func prepareEmergencySmsSound() {
+        do {
+            let fileManager = FileManager.default
+            guard let libraryDirectory = fileManager.urls(
+                for: .libraryDirectory,
+                in: .userDomainMask
+            ).first else {
+                return
+            }
+            let soundsDirectory = libraryDirectory.appendingPathComponent(
+                "Sounds",
+                isDirectory: true
+            )
+            try fileManager.createDirectory(
+                at: soundsDirectory,
+                withIntermediateDirectories: true
+            )
+            let soundURL = soundsDirectory.appendingPathComponent(Self.emergencySmsSound)
+            if fileManager.fileExists(atPath: soundURL.path) {
+                return
+            }
+
+            let sampleRate = 44_100.0
+            let duration = 0.94
+            guard
+                let format = AVAudioFormat(
+                    commonFormat: .pcmFormatInt16,
+                    sampleRate: sampleRate,
+                    channels: 1,
+                    interleaved: false
+                ),
+                let buffer = AVAudioPCMBuffer(
+                    pcmFormat: format,
+                    frameCapacity: AVAudioFrameCount(sampleRate * duration)
+                ),
+                let samples = buffer.int16ChannelData?[0]
+            else {
+                return
+            }
+
+            buffer.frameLength = buffer.frameCapacity
+            var phase = 0.0
+            for frame in 0..<Int(buffer.frameLength) {
+                let time = Double(frame) / sampleRate
+                let pulseOffset = time.truncatingRemainder(dividingBy: 0.34)
+                let isPulse = pulseOffset < 0.24
+                let frequency = 980.0 - (360.0 * min(pulseOffset / 0.24, 1.0))
+                phase += (2.0 * Double.pi * frequency) / sampleRate
+                let envelope = isPulse
+                    ? sin(Double.pi * pulseOffset / 0.24) * 0.55
+                    : 0.0
+                samples[frame] = Int16(
+                    max(-1.0, min(1.0, sin(phase) * envelope)) * Double(Int16.max)
+                )
+            }
+
+            let audioFile = try AVAudioFile(
+                forWriting: soundURL,
+                settings: format.settings,
+                commonFormat: .pcmFormatInt16,
+                interleaved: false
+            )
+            try audioFile.write(from: buffer)
+            print("✅ [AppDelegate] Emergency SMS notification sound ready")
+        } catch {
+            print("⚠️ [AppDelegate] Emergency SMS sound setup failed: \(error.localizedDescription)")
+        }
     }
 
     func logNotificationSettings(context: String) {

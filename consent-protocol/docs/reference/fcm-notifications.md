@@ -1,7 +1,7 @@
 # FCM Notifications
 
 > **Status**: Production (Pure Push)
-> **Last Updated**: February 2026
+> **Last Updated**: July 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
 
 
@@ -27,6 +27,39 @@ Consent and connection requests are treated as **alert-class notifications** on 
 - Approve and Deny notification actions only open the app into a confirmation flow; they do not commit a decision directly from the notification
 
 This is stricter than the web lane. Web remains service-worker/browser-notification based, while native iOS is expected to surface a system-visible alert when the device allows it.
+
+### Emergency SMS alert policy
+
+One Location `SMS · Save my soul` sends are a separate emergency notification
+profile, identified by:
+
+```json
+{
+  "type": "location_share_created",
+  "share_kind": "sos",
+  "notification_profile": "one_location_sms_emergency",
+  "notification_category": "ONE_LOCATION_SMS_EMERGENCY"
+}
+```
+
+The explicit profile is canonical. Receivers also recognize
+`type=location_share_created` plus `share_kind=sos` so an older queued payload
+still receives emergency presentation.
+
+| Surface | Emergency behavior |
+| ------- | ------------------ |
+| Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |
+| Background web / PWA | Persistent browser notification with emergency vibration metadata and live-location routing |
+| Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
+| iOS background | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
+| iOS foreground | Shared red in-app emergency card and alarm; the native delegate keeps only the badge to prevent a duplicate banner and duplicate sound |
+
+This profile does **not** bypass Focus or Do Not Disturb. Android explicitly
+keeps channel DND bypass disabled. iOS Critical Alerts are not requested because
+that capability requires a separate Apple entitlement and review. Browser
+vendors and operating systems retain control over closed-tab notification
+sounds, so web background delivery cannot guarantee the custom three-pulse
+audio; the browser notification remains persistent and vibrates where supported.
 
 ### Reminder policy
 

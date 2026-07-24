@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import {
+  resolveAppRouteLayout,
+  shouldSuppressPersistentChromeForRouteState,
+} from "@/lib/navigation/app-route-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("home shell contract", () => {
@@ -28,6 +31,21 @@ describe("home shell contract", () => {
     expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(true);
     expect(resolveTopShellMetrics(ROUTES.PROFILE).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);
+  });
+
+  it("suppresses persistent chrome only for immersive SMS safety surfaces", () => {
+    expect(
+      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "sos"),
+    ).toBe(true);
+    expect(
+      shouldSuppressPersistentChromeForRouteState(
+        ROUTES.ONE_LOCATION,
+        "sms-contacts",
+      ),
+    ).toBe(true);
+    expect(
+      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "share"),
+    ).toBe(false);
   });
 
   it("keeps auth-only routes out of the shared command surface", () => {

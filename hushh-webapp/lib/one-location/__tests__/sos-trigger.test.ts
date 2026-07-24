@@ -30,6 +30,7 @@ import type {
 import {
   isSosShareReadyRecipient,
   runSosPanic,
+  selectSmsRecipients,
   selectShareReadyRecipients,
   selectSosConnectedRecipients,
   SosPanicError,
@@ -222,6 +223,27 @@ describe("selectShareReadyRecipients", () => {
   });
 });
 
+describe("selectSmsRecipients", () => {
+  const recipients = [
+    makeRecipient("a"),
+    makeRecipient("b"),
+    makeRecipient("c"),
+  ];
+
+  it("returns only explicitly selected recipients", () => {
+    expect(
+      selectSmsRecipients(recipients, ["a", "c"]).map(
+        (recipient) => recipient.userId,
+      ),
+    ).toEqual(["a", "c"]);
+  });
+
+  it("fails closed for an empty or unavailable selection", () => {
+    expect(selectSmsRecipients(recipients, [])).toEqual([]);
+    expect(selectSmsRecipients(recipients, undefined)).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests: runSosPanic
 // ---------------------------------------------------------------------------
@@ -273,6 +295,7 @@ describe("runSosPanic", () => {
       recipientKeyId: "key-userA",
       durationHours: 8,
       reason: "sos_panic",
+      shareKind: "sos",
     });
     expect(createGrantMock).toHaveBeenNthCalledWith(2, {
       vaultOwnerToken: "tok",
@@ -280,6 +303,29 @@ describe("runSosPanic", () => {
       recipientKeyId: "key-userB",
       durationHours: 8,
       reason: "sos_panic",
+      shareKind: "sos",
+    });
+  });
+
+  it("sends a selected fixed message while preserving the SOS share kind", async () => {
+    const selected = makeRecipient("userA");
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+
+    await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [selected],
+      point: makePoint(),
+      note: "Come get me",
+      publish: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(createGrantMock).toHaveBeenCalledWith({
+      vaultOwnerToken: "tok",
+      recipientUserId: "userA",
+      recipientKeyId: "key-userA",
+      durationHours: 8,
+      reason: "Come get me",
+      shareKind: "sos",
     });
   });
 

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   X,
   RotateCw,
+  Siren,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -43,8 +44,10 @@ import { useVault } from "@/lib/vault/vault-context";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 function statusLabel(task: DebateRunTask): string {
-  if (task.status === "running" && task.streamState === "reconnecting") return "Reconnecting";
-  if (task.status === "running" && task.streamState === "paused") return "Updates paused";
+  if (task.status === "running" && task.streamState === "reconnecting")
+    return "Reconnecting";
+  if (task.status === "running" && task.streamState === "paused")
+    return "Updates paused";
   if (task.status === "running") return "Running";
   if (task.status === "completed") return "Completed";
   if (task.status === "failed") return "Failed";
@@ -53,35 +56,110 @@ function statusLabel(task: DebateRunTask): string {
 
 function statusIcon(task: DebateRunTask) {
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-accent-strong" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={Loader2}
+        size="sm"
+        className="animate-spin text-accent-strong"
+        aria-hidden="true"
+      />
+    );
   }
   if (task.status === "completed") {
-    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={CheckCircle2}
+        size="sm"
+        className="text-emerald-500"
+        aria-hidden="true"
+      />
+    );
   }
   if (task.status === "failed") {
-    return <Icon icon={XCircle} size="sm" className="text-rose-500" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={XCircle}
+        size="sm"
+        className="text-rose-500"
+        aria-hidden="true"
+      />
+    );
   }
-  return <Icon icon={Ban} size="sm" className="text-amber-500" aria-hidden="true" />;
+  return (
+    <Icon icon={Ban} size="sm" className="text-amber-500" aria-hidden="true" />
+  );
 }
 
 function appTaskStatusLabel(task: AppBackgroundTask): string {
+  if (isEmergencySmsTask(task)) return "Emergency";
   if (task.status === "running") return "Running";
   if (task.status === "completed") return "Completed";
   if (task.status === "canceled") return "Canceled";
   return "Failed";
 }
 
+function isEmergencySmsTask(task: AppBackgroundTask): boolean {
+  const metadata =
+    task.metadata && typeof task.metadata === "object"
+      ? (task.metadata as Record<string, unknown>)
+      : null;
+  return (
+    task.kind === "one_location_share" &&
+    String(metadata?.shareKind || "")
+      .trim()
+      .toLowerCase() === "sos"
+  );
+}
+
 function appTaskStatusIcon(task: AppBackgroundTask) {
+  if (isEmergencySmsTask(task)) {
+    return (
+      <Icon
+        icon={Siren}
+        size="sm"
+        className="animate-pulse text-destructive motion-reduce:animate-none"
+        aria-hidden="true"
+      />
+    );
+  }
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-accent-strong" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={Loader2}
+        size="sm"
+        className="animate-spin text-accent-strong"
+        aria-hidden="true"
+      />
+    );
   }
   if (task.status === "completed") {
-    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={CheckCircle2}
+        size="sm"
+        className="text-emerald-500"
+        aria-hidden="true"
+      />
+    );
   }
   if (task.status === "canceled") {
-    return <Icon icon={Ban} size="sm" className="text-amber-500" aria-hidden="true" />;
+    return (
+      <Icon
+        icon={Ban}
+        size="sm"
+        className="text-amber-500"
+        aria-hidden="true"
+      />
+    );
   }
-  return <Icon icon={XCircle} size="sm" className="text-rose-500" aria-hidden="true" />;
+  return (
+    <Icon
+      icon={XCircle}
+      size="sm"
+      className="text-rose-500"
+      aria-hidden="true"
+    />
+  );
 }
 
 function appTaskStatusItems(task: AppBackgroundTask): string[] {
@@ -111,15 +189,24 @@ function appTaskTimingSummary(task: AppBackgroundTask): string | null {
   if (!timings) {
     return null;
   }
-  const totalMs = typeof timings.totalMs === "number" ? Math.round(timings.totalMs) : null;
+  const totalMs =
+    typeof timings.totalMs === "number" ? Math.round(timings.totalMs) : null;
   const manifestMs =
-    typeof timings.manifestReadMs === "number" ? Math.round(timings.manifestReadMs) : null;
+    typeof timings.manifestReadMs === "number"
+      ? Math.round(timings.manifestReadMs)
+      : null;
   const decryptMs =
-    typeof timings.decryptLoadMs === "number" ? Math.round(timings.decryptLoadMs) : null;
+    typeof timings.decryptLoadMs === "number"
+      ? Math.round(timings.decryptLoadMs)
+      : null;
   const transformMs =
-    typeof timings.transformMs === "number" ? Math.round(timings.transformMs) : null;
+    typeof timings.transformMs === "number"
+      ? Math.round(timings.transformMs)
+      : null;
   const validationMs =
-    typeof timings.validationMs === "number" ? Math.round(timings.validationMs) : null;
+    typeof timings.validationMs === "number"
+      ? Math.round(timings.validationMs)
+      : null;
   if (
     totalMs === null &&
     manifestMs === null &&
@@ -153,7 +240,10 @@ type TaskActivityPresentation = "dropdown" | "section";
 
 interface DebateTaskCenterProps {
   triggerClassName?: string;
-  renderTrigger?: (state: { activeCount: number; badgeCount: number }) => ReactElement;
+  renderTrigger?: (state: {
+    activeCount: number;
+    badgeCount: number;
+  }) => ReactElement;
   presentation?: TaskActivityPresentation;
   onActivityChange?: (state: TaskActivityState) => void;
 }
@@ -193,8 +283,12 @@ export function DebateTaskCenter({
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const [debateState, setDebateState] = useState(DebateRunManagerService.getState());
-  const [appTaskState, setAppTaskState] = useState(AppBackgroundTaskService.getState());
+  const [debateState, setDebateState] = useState(
+    DebateRunManagerService.getState(),
+  );
+  const [appTaskState, setAppTaskState] = useState(
+    AppBackgroundTaskService.getState(),
+  );
   const [isBusy, setIsBusy] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
   const [showPassiveActivity, setShowPassiveActivity] = useState(false);
@@ -210,24 +304,28 @@ export function DebateTaskCenter({
 
   const debateTasks = useMemo(() => {
     if (!userId) return [];
-    return debateState.tasks.filter((task) => task.userId === userId && !task.dismissedAt);
+    return debateState.tasks.filter(
+      (task) => task.userId === userId && !task.dismissedAt,
+    );
   }, [debateState.tasks, userId]);
 
   const appTasks = useMemo(() => {
     if (!userId) return [];
-    return appTaskState.tasks.filter((task) => task.userId === userId && !task.dismissedAt);
+    return appTaskState.tasks.filter(
+      (task) => task.userId === userId && !task.dismissedAt,
+    );
   }, [appTaskState.tasks, userId]);
   const visibleAppTasks = useMemo(
     () => appTasks.filter((task) => isAppBackgroundTaskVisible(task)),
-    [appTasks]
+    [appTasks],
   );
   const primaryAppTasks = useMemo(
     () => visibleAppTasks.filter((task) => task.visibility !== "passive"),
-    [visibleAppTasks]
+    [visibleAppTasks],
   );
   const passiveAppTasks = useMemo(
     () => visibleAppTasks.filter((task) => task.visibility === "passive"),
-    [visibleAppTasks]
+    [visibleAppTasks],
   );
 
   const notifications = useMemo<NotificationItem[]>(() => {
@@ -243,7 +341,9 @@ export function DebateTaskCenter({
       sortAt: Date.parse(task.updatedAt || task.startedAt),
       task,
     }));
-    return [...debateNotifications, ...appNotifications].sort((a, b) => b.sortAt - a.sortAt);
+    return [...debateNotifications, ...appNotifications].sort(
+      (a, b) => b.sortAt - a.sortAt,
+    );
   }, [primaryAppTasks, debateTasks]);
 
   const activeCount =
@@ -253,6 +353,7 @@ export function DebateTaskCenter({
     debateTasks.filter((task) => task.status !== "running").length +
     visibleAppTasks.filter((task) => task.status !== "running").length;
   const badgeCount = activeCount + completedCount;
+  const hasEmergencySmsAlert = primaryAppTasks.some(isEmergencySmsTask);
   const latestActiveTask = useMemo(() => {
     return debateTasks
       .filter((task) => task.status === "running")
@@ -266,19 +367,24 @@ export function DebateTaskCenter({
   }, [activeCount, badgeCount, hasActivity, onActivityChange]);
 
   const openAnalysis = (focusRunId?: string | null) => {
-    const normalizedRunId = typeof focusRunId === "string" ? focusRunId.trim() : "";
+    const normalizedRunId =
+      typeof focusRunId === "string" ? focusRunId.trim() : "";
     if (normalizedRunId) {
       const params = new URLSearchParams();
       params.set("focus", "active");
       params.set("run_id", normalizedRunId);
-      router.push(buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())));
+      router.push(
+        buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+      );
       return;
     }
     if (latestActiveTask) {
       const params = new URLSearchParams();
       params.set("focus", "active");
       params.set("run_id", latestActiveTask.runId);
-      router.push(buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())));
+      router.push(
+        buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+      );
       return;
     }
     router.push(buildKaiMarketRoute("analysis"));
@@ -345,13 +451,33 @@ export function DebateTaskCenter({
   };
 
   const renderAppTask = (task: AppBackgroundTask, listRole?: string) => (
-    <div key={task.taskId} role={listRole} className="px-3 py-3">
+    <div
+      key={task.taskId}
+      role={listRole}
+      className={cn(
+        "px-3 py-3",
+        isEmergencySmsTask(task) &&
+          "border-l-4 border-destructive bg-destructive/10",
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {appTaskStatusIcon(task)}
-            <span className="text-sm font-semibold">{task.title}</span>
-            <span className="text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "text-sm font-semibold",
+                isEmergencySmsTask(task) && "text-destructive",
+              )}
+            >
+              {task.title}
+            </span>
+            <span
+              className={cn(
+                "text-xs text-muted-foreground",
+                isEmergencySmsTask(task) && "font-semibold text-destructive",
+              )}
+            >
               {appTaskStatusLabel(task)}
             </span>
           </div>
@@ -415,7 +541,9 @@ export function DebateTaskCenter({
                 })
               }
               aria-label={
-                task.kind === "plaid_refresh" ? "Cancel refresh" : "Cancel import"
+                task.kind === "plaid_refresh"
+                  ? "Cancel refresh"
+                  : "Cancel import"
               }
             >
               <Icon icon={X} size="xs" aria-hidden="true" />
@@ -445,7 +573,11 @@ export function DebateTaskCenter({
       No activity yet.
     </div>
   ) : (
-    <div role="list" aria-label="Activity" className="divide-y divide-border/45">
+    <div
+      role="list"
+      aria-label="Activity"
+      className="divide-y divide-border/45"
+    >
       {notifications.map((item) =>
         item.kind === "debate" ? (
           <div key={item.id} role="listitem" className="px-3 py-3">
@@ -453,7 +585,9 @@ export function DebateTaskCenter({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   {statusIcon(item.task)}
-                  <span className="text-sm font-semibold">{item.task.ticker}</span>
+                  <span className="text-sm font-semibold">
+                    {item.task.ticker}
+                  </span>
                   <span className="text-xs text-muted-foreground">
                     {statusLabel(item.task)}
                   </span>
@@ -467,7 +601,9 @@ export function DebateTaskCenter({
                   </p>
                 ) : null}
                 {item.task.persistenceState === "pending" ? (
-                  <p className="mt-1 text-xs text-amber-500">Saving to history…</p>
+                  <p className="mt-1 text-xs text-amber-500">
+                    Saving to history…
+                  </p>
                 ) : null}
                 {item.task.persistenceState === "failed" ? (
                   <p className="mt-1 text-xs text-rose-500">
@@ -492,7 +628,9 @@ export function DebateTaskCenter({
                     effect="fade"
                     size="icon"
                     className="h-8 w-8"
-                    disabled={!vaultOwnerToken || Boolean(isBusy[item.task.runId])}
+                    disabled={
+                      !vaultOwnerToken || Boolean(isBusy[item.task.runId])
+                    }
                     onClick={() =>
                       runAction(item.task.runId, async () => {
                         if (!vaultOwnerToken) return;
@@ -516,7 +654,9 @@ export function DebateTaskCenter({
                     disabled={Boolean(isBusy[item.task.runId])}
                     onClick={() =>
                       runAction(item.task.runId, async () => {
-                        await DebateRunManagerService.retryTaskPersistence(item.task.runId);
+                        await DebateRunManagerService.retryTaskPersistence(
+                          item.task.runId,
+                        );
                       })
                     }
                     aria-label="Retry save"
@@ -530,7 +670,9 @@ export function DebateTaskCenter({
                     effect="fade"
                     size="icon"
                     className="h-8 w-8"
-                    onClick={() => DebateRunManagerService.dismissTask(item.task.runId)}
+                    onClick={() =>
+                      DebateRunManagerService.dismissTask(item.task.runId)
+                    }
                     aria-label="Dismiss task"
                   >
                     <Icon icon={X} size="xs" aria-hidden="true" />
@@ -541,7 +683,7 @@ export function DebateTaskCenter({
           </div>
         ) : (
           renderAppTask(item.task, "listitem")
-        )
+        ),
       )}
       {passiveAppTasks.length > 0 ? (
         <div className="px-3 py-2.5">
@@ -551,7 +693,9 @@ export function DebateTaskCenter({
             onClick={() => setShowPassiveActivity((value) => !value)}
           >
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Background activity</p>
+              <p className="text-sm font-semibold text-foreground">
+                Background activity
+              </p>
               <p className="text-xs text-muted-foreground">
                 Routine updates stay here unless something needs your attention.
               </p>
@@ -584,11 +728,23 @@ export function DebateTaskCenter({
       <section aria-label="Background activity" className="py-1">
         <div className="flex items-center justify-between gap-3 px-1 py-2.5">
           <div>
-            <p className="text-sm font-semibold text-foreground">Notifications</p>
-            <p className="text-[11px] text-muted-foreground">Updates from One and Kai</p>
+            <p className="text-sm font-semibold text-foreground">
+              Notifications
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Updates from One and Kai
+            </p>
           </div>
-          {activeCount > 0 ? (
-            <Loader2 className="h-4 w-4 animate-spin text-accent-strong" aria-label="Activity in progress" />
+          {hasEmergencySmsAlert ? (
+            <Siren
+              className="h-4 w-4 animate-pulse text-destructive motion-reduce:animate-none"
+              aria-label="Emergency SMS alert"
+            />
+          ) : activeCount > 0 ? (
+            <Loader2
+              className="h-4 w-4 animate-spin text-accent-strong"
+              aria-label="Activity in progress"
+            />
           ) : null}
         </div>
         {notificationContent}
@@ -607,13 +763,28 @@ export function DebateTaskCenter({
             className={cn(DEFAULT_TRIGGER_CLASSNAME, triggerClassName)}
             aria-label="Notifications"
           >
-            {activeCount > 0 ? (
-              <Loader2 className="h-5 w-5 animate-spin text-accent-strong" aria-hidden="true" />
+            {hasEmergencySmsAlert ? (
+              <Siren
+                className="h-5 w-5 animate-pulse text-destructive motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            ) : activeCount > 0 ? (
+              <Loader2
+                className="h-5 w-5 animate-spin text-accent-strong"
+                aria-hidden="true"
+              />
             ) : (
               <Bell className="h-5 w-5" aria-hidden="true" />
             )}
             {badgeCount > 0 ? (
-              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-[#1d1d1f]">
+              <span
+                className={cn(
+                  "absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold",
+                  hasEmergencySmsAlert
+                    ? "bg-destructive text-destructive-foreground"
+                    : "bg-accent text-[#1d1d1f]",
+                )}
+              >
                 {badgeCount}
               </span>
             ) : null}
@@ -625,7 +796,9 @@ export function DebateTaskCenter({
           <p className="text-sm font-semibold text-foreground">Notifications</p>
         </div>
 
-        <div className={TOP_SHELL_DROPDOWN_BODY_CLASSNAME}>{notificationContent}</div>
+        <div className={TOP_SHELL_DROPDOWN_BODY_CLASSNAME}>
+          {notificationContent}
+        </div>
       </TopShellDropdownContent>
     </DropdownMenu>
   );

@@ -47,6 +47,38 @@ def _register_key(client: TestClient, user: dict[str, str], user_id: str) -> Non
     assert response.status_code == 200
 
 
+def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    first = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    second = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    assert first.status_code == 200
+    assert first.json()["smsContactUserIds"] == ["user_b"]
+    assert second.json()["smsContactUserIds"] == ["user_b"]
+
+    current_user["user_id"] = "user_c"
+    assert client.get("/api/one/location/state").json()["smsContactUserIds"] == []
+
+    current_user["user_id"] = "user_a"
+    removed = client.delete("/api/one/location/sms-contacts/user_b")
+    removed_again = client.delete("/api/one/location/sms-contacts/user_b")
+    assert removed.status_code == 200
+    assert removed.json()["smsContactUserIds"] == []
+    assert removed_again.json()["smsContactUserIds"] == []
+    assert service.connections
+
+
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}

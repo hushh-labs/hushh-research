@@ -16,7 +16,8 @@
  * Product rule:
  * - Web Sonner toasts are used for live events and unreviewed catch-up requests.
  * - Hydration/offline catch-up must surface actionable approvals once per session.
- * - iOS system banners stay authoritative; Android uses an in-app foreground toast.
+ * - iOS system banners stay authoritative except foreground emergency SMS,
+ *   which uses the shared cross-platform alarm surface.
  */
 
 import {
@@ -76,6 +77,7 @@ import {
   buildOneLocationWorkflowHref,
   dismissOneLocationShareNotification,
   isOneLocationGrantUnwatched,
+  isOneLocationSmsEmergencyAlert,
   locationShareNotificationCopy,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
@@ -91,6 +93,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 
 // ============================================================================
 // Helpers
@@ -760,32 +763,51 @@ export function ConsentNotificationProvider({
         data.notification_body,
         generatedCopy.description,
       );
-      playOneLocationNotificationSound();
+      const isEmergencySms = isOneLocationSmsEmergencyAlert({
+        shareKind: data.share_kind,
+        notificationProfile: data.notification_profile,
+      });
+      playOneLocationNotificationSound(data.share_kind);
 
       toast(
-        <div className="flex flex-col gap-2">
-          <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">{title}</p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">
-              {description}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
+        isEmergencySms ? (
+          <EmergencySmsNotificationToast
+            title={title}
+            description={description}
+            onOpen={() => {
               markOneLocationGrantOpened(user.uid, grantId);
               toast.dismiss(toastKey);
               router.push(href, { scroll: false });
             }}
-            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
-          >
-            Open
-          </button>
-        </div>,
+          />
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="space-y-0.5">
+              <p className="line-clamp-1 text-sm font-semibold">{title}</p>
+              <p className="line-clamp-2 text-xs text-muted-foreground">
+                {description}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                markOneLocationGrantOpened(user.uid, grantId);
+                toast.dismiss(toastKey);
+                router.push(href, { scroll: false });
+              }}
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
+            >
+              Open
+            </button>
+          </div>
+        ),
         {
           id: toastKey,
-          duration: 10000,
+          duration: isEmergencySms ? 30000 : 10000,
           position: "top-center",
+          className: isEmergencySms
+            ? "one-location-emergency-toast !border-red-500 !bg-red-600 !text-white !shadow-xl !shadow-red-950/25"
+            : undefined,
         },
       );
     },
@@ -1326,8 +1348,12 @@ export function ConsentNotificationProvider({
           notification_title: String(notification.title || "").trim(),
           notification_body: String(notification.body || "").trim(),
         };
+        const isEmergencySms = isOneLocationSmsEmergencyAlert({
+          shareKind: data.share_kind,
+          notificationProfile: data.notification_profile,
+        });
         const shouldPresent = isNativePlatform
-          ? Capacitor.getPlatform() === "android"
+          ? Capacitor.getPlatform() === "android" || isEmergencySms
           : typeof document !== "undefined" &&
             document.visibilityState === "visible";
         if (!user?.uid) {
@@ -1557,13 +1583,14 @@ export function ConsentNotificationProvider({
     window.addEventListener("online", reconcileWhenVisible);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    const removeLifecycleListener = appInteractionCoordinator.subscribeLifecycle(
-      () => {
-        if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+    const removeLifecycleListener =
+      appInteractionCoordinator.subscribeLifecycle(() => {
+        if (
+          appInteractionCoordinator.getLifecycleSnapshot().state === "active"
+        ) {
           reconcileWhenVisible();
         }
-      },
-    );
+      });
 
     const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
     const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);

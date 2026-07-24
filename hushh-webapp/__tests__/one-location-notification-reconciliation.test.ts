@@ -110,8 +110,46 @@ function stateFixture(): OneLocationState {
 }
 
 describe("One Location global notification reconciliation", () => {
+  it("waits for the first encrypted envelope before surfacing SMS", () => {
+    const state = stateFixture();
+    state.receivedGrants = [
+      {
+        ...state.receivedGrants[0],
+        id: "sms-pending-envelope",
+        shareKind: "sos",
+        shareMessage: "Come get me",
+        latestEnvelopeId: null,
+      },
+    ];
+
+    expect(
+      buildOneLocationNotificationPayloads(state, USER_ID).filter(
+        (payload) => payload.type === "location_share_created",
+      ),
+    ).toEqual([]);
+
+    state.receivedGrants[0]!.latestEnvelopeId = "envelope-1";
+    expect(
+      buildOneLocationNotificationPayloads(state, USER_ID).filter(
+        (payload) => payload.type === "location_share_created",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        type: "location_share_created",
+        grant_id: "sms-pending-envelope",
+        share_kind: "sos",
+        share_message: "Come get me",
+        notification_profile: "one_location_sms_emergency",
+        notification_category: "ONE_LOCATION_SMS_EMERGENCY",
+      }),
+    ]);
+  });
+
   it("reconstructs every user-facing workflow without visiting the Location page", () => {
-    const payloads = buildOneLocationNotificationPayloads(stateFixture(), USER_ID);
+    const payloads = buildOneLocationNotificationPayloads(
+      stateFixture(),
+      USER_ID,
+    );
     expect(payloads.map((payload) => payload.type)).toEqual(
       expect.arrayContaining([
         "location_share_created",
@@ -132,7 +170,9 @@ describe("One Location global notification reconciliation", () => {
       share_message: "Reached safely",
     });
     expect(
-      payloads.find((payload) => payload.type === "location_one_network_joined"),
+      payloads.find(
+        (payload) => payload.type === "location_one_network_joined",
+      ),
     ).toMatchObject({
       connection_id: "connection-1",
       network_display_label: "Alex",
@@ -180,7 +220,9 @@ describe("One Location global notification reconciliation", () => {
           payload.grant_id === "grant-direct",
       ),
     ).toBe(false);
-    expect(payloads.some((payload) => payload.grant_id === "grant-old-revoked")).toBe(false);
+    expect(
+      payloads.some((payload) => payload.grant_id === "grant-old-revoked"),
+    ).toBe(false);
     expect(payloads).toContainEqual(
       expect.objectContaining({
         type: "location_share_expired",

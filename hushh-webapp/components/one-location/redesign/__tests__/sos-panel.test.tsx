@@ -1,28 +1,31 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 
-const recipient = (over: Partial<OneLocationRecipient>): OneLocationRecipient => ({
+const recipient = (
+  overrides: Partial<OneLocationRecipient>,
+): OneLocationRecipient => ({
   userId: "u1",
   displayName: "Carol",
   phoneVerified: true,
   keyAlgorithm: "ECDH-P256-AES256-GCM",
   canReceiveLocation: true,
-  ...over,
+  ...overrides,
 });
 
 const baseProps = {
   recipients: [recipient({ userId: "u1", displayName: "Carol" })],
   active: false,
   busy: false,
-  startedAtLabel: null,
   onTrigger: vi.fn(),
-  onStop: vi.fn(),
-  recipientLabel: (r: OneLocationRecipient) => r.displayName,
-  isRecipientShareReady: (r: OneLocationRecipient) => r.canReceiveLocation,
-  countdownSeconds: 3,
+  onClose: vi.fn(),
+  onEditContacts: vi.fn(),
+  recipientLabel: (value: OneLocationRecipient) => value.displayName,
+  isRecipientShareReady: (value: OneLocationRecipient) =>
+    value.canReceiveLocation,
 };
 
 beforeEach(() => vi.useFakeTimers());
@@ -33,36 +36,95 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
-  it("shows the SOS-ready state and the alert recipients when idle", () => {
+  it("renders the Save My Soul UI, selected recipients, and US dialer", () => {
     render(<SosPanel {...baseProps} />);
-    expect(screen.getByText(/SOS READY/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open alert/i })).toBeInTheDocument();
-    expect(screen.getByText(/notify Carol/i)).toBeInTheDocument();
+
+    expect(screen.getByText("SMS · Save my soul")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Press and hold. An SMS with your live location goes to your people — even with no internet.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /call 911/i })).toHaveAttribute(
+      "href",
+      "tel:911",
+    );
+    expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("sms-safety-screen")).toHaveClass(
+      "fixed",
+      "inset-0",
+      "bg-black",
+    );
   });
 
-  it("opening the alert starts a countdown that can be cancelled (no trigger)", () => {
+  it("does not send when the hold is released before two seconds", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
-    fireEvent.click(screen.getByRole("button", { name: /open alert/i }));
-    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-    act(() => vi.advanceTimersByTime(5000));
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_500));
+    fireEvent.pointerUp(hold, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_000));
+
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
-  it("fires onTrigger when the countdown elapses", () => {
+  it("sends exactly once after a continuous two-second hold", () => {
     const onTrigger = vi.fn();
-    render(<SosPanel {...baseProps} onTrigger={onTrigger} countdownSeconds={3} />);
-    fireEvent.click(screen.getByRole("button", { name: /open alert/i }));
-    act(() => vi.advanceTimersByTime(3000));
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(hold, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+
     expect(onTrigger).toHaveBeenCalledTimes(1);
+    expect(onTrigger).toHaveBeenCalledWith(null);
   });
 
-  it("shows the active alert state and calls onStop", () => {
-    const onStop = vi.fn();
-    render(<SosPanel {...baseProps} active startedAtLabel="10:57 AM" onStop={onStop} />);
-    expect(screen.getByText(/ALERT ACTIVE/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /i'm safe/i }));
-    expect(onStop).toHaveBeenCalledTimes(1);
+  it("passes the selected fixed message and exposes Edit and Cancel", () => {
+    const onTrigger = vi.fn();
+    const onClose = vi.fn();
+    const onEditContacts = vi.fn();
+    render(
+      <SosPanel
+        {...baseProps}
+        onTrigger={onTrigger}
+        onClose={onClose}
+        onEditContacts={onEditContacts}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "I'm not safe" }));
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).toHaveBeenCalledWith("I'm not safe");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onEditContacts).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when no selected recipient is ready", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} recipients={[]} onTrigger={onTrigger} />);
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+    expect(hold).toBeDisabled();
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(onTrigger).not.toHaveBeenCalled();
   });
 });

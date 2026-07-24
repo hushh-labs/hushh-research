@@ -42,7 +42,10 @@ def read_json(path: Path) -> Any:
 
 
 def source_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Git checks text inputs out with platform-specific line endings. Normalize
+    # CRLF so Windows and Linux generate the same governed topology artifact.
+    content = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
 
 
 def stable_json(value: Any) -> str:

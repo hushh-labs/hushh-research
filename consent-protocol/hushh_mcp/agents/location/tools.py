@@ -227,7 +227,7 @@ async def propose_public_link(duration_hours: float) -> dict[str, Any]:
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_sos_panic")
 async def propose_sos_panic() -> dict[str, Any]:
-    """Propose an emergency SOS broadcast to the user's ready trusted contacts.
+    """Propose a Save My Soul alert to the user's selected, ready SMS contacts.
     The browser creates 8h grants per recipient, encrypts, publishes, and records
     the incident. Coordinate-free."""
     _ctx()
@@ -265,7 +265,7 @@ async def request_device_location_permission() -> dict[str, Any]:
     """Ask the device to (re-)prompt the OS location permission dialog. Use this
     whenever an action needs the device's location and it is not currently
     available or was previously denied - e.g. the user asks to share, check in,
-    or send SOS and a prior attempt failed because permission was never granted
+    or send SMS and a prior attempt failed because permission was never granted
     or was denied. The server never receives a coordinate here; the OS prompt
     and outcome happen entirely client-side."""
     _ctx()

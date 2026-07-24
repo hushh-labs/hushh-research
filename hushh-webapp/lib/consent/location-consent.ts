@@ -68,13 +68,13 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
 
 
 /**
- * Short human tag for a location consent row's share kind (SOS / Check-In /
+ * Short human tag for a location consent row's share kind (SMS / Check-In /
  * Share). Returns "" for rows that carry no share_kind (e.g. access requests,
  * public/circle invites) so the caller can omit the badge entirely.
  */
 export function locationConsentShareKindLabel(metadata: MetadataLike): string {
   const kind = readString(metadata, "share_kind").toLowerCase();
-  if (kind === "sos") return "SOS";
+  if (kind === "sos") return "SMS";
   if (kind === "check_in" || kind === "checkin") return "Check-In";
   if (kind === "share") return "Share";
   return "";
@@ -84,7 +84,7 @@ export function locationConsentShareKindLabel(metadata: MetadataLike): string {
  * Human summary for a location consent row. Coordinate-free by contract:
  * we never surface latitude/longitude in consent metadata or copy. When the row
  * is a share grant the summary is kind-aware so the Consent Manager can tell an
- * emergency SOS from a friendly Check-In (with its note) from a plain share,
+ * Save My Soul from a friendly Check-In (with its note) from a plain share,
  * instead of the same generic "wants to see your location" line for every row.
  */
 export function locationConsentSummary(metadata: MetadataLike): string {
@@ -95,7 +95,9 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   const shareMessage = readString(metadata, "share_message");
   const durationSuffix = durationLabel ? ` for ${durationLabel}` : "";
   if (shareKind === "sos") {
-    return `${who} triggered an SOS and is sharing live location with you${durationSuffix}.`;
+    return shareMessage
+      ? `${who}: ${shareMessage}`
+      : `${who} sent an SMS and is sharing live location with you${durationSuffix}.`;
   }
   if (shareKind === "check_in" || shareKind === "checkin") {
     if (shareMessage) {
@@ -196,4 +198,3 @@ export function parseLocationConsentEntry(
 
   return { kind, id, requestId };
 }
-

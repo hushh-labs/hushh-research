@@ -55,4 +55,35 @@ describe("OneLocationStateResource", () => {
     expect(OneLocationStateResource.peek(userId)?.data).toBe(snapshot);
     expect(OneLocationStateResource.peek("another-owner")).toBeNull();
   });
+
+  it("publishes SMS membership immediately and rejects an older in-flight snapshot", async () => {
+    const userId = "location-resource-owner";
+    const initial = {
+      recipients: [],
+      smsContactUserIds: ["selected"],
+    } as unknown as OneLocationState;
+    OneLocationStateResource.write(userId, initial);
+
+    let resolve!: (state: OneLocationState) => void;
+    const staleLoad = OneLocationStateResource.load(
+      userId,
+      () =>
+        new Promise<OneLocationState>((done) => {
+          resolve = done;
+        }),
+    );
+
+    expect(OneLocationStateResource.replaceSmsContactUserIds(userId, [])).toBe(
+      true,
+    );
+    expect(
+      OneLocationStateResource.peek(userId)?.data.smsContactUserIds,
+    ).toEqual([]);
+
+    resolve(initial);
+    await staleLoad;
+    expect(
+      OneLocationStateResource.peek(userId)?.data.smsContactUserIds,
+    ).toEqual([]);
+  });
 });

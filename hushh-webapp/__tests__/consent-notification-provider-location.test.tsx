@@ -212,11 +212,74 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        duration: 10000,
+        className: undefined,
+      }),
+    );
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+    expect(screen.queryByText("Emergency SMS")).not.toBeInTheDocument();
     expect(mocks.startTask).toHaveBeenCalledTimes(1);
     expect(mocks.startTask).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "one_location_share:grant-live-1",
         routeHref: expect.stringContaining("section=shared"),
+      }),
+    );
+  });
+
+  it("renders emergency SMS as a persistent alarm popup and keeps its alert metadata", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            notification: {
+              title: "SMS · Save my soul",
+              body: "Alex: Come get me",
+            },
+            data: {
+              type: "location_share_created",
+              grant_id: "grant-sms-emergency-1",
+              owner_display_label: "Alex",
+              share_kind: "sos",
+              share_message: "Come get me",
+              notification_profile: "one_location_sms_emergency",
+              notification_category: "ONE_LOCATION_SMS_EMERGENCY",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        duration: 30000,
+        className: expect.stringMatching(
+          /one-location-emergency-toast.*!bg-red-600.*!text-white/,
+        ),
+      }),
+    );
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveAttribute("data-one-location-emergency-sms-alert");
+    expect(alert).toHaveClass("text-white");
+    expect(screen.getByText("Emergency SMS")).toBeInTheDocument();
+    const viewLocationButton = screen.getByRole("button", {
+      name: /view live location/i,
+    });
+    expect(viewLocationButton).toHaveClass("bg-white", "text-red-700");
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "one_location_share:grant-sms-emergency-1",
+        metadata: expect.objectContaining({ shareKind: "sos" }),
       }),
     );
   });
