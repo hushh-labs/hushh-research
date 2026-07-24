@@ -124,7 +124,7 @@ export function TopShellTabs({
               tabIndex={isActive ? 0 : -1}
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center overflow-hidden transition-[color,opacity] duration-150",
-                isActive ? "text-current" : "text-current opacity-65 hover:opacity-100",
+                isActive ? "text-current" : "text-current opacity-60 hover:opacity-100",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {
@@ -164,7 +164,7 @@ export function TopShellTabs({
             width: tabWidth,
           }}
         >
-          <div className="mx-1 h-full rounded-xl bg-current/[0.07]" />
+          <div className="mx-1 h-full rounded-full bg-current/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.05)] ring-1 ring-inset ring-current/[0.05]" />
         </div>
         <div
           aria-hidden
