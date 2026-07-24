@@ -13,7 +13,7 @@ const recipients: OneLocationRecipient[] = [
     phoneVerified: true,
     keyId: "key-selected",
     publicKeyJwk: { kty: "EC" },
-    keyAlgorithm: "ECDH-P256-AES256-GCM",
+    keyAlgorithm: "fixture",
     canReceiveLocation: true,
   },
   {
@@ -23,7 +23,7 @@ const recipients: OneLocationRecipient[] = [
     phoneVerified: true,
     keyId: "key-available",
     publicKeyJwk: { kty: "EC" },
-    keyAlgorithm: "ECDH-P256-AES256-GCM",
+    keyAlgorithm: "fixture",
     canReceiveLocation: true,
   },
 ];
