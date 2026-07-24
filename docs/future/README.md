@@ -66,6 +66,7 @@ Promotion targets:
 - [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current One Voice/Kai compatibility runtime to the One/Kai/Nav/KYC ontology
 - [pkm-slice-marketplace-plan.md](./pkm-slice-marketplace-plan.md): planning-only phased plan for a PKM data-slice subscription marketplace under One (backend-led, user-set price per slice, reuses default_available/consent/export)
 - [information-marketplace-agent-plan.md](./information-marketplace-agent-plan.md): Information Marketplace conversational agent — what's built on `feat/personal-information-agent` plus the product-grade forward path (persist requests end-to-end, approve/deny over One A2A, inline publish-for-offers nudge)
+- [one-docusign-fund-setup-plan.md](./one-docusign-fund-setup-plan.md): planning-only vendor-neutral agreement execution and fund-setup workflow under One, with Nav/Connections authorization, trusted action confirmation, and MuleSoft/DocuSign provider options
 
 ## References
 
