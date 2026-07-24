@@ -1,5 +1,6 @@
 "use client";
 
+import { RouteHydrationOverlay } from "@/components/system/route-hydration-overlay";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -145,8 +146,17 @@ export default function ProfileGmailOAuthReturnPageClient({
     user,
   ]);
 
-  if (stage !== "error") {
-    return (
+      if (stage !== "error") {
+  return (
+    <>
+      <RouteHydrationOverlay
+        active
+        label={
+          stage === "redirecting"
+            ? "Returning to your profile..."
+            : "Completing your Gmail connector setup..."
+        }
+      />
       <AppPageShell
         as="div"
         width="reading"
@@ -170,8 +180,9 @@ export default function ProfileGmailOAuthReturnPageClient({
           />
         </AppPageContentRegion>
       </AppPageShell>
-    );
-  }
+    </>
+  );
+}
 
   return (
     <AppPageShell
