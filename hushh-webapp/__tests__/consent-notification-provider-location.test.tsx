@@ -212,6 +212,16 @@ describe("global One Location notification provider", () => {
     });
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        duration: 10000,
+        className: undefined,
+      }),
+    );
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+    expect(screen.queryByText("Emergency SMS")).not.toBeInTheDocument();
     expect(mocks.startTask).toHaveBeenCalledTimes(1);
     expect(mocks.startTask).toHaveBeenCalledWith(
       expect.objectContaining({
