@@ -8,6 +8,7 @@ import {
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
+import { VaultService } from "@/lib/services/vault-service";
 
 type OnboardingPayload = {
   completed: boolean;
@@ -24,6 +25,18 @@ type NavPayload = {
   completedAt?: string | null;
   skippedAt?: string | null;
 };
+
+const VAULT_VALIDATION_MESSAGES = [
+  "Vault key format is invalid.",
+  "Vault key integrity check failed.",
+];
+
+function isVaultValidationFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return VAULT_VALIDATION_MESSAGES.some((message) => error.message.includes(message));
+}
 
 export type KaiProfilePendingSyncState = {
   hasPending: boolean;
@@ -134,6 +147,9 @@ export class KaiProfileSyncService {
       };
     }
 
+    const vaultState = await VaultService.getVaultState(params.userId);
+    await VaultService.assertVaultKeyMatchesState(vaultState, params.vaultKey);
+
     // Retry with exponential backoff (max 3 attempts)
     const retryDelays = [0, 1000, 3000];
     let lastError: unknown;
@@ -154,6 +170,9 @@ export class KaiProfileSyncService {
         break;
       } catch (error) {
         lastError = error;
+        if (isVaultValidationFailure(error)) {
+          throw error;
+        }
         console.warn(
           `[KaiProfileSyncService] Sync attempt ${attempt + 1}/${retryDelays.length} failed:`,
           error,
