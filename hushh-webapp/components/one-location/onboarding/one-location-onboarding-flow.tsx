@@ -466,34 +466,37 @@ function UseCaseArt({
     >
       {kind === "sms" ? (
         <div
-          className="absolute right-[10%] top-1/2 flex h-[104px] w-[104px] -translate-y-1/2 items-center justify-center"
+          className="absolute right-[14%] top-[42%] flex h-[92px] w-[92px] -translate-y-1/2 items-center justify-center"
           data-one-sms-radar
         >
           {/* Radar / alarm pulse rings expanding outward from the red core. */}
           <span
             data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.14] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
           />
           <span
             data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.14] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:0.8s]"
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:0.8s]"
           />
           <span
             data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.14] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.6s]"
+            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.6s]"
           />
           <span
             data-one-sms-core
             data-one-onboarding-motion
-            className="relative z-10 flex h-[80px] w-[80px] flex-col items-center justify-center rounded-full bg-[#ef302f] text-center text-white shadow-[0_14px_26px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+            className="relative z-10 flex h-[66px] w-[66px] flex-col items-center justify-center rounded-full bg-[#ef302f] text-center text-white shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
           >
-            <span className="text-[19px] font-extrabold leading-none">SMS</span>
-            <span className="mt-1 text-[9px] font-semibold leading-none opacity-90">
+            <span className="text-[16px] font-bold leading-none tracking-tight">
+              SMS
+            </span>
+            <span className="mt-0.5 text-[8px] font-semibold leading-none opacity-90">
               Hold 2 s
             </span>
           </span>
         </div>
       ) : null}
+
       {kind === "share" ? (
         <>
           <MapBackdrop tone="share" />
@@ -514,13 +517,14 @@ function UseCaseArt({
               strokeDasharray="1 9"
             />
           </svg>
-          <span className="absolute bottom-[22%] left-[20%] h-3.5 w-3.5 rounded-full bg-[#338df2] ring-4 ring-white dark:ring-[#171d27]" />
-          <span className="absolute right-[12%] top-[12%] flex h-[42px] w-[42px] items-center justify-center rounded-full border-[3px] border-white bg-[#8b5cf6] text-[15px] font-bold text-white shadow-[0_8px_18px_rgba(124,60,237,0.35)] dark:border-[#171d27]">
+          <span className="absolute bottom-[24%] left-[22%] h-3 w-3 rounded-full bg-[#338df2] ring-[3px] ring-white dark:ring-[#171d27]" />
+          <span className="absolute right-[14%] top-[14%] flex h-[34px] w-[34px] items-center justify-center rounded-full border-[3px] border-white bg-[#8b5cf6] text-[13px] font-bold text-white shadow-[0_8px_16px_rgba(124,60,237,0.35)] dark:border-[#171d27]">
             J
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-[#338df2] text-white dark:border-[#171d27]">
-              <Check className="h-2 w-2" strokeWidth={4} />
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-[13px] w-[13px] items-center justify-center rounded-full border-2 border-white bg-[#338df2] text-white dark:border-[#171d27]">
+              <Check className="h-1.5 w-1.5" strokeWidth={4} />
             </span>
           </span>
+
         </>
       ) : null}
       {kind === "checkin" ? (
@@ -534,7 +538,7 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute right-[31%] top-[1%] h-[44%] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
+            className="absolute right-[34%] top-[3%] h-[38%] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
           />
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
@@ -543,9 +547,10 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute bottom-[19%] right-[3%] w-[88%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
+            className="absolute bottom-[22%] right-[5%] w-[74%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
             data-one-checkin-art
           />
+
         </>
       ) : null}
       <span
