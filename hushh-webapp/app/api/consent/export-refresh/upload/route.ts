@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
+import { safeParseResponse } from "@/app/api/_utils/safe-response";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
@@ -23,9 +23,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(body),
     });
-    const payload = await response
-      .json()
-      .catch(async () => ({ error: await response.text().catch(() => "") }));
+    const payload = await safeParseResponse(response);
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     console.error("[API] export-refresh/upload error:", error);
