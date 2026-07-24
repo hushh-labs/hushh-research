@@ -56,6 +56,7 @@ import { useConsentNotificationState } from "@/components/consent/notification-p
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import { parseDateOrNull } from "@/lib/utils/date";
 
 const SURFACE_VIEW_LABELS = {
   pending: "Pending",
@@ -96,17 +97,11 @@ function statusTone(status: string) {
 }
 
 function formatDate(value: number | string | null | undefined) {
-  if (!value) return null;
-  const date = typeof value === "number" ? new Date(value) : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString();
+  return parseDateOrNull(value)?.toLocaleString() ?? null;
 }
 
 function toTimestamp(value: number | string | null | undefined) {
-  if (typeof value === "number") return value;
-  if (!value) return null;
-  const parsed = new Date(String(value)).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseDateOrNull(value)?.getTime() ?? null;
 }
 
 function formatDurationLabel(hours: number | null | undefined) {
@@ -206,8 +201,8 @@ function getEntriesForSurfaceView(
   });
 
   return pendingEntries.sort((left, right) => {
-    const leftTime = left.issued_at ? new Date(String(left.issued_at)).getTime() : 0;
-    const rightTime = right.issued_at ? new Date(String(right.issued_at)).getTime() : 0;
+    const leftTime = toTimestamp(left.issued_at) ?? 0;
+    const rightTime = toTimestamp(right.issued_at) ?? 0;
     return rightTime - leftTime;
   });
 }
@@ -299,8 +294,8 @@ function groupConsentBundles(entries: ConsentCenterEntry[]): ConsentBundleGroup[
     });
   }
   return [...bundles.values()].sort((left, right) => {
-    const leftTime = left.issuedAt ? new Date(String(left.issuedAt)).getTime() : 0;
-    const rightTime = right.issuedAt ? new Date(String(right.issuedAt)).getTime() : 0;
+    const leftTime = toTimestamp(left.issuedAt) ?? 0;
+    const rightTime = toTimestamp(right.issuedAt) ?? 0;
     return rightTime - leftTime;
   });
 }
@@ -333,13 +328,13 @@ function toPendingConsent(entry: ConsentCenterEntry, durationHours?: number) {
       typeof entry.issued_at === "number"
         ? entry.issued_at
         : entry.issued_at
-          ? new Date(String(entry.issued_at)).getTime()
+          ? toTimestamp(entry.issued_at) ?? Date.now()
           : Date.now(),
     approvalTimeoutAt:
       typeof entry.approval_timeout_at === "number"
         ? entry.approval_timeout_at
         : entry.approval_timeout_at
-          ? new Date(String(entry.approval_timeout_at)).getTime()
+          ? toTimestamp(entry.approval_timeout_at) ?? undefined
           : undefined,
     expiryHours:
       typeof metadata.expiry_hours === "number" ? metadata.expiry_hours : undefined,
