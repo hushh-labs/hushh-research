@@ -869,12 +869,13 @@
       "data_class": "personal_metadata",
       "exact_tables": [
         "one_location_circles",
+        "one_location_circle_member_invites",
         "one_location_circle_memberships"
       ],
       "id": "one_location_named_circle_relationships",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Authenticated One Location People-tab Circle creation, membership listing, join, removal, leave, and deletion workflows."
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
       "data_class": "personal_projection",
@@ -969,12 +970,13 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "connection_requests",
-        "connections"
+        "connections",
+        "connection_origins"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester\u2192addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 118 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 117. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -4224,7 +4226,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
     "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "84189ef97d78b0d8853f4e842e19886e586b5dd7928dd9ae04fef655ea293328",
+    "data_plane": "e9b58b929a6b94ec1a775b0666ca8291b5feec01eb4cb6ed68dce1721cf8ada0",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
