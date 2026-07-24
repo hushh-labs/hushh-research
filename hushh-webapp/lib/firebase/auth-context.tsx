@@ -163,9 +163,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     const currentUser = auth.currentUser;
+
     if (currentUser) {
       await currentUser.reload().catch(() => undefined);
     }
+
     const refreshedUser = auth.currentUser;
     applyAuthUser(refreshedUser);
     setLoading(false);
@@ -268,6 +270,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     init();
 
+   
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!mounted) return;
 
@@ -284,6 +288,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       applyAuthUser(firebaseUser);
+
       // Only stop loading if we actually got a user or valid null (web)
       setLoading(false);
     });
