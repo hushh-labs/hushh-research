@@ -1132,10 +1132,6 @@ export function AuthStep({
               </span>
             </div>
 
-            <p className="type-footnote mx-auto max-w-[18.75rem] text-center text-[#86868b] dark:text-white/45">
-              You&apos;ll verify your phone number right after signing in.
-            </p>
-
             <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
               By continuing, you agree to One&apos;s{" "}
               <button

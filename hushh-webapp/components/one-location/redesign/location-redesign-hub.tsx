@@ -36,7 +36,6 @@ import {
   MapPin,
   Navigation,
   Plus,
-  RefreshCw,
   Send,
   Shield,
   ShieldCheck,
@@ -576,22 +575,47 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         accent="neutral"
         actionsInlineMobile
         actions={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={vm.onRefresh}
-            disabled={BUSY(vm, "load")}
-            className="gap-2"
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", BUSY(vm, "load") && "animate-spin")}
-              aria-hidden="true"
-            />
-            Refresh
-          </Button>
+          (() => {
+            const locationOn = Boolean(vm.myLocationPoint);
+            const toggling = BUSY(vm, "selfLocation");
+            return (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                role="switch"
+                aria-checked={locationOn}
+                aria-label={
+                  locationOn ? "Turn location off" : "Turn location on"
+                }
+                onClick={
+                  locationOn ? vm.onHideMyLocation : vm.onShowMyLocation
+                }
+                disabled={toggling || BUSY(vm, "load")}
+                className={cn(
+                  "gap-2 rounded-full font-semibold transition-colors",
+                  locationOn
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200"
+                    : "border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted/60",
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full transition-colors",
+                    locationOn
+                      ? "bg-emerald-500 dark:bg-emerald-400"
+                      : "bg-muted-foreground/40",
+                    toggling && "animate-pulse",
+                  )}
+                  aria-hidden="true"
+                />
+                {locationOn ? "Location on" : "Location off"}
+              </Button>
+            );
+          })()
         }
       />
+
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews

@@ -6,7 +6,7 @@ import {
   CheckCircleIcon,
   InfoIcon,
   WarningIcon,
-  XCircleIcon,
+  WarningCircleIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
 import { useIconWeight } from "./icon-theme-context";
@@ -212,7 +212,7 @@ export const useMorphyToast = () => {
       duration,
       description,
       icon: (
-        <XCircleIcon
+        <WarningCircleIcon
           className="h-4 w-4 text-current"
           weight={iconWeight}
         />
@@ -228,7 +228,7 @@ export const useMorphyToast = () => {
       duration,
       description,
       icon: (
-        <XCircleIcon
+        <WarningCircleIcon
           className="h-4 w-4 text-current"
           weight={iconWeight}
         />
