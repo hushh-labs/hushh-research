@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 116,
+  "expected_migration_version": 117,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -714,6 +714,17 @@
     "one_location_sms_contacts": [
       "owner_user_id",
       "contact_user_id",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_saved_places": [
+      "id",
+      "owner_user_id",
+      "category",
+      "label",
+      "latitude",
+      "longitude",
+      "address",
       "created_at",
       "updated_at"
     ],
