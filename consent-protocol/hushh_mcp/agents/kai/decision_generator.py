@@ -1,25 +1,19 @@
 """
 Agent Kai — Decision Generator
 
-Generates decision cards with receipts, sources, and compliance disclaimers.
-
-Key Responsibilities:
-- Decision card formatting
-- Source citation
-- Debate digest creation
-- Legal disclaimer injection
-- Encryption for storage
+Synthesizes the output of the 4 specialist agents and the debate result into
+a structured decision card for the user.
 """
 
-import json
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .config import DecisionType, RiskProfile
 from .debate_engine import DebateResult
 from .fundamental_agent import FundamentalInsight
+from .macro_agent import MacroInsight
 from .sentiment_agent import SentimentInsight
 from .valuation_agent import ValuationInsight
 
@@ -29,13 +23,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DecisionCard:
     """
-    Complete decision card with all analysis details.
-
-    This is what the user sees - a comprehensive breakdown
-    of the investment committee's decision.
+    Structured final output for the user.
     """
 
-    # Decision metadata
     decision_id: str
     ticker: str
     user_id: str
@@ -50,6 +40,7 @@ class DecisionCard:
     fundamental_insight: Dict[str, Any]
     sentiment_insight: Dict[str, Any]
     valuation_insight: Dict[str, Any]
+    macro_insight: Optional[Dict[str, Any]] = None
 
     # Debate details
     debate_digest: str
@@ -67,33 +58,19 @@ class DecisionCard:
     legal_disclaimer: str
     reliability_badge: str
 
-    # Processing metadata
-    processing_mode: str
-    risk_profile: RiskProfile
-
 
 class DecisionGenerator:
     """
-    Decision Generator - Creates formatted decision cards.
-
-    Transforms raw agent insights and debate results into
-    a user-friendly decision card with full transparency.
+    Generator for the final Investment Decision Card.
     """
 
-    LEGAL_DISCLAIMER = """
-⚠️ IMPORTANT DISCLOSURE
-
-This analysis is provided for EDUCATIONAL PURPOSES ONLY.
-
-• This is NOT investment advice
-• [LEGAL ENTITY NAME - TBD] is NOT a registered investment adviser
-• Agent Kai is NOT part of Hushh Technology Fund L.P.'s services
-• Past performance does not guarantee future results
-• You may lose money; there is no assurance of profit
-• Always consult a licensed financial advisor before investing
-
-By using Kai, you acknowledge that you understand these limitations.
-    """.strip()
+    LEGAL_DISCLAIMER = (
+        "This analysis is provided for informational purposes only and does not constitute "
+        "financial advice, investment recommendations, or an offer to buy or sell securities. "
+        "Investing in financial markets involves risk. Past performance is not indicative "
+        "of future results. Always consult with a qualified financial advisor before making "
+        "investment decisions. By using Kai, you acknowledge that you understand these limitations."
+    )
 
     def __init__(self, risk_profile: RiskProfile = "balanced"):
         self.risk_profile = risk_profile
@@ -101,13 +78,14 @@ By using Kai, you acknowledge that you understand these limitations.
     async def generate_decision(
         self,
         ticker: str,
+        user_id: str,
         fundamental_insight: FundamentalInsight,
         sentiment_insight: SentimentInsight,
         valuation_insight: ValuationInsight,
+        macro_insight: Optional[MacroInsight],
         debate_result: DebateResult,
-        user_id: str,
-        consent_token: str | None = None,
-        processing_mode: str | None = None,
+        processing_mode: Optional[str] = None,
+        consent_token: Optional[str] = None,
     ) -> DecisionCard:
         """
         Backward-compatible orchestrator entrypoint.
@@ -125,6 +103,7 @@ By using Kai, you acknowledge that you understand these limitations.
             fundamental=fundamental_insight,
             sentiment=sentiment_insight,
             valuation=valuation_insight,
+            macro=macro_insight,
             debate=debate_result,
         )
 
@@ -136,6 +115,7 @@ By using Kai, you acknowledge that you understand these limitations.
         fundamental: FundamentalInsight,
         sentiment: SentimentInsight,
         valuation: ValuationInsight,
+        macro: Optional[MacroInsight],
         debate: DebateResult,
     ) -> DecisionCard:
         """
@@ -148,6 +128,7 @@ By using Kai, you acknowledge that you understand these limitations.
             fundamental: Fundamental agent's insight
             sentiment: Sentiment agent's insight
             valuation: Valuation agent's insight
+            macro: Macro agent's insight (optional)
             debate: Debate engine result
 
         Returns:
@@ -164,10 +145,10 @@ By using Kai, you acknowledge that you understand these limitations.
         debate_digest = self._create_debate_digest(debate)
 
         # Collect all sources
-        all_sources = self._collect_sources(fundamental, sentiment, valuation)
+        all_sources = self._collect_sources(fundamental, sentiment, valuation, macro)
 
         # Aggregate key metrics
-        key_metrics = self._aggregate_metrics(fundamental, sentiment, valuation)
+        key_metrics = self._aggregate_metrics(fundamental, sentiment, valuation, macro)
 
         # Generate risk persona alignment note
         risk_alignment = self._generate_risk_alignment(debate.decision, debate.confidence)
@@ -177,6 +158,7 @@ By using Kai, you acknowledge that you understand these limitations.
             fundamental.confidence,
             sentiment.confidence,
             valuation.confidence,
+            macro.confidence if macro else None,
         )
 
         return DecisionCard(
@@ -190,6 +172,7 @@ By using Kai, you acknowledge that you understand these limitations.
             fundamental_insight=asdict(fundamental),
             sentiment_insight=asdict(sentiment),
             valuation_insight=asdict(valuation),
+            macro_insight=asdict(macro) if macro else None,
             debate_digest=debate_digest,
             debate_rounds=[asdict(r) for r in debate.rounds],
             consensus_reached=debate.consensus_reached,
@@ -200,114 +183,76 @@ By using Kai, you acknowledge that you understand these limitations.
             risk_persona_alignment=risk_alignment,
             legal_disclaimer=self.LEGAL_DISCLAIMER,
             reliability_badge=reliability_badge,
-            processing_mode=processing_mode,
-            risk_profile=self.risk_profile,
         )
 
     def _generate_headline(self, ticker: str, decision: DecisionType, confidence: float) -> str:
-        """Generate decision headline."""
-        action_word = {"buy": "BUY", "hold": "HOLD", "reduce": "REDUCE"}[decision]
-
-        confidence_desc = (
-            "High" if confidence > 0.75 else "Moderate" if confidence > 0.60 else "Low"
-        )
-
-        return f"{action_word} {ticker} — {confidence_desc} Confidence ({confidence:.0%})"
+        """Generate headline summary."""
+        conf_label = "High" if confidence >= 0.8 else "Moderate" if confidence >= 0.6 else "Low"
+        return f"{conf_label} confidence {decision.upper()} signal for {ticker}."
 
     def _create_debate_digest(self, debate: DebateResult) -> str:
-        """Create human-readable debate summary."""
-
-        rounds_summary = []
-        for round in debate.rounds:
-            round_text = f"**Round {round.round_number}:**\n"
-            for agent_id, statement in round.agent_statements.items():
-                round_text += f"- {agent_id.capitalize()}: {statement}\n"
-            rounds_summary.append(round_text)
-
-        digest = "\n".join(rounds_summary)
-        digest += f"\n\n{debate.final_statement}"
-
-        if debate.dissenting_opinions:
-            digest += "\n\n**Dissenting Opinions:**\n"
-            for dissent in debate.dissenting_opinions:
-                digest += f"- {dissent}\n"
-
-        return digest
+        """Summarize the debate process."""
+        rounds = len(debate.rounds)
+        consensus = "reached consensus" if debate.consensus_reached else "did not reach full consensus"
+        return f"Specialist agents completed a {rounds}-round debate and {consensus}."
 
     def _collect_sources(
         self,
         fundamental: FundamentalInsight,
         sentiment: SentimentInsight,
         valuation: ValuationInsight,
+        macro: Optional[MacroInsight] = None,
     ) -> List[str]:
-        """Collect all sources from agents."""
-        sources = []
-        sources.extend(fundamental.sources)
-        sources.extend(sentiment.sources)
-        sources.extend(valuation.sources)
-        return list(set(sources))  # Deduplicate
+        """Collect all sources."""
+        sources = set()
+        sources.update(fundamental.sources)
+        sources.update(sentiment.sources)
+        sources.update(valuation.sources)
+        if macro:
+            sources.update(macro.sources)
+        return sorted(list(sources))
 
     def _aggregate_metrics(
         self,
         fundamental: FundamentalInsight,
         sentiment: SentimentInsight,
         valuation: ValuationInsight,
+        macro: Optional[MacroInsight] = None,
     ) -> Dict[str, Any]:
-        """Aggregate key metrics from all agents."""
-        return {
+        """Aggregate key metrics."""
+        metrics = {
             "fundamental": fundamental.key_metrics,
-            "sentiment": {
-                "sentiment_score": sentiment.sentiment_score,
-                "catalyst_count": len(sentiment.key_catalysts),
-            },
+            "sentiment": {"score": sentiment.sentiment_score},
             "valuation": valuation.valuation_metrics,
         }
+        if macro:
+            metrics["macro"] = macro.macro_metrics
+        return metrics
 
     def _generate_risk_alignment(self, decision: DecisionType, confidence: float) -> str:
-        """Generate risk persona alignment note."""
-
-        alignment_notes = {
-            "conservative": {
-                "buy": "This BUY recommendation aligns with conservative investing if fundamentals are strong and downside is protected.",
-                "hold": "HOLD is appropriate for conservative investors seeking capital preservation.",
-                "reduce": "REDUCE aligns well with conservative risk management.",
-            },
-            "balanced": {
-                "buy": "This BUY recommendation balances growth opportunity with risk considerations.",
-                "hold": "HOLD provides balanced exposure while monitoring developments.",
-                "reduce": "REDUCE helps rebalance portfolio while maintaining diversification.",
-            },
-            "aggressive": {
-                "buy": "BUY recommendation offers growth potential aligned with aggressive investing.",
-                "hold": "HOLD may be conservative for aggressive investors; consider context.",
-                "reduce": "REDUCE may limit upside for aggressive portfolios; review rationale.",
-            },
-        }
-
-        return alignment_notes[self.risk_profile][decision]
+        """Generate alignment note."""
+        if self.risk_profile == "aggressive" and decision == "buy":
+            return "Highly aligned with your aggressive growth strategy."
+        elif self.risk_profile == "conservative" and decision == "reduce":
+            return "Aligned with your capital preservation focus."
+        return f"Consistent with a {self.risk_profile} investment approach."
 
     def _calculate_reliability_badge(
         self,
         fund_conf: float,
         sent_conf: float,
         val_conf: float,
+        macro_conf: Optional[float] = None,
     ) -> str:
-        """Calculate reliability badge based on agent confidence."""
+        """Calculate reliability badge."""
+        confs = [fund_conf, sent_conf, val_conf]
+        if macro_conf is not None:
+            confs.append(macro_conf)
 
-        avg_confidence = (fund_conf + sent_conf + val_conf) / 3
+        avg = sum(confs) / len(confs)
 
-        if avg_confidence >= 0.80:
-            return "🟢 High Reliability"
-        elif avg_confidence >= 0.65:
-            return "🟡 Moderate Reliability"
-        else:
-            return "🔴 Low Reliability — Review Carefully"
-
-    def to_json(self, card: DecisionCard) -> str:
-        """Convert decision card to JSON for storage."""
-        return json.dumps(asdict(card), default=str, indent=2)
-
-    def from_json(self, json_str: str) -> DecisionCard:
-        """Parse decision card from JSON."""
-        data = json.loads(json_str)
-        return DecisionCard(**data)
+        if avg >= 0.8:
+            return "HIGH_RELIABILITY"
+        elif avg >= 0.6:
+            return "MODERATE_RELIABILITY"
+        return "LOW_RELIABILITY"

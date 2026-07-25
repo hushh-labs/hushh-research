@@ -2,6 +2,7 @@ import pytest
 
 from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalInsight
+from hushh_mcp.agents.kai.macro_agent import MacroInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationInsight
 
@@ -46,6 +47,20 @@ def _valuation(recommendation: str = "overvalued", confidence: float = 0.5) -> V
     )
 
 
+def _macro(recommendation: str = "hold", confidence: float = 0.5) -> MacroInsight:
+    return MacroInsight(
+        summary="Macroeconomic environment is stable with moderate inflation.",
+        interest_rate_impact="Neutral",
+        inflation_impact="Stable",
+        sector_trend="Neutral",
+        macro_bull_case="Stability",
+        macro_bear_case="Inflation",
+        sources=["macro"],
+        confidence=confidence,
+        recommendation=recommendation,
+    )
+
+
 @pytest.mark.asyncio
 async def test_low_confidence_conflict_adds_deterministic_summary_without_boosting_confidence(
     monkeypatch,
@@ -63,6 +78,7 @@ async def test_low_confidence_conflict_adds_deterministic_summary_without_boosti
         _fundamental(),
         _sentiment(),
         _valuation(),
+        _macro(),
     )
 
     assert result.consensus_reached is False

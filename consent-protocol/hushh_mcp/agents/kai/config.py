@@ -10,7 +10,7 @@ from typing import Literal
 AGENT_ID = "agent_kai"
 
 # Specialist agent types
-AgentType = Literal["fundamental", "sentiment", "valuation"]
+AgentType = Literal["fundamental", "sentiment", "valuation", "macro"]
 
 # Decision types
 DecisionType = Literal["buy", "hold", "reduce"]
