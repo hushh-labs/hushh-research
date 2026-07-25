@@ -65,6 +65,8 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
@@ -3193,10 +3195,12 @@ function ProfilePageContent() {
           stackTrailingOnMobile
         />
       </SettingsGroup>
+      <SavedLocationsSection />
     </div>
   );
 
   const securityContent = (
+
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow

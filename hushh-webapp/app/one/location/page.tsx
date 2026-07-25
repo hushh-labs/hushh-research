@@ -55,7 +55,13 @@ import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
   type ConnectionRequestResult,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import {
+  addSavedLocation,
+  type SavedLocationCategory,
+} from "@/lib/one-location/saved-locations";
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
+
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1678,7 +1684,20 @@ export function OneLocationAgentPageContent({
   const [locationOnboardingStep, setLocationOnboardingStep] =
     useState<OneLocationOnboardingStep>("welcome");
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
+  // Save-location prompt shown once during onboarding right after the user
+  // grants access, so we can capture their Home/Work/Other place (PKM).
+  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
+  const [saveLocationPoint, setSaveLocationPoint] =
+    useState<PlainLocationPoint | null>(null);
+  const [saveLocationAddress, setSaveLocationAddress] = useState<string | null>(
+    null,
+  );
+  const [saveLocationAddressLoading, setSaveLocationAddressLoading] =
+    useState(false);
+  const [saveLocationSaving, setSaveLocationSaving] = useState(false);
+  const savedLocationPromptedRef = useRef(false);
   const notificationOnboardingAttemptRef = useRef(false);
+
   const notificationOnboardingObservedBusyRef = useRef(false);
   const notificationOnboardingRetryOnFocusRef = useRef(false);
   const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
@@ -5180,6 +5199,115 @@ export function OneLocationAgentPageContent({
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
 
+  // After the user grants location during onboarding, capture their current
+  // position ONCE and open the Save-location prompt so they can tag it as
+  // Home / Work / Other (PKM). Guarded so it fires at most once per session and
+  // never re-prompts a user who already saved during a prior onboarding run.
+  const promptSaveLocationDuringOnboarding = useCallback(async () => {
+    if (savedLocationPromptedRef.current || !auth.userId) return;
+    if (typeof window !== "undefined") {
+      try {
+        if (
+          window.localStorage.getItem(
+            `one_location_saved_location_prompt_v1:${auth.userId}`,
+          ) === "1"
+        ) {
+          savedLocationPromptedRef.current = true;
+          return;
+        }
+      } catch {
+        // localStorage unavailable (private mode); fall through and prompt once.
+      }
+    }
+    savedLocationPromptedRef.current = true;
+
+    let point: PlainLocationPoint;
+    try {
+      point = await OneLocationService.captureCurrentPosition();
+    } catch {
+      // Could not capture a position (e.g. transient GPS failure). Skip the
+      // prompt silently — onboarding continues unaffected.
+      return;
+    }
+
+    setSaveLocationPoint(point);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(true);
+    setSaveLocationModalOpen(true);
+
+    // Best-effort reverse-geocode for a friendly address. Never blocks the modal.
+    if (vaultOwnerToken) {
+      void OneLocationService.reverseGeocode({
+        vaultOwnerToken,
+        lat: point.latitude,
+        lng: point.longitude,
+      })
+        .then((place) => {
+          setSaveLocationAddress(
+            place.formattedAddress || place.name || null,
+          );
+        })
+        .catch(() => {
+          // Address stays null; the modal falls back to coordinates.
+        })
+        .finally(() => setSaveLocationAddressLoading(false));
+    } else {
+      setSaveLocationAddressLoading(false);
+    }
+  }, [auth.userId, vaultOwnerToken]);
+
+  const handleSaveOnboardingLocation = useCallback(
+    async (category: SavedLocationCategory, label: string) => {
+      if (!auth.userId || !saveLocationPoint) {
+        setSaveLocationModalOpen(false);
+        return;
+      }
+      setSaveLocationSaving(true);
+      try {
+        await addSavedLocation(auth.userId, {
+          category,
+          label,
+          latitude: saveLocationPoint.latitude,
+          longitude: saveLocationPoint.longitude,
+          address: saveLocationAddress,
+        });
+        if (typeof window !== "undefined") {
+          try {
+            window.localStorage.setItem(
+              `one_location_saved_location_prompt_v1:${auth.userId}`,
+              "1",
+            );
+          } catch {
+            // best-effort; a re-prompt is acceptable if storage is unavailable
+          }
+        }
+        toast.success("Saved to your places.");
+      } catch {
+        toast.error("Could not save this location. You can add it later.");
+      } finally {
+        setSaveLocationSaving(false);
+        setSaveLocationModalOpen(false);
+        setSaveLocationPoint(null);
+      }
+    },
+    [auth.userId, saveLocationAddress, saveLocationPoint],
+  );
+
+  const handleSkipSaveOnboardingLocation = useCallback(() => {
+    if (typeof window !== "undefined" && auth.userId) {
+      try {
+        window.localStorage.setItem(
+          `one_location_saved_location_prompt_v1:${auth.userId}`,
+          "1",
+        );
+      } catch {
+        // best-effort
+      }
+    }
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+  }, [auth.userId]);
+
   const handleLocationOnboardingPermission = useCallback(async () => {
     if (locationOnboardingBusy) return;
     setLocationOnboardingBusy(true);
@@ -5211,6 +5339,7 @@ export function OneLocationAgentPageContent({
           return;
         }
         toast.success("Location access is on.");
+        void promptSaveLocationDuringOnboarding();
         return;
       }
 
@@ -5237,6 +5366,7 @@ export function OneLocationAgentPageContent({
         return;
       }
       toast.success("Location access enabled.");
+      void promptSaveLocationDuringOnboarding();
     } catch (error) {
       toast.error(locationServicesErrorMessage(error));
     } finally {
@@ -5247,8 +5377,10 @@ export function OneLocationAgentPageContent({
     openAppSettingsForOnboarding,
     openLocationSettingsForOnboarding,
     permission,
+    promptSaveLocationDuringOnboarding,
     refreshLocationPermission,
   ]);
+
 
   useEffect(() => {
     if (!notificationOnboardingAttemptRef.current) return;
@@ -5395,9 +5527,22 @@ export function OneLocationAgentPageContent({
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
         />
+        <SaveLocationModal
+          open={saveLocationModalOpen}
+          address={saveLocationAddress}
+          latitude={saveLocationPoint?.latitude ?? null}
+          longitude={saveLocationPoint?.longitude ?? null}
+          loadingAddress={saveLocationAddressLoading}
+          saving={saveLocationSaving}
+          onSave={(category, label) =>
+            void handleSaveOnboardingLocation(category, label)
+          }
+          onSkip={handleSkipSaveOnboardingLocation}
+        />
       </BodyPortal>
     );
   }
+
 
   // ---------------------------------------------------------------------------
   // Mobile-first redesign (Figma: one_location_final_fixed_clean_navigation).
