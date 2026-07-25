@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Briefcase, Home, MapPin, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
+import { OneLocationService } from "@/lib/one-location/service";
 import { cn } from "@/lib/utils";
 import {
   loadSavedLocations,
@@ -11,7 +12,9 @@ import {
   sortSavedLocationsForDisplay,
   type SavedLocation,
   type SavedLocationCategory,
+  updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
+import { useVault } from "@/lib/vault/vault-context";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
@@ -43,24 +46,96 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
  */
 export function SavedLocationsSection() {
   const { user } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
   const [locations, setLocations] = useState<SavedLocation[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
+  const addressAttemptsRef = useRef(new Set<string>());
 
   const reload = useCallback(async () => {
     if (!userId) {
       setLocations([]);
-      setLoaded(true);
+      setLoadedUserId(null);
       return;
     }
     const list = await loadSavedLocations(userId);
     setLocations(sortSavedLocationsForDisplay(list));
-    setLoaded(true);
+    setLoadedUserId(userId);
   }, [userId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    addressAttemptsRef.current.clear();
+  }, [userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (loadedUserId !== userId || !userId || !vaultOwnerToken) return;
+    const unresolved = locations.filter((location) => {
+      const attemptKey = `${userId}:${location.id}:${location.latitude}:${location.longitude}`;
+      return !location.address?.trim() && !addressAttemptsRef.current.has(attemptKey);
+    });
+    if (unresolved.length === 0) return;
+
+    for (const location of unresolved) {
+      addressAttemptsRef.current.add(
+        `${userId}:${location.id}:${location.latitude}:${location.longitude}`,
+      );
+    }
+
+    let cancelled = false;
+    void (async () => {
+      let repairedLocations = locations;
+      for (const location of unresolved) {
+        if (cancelled) return;
+        try {
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: location.latitude,
+            lng: location.longitude,
+          });
+          if (cancelled) return;
+          const address = (
+            place.formattedAddress ||
+            place.name ||
+            ""
+          ).trim();
+          if (!address) continue;
+
+          repairedLocations = await updateSavedLocationAddress(
+            userId,
+            location.id,
+            address,
+          );
+          const savedLocationStillExists = repairedLocations.some(
+            (savedLocation) => savedLocation.id === location.id,
+          );
+          if (!savedLocationStillExists || cancelled) continue;
+          void OneLocationService.saveSavedPlace({
+            vaultOwnerToken,
+            category: location.category,
+            label: location.label,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            address,
+          }).catch(() => {
+            // Device-local repair remains useful if backend persistence fails.
+          });
+        } catch {
+          // Best-effort repair. The UI keeps the coordinate private.
+        }
+      }
+      if (!cancelled) {
+        setLocations(sortSavedLocationsForDisplay(repairedLocations));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadedUserId, locations, userId, vaultOwnerToken]);
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -71,7 +146,7 @@ export function SavedLocationsSection() {
     [userId],
   );
 
-  if (!userId || !loaded) return null;
+  if (!userId || loadedUserId !== userId) return null;
 
   return (
     <section
@@ -114,8 +189,7 @@ export function SavedLocationsSection() {
                   {location.label}
                 </p>
                 <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
-                  {location.address ||
-                    `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`}
+                  {location.address || "Address unavailable"}
                 </p>
               </div>
               <button

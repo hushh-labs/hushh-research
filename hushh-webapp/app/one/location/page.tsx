@@ -5248,7 +5248,7 @@ export function OneLocationAgentPageContent({
           );
         })
         .catch(() => {
-          // Address stays null; the modal falls back to coordinates.
+          // Address stays null; exact coordinates are not used as address copy.
         })
         .finally(() => setSaveLocationAddressLoading(false));
     } else {
@@ -5547,8 +5547,6 @@ export function OneLocationAgentPageContent({
         <SaveLocationModal
           open={saveLocationModalOpen}
           address={saveLocationAddress}
-          latitude={saveLocationPoint?.latitude ?? null}
-          longitude={saveLocationPoint?.longitude ?? null}
           loadingAddress={saveLocationAddressLoading}
           saving={saveLocationSaving}
           onSave={(category, label) =>

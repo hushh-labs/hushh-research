@@ -8,10 +8,8 @@ import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 
 export type SaveLocationModalProps = {
   open: boolean;
-  /** Reverse-geocoded address for display; falls back to coordinates. */
+  /** Reverse-geocoded address for display. */
   address?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
   /** True while the location capture is still resolving. */
   loadingAddress?: boolean;
   /** True while a save is in flight. */
@@ -30,21 +28,6 @@ const CATEGORY_OPTIONS: {
   { category: "other", label: "Other", Icon: MapPin },
 ];
 
-function coordinateLabel(
-  latitude?: number | null,
-  longitude?: number | null,
-): string | null {
-  if (
-    typeof latitude !== "number" ||
-    typeof longitude !== "number" ||
-    Number.isNaN(latitude) ||
-    Number.isNaN(longitude)
-  ) {
-    return null;
-  }
-  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-}
-
 /**
  * SaveLocationModal — a focused, responsive prompt shown once during Location
  * onboarding, right after the user grants access, asking them to tag the place
@@ -54,8 +37,6 @@ function coordinateLabel(
 export function SaveLocationModal({
   open,
   address,
-  latitude,
-  longitude,
   loadingAddress = false,
   saving = false,
   onSave,
@@ -95,8 +76,7 @@ export function SaveLocationModal({
 
   if (!open) return null;
 
-  const resolvedAddress =
-    (address && address.trim()) || coordinateLabel(latitude, longitude);
+  const resolvedAddress = (address && address.trim()) || null;
   const canSave =
     category !== null && !saving && (category !== "other" || true);
 
@@ -171,14 +151,14 @@ export function SaveLocationModal({
             <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
               Current location
             </p>
-            {loadingAddress && !resolvedAddress ? (
+            {loadingAddress ? (
               <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding your
                 address…
               </span>
             ) : (
               <p className="mt-0.5 truncate text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
-                {resolvedAddress || "Location captured"}
+                {resolvedAddress || "Address unavailable"}
               </p>
             )}
           </div>

@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
+_PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
@@ -68,6 +69,60 @@ def _classify_traffic(eta_seconds: int, static_seconds: int) -> str | None:
 
 
 class GoogleMapsService:
+    async def _nearest_place_address(
+        self,
+        *,
+        key: str,
+        lat: float,
+        lng: float,
+    ) -> dict[str, Any]:
+        """Resolve a friendly nearby address through the enabled Places API."""
+        async with _async_client() as client:
+            try:
+                response = await client.post(
+                    _PLACES_NEARBY_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": ("places.displayName,places.formattedAddress"),
+                    },
+                    json={
+                        "maxResultCount": 1,
+                        "rankPreference": "DISTANCE",
+                        "locationRestriction": {
+                            "circle": {
+                                "center": {
+                                    "latitude": lat,
+                                    "longitude": lng,
+                                },
+                                "radius": 250.0,
+                            }
+                        },
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(
+                    f"Nearby place lookup failed: {exc}",
+                    status_code=502,
+                ) from exc
+        if response.status_code >= 400:
+            logger.warning(
+                "maps.reverse_geocode nearby upstream %s",
+                response.status_code,
+            )
+            raise GoogleMapsError("Nearby place lookup failed.", status_code=502)
+
+        places = response.json().get("places") or []
+        if not places:
+            return {"name": None, "formattedAddress": None}
+        place = places[0]
+        name = (place.get("displayName") or {}).get("text") or None
+        formatted = place.get("formattedAddress") or None
+        return {
+            "name": str(name) if name else None,
+            "formattedAddress": str(formatted) if formatted else None,
+        }
+
     async def autocomplete(
         self, input_text: str, *, session_token: str | None = None
     ) -> list[dict[str, Any]]:
@@ -143,9 +198,17 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.reverse_geocode upstream %s", response.status_code)
             raise GoogleMapsError("Reverse geocode failed.", status_code=502)
-        results = response.json().get("results") or []
+        data = response.json()
+        results = data.get("results") or []
         if not results:
-            return {"name": None, "formattedAddress": None}
+            provider_status = str(data.get("status") or "").strip().upper()
+            if provider_status not in {"", "OK", "ZERO_RESULTS", "REQUEST_DENIED"}:
+                logger.warning(
+                    "maps.reverse_geocode logical status %s",
+                    provider_status,
+                )
+                raise GoogleMapsError("Reverse geocode failed.", status_code=502)
+            return await self._nearest_place_address(key=key, lat=lat, lng=lng)
         formatted = results[0].get("formatted_address") or None
         name: str | None = None
         for result in results:

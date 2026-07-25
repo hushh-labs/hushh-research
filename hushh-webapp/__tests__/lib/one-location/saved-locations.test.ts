@@ -7,6 +7,7 @@ import {
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
+  updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
 
 const USER = "user-123";
@@ -123,6 +124,26 @@ describe("saved-locations store", () => {
     const next = await removeSavedLocation(USER, "home");
     expect(next.some((l) => l.id === "home")).toBe(false);
     expect(next.some((l) => l.id === "work")).toBe(true);
+  });
+
+  it("repairs a missing address without changing the saved place", async () => {
+    await addSavedLocation(USER, {
+      category: "home",
+      latitude: 12.9763,
+      longitude: 77.5929,
+    });
+    const before = (await loadSavedLocations(USER))[0];
+
+    const next = await updateSavedLocationAddress(
+      USER,
+      "home",
+      "Kasturba Road, Bengaluru, Karnataka 560001, India",
+    );
+
+    expect(next[0]).toEqual({
+      ...before,
+      address: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+    });
   });
 
   it("scopes storage per user", async () => {

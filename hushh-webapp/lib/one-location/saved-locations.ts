@@ -168,6 +168,25 @@ export async function removeSavedLocation(
   return next;
 }
 
+/** Fill or replace the friendly address without changing the saved place. */
+export async function updateSavedLocationAddress(
+  userId: string,
+  id: string,
+  address: string,
+): Promise<SavedLocation[]> {
+  const store = readStore();
+  const cleanAddress = String(address || "").trim();
+  if (!store || !userId || !id || !cleanAddress) {
+    return loadSavedLocations(userId);
+  }
+  const existing = await loadSavedLocations(userId);
+  const next = existing.map((location) =>
+    location.id === id ? { ...location, address: cleanAddress } : location,
+  );
+  persist(userId, next);
+  return next;
+}
+
 /** Order for display: Home first, then Work, then Others by most recent. */
 export function sortSavedLocationsForDisplay(
   locations: SavedLocation[],
