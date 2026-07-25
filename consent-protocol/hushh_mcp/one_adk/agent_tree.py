@@ -33,6 +33,7 @@ from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
+from google.genai import types as genai_types
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch
@@ -1083,6 +1084,12 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         description=_ONE_MANIFEST.description,
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(specialist_model=text_model),
+        # Surface Gemini reasoning summaries so Agent Chat can stream a visible
+        # "Thinking" trace. include_thoughts only surfaces the summaries; it
+        # sends no token-budget control (3.6-flash owns its own thinking policy).
+        generate_content_config=genai_types.GenerateContentConfig(
+            thinking_config=genai_types.ThinkingConfig(include_thoughts=True),
+        ),
     )
 
 
