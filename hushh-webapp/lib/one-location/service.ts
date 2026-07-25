@@ -196,8 +196,60 @@ export class OneLocationService {
     return response.smsContactUserIds ?? [];
   }
 
+  static async listSavedPlaces(
+    vaultOwnerToken: string,
+  ): Promise<import("@/lib/one-location/saved-locations").SavedLocation[]> {
+    const response = await apiJson<{
+      savedPlaces: import("@/lib/one-location/saved-locations").SavedLocation[];
+    }>("/api/one/location/saved-places", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.savedPlaces ?? [];
+  }
+
+  static async saveSavedPlace(params: {
+    vaultOwnerToken: string;
+    category: "home" | "work" | "other";
+    label?: string | null;
+    latitude: number;
+    longitude: number;
+    address?: string | null;
+  }): Promise<import("@/lib/one-location/saved-locations").SavedLocation[]> {
+    const response = await apiJson<{
+      savedPlaces: import("@/lib/one-location/saved-locations").SavedLocation[];
+    }>("/api/one/location/saved-places", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        category: params.category,
+        label: params.label ?? null,
+        latitude: params.latitude,
+        longitude: params.longitude,
+        address: params.address ?? null,
+      }),
+    });
+    return response.savedPlaces ?? [];
+  }
+
+  static async deleteSavedPlace(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+  }): Promise<import("@/lib/one-location/saved-locations").SavedLocation[]> {
+    const response = await apiJson<{
+      savedPlaces: import("@/lib/one-location/saved-locations").SavedLocation[];
+    }>(
+      `/api/one/location/saved-places/${encodeURIComponent(params.placeId)}`,
+      {
+        method: "DELETE",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.savedPlaces ?? [];
+  }
+
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
   static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });

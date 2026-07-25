@@ -94,9 +94,11 @@
     "113_kai_plaid_portfolio_tables.sql",
     "114_one_action_directive_ledger.sql",
     "115_one_location_map_presence.sql",
-    "116_one_location_sms_contacts.sql"
+    "116_one_location_sms_contacts.sql",
+    "117_one_location_saved_places.sql"
   ],
   "groups": {
+
     "iam": [
       "020_ria_iam_foundation.sql",
       "021_runtime_persona_state.sql",
@@ -148,9 +150,11 @@
       "112_dynamic_crm_registry_cache.sql",
       "114_one_action_directive_ledger.sql",
       "115_one_location_map_presence.sql",
-      "116_one_location_sms_contacts.sql"
+      "116_one_location_sms_contacts.sql",
+      "117_one_location_saved_places.sql"
     ],
     "pkm": [
+
       "030_pkm_cutover.sql",
       "031_domain_registry_rpc_compat.sql",
       "032_pkm_metadata_rpc_compat.sql",

@@ -5271,6 +5271,22 @@ export function OneLocationAgentPageContent({
           longitude: saveLocationPoint.longitude,
           address: saveLocationAddress,
         });
+        // Durably persist to the backend/database too. Best-effort: the local
+        // store above already succeeded, so a transient API failure never blocks
+        // onboarding or loses the user's choice on this device.
+        if (vaultOwnerToken) {
+          void OneLocationService.saveSavedPlace({
+            vaultOwnerToken,
+            category,
+            label,
+            latitude: saveLocationPoint.latitude,
+            longitude: saveLocationPoint.longitude,
+            address: saveLocationAddress,
+          }).catch(() => {
+            // Non-fatal: the device-local copy is the immediate source of truth.
+          });
+        }
+
         if (typeof window !== "undefined") {
           try {
             window.localStorage.setItem(
@@ -5290,8 +5306,9 @@ export function OneLocationAgentPageContent({
         setSaveLocationPoint(null);
       }
     },
-    [auth.userId, saveLocationAddress, saveLocationPoint],
+    [auth.userId, saveLocationAddress, saveLocationPoint, vaultOwnerToken],
   );
+
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
     if (typeof window !== "undefined" && auth.userId) {
