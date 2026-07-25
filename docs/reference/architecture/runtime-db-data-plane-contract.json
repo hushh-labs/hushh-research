@@ -378,6 +378,21 @@
       "expected_row_growth": "medium_per_user_share"
     },
     {
+      "id": "one_location_saved_places",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_saved_places"
+      ],
+      "primary_access_path": "Owner-only Home/Work/Other places captured with consent during Location onboarding and managed from Settings. Written and read exclusively by the owning account through the authenticated One Location API; never exposed to any other user and never used for sharing or access decisions.",
+      "retention_policy": "Rows persist until the owner removes the place or deletes their account; there is no automatic expiry.",
+      "deletion_behavior": "Delete rows where the deleting account is the owner (owner_user_id); cascades on account deletion via the actor_profiles foreign key.",
+      "trust_boundary": "Distinct from the zero-knowledge one_location_agent share pipeline: these are the owner's own low-precision personalisation coordinates and optional address, stored owner-scoped for their exclusive use. They confer no location sharing or access by themselves and are never disclosed to other users.",
+      "plaintext_posture": "owner_only_personalisation_metadata",
+      "expected_row_growth": "low_per_user"
+    },
+    {
       "id": "information_marketplace_requests",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
