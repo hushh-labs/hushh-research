@@ -13,6 +13,13 @@ from dotenv import load_dotenv
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOTENV_PATH = _REPO_ROOT / ".env"
 load_dotenv(_DOTENV_PATH, override=False)
+# Local-only maintainer overlay. Developers keep the reviewer fixture
+# (REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE, hydrated from Secret Manager by
+# bootstrap) and local toggles like APP_REVIEW_MODE in .env.local so agents can
+# review app changes on localhost. This file is absent in deployed environments,
+# so this is a no-op there; override=False keeps the canonical .env authoritative
+# for any shared key.
+load_dotenv(_REPO_ROOT / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"

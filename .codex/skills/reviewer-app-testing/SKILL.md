@@ -63,6 +63,15 @@ Non-owned surfaces:
 8. Close the context, then test cold-session authentication and re-unlock separately.
 9. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
 
+## Localhost Enablement
+
+Reviewer rehearsals run against `http://localhost:3000`, not only UAT, so agents can review app changes locally without a deploy:
+
+1. The local backend loads `consent-protocol/.env.local` as a maintainer overlay (`consent-protocol/hushh_mcp/runtime_settings.py`; a no-op in deployed environments, `override=False` keeps `.env` authoritative).
+2. Set `APP_REVIEW_MODE=true` in `consent-protocol/.env.local`, alongside the Secret-Manager-sourced `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` (bootstrap hydrates the fixture when `gcloud` is available). No `NEXT_PUBLIC_*` passphrase is ever used.
+3. Restart the local backend and confirm `GET /api/app-config/review-mode` returns `{"enabled": true}`; then drive `createReviewerSessionHarness({ appOrigin: "http://localhost:3000" })`.
+4. This stays local-only: `.env.local` never ships and the custom-token minter binds to the localhost backend. Keep the passphrase, tokens, and vault key memory-only per the BYOK contract; never print them.
+
 ## Handoff Rules
 
 1. Vault and encrypted-storage implementation work routes to `vault-pkm-governance`.
