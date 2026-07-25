@@ -1,190 +1,304 @@
-/**
- * Saved Locations — lightweight, per-user personal knowledge (PKM) store for the
- * places a user tells us matter to them (Home / Work / Other). Captured once,
- * with consent, during Location onboarding right after they grant access, and
- * surfaced later under Settings → Saved Locations.
- *
- * Storage is device-local (localStorage), keyed by userId, mirroring the
- * existing `drive-recents.ts` pattern. This keeps the flow offline-safe and adds
- * no backend, crypto, or consent surface. Coordinates + an optional
- * human-readable address are stored so Settings can show a friendly label.
- */
+"use client";
+
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+
+export const LOCATION_PKM_DOMAIN = "location";
+
+const SAVED_PLACES_KEY = "saved_places";
+const SAVED_PLACES_SCHEMA_VERSION = 1;
+const MAX_LABEL_LENGTH = 40;
+const MAX_ADDRESS_LENGTH = 300;
 
 export type SavedLocationCategory = "home" | "work" | "other";
 
 export type SavedLocation = {
-  /** Stable id (category for home/work; generated for "other"). */
   id: string;
   category: SavedLocationCategory;
-  /** Display label, e.g. "Home", "Work", or a user-typed name for "other". */
   label: string;
   latitude: number;
   longitude: number;
-  /** Optional reverse-geocoded address for display. */
   address?: string | null;
-  /** ISO timestamp of when it was saved. */
   savedAt: string;
 };
 
-const STORAGE_VERSION = "v1";
+export type SavedLocationVaultContext = {
+  userId: string;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+};
 
-function storageKey(userId: string): string {
-  return `hushh.one-location.saved-locations.${STORAGE_VERSION}.${userId}`;
-}
+type SavedPlacesEnvelope = {
+  schema_version: number;
+  locations: SavedLocation[];
+  updated_at: string;
+};
 
-function readStore(): Storage | null {
-  try {
-    if (typeof window === "undefined" || !window.localStorage) return null;
-    return window.localStorage;
-  } catch {
-    return null;
-  }
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function isValidLocation(value: unknown): value is SavedLocation {
   if (!value || typeof value !== "object") return false;
-  const loc = value as Record<string, unknown>;
+  const location = value as Record<string, unknown>;
   return (
-    typeof loc.id === "string" &&
-    (loc.category === "home" ||
-      loc.category === "work" ||
-      loc.category === "other") &&
-    typeof loc.label === "string" &&
-    typeof loc.latitude === "number" &&
-    Number.isFinite(loc.latitude) &&
-    typeof loc.longitude === "number" &&
-    Number.isFinite(loc.longitude) &&
-    typeof loc.savedAt === "string"
+    typeof location.id === "string" &&
+    location.id.length > 0 &&
+    (location.category === "home" ||
+      location.category === "work" ||
+      location.category === "other") &&
+    typeof location.label === "string" &&
+    location.label.length > 0 &&
+    typeof location.latitude === "number" &&
+    Number.isFinite(location.latitude) &&
+    location.latitude >= -90 &&
+    location.latitude <= 90 &&
+    typeof location.longitude === "number" &&
+    Number.isFinite(location.longitude) &&
+    location.longitude >= -180 &&
+    location.longitude <= 180 &&
+    (location.address === undefined ||
+      location.address === null ||
+      typeof location.address === "string") &&
+    typeof location.savedAt === "string" &&
+    Number.isFinite(Date.parse(location.savedAt))
   );
 }
 
+function locationsFromDomain(
+  domainData: Record<string, unknown> | null | undefined,
+): SavedLocation[] {
+  const savedPlaces = asRecord(domainData?.[SAVED_PLACES_KEY]);
+  const locations = savedPlaces.locations;
+  if (!Array.isArray(locations)) return [];
+  return locations.filter(isValidLocation);
+}
+
+function requireUnlockedVault(
+  context: SavedLocationVaultContext,
+): asserts context is SavedLocationVaultContext & {
+  vaultKey: string;
+  vaultOwnerToken: string;
+} {
+  if (!context.userId || !context.vaultKey || !context.vaultOwnerToken) {
+    throw new Error("Unlock your vault before managing saved locations.");
+  }
+}
+
+function cleanText(
+  value: string | null | undefined,
+  maxLength: number,
+): string | null {
+  const cleaned = String(value || "").trim().slice(0, maxLength);
+  return cleaned || null;
+}
+
+function generateId(category: SavedLocationCategory): string {
+  if (category === "home" || category === "work") return category;
+  const randomId = globalThis.crypto?.randomUUID?.();
+  if (randomId) return `other-${randomId}`;
+  return `other-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function savedPlacesEnvelope(
+  locations: SavedLocation[],
+  updatedAt: string,
+): SavedPlacesEnvelope {
+  return {
+    schema_version: SAVED_PLACES_SCHEMA_VERSION,
+    locations,
+    updated_at: updatedAt,
+  };
+}
+
+async function mutateSavedLocations(params: {
+  context: SavedLocationVaultContext;
+  source: string;
+  mutate: (locations: SavedLocation[]) => SavedLocation[];
+}): Promise<SavedLocation[]> {
+  requireUnlockedVault(params.context);
+  let persistedLocations: SavedLocation[] = [];
+
+  const result = await PkmWriteCoordinator.saveMergedDomain({
+    userId: params.context.userId,
+    domain: LOCATION_PKM_DOMAIN,
+    vaultKey: params.context.vaultKey,
+    vaultOwnerToken: params.context.vaultOwnerToken,
+    confirmation: {
+      confirmedByUser: true,
+      surface: "web",
+      source: params.source,
+    },
+    build: (writeContext) => {
+      const updatedAt = new Date().toISOString();
+      persistedLocations = params.mutate(
+        locationsFromDomain(writeContext.currentDomainData),
+      );
+      const domainData = {
+        ...writeContext.currentDomainData,
+        [SAVED_PLACES_KEY]: savedPlacesEnvelope(
+          persistedLocations,
+          updatedAt,
+        ),
+      };
+      const { manifest } = buildPersonalKnowledgeModelStructureArtifacts({
+        domain: LOCATION_PKM_DOMAIN,
+        domainData,
+        previousManifest: writeContext.currentManifest,
+      });
+      return {
+        domainData,
+        manifest,
+        scopePath: SAVED_PLACES_KEY,
+        // Exact places remain inside encrypted PKM. The readable projection
+        // contains only non-sensitive inventory metadata.
+        summary: {
+          saved_places_configured: persistedLocations.length > 0,
+          saved_places_count: persistedLocations.length,
+        },
+      };
+    },
+  });
+
+  if (!result.success) {
+    throw new Error(result.message || "Could not save locations to your vault.");
+  }
+  return persistedLocations;
+}
+
 /** Default display label for a category. */
-export function defaultLabelForCategory(category: SavedLocationCategory): string {
+export function defaultLabelForCategory(
+  category: SavedLocationCategory,
+): string {
   if (category === "home") return "Home";
   if (category === "work") return "Work";
   return "Other";
 }
 
-/** Load all saved locations for a user (newest-relevant order: home, work, others). */
+/** Read saved places from the encrypted Location PKM domain. */
 export async function loadSavedLocations(
-  userId: string,
+  context: SavedLocationVaultContext,
 ): Promise<SavedLocation[]> {
-  const store = readStore();
-  if (!store || !userId) return [];
-  try {
-    const raw = store.getItem(storageKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isValidLocation);
-  } catch {
-    return [];
+  requireUnlockedVault(context);
+  const resourceParams = {
+    userId: context.userId,
+    domain: LOCATION_PKM_DOMAIN,
+    vaultKey: context.vaultKey,
+    vaultOwnerToken: context.vaultOwnerToken,
+  };
+  const snapshot = await PkmDomainResourceService.getStaleFirst({
+    ...resourceParams,
+    backgroundRefresh: false,
+  });
+  if (!snapshot || snapshot.audit.source === "network") {
+    return locationsFromDomain(snapshot?.data);
   }
-}
 
-function persist(userId: string, locations: SavedLocation[]): void {
-  const store = readStore();
-  if (!store || !userId) return;
-  try {
-    store.setItem(storageKey(userId), JSON.stringify(locations));
-  } catch {
-    // best-effort; saved locations are non-critical convenience data
-  }
-}
-
-function generateId(category: SavedLocationCategory): string {
-  if (category === "home" || category === "work") return category;
-  const random = Math.random().toString(36).slice(2, 8);
-  return `other-${Date.now().toString(36)}-${random}`;
+  // Prefer fresh cross-device truth, but retain the encrypted device snapshot
+  // when the user is offline.
+  const refreshed = await PkmDomainResourceService.refresh(
+    resourceParams,
+  ).catch(() => null);
+  return locationsFromDomain(refreshed?.data ?? snapshot.data);
 }
 
 /**
- * Add (or replace) a saved location. Home and Work are singletons — saving a new
- * one replaces the existing entry of that category. "Other" entries are additive
- * but de-duplicated by a near-identical coordinate + label match.
+ * Add or replace a saved place in encrypted PKM. Home and Work are singletons;
+ * Other places are additive and de-duplicated by label plus nearby coordinates.
  */
-export async function addSavedLocation(
-  userId: string,
+export async function addSavedLocation(params: {
+  context: SavedLocationVaultContext;
   input: {
     category: SavedLocationCategory;
     label?: string | null;
     latitude: number;
     longitude: number;
     address?: string | null;
-  },
-): Promise<SavedLocation[]> {
-  const store = readStore();
-  if (!store || !userId) return [];
-  if (!Number.isFinite(input.latitude) || !Number.isFinite(input.longitude)) {
-    return loadSavedLocations(userId);
+  };
+}): Promise<SavedLocation[]> {
+  const { input } = params;
+  if (
+    !Number.isFinite(input.latitude) ||
+    input.latitude < -90 ||
+    input.latitude > 90 ||
+    !Number.isFinite(input.longitude) ||
+    input.longitude < -180 ||
+    input.longitude > 180
+  ) {
+    throw new Error("The captured location is invalid. Try again.");
   }
 
-  const existing = await loadSavedLocations(userId);
   const label =
-    String(input.label || "").trim() || defaultLabelForCategory(input.category);
-
+    cleanText(input.label, MAX_LABEL_LENGTH) ||
+    defaultLabelForCategory(input.category);
   const entry: SavedLocation = {
     id: generateId(input.category),
     category: input.category,
     label,
     latitude: input.latitude,
     longitude: input.longitude,
-    address: input.address ? String(input.address).trim() : null,
+    address: cleanText(input.address, MAX_ADDRESS_LENGTH),
     savedAt: new Date().toISOString(),
   };
 
-  let next: SavedLocation[];
-  if (input.category === "home" || input.category === "work") {
-    // Singleton categories: drop any prior entry of the same category.
-    next = [entry, ...existing.filter((l) => l.category !== input.category)];
-  } else {
-    // "Other": de-dupe by coordinate proximity + same label.
-    const deduped = existing.filter(
-      (l) =>
-        !(
-          l.category === "other" &&
-          l.label.trim().toLowerCase() === label.toLowerCase() &&
-          Math.abs(l.latitude - entry.latitude) < 1e-4 &&
-          Math.abs(l.longitude - entry.longitude) < 1e-4
-        ),
-    );
-    next = [...deduped, entry];
-  }
-
-  persist(userId, next);
-  return next;
+  return mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_confirm",
+    mutate: (existing) => {
+      if (input.category === "home" || input.category === "work") {
+        return [
+          entry,
+          ...existing.filter(
+            (location) => location.category !== input.category,
+          ),
+        ];
+      }
+      const withoutDuplicate = existing.filter(
+        (location) =>
+          !(
+            location.category === "other" &&
+            location.label.trim().toLowerCase() === label.toLowerCase() &&
+            Math.abs(location.latitude - entry.latitude) < 1e-4 &&
+            Math.abs(location.longitude - entry.longitude) < 1e-4
+          ),
+      );
+      return [...withoutDuplicate, entry];
+    },
+  });
 }
 
-/** Remove a saved location by id. Returns the updated list. */
-export async function removeSavedLocation(
-  userId: string,
-  id: string,
-): Promise<SavedLocation[]> {
-  const store = readStore();
-  if (!store || !userId) return [];
-  const existing = await loadSavedLocations(userId);
-  const next = existing.filter((l) => l.id !== id);
-  persist(userId, next);
-  return next;
+/** Remove a saved place from encrypted PKM. */
+export async function removeSavedLocation(params: {
+  context: SavedLocationVaultContext;
+  id: string;
+}): Promise<SavedLocation[]> {
+  return mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_remove_confirm",
+    mutate: (existing) =>
+      existing.filter((location) => location.id !== params.id),
+  });
 }
 
-/** Fill or replace the friendly address without changing the saved place. */
-export async function updateSavedLocationAddress(
-  userId: string,
-  id: string,
-  address: string,
-): Promise<SavedLocation[]> {
-  const store = readStore();
-  const cleanAddress = String(address || "").trim();
-  if (!store || !userId || !id || !cleanAddress) {
-    return loadSavedLocations(userId);
-  }
-  const existing = await loadSavedLocations(userId);
-  const next = existing.map((location) =>
-    location.id === id ? { ...location, address: cleanAddress } : location,
-  );
-  persist(userId, next);
-  return next;
+/** Fill or replace a friendly address without changing the saved point. */
+export async function updateSavedLocationAddress(params: {
+  context: SavedLocationVaultContext;
+  id: string;
+  address: string;
+}): Promise<SavedLocation[]> {
+  const address = cleanText(params.address, MAX_ADDRESS_LENGTH);
+  if (!params.id || !address) return loadSavedLocations(params.context);
+  return mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_address_repair",
+    mutate: (existing) =>
+      existing.map((location) =>
+        location.id === params.id ? { ...location, address } : location,
+      ),
+  });
 }
 
 /** Order for display: Home first, then Work, then Others by most recent. */

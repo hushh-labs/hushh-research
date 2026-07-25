@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Briefcase, Check, Home, Loader2, MapPin, X } from "lucide-react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 
@@ -31,8 +36,8 @@ const CATEGORY_OPTIONS: {
 /**
  * SaveLocationModal — a focused, responsive prompt shown once during Location
  * onboarding, right after the user grants access, asking them to tag the place
- * they're at (Home / Work / Other). Rendered INSIDE the onboarding takeover so
- * it stacks above it without portal/z-index fights.
+ * they're at (Home / Work / Other). The shared dialog primitive owns focus
+ * trapping, focus restoration, Escape handling, and screen-reader semantics.
  */
 export function SaveLocationModal({
   open,
@@ -44,9 +49,7 @@ export function SaveLocationModal({
 }: SaveLocationModalProps) {
   const [category, setCategory] = useState<SavedLocationCategory | null>(null);
   const [customLabel, setCustomLabel] = useState("");
-  const titleId = useId();
-  const descId = useId();
-  const cardRef = useRef<HTMLDivElement | null>(null);
+  const descriptionId = useId();
 
   // Reset internal selection each time the modal (re)opens.
   useEffect(() => {
@@ -56,29 +59,8 @@ export function SaveLocationModal({
     }
   }, [open]);
 
-  // Close on Escape (counts as Skip). Only while open.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onSkip();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onSkip]);
-
-  // Move focus into the modal when it opens.
-  useEffect(() => {
-    if (open) cardRef.current?.focus();
-  }, [open]);
-
-  if (!open) return null;
-
   const resolvedAddress = (address && address.trim()) || null;
-  const canSave =
-    category !== null && !saving && (category !== "other" || true);
+  const canSave = category !== null && !saving && !loadingAddress;
 
   const handleSave = () => {
     if (!category || saving) return;
@@ -88,38 +70,38 @@ export function SaveLocationModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[560] flex items-end justify-center sm:items-center"
-      data-testid="save-location-modal"
+    <Dialog
+      open={open}
+      modal
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !saving) onSkip();
+      }}
     >
-      <button
-        type="button"
-        aria-label="Skip saving this location"
-        onClick={onSkip}
-        className="absolute inset-0 h-full w-full cursor-default bg-black/45 backdrop-blur-[6px]"
-        tabIndex={-1}
-      />
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descId}
-        tabIndex={-1}
+      <DialogContent
+        showCloseButton={false}
+        data-testid="save-location-modal"
+        aria-describedby={descriptionId}
+        overlayClassName="z-[559] bg-black/45 backdrop-blur-[6px]"
+        onEscapeKeyDown={(event) => {
+          if (saving) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (saving) event.preventDefault();
+        }}
         className={cn(
-          "relative z-10 flex w-full max-w-[420px] flex-col gap-5 outline-none",
-          "rounded-t-[28px] sm:rounded-[24px]",
+          "z-[560] bottom-0 top-auto w-full max-w-[420px] translate-y-0 gap-5",
+          "rounded-b-none rounded-t-[28px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[24px]",
           "border border-black/[0.06] bg-white p-6 pb-[calc(env(safe-area-inset-bottom,0px)+22px)] sm:pb-6",
           "shadow-[0_-8px_40px_rgba(16,24,40,0.18)] sm:shadow-[0_20px_60px_rgba(16,24,40,0.24)]",
           "dark:border-white/[0.08] dark:bg-[#141922]",
-          "[animation:saveLocSheetIn_.28s_cubic-bezier(0.22,1,0.36,1)_both]",
         )}
       >
         <button
           type="button"
           onClick={onSkip}
+          disabled={saving}
           aria-label="Close"
-          className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+          className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
         >
           <X className="h-4.5 w-4.5" strokeWidth={2.4} />
         </button>
@@ -128,18 +110,18 @@ export function SaveLocationModal({
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent,#087ff5)]">
             <MapPin className="h-6 w-6" strokeWidth={2.2} />
           </span>
-          <h2
-            id={titleId}
+          <DialogTitle
             className="mt-3.5 text-[22px] font-bold leading-[1.15] tracking-[-0.01em] text-[#0b1220] dark:text-[#f4f7fb]"
           >
             Save this place
-          </h2>
+          </DialogTitle>
           <p
-            id={descId}
+            id={descriptionId}
             className="mt-1.5 text-[14px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]"
           >
-            Tag where you are so One can personalise your experience. Only you
-            can see this.
+            Tag where you are so One can personalise your experience. It stays
+            encrypted in your vault and is shared only when you approve
+            location access.
           </p>
         </header>
 
@@ -177,8 +159,9 @@ export function SaveLocationModal({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setCategory(value)}
+                  disabled={saving}
                   className={cn(
-                    "press-scale flex flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-4 transition-colors",
+                    "press-scale flex flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-4 transition-colors disabled:opacity-45",
                     selected
                       ? "border-[color:var(--app-accent,#087ff5)] bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent-deep,#0b62c4)] dark:bg-[color:var(--app-accent,#087ff5)]/15"
                       : "border-black/[0.08] bg-white text-[#4b5563] hover:border-black/20 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-[#aeb8c7]",
@@ -195,16 +178,17 @@ export function SaveLocationModal({
         {category === "other" ? (
           <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
             <label
-              htmlFor={`${titleId}-label`}
+              htmlFor="saved-location-custom-label"
               className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
             >
               Give it a name
             </label>
             <input
-              id={`${titleId}-label`}
+              id="saved-location-custom-label"
               type="text"
               value={customLabel}
               onChange={(event) => setCustomLabel(event.target.value)}
+              disabled={saving}
               maxLength={40}
               placeholder="e.g. Gym, Mom's house, Cafe"
               className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
@@ -239,21 +223,7 @@ export function SaveLocationModal({
             Skip for now
           </button>
         </div>
-      </div>
-
-      <style>{`
-        @keyframes saveLocSheetIn {
-          from { opacity: 0; transform: translateY(18px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes saveLocFadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-testid="save-location-modal"] [role="dialog"] { animation: none !important; }
-        }
-      `}</style>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

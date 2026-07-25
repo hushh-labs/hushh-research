@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Briefcase, Home, MapPin, Trash2 } from "lucide-react";
-
-import { useAuth } from "@/lib/firebase/auth-context";
-import { OneLocationService } from "@/lib/one-location/service";
-import { cn } from "@/lib/utils";
 import {
+  Briefcase,
+  Home,
+  Loader2,
+  MapPin,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import { useAuth } from "@/lib/firebase/auth-context";
+import {
+  addSavedLocation,
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
@@ -14,6 +24,9 @@ import {
   type SavedLocationCategory,
   updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
+import { OneLocationService } from "@/lib/one-location/service";
+import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
@@ -38,172 +51,441 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   );
 }
 
-/**
- * SavedLocationsSection — Settings surface listing the places the user tagged
- * during Location onboarding (Home / Work / Other). Reads from the device-local
- * saved-locations store and lets the user remove any entry. Fully self-contained
- * and responsive; renders nothing until the user is known.
- */
 export function SavedLocationsSection() {
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
-  const addressAttemptsRef = useRef(new Set<string>());
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [repairingId, setRepairingId] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
+  const [saveLocationPoint, setSaveLocationPoint] =
+    useState<PlainLocationPoint | null>(null);
+  const [saveLocationAddress, setSaveLocationAddress] = useState<string | null>(
+    null,
+  );
+  const [saveLocationAddressLoading, setSaveLocationAddressLoading] =
+    useState(false);
+  const [saveLocationSaving, setSaveLocationSaving] = useState(false);
+  const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
+  vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+
+  const hasVaultAccess = Boolean(
+    isVaultUnlocked && vaultKey && vaultOwnerToken,
+  );
+  const isCurrentVaultSession = useCallback(
+    (session: {
+      userId: string | null;
+      vaultKey: string | null;
+      vaultOwnerToken: string | null;
+    }) => {
+      const current = vaultSessionRef.current;
+      return (
+        current.userId === session.userId &&
+        current.vaultKey === session.vaultKey &&
+        current.vaultOwnerToken === session.vaultOwnerToken
+      );
+    },
+    [],
+  );
 
   const reload = useCallback(async () => {
     if (!userId) {
       setLocations([]);
       setLoadedUserId(null);
+      setLoadError(null);
       return;
     }
-    const list = await loadSavedLocations(userId);
-    setLocations(sortSavedLocationsForDisplay(list));
-    setLoadedUserId(userId);
-  }, [userId]);
+    if (!vaultKey || !vaultOwnerToken) {
+      setLocations([]);
+      setLoadedUserId(userId);
+      setLoadError(null);
+      return;
+    }
+
+    setLoading(true);
+    setLoadError(null);
+    const session = { userId, vaultKey, vaultOwnerToken };
+    try {
+      const list = await loadSavedLocations({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      if (!isCurrentVaultSession(session)) return;
+      setLocations(sortSavedLocationsForDisplay(list));
+    } catch {
+      if (!isCurrentVaultSession(session)) return;
+      setLocations([]);
+      setLoadError("Saved locations could not be loaded. Try again.");
+    } finally {
+      if (isCurrentVaultSession(session)) {
+        setLoadedUserId(userId);
+        setLoading(false);
+      }
+    }
+  }, [isCurrentVaultSession, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   useEffect(() => {
-    addressAttemptsRef.current.clear();
-  }, [userId, vaultOwnerToken]);
+    if (hasVaultAccess) return;
+    setLocations([]);
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(false);
+    setSaveLocationSaving(false);
+    setCapturing(false);
+    setRemovingId(null);
+    setRepairingId(null);
+    setLoading(false);
+  }, [hasVaultAccess]);
 
-  useEffect(() => {
-    if (loadedUserId !== userId || !userId || !vaultOwnerToken) return;
-    const unresolved = locations.filter((location) => {
-      const attemptKey = `${userId}:${location.id}:${location.latitude}:${location.longitude}`;
-      return !location.address?.trim() && !addressAttemptsRef.current.has(attemptKey);
-    });
-    if (unresolved.length === 0) return;
-
-    for (const location of unresolved) {
-      addressAttemptsRef.current.add(
-        `${userId}:${location.id}:${location.latitude}:${location.longitude}`,
-      );
+  const handleAdd = useCallback(async () => {
+    if (!userId || !vaultKey || !vaultOwnerToken || capturing) {
+      if (!hasVaultAccess) {
+        toast.error("Unlock your vault before adding a saved location.");
+      }
+      return;
     }
 
-    let cancelled = false;
-    void (async () => {
-      let repairedLocations = locations;
-      for (const location of unresolved) {
-        if (cancelled) return;
-        try {
-          const place = await OneLocationService.reverseGeocode({
-            vaultOwnerToken,
-            lat: location.latitude,
-            lng: location.longitude,
-          });
-          if (cancelled) return;
-          const address = (
-            place.formattedAddress ||
-            place.name ||
-            ""
-          ).trim();
-          if (!address) continue;
+    setCapturing(true);
+    const session = { userId, vaultKey, vaultOwnerToken };
+    try {
+      const point = await OneLocationService.captureCurrentPosition();
+      if (!isCurrentVaultSession(session)) return;
+      setSaveLocationPoint(point);
+      setSaveLocationAddress(null);
+      setSaveLocationAddressLoading(true);
+      setSaveLocationModalOpen(true);
 
-          repairedLocations = await updateSavedLocationAddress(
-            userId,
-            location.id,
-            address,
-          );
-          const savedLocationStillExists = repairedLocations.some(
-            (savedLocation) => savedLocation.id === location.id,
-          );
-          if (!savedLocationStillExists || cancelled) continue;
-          void OneLocationService.saveSavedPlace({
-            vaultOwnerToken,
-            category: location.category,
-            label: location.label,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            address,
-          }).catch(() => {
-            // Device-local repair remains useful if backend persistence fails.
-          });
-        } catch {
-          // Best-effort repair. The UI keeps the coordinate private.
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat: point.latitude,
+          lng: point.longitude,
+        });
+        if (!isCurrentVaultSession(session)) return;
+        setSaveLocationAddress(
+          (place.formattedAddress || place.name || "").trim() || null,
+        );
+      } catch {
+        if (!isCurrentVaultSession(session)) return;
+        setSaveLocationAddress(null);
+      } finally {
+        if (isCurrentVaultSession(session)) {
+          setSaveLocationAddressLoading(false);
         }
       }
-      if (!cancelled) {
-        setLocations(sortSavedLocationsForDisplay(repairedLocations));
+    } catch {
+      if (!isCurrentVaultSession(session)) return;
+      toast.error(
+        "We could not read your current location. Check location permission and try again.",
+      );
+    } finally {
+      if (isCurrentVaultSession(session)) {
+        setCapturing(false);
       }
-    })();
+    }
+  }, [
+    capturing,
+    hasVaultAccess,
+    isCurrentVaultSession,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [loadedUserId, locations, userId, vaultOwnerToken]);
+  const handleSave = useCallback(
+    async (category: SavedLocationCategory, label: string) => {
+      if (
+        !userId ||
+        !vaultKey ||
+        !vaultOwnerToken ||
+        !saveLocationPoint
+      ) {
+        toast.error("Unlock your vault and capture the location again.");
+        return;
+      }
+
+      setSaveLocationSaving(true);
+      const session = { userId, vaultKey, vaultOwnerToken };
+      try {
+        const next = await addSavedLocation({
+          context: { userId, vaultKey, vaultOwnerToken },
+          input: {
+            category,
+            label,
+            latitude: saveLocationPoint.latitude,
+            longitude: saveLocationPoint.longitude,
+            address: saveLocationAddress,
+          },
+        });
+        if (!isCurrentVaultSession(session)) return;
+        setLocations(sortSavedLocationsForDisplay(next));
+        setSaveLocationModalOpen(false);
+        setSaveLocationPoint(null);
+        toast.success("Location saved securely.");
+      } catch {
+        if (!isCurrentVaultSession(session)) return;
+        toast.error("Could not save this location. Please try again.");
+      } finally {
+        if (isCurrentVaultSession(session)) {
+          setSaveLocationSaving(false);
+        }
+      }
+    },
+    [
+      saveLocationAddress,
+      saveLocationPoint,
+      isCurrentVaultSession,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
 
   const handleRemove = useCallback(
     async (id: string) => {
-      if (!userId) return;
-      const next = await removeSavedLocation(userId, id);
-      setLocations(sortSavedLocationsForDisplay(next));
+      if (!userId || !vaultKey || !vaultOwnerToken || removingId) return;
+      setRemovingId(id);
+      const session = { userId, vaultKey, vaultOwnerToken };
+      try {
+        const next = await removeSavedLocation({
+          context: { userId, vaultKey, vaultOwnerToken },
+          id,
+        });
+        if (!isCurrentVaultSession(session)) return;
+        setLocations(sortSavedLocationsForDisplay(next));
+        toast.success("Saved location removed.");
+      } catch {
+        if (!isCurrentVaultSession(session)) return;
+        toast.error("Could not remove this location. Please try again.");
+      } finally {
+        if (isCurrentVaultSession(session)) {
+          setRemovingId(null);
+        }
+      }
     },
-    [userId],
+    [
+      isCurrentVaultSession,
+      removingId,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
+
+  const handleRepairAddress = useCallback(
+    async (location: SavedLocation) => {
+      if (!userId || !vaultKey || !vaultOwnerToken || repairingId) return;
+      setRepairingId(location.id);
+      const session = { userId, vaultKey, vaultOwnerToken };
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat: location.latitude,
+          lng: location.longitude,
+        });
+        if (!isCurrentVaultSession(session)) return;
+        const address = (
+          place.formattedAddress ||
+          place.name ||
+          ""
+        ).trim();
+        if (!address) {
+          toast.error("No street address was found for this location.");
+          return;
+        }
+        const next = await updateSavedLocationAddress({
+          context: { userId, vaultKey, vaultOwnerToken },
+          id: location.id,
+          address,
+        });
+        if (!isCurrentVaultSession(session)) return;
+        setLocations(sortSavedLocationsForDisplay(next));
+        toast.success("Address updated.");
+      } catch {
+        if (!isCurrentVaultSession(session)) return;
+        toast.error("Could not find the address. Please try again.");
+      } finally {
+        if (isCurrentVaultSession(session)) {
+          setRepairingId(null);
+        }
+      }
+    },
+    [
+      isCurrentVaultSession,
+      repairingId,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
 
   if (!userId || loadedUserId !== userId) return null;
 
   return (
-    <section
-      aria-label="Saved Locations"
-      className="w-full min-w-0"
-      data-testid="settings-saved-locations"
-    >
-      <p className="mb-2.5 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Saved Locations
-      </p>
-      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
-        {locations.length === 0 ? (
-          <div className="flex items-center gap-3.5 p-4">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef1f5] text-[#8b93a1] dark:bg-white/10">
-              <MapPin className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
-                No saved places yet
-              </p>
-              <p className="mt-0.5 text-[13px] leading-[1.4] text-black/50 dark:text-muted-foreground">
-                Tag your Home, Work, or other spots during Location setup and
-                they will appear here.
-              </p>
-            </div>
-          </div>
-        ) : (
-          locations.map((location, index) => (
-            <div
-              key={location.id}
-              className={cn(
-                "flex items-center gap-3.5 p-4",
-                index > 0 &&
-                  "border-t border-black/[0.06] dark:border-white/10",
-              )}
-            >
-              <CategoryIcon category={location.category} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
-                  {location.label}
+    <>
+      <section
+        aria-label="Saved Locations"
+        className="w-full min-w-0"
+        data-testid="settings-saved-locations"
+      >
+        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+          <p className="text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+            Saved Locations
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleAdd()}
+            disabled={!hasVaultAccess || capturing}
+            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint,#e7f0fd)] px-3 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {capturing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Add place
+          </button>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+          {!hasVaultAccess ? (
+            <div className="flex items-center gap-3.5 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef1f5] text-[#8b93a1] dark:bg-white/10">
+                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                  Unlock your vault to view saved places
                 </p>
-                <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
-                  {location.address || "Address unavailable"}
+                <p className="mt-0.5 text-[13px] leading-[1.4] text-black/50 dark:text-muted-foreground">
+                  Exact locations stay encrypted and are available only while
+                  your vault is unlocked.
                 </p>
               </div>
+            </div>
+          ) : loading ? (
+            <div
+              className="flex items-center gap-3 p-4 text-[13px] text-black/50 dark:text-muted-foreground"
+              role="status"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Loading saved places…
+            </div>
+          ) : loadError ? (
+            <div className="flex items-center justify-between gap-3 p-4">
+              <p className="text-[13px] text-[#b42318] dark:text-red-300">
+                {loadError}
+              </p>
               <button
                 type="button"
-                aria-label={`Remove ${location.label}`}
-                onClick={() => void handleRemove(location.id)}
-                className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] dark:text-muted-foreground"
+                onClick={() => void reload()}
+                className="rounded-full px-3 py-1.5 text-[12px] font-bold text-[color:var(--app-accent,#087ff5)]"
               >
-                <Trash2 className="h-[18px] w-[18px]" strokeWidth={2} />
+                Retry
               </button>
             </div>
-          ))
-        )}
-      </div>
-    </section>
+          ) : locations.length === 0 ? (
+            <div className="flex items-center gap-3.5 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef1f5] text-[#8b93a1] dark:bg-white/10">
+                <MapPin className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                  No saved places yet
+                </p>
+                <p className="mt-0.5 text-[13px] leading-[1.4] text-black/50 dark:text-muted-foreground">
+                  Add Home, Work, or another place to see it here.
+                </p>
+              </div>
+            </div>
+          ) : (
+            locations.map((location, index) => (
+              <div
+                key={location.id}
+                className={cn(
+                  "flex items-center gap-3.5 p-4",
+                  index > 0 &&
+                    "border-t border-black/[0.06] dark:border-white/10",
+                )}
+              >
+                <CategoryIcon category={location.category} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                    {location.label}
+                  </p>
+                  <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+                    {location.address || "Address unavailable"}
+                  </p>
+                </div>
+                {!location.address ? (
+                  <button
+                    type="button"
+                    aria-label={`Find address for ${location.label}`}
+                    title="Find address"
+                    onClick={() => void handleRepairAddress(location)}
+                    disabled={repairingId !== null}
+                    className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-black/[0.05] hover:text-[#087ff5] disabled:opacity-45 dark:text-muted-foreground"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-[17px] w-[17px]",
+                        repairingId === location.id && "animate-spin",
+                      )}
+                      strokeWidth={2}
+                    />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={`Remove ${location.label}`}
+                  onClick={() => void handleRemove(location.id)}
+                  disabled={removingId !== null}
+                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] disabled:opacity-45 dark:text-muted-foreground"
+                >
+                  {removingId === location.id ? (
+                    <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                  ) : (
+                    <Trash2
+                      className="h-[18px] w-[18px]"
+                      strokeWidth={2}
+                    />
+                  )}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {hasVaultAccess ? (
+          <p className="mt-2 px-1 text-[11px] leading-[1.45] text-black/40 dark:text-muted-foreground">
+            Saved places are encrypted in your vault and shared only when you
+            explicitly approve location access.
+          </p>
+        ) : null}
+      </section>
+
+      <SaveLocationModal
+        open={saveLocationModalOpen}
+        address={saveLocationAddress}
+        loadingAddress={saveLocationAddressLoading}
+        saving={saveLocationSaving}
+        onSave={(category, label) => void handleSave(category, label)}
+        onSkip={() => {
+          if (saveLocationSaving) return;
+          setSaveLocationModalOpen(false);
+          setSaveLocationPoint(null);
+        }}
+      />
+    </>
   );
 }

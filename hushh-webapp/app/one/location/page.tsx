@@ -62,7 +62,6 @@ import {
 } from "@/lib/one-location/saved-locations";
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
 
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1685,7 +1684,7 @@ export function OneLocationAgentPageContent({
     useState<OneLocationOnboardingStep>("welcome");
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   // Save-location prompt shown once during onboarding right after the user
-  // grants access, so we can capture their Home/Work/Other place (PKM).
+  // grants access, so they can save Home/Work/Other to encrypted Location PKM.
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
   const [saveLocationPoint, setSaveLocationPoint] =
     useState<PlainLocationPoint | null>(null);
@@ -5202,7 +5201,7 @@ export function OneLocationAgentPageContent({
   // After the user grants location during onboarding, capture their current
   // position ONCE and open the Save-location prompt so they can tag it as
   // Home / Work / Other (PKM). Guarded so it fires at most once per session and
-  // never re-prompts a user who already saved during a prior onboarding run.
+  // never re-prompts a user who already answered during a prior onboarding run.
   const promptSaveLocationDuringOnboarding = useCallback(async () => {
     if (savedLocationPromptedRef.current || !auth.userId) return;
     if (typeof window !== "undefined") {
@@ -5235,7 +5234,7 @@ export function OneLocationAgentPageContent({
     setSaveLocationAddressLoading(true);
     setSaveLocationModalOpen(true);
 
-    // Best-effort reverse-geocode for a friendly address. Never blocks the modal.
+    // Resolve a friendly address while the modal displays lookup progress.
     if (vaultOwnerToken) {
       void OneLocationService.reverseGeocode({
         vaultOwnerToken,
@@ -5258,35 +5257,31 @@ export function OneLocationAgentPageContent({
 
   const handleSaveOnboardingLocation = useCallback(
     async (category: SavedLocationCategory, label: string) => {
-      if (!auth.userId || !saveLocationPoint) {
-        setSaveLocationModalOpen(false);
+      if (
+        !auth.userId ||
+        !vaultKey ||
+        !vaultOwnerToken ||
+        !saveLocationPoint
+      ) {
+        toast.error("Unlock your vault before saving this location.");
         return;
       }
       setSaveLocationSaving(true);
       try {
-        await addSavedLocation(auth.userId, {
-          category,
-          label,
-          latitude: saveLocationPoint.latitude,
-          longitude: saveLocationPoint.longitude,
-          address: saveLocationAddress,
-        });
-        // Durably persist to the backend/database too. Best-effort: the local
-        // store above already succeeded, so a transient API failure never blocks
-        // onboarding or loses the user's choice on this device.
-        if (vaultOwnerToken) {
-          void OneLocationService.saveSavedPlace({
+        await addSavedLocation({
+          context: {
+            userId: auth.userId,
+            vaultKey,
             vaultOwnerToken,
+          },
+          input: {
             category,
             label,
             latitude: saveLocationPoint.latitude,
             longitude: saveLocationPoint.longitude,
             address: saveLocationAddress,
-          }).catch(() => {
-            // Non-fatal: the device-local copy is the immediate source of truth.
-          });
-        }
-
+          },
+        });
         if (typeof window !== "undefined") {
           try {
             window.localStorage.setItem(
@@ -5297,18 +5292,23 @@ export function OneLocationAgentPageContent({
             // best-effort; a re-prompt is acceptable if storage is unavailable
           }
         }
-        toast.success("Saved to your places.");
-      } catch {
-        toast.error("Could not save this location. You can add it later.");
-      } finally {
-        setSaveLocationSaving(false);
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
+        toast.success("Location saved securely.");
+      } catch {
+        toast.error("Could not save this location. Please try again.");
+      } finally {
+        setSaveLocationSaving(false);
       }
     },
-    [auth.userId, saveLocationAddress, saveLocationPoint, vaultOwnerToken],
+    [
+      auth.userId,
+      saveLocationAddress,
+      saveLocationPoint,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
-
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
     if (typeof window !== "undefined" && auth.userId) {
@@ -5356,7 +5356,7 @@ export function OneLocationAgentPageContent({
           return;
         }
         toast.success("Location access is on.");
-        void promptSaveLocationDuringOnboarding();
+        await promptSaveLocationDuringOnboarding();
         return;
       }
 
@@ -5383,7 +5383,7 @@ export function OneLocationAgentPageContent({
         return;
       }
       toast.success("Location access enabled.");
-      void promptSaveLocationDuringOnboarding();
+      await promptSaveLocationDuringOnboarding();
     } catch (error) {
       toast.error(locationServicesErrorMessage(error));
     } finally {
@@ -5397,7 +5397,6 @@ export function OneLocationAgentPageContent({
     promptSaveLocationDuringOnboarding,
     refreshLocationPermission,
   ]);
-
 
   useEffect(() => {
     if (!notificationOnboardingAttemptRef.current) return;
@@ -5557,7 +5556,6 @@ export function OneLocationAgentPageContent({
       </BodyPortal>
     );
   }
-
 
   // ---------------------------------------------------------------------------
   // Mobile-first redesign (Figma: one_location_final_fixed_clean_navigation).

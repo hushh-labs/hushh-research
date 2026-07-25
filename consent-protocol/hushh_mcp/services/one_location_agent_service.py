@@ -961,11 +961,7 @@ class OneLocationAgentService:
             params={"owner_user_id": owner_user_id},
         )
         for row in referral_rows:
-            for candidate_field in (
-                "owner_user_id",
-                "referring_user_id",
-                "referred_user_id",
-            ):
+            for candidate_field in ("owner_user_id", "referring_user_id", "referred_user_id"):
                 candidate_id = str(row.get(candidate_field) or "")
                 if candidate_id == owner_user_id or candidate_id not in recipient_ids:
                     continue
@@ -1186,10 +1182,7 @@ class OneLocationAgentService:
                 )
             signal["professional"] = True
             signal["relationship_type"] = signal.get("relationship_type") or relationship_label
-            if str(row.get("ria_verification_status") or "").lower() in {
-                "verified",
-                "active",
-            }:
+            if str(row.get("ria_verification_status") or "").lower() in {"verified", "active"}:
                 signal["verification_badge"] = signal.get("verification_badge") or "RIA verified"
             self._remember_signal_time(
                 signal,
@@ -1355,7 +1348,7 @@ class OneLocationAgentService:
             self._add_recommendation_reason(
                 signal,
                 code=f"{persona}_persona",
-                label=("KAI advisor persona" if persona == "ria" else "KAI investor persona"),
+                label="KAI advisor persona" if persona == "ria" else "KAI investor persona",
                 weight=12,
             )
             signal["professional"] = True
@@ -1440,10 +1433,7 @@ class OneLocationAgentService:
             signal = signals.get(recipient_id) or self._recommendation_signal()
             reasons = sorted(
                 signal.get("reasons", {}).values(),
-                key=lambda item: (
-                    -int(item.get("weight") or 0),
-                    str(item.get("code") or ""),
-                ),
+                key=lambda item: (-int(item.get("weight") or 0), str(item.get("code") or "")),
             )[:4]
             score = max(0, min(100, int(signal.get("score") or 0)))
             can_receive = bool(recipient.get("canReceiveLocation"))
@@ -2132,10 +2122,7 @@ class OneLocationAgentService:
         user_id: str | None = None,
         older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS,
     ) -> dict[str, Any]:
-        hours = max(
-            1.0,
-            min(float(older_than_hours or LOCATION_TERMINAL_RETENTION_HOURS), 168.0),
-        )
+        hours = max(1.0, min(float(older_than_hours or LOCATION_TERMINAL_RETENTION_HOURS), 168.0))
         row = (
             self._execute_one(
                 """
@@ -2808,174 +2795,6 @@ class OneLocationAgentService:
         )
         return self.list_sms_contact_ids(owner_user_id=owner_user_id)
 
-    # ------------------------------------------------------------------
-    # Saved places (Home / Work / Other) — owner-scoped PKM metadata.
-    # Coordinates are low-precision personalisation data and grant no
-    # sharing or access by themselves; they are never exposed to any other
-    # user. Captured with consent during Location onboarding.
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _saved_place_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not row:
-            return None
-        latitude = row.get("latitude")
-        longitude = row.get("longitude")
-        return {
-            "id": str(row.get("id") or ""),
-            "category": str(row.get("category") or "other"),
-            "label": str(row.get("label") or ""),
-            "latitude": float(latitude) if latitude is not None else 0.0,
-            "longitude": float(longitude) if longitude is not None else 0.0,
-            "address": (str(row.get("address")) if row.get("address") else None),
-            "savedAt": _iso(row.get("created_at")),
-            "updatedAt": _iso(row.get("updated_at")),
-        }
-
-    def list_saved_places(self, *, owner_user_id: str) -> list[dict[str, Any]]:
-        rows = self._execute_many(
-            """
-            SELECT id, category, label, latitude, longitude, address,
-                   created_at, updated_at
-            FROM one_location_saved_places
-            WHERE owner_user_id = :owner_user_id
-            ORDER BY
-              CASE category WHEN 'home' THEN 0 WHEN 'work' THEN 1 ELSE 2 END,
-              created_at DESC,
-              id
-            """,
-            {"owner_user_id": owner_user_id},
-        )
-        return [
-            payload
-            for payload in (self._saved_place_payload(row) for row in rows)
-            if payload is not None
-        ]
-
-    def save_place(
-        self,
-        *,
-        owner_user_id: str,
-        category: str,
-        label: str | None,
-        latitude: float,
-        longitude: float,
-        address: str | None,
-    ) -> list[dict[str, Any]]:
-        normalized_category = str(category or "").strip().lower()
-        if normalized_category not in {"home", "work", "other"}:
-            raise OneLocationAgentError(
-                "LOCATION_SAVED_PLACE_CATEGORY_INVALID",
-                "Saved place category must be home, work, or other.",
-                status_code=422,
-            )
-        if not (-90.0 <= float(latitude) <= 90.0) or not (-180.0 <= float(longitude) <= 180.0):
-            raise OneLocationAgentError(
-                "LOCATION_SAVED_PLACE_COORDS_INVALID",
-                "Saved place coordinates are out of range.",
-                status_code=422,
-            )
-        default_label = {"home": "Home", "work": "Work"}.get(normalized_category, "Other")
-        clean_label = (str(label or "").strip() or default_label)[:120]
-        clean_address = str(address).strip()[:300] if address else None
-
-        if normalized_category in {"home", "work"}:
-            # Singleton categories: upsert on (owner, category).
-            place_id = normalized_category
-            self._execute_one(
-                """
-                INSERT INTO one_location_saved_places (
-                  id, owner_user_id, category, label, latitude, longitude,
-                  address, created_at, updated_at
-                ) VALUES (
-                  :id, :owner_user_id, :category, :label, :latitude, :longitude,
-                  :address, NOW(), NOW()
-                )
-                ON CONFLICT (owner_user_id, category)
-                  WHERE category IN ('home', 'work')
-                DO UPDATE SET
-                  label = EXCLUDED.label,
-                  latitude = EXCLUDED.latitude,
-                  longitude = EXCLUDED.longitude,
-                  address = EXCLUDED.address,
-                  updated_at = NOW()
-                RETURNING id
-                """,
-                {
-                    "id": place_id,
-                    "owner_user_id": owner_user_id,
-                    "category": normalized_category,
-                    "label": clean_label,
-                    "latitude": float(latitude),
-                    "longitude": float(longitude),
-                    "address": clean_address,
-                },
-            )
-        else:
-            # "other": additive. De-dupe by same label + near-identical coords.
-            existing = self._execute_one(
-                """
-                SELECT id
-                FROM one_location_saved_places
-                WHERE owner_user_id = :owner_user_id
-                  AND category = 'other'
-                  AND lower(label) = lower(:label)
-                  AND abs(latitude - :latitude) < 0.0001
-                  AND abs(longitude - :longitude) < 0.0001
-                LIMIT 1
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "label": clean_label,
-                    "latitude": float(latitude),
-                    "longitude": float(longitude),
-                },
-            )
-            if existing:
-                self._execute_one(
-                    """
-                    UPDATE one_location_saved_places
-                    SET address = :address, updated_at = NOW()
-                    WHERE id = :id
-                    RETURNING id
-                    """,
-                    {"id": existing.get("id"), "address": clean_address},
-                )
-            else:
-                place_id = f"other_{secrets.token_urlsafe(12)}"
-                self._execute_one(
-                    """
-                    INSERT INTO one_location_saved_places (
-                      id, owner_user_id, category, label, latitude, longitude,
-                      address, created_at, updated_at
-                    ) VALUES (
-                      :id, :owner_user_id, 'other', :label, :latitude,
-                      :longitude, :address, NOW(), NOW()
-                    )
-                    RETURNING id
-                    """,
-                    {
-                        "id": place_id,
-                        "owner_user_id": owner_user_id,
-                        "label": clean_label,
-                        "latitude": float(latitude),
-                        "longitude": float(longitude),
-                        "address": clean_address,
-                    },
-                )
-        return self.list_saved_places(owner_user_id=owner_user_id)
-
-    def delete_saved_place(self, *, owner_user_id: str, place_id: str) -> list[dict[str, Any]]:
-        self._execute_one(
-            """
-            DELETE FROM one_location_saved_places
-            WHERE owner_user_id = :owner_user_id
-              AND id = :place_id
-            RETURNING id
-            """,
-            {"owner_user_id": owner_user_id, "place_id": place_id},
-        )
-        return self.list_saved_places(owner_user_id=owner_user_id)
-
     def _send_location_share_created_notification(
         self,
         *,
@@ -3212,15 +3031,11 @@ class OneLocationAgentService:
         )
         if not grant_row:
             raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND",
-                "Location share was not found.",
-                status_code=404,
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
             )
         if str(grant_row.get("status") or "") != "active":
             raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_ACTIVE",
-                "Location share is not active.",
-                status_code=409,
+                "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
         expires_at = _parse_datetime(grant_row.get("expires_at"), field_name="expires_at")
@@ -3353,15 +3168,11 @@ class OneLocationAgentService:
         )
         if not grant_row:
             raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND",
-                "No approved location share was found.",
-                status_code=404,
+                "LOCATION_GRANT_NOT_FOUND", "No approved location share was found.", status_code=404
             )
         if str(grant_row.get("status") or "") != "active":
             raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_ACTIVE",
-                "Location share is not active.",
-                status_code=410,
+                "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=410
             )
         row = self._execute_one(
             """
@@ -3424,10 +3235,7 @@ class OneLocationAgentService:
         presence_mode: str | None,
         renderer_consent_version: str | None,
     ) -> dict[str, Any]:
-        if presence_mode is not None and presence_mode not in {
-            "ghost",
-            "foreground_private",
-        }:
+        if presence_mode is not None and presence_mode not in {"ghost", "foreground_private"}:
             raise OneLocationAgentError(
                 "LOCATION_MAP_PRESENCE_INVALID",
                 "Map presence mode is invalid.",
@@ -3874,7 +3682,7 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_public_invite_submitted",
-            title=("Public location viewed" if has_public_location else "Public location request"),
+            title="Public location viewed" if has_public_location else "Public location request",
             body=(
                 f"{display_name[:80]} opened your public location link."
                 if has_public_location
@@ -4483,9 +4291,7 @@ class OneLocationAgentService:
             if existing_row:
                 return self._grant_payload(existing_row) or {}
             raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND",
-                "Location share was not found.",
-                status_code=404,
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
             )
         actor_is_owner = str(row.get("owner_user_id") or "") == owner_user_id
         recipient_user_id = str(row.get("recipient_user_id") or "") or None
@@ -4539,9 +4345,7 @@ class OneLocationAgentService:
     ) -> dict[str, Any]:
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
-                "LOCATION_REQUEST_SELF",
-                "Request a different person's location.",
-                status_code=422,
+                "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
             )
         if require_requester_key_material:
             self._recipient_key_row(

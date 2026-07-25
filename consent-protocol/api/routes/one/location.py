@@ -59,14 +59,6 @@ class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
 
 
-class SaveLocationPlaceRequest(_CamelModel):
-    category: str = Field(min_length=1, max_length=16)
-    label: str | None = Field(default=None, max_length=120)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    address: str | None = Field(default=None, max_length=300)
-
-
 class StoreEnvelopeRequest(_CamelModel):
     envelope: dict[str, Any]
 
@@ -159,10 +151,7 @@ def _handle_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status_code, detail=database_error_detail(exc))  # type: ignore[arg-type]
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={
-            "code": "ONE_LOCATION_API_FAILED",
-            "message": "Location request failed.",
-        },
+        detail={"code": "ONE_LOCATION_API_FAILED", "message": "Location request failed."},
     )
 
 
@@ -243,53 +232,8 @@ def remove_location_sms_contact(
         raise _handle_error(exc) from exc
 
 
-@router.get("/location/saved-places")
-def list_location_saved_places(token_data: dict = Depends(require_vault_owner_token)):
-    try:
-        return {"savedPlaces": _service().list_saved_places(owner_user_id=_user_id(token_data))}
-    except Exception as exc:
-        raise _handle_error(exc) from exc
-
-
-@router.post("/location/saved-places")
-def save_location_place(
-    payload: SaveLocationPlaceRequest,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    try:
-        return {
-            "savedPlaces": _service().save_place(
-                owner_user_id=_user_id(token_data),
-                category=payload.category,
-                label=payload.label,
-                latitude=payload.latitude,
-                longitude=payload.longitude,
-                address=payload.address,
-            )
-        }
-    except Exception as exc:
-        raise _handle_error(exc) from exc
-
-
-@router.delete("/location/saved-places/{place_id}")
-def delete_location_saved_place(
-    place_id: _InviteId,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    try:
-        return {
-            "savedPlaces": _service().delete_saved_place(
-                owner_user_id=_user_id(token_data),
-                place_id=place_id,
-            )
-        }
-    except Exception as exc:
-        raise _handle_error(exc) from exc
-
-
 @router.get("/location/map-state")
 def get_location_map_state(token_data: dict = Depends(require_vault_owner_token)):
-
     try:
         return _service().list_map_state(user_id=_user_id(token_data))
     except Exception as exc:

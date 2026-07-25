@@ -76,7 +76,7 @@ class GoogleMapsService:
         lat: float,
         lng: float,
     ) -> dict[str, Any]:
-        """Resolve a friendly nearby address through the enabled Places API."""
+        """Resolve a nearby address when Geocoding is unavailable for this key."""
         async with _async_client() as client:
             try:
                 response = await client.post(
@@ -95,7 +95,9 @@ class GoogleMapsService:
                                     "latitude": lat,
                                     "longitude": lng,
                                 },
-                                "radius": 250.0,
+                                # Keep the fallback tightly bounded so a distant
+                                # landmark is never presented as the user's place.
+                                "radius": 100.0,
                             }
                         },
                     },
@@ -202,13 +204,15 @@ class GoogleMapsService:
         results = data.get("results") or []
         if not results:
             provider_status = str(data.get("status") or "").strip().upper()
-            if provider_status not in {"", "OK", "ZERO_RESULTS", "REQUEST_DENIED"}:
-                logger.warning(
-                    "maps.reverse_geocode logical status %s",
-                    provider_status,
-                )
-                raise GoogleMapsError("Reverse geocode failed.", status_code=502)
-            return await self._nearest_place_address(key=key, lat=lat, lng=lng)
+            if provider_status == "REQUEST_DENIED":
+                return await self._nearest_place_address(key=key, lat=lat, lng=lng)
+            if provider_status in {"", "OK", "ZERO_RESULTS"}:
+                return {"name": None, "formattedAddress": None}
+            logger.warning(
+                "maps.reverse_geocode logical status %s",
+                provider_status,
+            )
+            raise GoogleMapsError("Reverse geocode failed.", status_code=502)
         formatted = results[0].get("formatted_address") or None
         name: str | None = None
         for result in results:
