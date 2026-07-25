@@ -865,6 +865,16 @@
       "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_saved_places"
+      ],
+      "id": "one_location_saved_places",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-only Home/Work/Other places captured with consent during Location onboarding and managed from Settings. Written and read exclusively by the owning account through the authenticated One Location API; never exposed to any other user and never used for sharing or access decisions."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "pkm_default_available_projections"
@@ -4190,7 +4200,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
     "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "2450e780a874943549dfd6c5abb5c83eca1dee1222e70e26244e17b0bb1a83f2",
+    "data_plane": "2641a32fde99bfdb26c1b5c4d9354276a9d2d47771eafc46fe975fd0cd5f5cc3",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
@@ -4209,6 +4219,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 112,
     "semantic_routes": 14,
-    "table_families": 32
+    "table_families": 33
   }
 }
