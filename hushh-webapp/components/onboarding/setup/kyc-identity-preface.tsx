@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,9 +31,8 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [countryCode, setCountryCode] = useState("");
   const [vaultOpen, setVaultOpen] = useState(false);
-  const [pendingProfile, setPendingProfile] = useState<KycIdentityProfile | null>(null);
-  const [saving, setSaving] = useState(false);
-  const attemptedProfileRef = useRef<string | null>(null);
+  const [profileAwaitingUnlock, setProfileAwaitingUnlock] =
+    useState<KycIdentityProfile | null>(null);
 
   const selectedCountry = useMemo(
     () => COUNTRY_PHONE_OPTIONS.find((country) => country.value === countryCode),
@@ -45,15 +44,12 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
       : step === 1
         ? Boolean(dateOfBirth)
         : Boolean(selectedCountry);
+  const hasCompleteProfile =
+    legalName.trim().length > 1 && Boolean(dateOfBirth) && Boolean(selectedCountry);
 
-  const saveProfile = useCallback(
+  const saveProfileInBackground = useCallback(
     async (profile: KycIdentityProfile) => {
       if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
-
-      const attemptKey = `${profile.legalName}|${profile.dateOfBirth}|${profile.countryCode}`;
-      if (attemptedProfileRef.current === attemptKey) return;
-      attemptedProfileRef.current = attemptKey;
-      setSaving(true);
 
       try {
         const result = await KycIdentityProfilePkmService.saveProfile({
@@ -65,29 +61,31 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
         if (!result.success) {
           throw new Error(result.message);
         }
-        toast.success("Identity details saved to your private vault.");
-        setPendingProfile(null);
-        setVaultOpen(false);
-        onComplete();
       } catch {
-        attemptedProfileRef.current = null;
         toast.error("We couldn't save your identity details. Please try again.");
-      } finally {
-        setSaving(false);
       }
     },
-    [onComplete, user?.uid, vaultKey, vaultOwnerToken],
+    [user?.uid, vaultKey, vaultOwnerToken],
   );
 
   useEffect(() => {
-    if (!pendingProfile || !vaultKey || !vaultOwnerToken) return;
-    void saveProfile(pendingProfile);
-  }, [pendingProfile, saveProfile, vaultKey, vaultOwnerToken]);
+    if (!profileAwaitingUnlock || !vaultKey || !vaultOwnerToken) return;
+
+    const profile = profileAwaitingUnlock;
+    setProfileAwaitingUnlock(null);
+    setVaultOpen(false);
+    void saveProfileInBackground(profile);
+    onComplete();
+  }, [onComplete, profileAwaitingUnlock, saveProfileInBackground, vaultKey, vaultOwnerToken]);
 
   const handlePrimary = () => {
-    if (!canContinue || saving) return;
+    if (!canContinue) return;
     if (step < STEPS.length - 1) {
       setStep((current) => current + 1);
+      return;
+    }
+    if (!hasCompleteProfile) {
+      onComplete();
       return;
     }
     if (!user?.uid || !selectedCountry) {
@@ -101,20 +99,33 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
       countryCode: selectedCountry.value,
       countryName: selectedCountry.label,
     };
-    setPendingProfile(profile);
     if (!vaultKey || !vaultOwnerToken) {
+      setProfileAwaitingUnlock(profile);
       setVaultOpen(true);
+      return;
     }
+
+    void saveProfileInBackground(profile);
+    onComplete();
   };
 
-  const primaryLabel = step === STEPS.length - 1 ? "Save and continue" : "Next";
+  const handleSkip = () => {
+    if (step < STEPS.length - 1) {
+      setStep((current) => current + 1);
+      return;
+    }
+
+    onComplete();
+  };
+
+  const primaryLabel = "Next";
 
   return (
     <main
       data-top-content-anchor="true"
-      className="flex min-h-[100dvh] w-full flex-col bg-transparent px-5 pb-[var(--app-screen-footer-pad)] pt-[var(--top-content-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+      className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent px-5 pb-[var(--app-screen-footer-pad)] pt-[var(--top-content-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-col justify-center py-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[25rem] flex-1 flex-col justify-start pb-0 pt-2 sm:pt-4">
         <div className="w-full">
           <div className="space-y-2.5">
             <div className="flex min-h-8 items-center justify-between gap-3">
@@ -124,7 +135,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 effect="fade"
                 size="sm"
                 onClick={() => setStep((current) => Math.max(0, current - 1))}
-                disabled={step === 0 || saving}
+                disabled={step === 0}
                 className={cn(
                   "h-8 rounded-full px-2.5 text-[14px] font-medium text-primary hover:bg-primary/10",
                   step === 0 && "invisible pointer-events-none",
@@ -136,10 +147,26 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 <ArrowLeft className="mr-1 h-4 w-4" />
                 Back
               </Button>
-              <span className="type-footnote tabular-nums text-muted-foreground">
-                Step {step + 1} of {STEPS.length}
-              </span>
+              <Button
+                type="button"
+                variant="link"
+                effect="fade"
+                size="sm"
+                onClick={handleSkip}
+                className="h-8 rounded-full px-2.5 text-[14px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                showRipple={false}
+                aria-label={
+                  step === STEPS.length - 1
+                    ? "Skip KYC setup"
+                    : "Skip this question"
+                }
+              >
+                Skip
+              </Button>
             </div>
+            <span className="block text-right type-footnote tabular-nums text-muted-foreground">
+              Step {step + 1} of {STEPS.length}
+            </span>
             <OnboardingStepper
               steps={STEPS}
               currentIndex={step}
@@ -151,7 +178,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
           <div className="mx-auto flex w-full flex-col pt-8 sm:pt-9">
             <div className="space-y-2 text-left">
               <p className="type-subhead text-muted-foreground">
-                This information stays encrypted in your private vault.
+                A few details to get started.
               </p>
               <h1 className="type-title1 text-balance text-foreground">
                 {step === 0
@@ -170,7 +197,6 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                   placeholder="Full legal name"
                   autoComplete="name"
                   autoCapitalize="words"
-                  disabled={saving}
                   className="h-14 rounded-xl px-4 text-base"
                   aria-label="Legal name"
                 />
@@ -181,7 +207,6 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                   value={dateOfBirth}
                   onChange={(event) => setDateOfBirth(event.target.value)}
                   autoComplete="bday"
-                  disabled={saving}
                   className="h-14 rounded-xl px-4 text-base"
                   aria-label="Date of birth"
                 />
@@ -191,7 +216,6 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                   value={countryCode}
                   onChange={(event) => setCountryCode(event.target.value)}
                   autoComplete="country-name"
-                  disabled={saving}
                   aria-label="Primary residence"
                   className="h-14 w-full appearance-none rounded-xl border border-input bg-background px-4 text-base text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
                 >
@@ -213,8 +237,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 size="lg"
                 fullWidth
                 onClick={handlePrimary}
-                disabled={!canContinue || saving}
-                loading={saving}
+                disabled={!canContinue}
                 showRipple
                 className={cn(
                   "h-12 rounded-full type-headline",
@@ -225,7 +248,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                     : "!bg-muted !text-muted-foreground",
                 )}
               >
-                {saving ? "Saving to your private vault..." : primaryLabel}
+                {primaryLabel}
               </Button>
             </div>
           </div>
@@ -237,8 +260,8 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
           user={user}
           open={vaultOpen}
           onOpenChange={setVaultOpen}
-          title="Open your private vault"
-          description="Your KYC identity details are encrypted before they are saved."
+          title="Unlock to continue"
+          description="Enter your passphrase to save these KYC details securely."
           onSuccess={() => setVaultOpen(false)}
         />
       ) : null}

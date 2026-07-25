@@ -7,7 +7,6 @@ import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profil
 const mocks = vi.hoisted(() => ({
   saveProfile: vi.fn(),
   toastError: vi.fn(),
-  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -40,7 +39,7 @@ vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
-    success: mocks.toastSuccess,
+    success: vi.fn(),
   },
 }));
 
@@ -50,8 +49,15 @@ describe("KycIdentityPreface", () => {
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
-  it("collects the three identity fields and saves them to the encrypted identity domain", async () => {
+  it("continues immediately while saving the three identity fields in the background", async () => {
     const onComplete = vi.fn();
+    let resolveSave: ((value: { success: boolean }) => void) | undefined;
+    mocks.saveProfile.mockImplementation(
+      () =>
+        new Promise<{ success: boolean }>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
     render(<KycIdentityPreface onComplete={onComplete} />);
 
     fireEvent.change(screen.getByLabelText("Legal name"), {
@@ -68,7 +74,9 @@ describe("KycIdentityPreface", () => {
     fireEvent.change(screen.getByLabelText("Primary residence"), {
       target: { value: "IN" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
       expect(KycIdentityProfilePkmService.saveProfile).toHaveBeenCalledWith({
@@ -83,10 +91,23 @@ describe("KycIdentityPreface", () => {
         },
       });
     });
-    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
 
-    expect(mocks.toastSuccess).toHaveBeenCalledWith(
-      "Identity details saved to your private vault.",
-    );
+    resolveSave?.({ success: true });
+  });
+
+  it("lets a user skip questions without writing a partial identity profile", () => {
+    const onComplete = vi.fn();
+    render(<KycIdentityPreface onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
+    expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
+    expect(screen.getByLabelText("Primary residence")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip KYC setup" }));
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
   });
 });
