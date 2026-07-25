@@ -30,7 +30,7 @@ describe("One Location SMS emergency actions", () => {
     ).toHaveAttribute("href", "tel:911");
     expect(screen.getByText("Emergency services")).toBeInTheDocument();
     expect(screen.getByText("United States")).toBeInTheDocument();
-    expect(SMS_PANEL_SOURCE).toContain('href="tel:911"');
+    expect(SMS_PANEL_SOURCE).toContain("href={`tel:${emergency.number}`}");
   });
 
   it("does not advertise unimplemented SOS support actions", () => {

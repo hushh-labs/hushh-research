@@ -64,7 +64,7 @@ type CountryEmergency = {
 const COUNTRIES: readonly CountryEmergency[] = [
   // South Asia
   { code: "IN", name: "India", number: "112", boxes: [[6.5, 35.6, 68.0, 97.5]] },
-  { code: "PK", name: "Pakistan", number: "15", boxes: [[23.5, 37.1, 60.9, 77.9]] },
+  { code: "PK", name: "Pakistan", number: "15", boxes: [[23.5, 37.1, 60.9, 77.0]] },
   { code: "LK", name: "Sri Lanka", number: "119", boxes: [[5.8, 9.9, 79.6, 81.9]] },
   { code: "BD", name: "Bangladesh", number: "999", boxes: [[20.6, 26.7, 88.0, 92.7]] },
   { code: "NP", name: "Nepal", number: "112", boxes: [[26.3, 30.5, 80.0, 88.2]] },
