@@ -32,12 +32,9 @@ const analysisRootClassName = cn(
   marketSurfaceVariablesClassName,
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
-  "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
-  "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
-  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
-  "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
-  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
+  "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
+  "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
+  "[--one-fg:var(--foreground)] [--one-fg2:var(--muted-foreground)] [--one-fg3:color-mix(in_oklab,var(--muted-foreground)_82%,transparent)]",
   "[--one-blue:var(--app-accent)] [--one-link:var(--app-accent-deep)] [--one-blue-t:var(--app-accent-tint)]",
   "dark:[--one-blue:var(--app-accent)] dark:[--one-link:var(--app-accent-deep)] dark:[--one-blue-t:var(--app-accent-tint)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
@@ -59,7 +56,7 @@ const analysisGlassClassName = cn(
 );
 
 const analysisCardClassName =
-  "rounded-[20px] bg-[color:var(--one-card)] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]";
+  "rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 shadow-[var(--app-card-shadow-standard)]";
 
 const RANGE_KEYS = ["1W", "1M", "3M", "1Y", "All"] as const;
 type RangeKey = (typeof RANGE_KEYS)[number];
@@ -151,7 +148,7 @@ function StatCard({
   tone?: "up" | "down" | "muted";
 }) {
   return (
-    <div className="rounded-[14px] bg-[color:var(--one-card)] px-[13px] py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+    <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[13px] py-3 shadow-[var(--app-card-shadow-standard)]">
       <p className="text-[12px] font-medium text-[color:var(--one-fg2)]">{label}</p>
       <p className="mt-1.5 text-[17px] font-semibold text-[color:var(--one-fg)] tabular-nums">{value}</p>
       <p
@@ -677,7 +674,7 @@ export function KaiAnalysisPreviewView() {
 
           <section className="mt-8">
             <SectionHeader title="Today's impact" icon={Zap} tone="blue" />
-            <div className="overflow-hidden rounded-[20px] bg-[color:var(--one-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+            <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--one-card)] shadow-[var(--app-card-shadow-standard)]">
               <HoldingRow symbol="TSLA" title="Tesla" description="38 sh - top contributor" value="+$467" change="+5.20%" tone="up" />
               <HoldingRow symbol="AAPL" title="Apple" description="64 sh" value="+$132" change="+1.10%" tone="up" />
               <HoldingRow symbol="NVDA" title="NVIDIA" description="21 sh - top detractor" value="-$20" change="-0.80%" tone="down" />
@@ -709,7 +706,7 @@ export function KaiAnalysisPreviewView() {
 
           <section className="mt-8">
             <SectionHeader title="Recent analyses" icon={Star} tone="ai" />
-            <div className="overflow-hidden rounded-[20px] bg-[color:var(--one-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+            <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--one-card)] shadow-[var(--app-card-shadow-standard)]">
               {recentRows.map((row) => (
                 <HoldingRow
                   key={row.symbol}

@@ -121,7 +121,7 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
 // Location redesign uses SwipeViews for its route-owned tabs. This suite tests
 // the Location views, so replace the browser viewport primitive with controls
 // that simulate a swipe by reporting the selected tab upward.
-vi.mock("@/components/app-ui/swipe-views", () => ({
+vi.mock("@/lib/morphy-ux/ui/swipe-views", () => ({
   SwipeViews: ({
     children,
     options,

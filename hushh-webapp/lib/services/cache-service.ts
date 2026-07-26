@@ -312,6 +312,7 @@ export const CACHE_KEYS = {
     page: number,
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
+  FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   // Cached licence-verify result, keyed by normalized regulator:license so a

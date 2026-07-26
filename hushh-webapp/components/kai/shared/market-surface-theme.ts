@@ -7,20 +7,12 @@ import {
   kaiAppSectionTitleClassName,
 } from "@/components/kai/shared/kai-typography";
 
-export const marketSurfaceVariablesClassName = cn(
-  "[--app-card-surface-default-solid:rgba(255,255,255,0.68)]",
-  "[--app-card-surface-compact:rgba(255,255,255,0.48)]",
-  "[--app-card-border-standard:rgba(255,255,255,0.58)]",
-  "[--app-card-border-strong:rgba(255,255,255,0.72)]",
-  "[--app-card-shadow-standard:0_18px_48px_-28px_rgba(0,0,0,0.34),0_5px_18px_-12px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.72)]",
-  "[--app-card-shadow-feature:0_24px_62px_-34px_rgba(0,0,0,0.42),0_8px_24px_-16px_rgba(0,0,0,0.20),inset_0_1px_0_rgba(255,255,255,0.78)]",
-  "dark:[--app-card-surface-default-solid:rgba(24,24,28,0.58)]",
-  "dark:[--app-card-surface-compact:rgba(255,255,255,0.10)]",
-  "dark:[--app-card-border-standard:rgba(255,255,255,0.12)]",
-  "dark:[--app-card-border-strong:rgba(255,255,255,0.18)]",
-  "dark:[--app-card-shadow-standard:0_20px_58px_-30px_rgba(0,0,0,0.86),0_8px_24px_-18px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.10)]",
-  "dark:[--app-card-shadow-feature:0_26px_72px_-34px_rgba(0,0,0,0.92),0_12px_28px_-20px_rgba(0,0,0,0.76),inset_0_1px_0_rgba(255,255,255,0.12)]"
-);
+// Previously shadowed the canonical --app-card-* tokens with a translucent
+// glass identity local to Kai. Kai now renders the same solid card recipe as
+// Profile/Consent/Feed, so this is intentionally a no-op and kept only so
+// existing import sites (which spread it into their own root class names)
+// don't need touching.
+export const marketSurfaceVariablesClassName = "";
 
 export const kaiPreviewEyebrowClassName =
   kaiAppEyebrowClassName;
@@ -50,19 +42,14 @@ export const kaiPreviewDockActiveItemClassName =
   "bg-white text-[color:var(--one-blue)] shadow-[0_10px_26px_-18px_rgba(0,0,0,0.34),0_1px_2px_rgba(0,0,0,0.08)] dark:bg-white/[0.12]";
 
 export const marketCardClassName = cn(
-  marketSurfaceVariablesClassName,
-  "relative isolate ring-1 ring-white/55 backdrop-blur-[22px] backdrop-saturate-[180%]",
+  "relative isolate border border-transparent",
   "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
-  "transition-[background-color,box-shadow,transform] duration-200 ease-out",
-  "dark:ring-white/10"
+  "transition-[background-color,box-shadow,transform] duration-200 ease-out"
 );
 
 export const marketInsetClassName = cn(
-  marketSurfaceVariablesClassName,
-  "border border-white/55 bg-[color:var(--app-card-surface-compact)]",
-  "text-foreground shadow-[0_10px_28px_-22px_rgba(0,0,0,0.30),inset_0_1px_0_rgba(255,255,255,0.68)]",
-  "backdrop-blur-[18px] backdrop-saturate-[170%]",
-  "dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+  "border border-transparent bg-[color:var(--app-card-surface-compact)]",
+  "text-foreground shadow-[var(--shadow-xs)]"
 );
 
 export const marketMicroSurfaceClassName = cn(
@@ -73,19 +60,12 @@ export const marketMicroSurfaceClassName = cn(
 );
 
 export const marketControlClassName = cn(
-  marketSurfaceVariablesClassName,
-  "border border-white/55 bg-[color:var(--app-card-surface-compact)]",
-  "shadow-[0_12px_34px_-24px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.70)]",
-  "backdrop-blur-[18px] backdrop-saturate-[180%]",
-  "dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]"
+  "border border-transparent bg-[color:var(--app-card-surface-compact)]",
+  "shadow-[var(--shadow-xs)]"
 );
 
 export const marketSettingsGroupClassName = cn(
-  marketSurfaceVariablesClassName,
-  "[&>div:last-child]:ring-1 [&>div:last-child]:ring-white/55",
-  "[&>div:last-child]:backdrop-blur-[22px] [&>div:last-child]:backdrop-saturate-[180%]",
-  "[&>div:last-child]:shadow-[var(--app-card-shadow-standard)]",
-  "dark:[&>div:last-child]:ring-white/10"
+  "[&>div:last-child]:shadow-[var(--app-card-shadow-standard)]"
 );
 
 export const marketAmbientBackgroundClassName =

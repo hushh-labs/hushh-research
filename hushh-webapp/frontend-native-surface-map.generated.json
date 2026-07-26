@@ -2467,6 +2467,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/feed",
+      "page_file": "app/one/feed/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/feed/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.feed",
+          "purpose": "Help the person browse recent cross-domain activity (consent, location, finance, KYC, connected systems, connections) through its generated controls.",
+          "screen": "one_feed",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/feed",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Ffeed",
+        "expectedMarker": "native-route-feed",
+        "expectedRoute": "/one/feed",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "physical_page_exists": true,
@@ -7553,5 +7619,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "78a29f03441171069a2438b7634429f2f65d78ede32c9e2c657e4d682637d44d"
+  "content_sha256": "82446bd5f7dc609a9681fed60d478e9f9dbe343459ddee40469d93210629304a"
 }

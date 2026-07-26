@@ -42,6 +42,7 @@ export const ROUTE_ID_VALUES = [
   "profile_gmail_oauth_return",
   "oauth_authorize",
   "consents",
+  "feed",
   "agent",
   "connect",
   "connect_settings",
@@ -162,6 +163,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return "consents";
   }
+  if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";

@@ -25,3 +25,4 @@ export * from "./onboarding-feature-list";
 export * from "./segmented-pill";
 export * from "./segmented-tabs";
 export * from "./surface-primitives";
+export * from "./swipe-views";

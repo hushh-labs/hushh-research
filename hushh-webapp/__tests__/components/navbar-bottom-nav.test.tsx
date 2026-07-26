@@ -72,7 +72,7 @@ describe("Navbar bottom utilities", () => {
       within(routeNav)
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Search"]);
+    ).toEqual(["One", "Connect", "Feed", "Search"]);
     expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
     unmount();
   });
@@ -120,7 +120,7 @@ describe("Navbar bottom utilities", () => {
       within(screen.getByRole("radiogroup", { name: "Route navigation" }))
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Search"]);
+    ).toEqual(["One", "Connect", "Feed", "Search"]);
     expect(
       screen.queryByRole("radiogroup", { name: "Workspace navigation" }),
     ).toBeNull();
@@ -128,7 +128,7 @@ describe("Navbar bottom utilities", () => {
       screen
         .getByRole("radiogroup", { name: "Route navigation" })
         .getAttribute("style"),
-    ).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
+    ).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
     expect(
       screen.getByTestId("app-bottom-nav-frame").getAttribute("style"),
     ).toContain("var(--app-bottom-shell-max-width)");

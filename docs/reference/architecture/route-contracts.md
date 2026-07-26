@@ -86,6 +86,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/connect`
 - `/one/connect/settings`
 - `/one/consent`
+- `/one/feed`
 - `/one/setup`
 - `/one/setup/finance`
 - `/one/setup/finance/import`

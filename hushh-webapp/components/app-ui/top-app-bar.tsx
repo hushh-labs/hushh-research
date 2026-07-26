@@ -86,7 +86,6 @@ import {
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
-import { ActivityInbox } from "@/components/app-ui/activity-inbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { TopShellRouteModel } from "@/components/app-ui/top-shell-metrics";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -1056,8 +1055,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions />
                     ) : (
                       <>
-                        <ActivityInbox />
-
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"
