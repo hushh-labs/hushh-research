@@ -123,7 +123,11 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
-    for path in (".github/workflows/deploy-uat.yml", ".github/workflows/deploy-dev.yml"):
+    for path in (
+        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-dev.yml",
+        ".github/workflows/deploy-founder.yml",
+    ):
         workflow = _read(path)
         assert workflow.count("status.latestReadyRevisionName") == 0
         assert workflow.count("status.latestCreatedRevisionName") == 2

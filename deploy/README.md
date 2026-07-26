@@ -295,11 +295,12 @@ Manual dispatch now supports `scope`:
 
 **For seamless deployment:**
 
-1. **GitHub environment variables:** configure `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT` in each of `dev`, `uat`, and `production`. The deploy principal must use GitHub OIDC Workload Identity Federation, receive only the deploy permissions it needs, and have `roles/iam.serviceAccountUser` on that environment's exact runtime service account. Do not create or upload a JSON service-account key.
+1. **GitHub environment variables:** configure `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT` in each of `dev`, `founder`, `uat`, and `production`. The deploy principal must use GitHub OIDC Workload Identity Federation, receive only the deploy permissions it needs, and have `roles/iam.serviceAccountUser` on that environment's exact runtime service account. Do not create or upload a JSON service-account key.
 2. **Backup variables:** configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_BACKUP_SERVICE_ACCOUNT` for the scheduled production backup posture check. The backup identity should be read-only for the governed backup bucket.
 3. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
 4. **Environment policy:** keep only the canonical deploy environments in active use:
    - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md))
+   - `founder` (founder/leadership fast sandbox for highly-unstable features; a dev-shaped replica in its own project that never promotes — see [docs/reference/operations/founder-sandbox.md](../docs/reference/operations/founder-sandbox.md))
    - `uat`
    - `production`
    Legacy unused production environments should not remain as parallel approval lanes.
