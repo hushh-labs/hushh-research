@@ -144,6 +144,34 @@ class TestAgentTreeShape:
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
 
+    def test_identity_instruction_carries_persona_grounding(self):
+        # Durable north-star + principle grounding is folded into the shared
+        # identity string, so it reaches BOTH the text and Live heads.
+        assert "Hushh Principle" in ONE_IDENTITY_INSTRUCTION
+        assert "work for the person whose life it touches" in ONE_IDENTITY_INSTRUCTION
+        assert "Your four motions" in ONE_IDENTITY_INSTRUCTION
+        for motion in ("Listen:", "Remember:", "Decide:", "Act:"):
+            assert motion in ONE_IDENTITY_INSTRUCTION
+        # Four non-negotiables.
+        assert "BYOK" in ONE_IDENTITY_INSTRUCTION
+        assert "Consent-first" in ONE_IDENTITY_INSTRUCTION
+        assert "Tri-flow parity" in ONE_IDENTITY_INSTRUCTION
+        # Authoritative registry-sourced roster catalog.
+        assert "YOUR SPECIALISTS" in ONE_IDENTITY_INSTRUCTION
+        assert "Kai Financial Agent" in ONE_IDENTITY_INSTRUCTION
+        assert "agent.kai.analyze" in ONE_IDENTITY_INSTRUCTION
+
+    def test_persona_grounding_reaches_both_heads(self):
+        # The persona reaches a head iff that head's instruction provider is the
+        # shared _one_runtime_instruction, which always begins from
+        # ONE_IDENTITY_INSTRUCTION. Assert both heads wire that provider (via
+        # source, so this does not depend on constructing the Live model) and
+        # that the provider carries the persona on a bare context.
+        marker = "YOUR SPECIALISTS"
+        assert marker in _one_runtime_instruction(SimpleNamespace(state={}))
+        for builder in (build_one_root_agent, build_one_text_agent):
+            assert "instruction=_one_runtime_instruction" in inspect.getsource(builder)
+
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
             SimpleNamespace(

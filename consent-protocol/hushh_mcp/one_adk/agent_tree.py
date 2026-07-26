@@ -51,6 +51,7 @@ from hushh_mcp.one_adk.action_tools import (
     run_app_action,
     start_app_goal,
 )
+from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
@@ -220,6 +221,16 @@ def _build_one_live_model():
     )
 
 
+# Durable persona + north-star + roster grounding, composed from the canonical
+# ontology/context docs and the product agent registry (see one_persona.py).
+# Folded into ONE_IDENTITY_INSTRUCTION so it reaches BOTH the text head
+# (build_one_text_agent) and the Live head (build_one_root_agent), which share
+# _one_runtime_instruction. It is identity/values grounding, never authority.
+_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
+    _ONE_MANIFEST.capabilities.get("specialist_roster", [])
+)
+
+
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
@@ -227,6 +238,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
+    # Section 1b: durable persona, north stars, and authoritative roster.
+     + _ONE_PERSONA_GROUNDING + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
