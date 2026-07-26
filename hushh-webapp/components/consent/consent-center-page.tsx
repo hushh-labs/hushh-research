@@ -102,6 +102,11 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildConsentCenterTabRoute,
+  TOP_SHELL_TAB_REGISTRY,
+} from "@/lib/navigation/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { cn } from "@/lib/utils";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -364,6 +369,34 @@ function consentEntryMatchesScope(entry: ConsentCenterEntry, scope: string) {
         trail.events?.some((event) => event.scope === scope),
     ),
   );
+}
+
+function filterConsentSurfaceEntries(
+  source: ConsentCenterEntry[],
+  surface: "pending" | "active" | "previous" | "connections",
+  locallyHandledRequestIds: Set<string>,
+  locallyRevokedScopes: Set<string>,
+): ConsentCenterEntry[] {
+  return source.filter((entry) => {
+    if (
+      surface === "pending" &&
+      entry.request_id &&
+      locallyHandledRequestIds.has(entry.request_id)
+    ) {
+      return false;
+    }
+    if (surface === "pending" && locallyHandledRequestIds.has(entry.id)) {
+      return false;
+    }
+    if (
+      entry.scope &&
+      locallyRevokedScopes.has(entry.scope) &&
+      entry.kind === "active_grant"
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function applyConsentMutationToList(
@@ -1222,6 +1255,92 @@ function ConsentEntryDetail({
   );
 }
 
+/**
+ * One SwipeViews pane's list body (rows + pagination). Presentational only -
+ * every pane stays mounted, so each owns its own resource one level up in
+ * ConsentCenterPage; the shared announcer/session-recovery/retry banners for
+ * whichever tab is actually active stay outside this component entirely.
+ */
+function ConsentSurfaceListSection({
+  loading,
+  emptyMessage,
+  items,
+  selectedEntry,
+  selectedId,
+  onSelectEntry,
+  pagination,
+}: {
+  loading: boolean;
+  emptyMessage: string;
+  items: ConsentCenterEntry[];
+  selectedEntry: ConsentCenterEntry | null;
+  selectedId: string | null;
+  onSelectEntry: (entry: ConsentCenterEntry) => void;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+    onPrevious: () => void;
+    onNext: () => void;
+  } | null;
+}) {
+  return (
+    <div className="space-y-2 px-2 py-2">
+      {loading && items.length === 0 ? (
+        <div className="px-3 py-6 text-sm text-muted-foreground">
+          Loading consent entries…
+        </div>
+      ) : null}
+      {!loading && items.length === 0 ? (
+        <div className="px-3 py-8 text-sm text-muted-foreground">
+          {emptyMessage}
+        </div>
+      ) : null}
+      {items.map((entry, index) => (
+        <ConsentEntryRow
+          key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+          entry={entry}
+          selected={
+            // Bug: when nothing is selected, selectedEntry is null,
+            // so selectedEntry?.id and selectedEntry?.request_id are
+            // both undefined. Entries without their own request_id
+            // (e.g. one_location_grant rows) also have
+            // entry.request_id === undefined, so
+            // "undefined === undefined" was true and falsely
+            // highlighted that row as selected on every render -
+            // this is the row that appeared to randomly "jump" to
+            // a different entry on every tab switch. Require a
+            // real selectedEntry (or a matching selectedId) before
+            // comparing ids at all.
+            Boolean(
+              selectedEntry &&
+              (selectedEntry.id === entry.id ||
+                (selectedEntry.request_id &&
+                  selectedEntry.request_id === entry.request_id)),
+            ) ||
+            Boolean(
+              selectedId &&
+              consentEntryMatchesSelectedId(entry, selectedId),
+            )
+          }
+          onSelect={() => onSelectEntry(entry)}
+        />
+      ))}
+      {pagination ? (
+        <PaginatedListFooter
+          page={pagination.page}
+          limit={pagination.limit}
+          total={pagination.total}
+          hasMore={pagination.hasMore}
+          onPrevious={pagination.onPrevious}
+          onNext={pagination.onNext}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function ConsentCenterPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -1245,10 +1364,50 @@ export function ConsentCenterPage() {
   const consentScopeKey = apiActor === "ria" ? "ria" : "one";
   const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
+  // SwipeViews keeps every pane mounted, so each tab's resource must load only
+  // once it has actually been visited (never eagerly on mount) - otherwise a
+  // background Connections pane would call getCenter() on every page load.
+  const [visitedSurfaces, setVisitedSurfaces] = useState<Set<ConsentTab>>(
+    () => new Set([tab]),
+  );
+  useEffect(() => {
+    setVisitedSurfaces((current) =>
+      current.has(tab) ? current : new Set(current).add(tab),
+    );
+  }, [tab]);
+  // Fast, local "which pane is showing" state for SwipeViews - the route
+  // (`tab`) stays the selection authority, matching the same visible/active
+  // split Kai's own SwipeViews-backed tabs already use.
+  const [visibleTab, setVisibleTab] = useState<ConsentTab>(tab);
+  useEffect(() => {
+    setVisibleTab(tab);
+  }, [tab]);
+  const commitConsentTab = useCallback(
+    (value: ConsentTab) => {
+      if (value === tab) return;
+      // A tab switch deliberately drops list/search/detail state - the same
+      // contract the shell's tab pills and route-hop swipe already use (see
+      // buildConsentCenterTabRoute), so swiping and clicking stay identical.
+      router.push(buildConsentCenterTabRoute(value, searchParams), {
+        scroll: false,
+      });
+    },
+    [router, searchParams, tab],
+  );
   const managerView: "incoming" | "outgoing" = riaOutgoingCompatibilityRoute
     ? "outgoing"
     : "incoming";
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+  // Pagination stays URL-backed only for the currently active tab (matching
+  // today's single shared `page` param); background panes that are mounted
+  // but not the active tab keep their own local page so swiping away and back
+  // does not reset them, without entangling the URL with a tab you cannot see.
+  const [pendingLocalPage, setPendingLocalPage] = useState(1);
+  const [activeLocalPage, setActiveLocalPage] = useState(1);
+  const [previousLocalPage, setPreviousLocalPage] = useState(1);
+  const pendingPage = tab === "requests" ? page : pendingLocalPage;
+  const activePage = tab === "active" ? page : activeLocalPage;
+  const previousPage = tab === "history" ? page : previousLocalPage;
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
   // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
@@ -1580,7 +1739,7 @@ export function ConsentCenterPage() {
       ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}`)
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}`,
-    enabled: Boolean(user?.uid && tab === "connections"),
+    enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1596,10 +1755,23 @@ export function ConsentCenterPage() {
     },
   });
 
-  const listResource = useStaleResource({
-    cacheKey: listCacheKey,
-    refreshKey: `${consentScopeKey}:${mode}:${listSurface}:${deferredQuery}:${page}`,
-    enabled: Boolean(user?.uid && tab !== "connections"),
+  // Requests / Active / History each get their own resource (rather than one
+  // resource that swaps surface/page when `tab` changes) so all four
+  // SwipeViews panes can stay mounted and independently live, matching how
+  // Kai/Location's tab sets already behave under SwipeViews.
+  const pendingResource = useStaleResource({
+    cacheKey: user?.uid
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          user.uid,
+          `${consentScopeKey}:${mode}`,
+          "pending",
+          deferredQuery,
+          pendingPage,
+          CONSENT_CENTER_PAGE_SIZE,
+        )
+      : "consent_center_list_guest_pending",
+    refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
+    enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1610,14 +1782,85 @@ export function ConsentCenterPage() {
         userId: user.uid,
         actor: apiActor,
         mode,
-        surface: listSurface,
+        surface: "pending",
         q: deferredQuery,
-        page,
+        page: pendingPage,
         limit: CONSENT_CENTER_PAGE_SIZE,
         force: Boolean(options?.force),
       });
     },
   });
+  const activeResource = useStaleResource({
+    cacheKey: user?.uid
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          user.uid,
+          `${consentScopeKey}:${mode}`,
+          "active",
+          deferredQuery,
+          activePage,
+          CONSENT_CENTER_PAGE_SIZE,
+        )
+      : "consent_center_list_guest_active",
+    refreshKey: `${consentScopeKey}:${mode}:active:${deferredQuery}:${activePage}`,
+    enabled: Boolean(user?.uid) && visitedSurfaces.has("active"),
+    load: async (options) => {
+      const idToken = await idTokenLoader();
+      if (!user?.uid || !idToken) {
+        throw new Error("Sign in to review consents");
+      }
+      return ConsentCenterService.listEntries({
+        idToken,
+        userId: user.uid,
+        actor: apiActor,
+        mode,
+        surface: "active",
+        q: deferredQuery,
+        page: activePage,
+        limit: CONSENT_CENTER_PAGE_SIZE,
+        force: Boolean(options?.force),
+      });
+    },
+  });
+  const previousResource = useStaleResource({
+    cacheKey: user?.uid
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          user.uid,
+          `${consentScopeKey}:${mode}`,
+          "previous",
+          deferredQuery,
+          previousPage,
+          CONSENT_CENTER_PAGE_SIZE,
+        )
+      : "consent_center_list_guest_previous",
+    refreshKey: `${consentScopeKey}:${mode}:previous:${deferredQuery}:${previousPage}`,
+    enabled: Boolean(user?.uid) && visitedSurfaces.has("history"),
+    load: async (options) => {
+      const idToken = await idTokenLoader();
+      if (!user?.uid || !idToken) {
+        throw new Error("Sign in to review consents");
+      }
+      return ConsentCenterService.listEntries({
+        idToken,
+        userId: user.uid,
+        actor: apiActor,
+        mode,
+        surface: "previous",
+        q: deferredQuery,
+        page: previousPage,
+        limit: CONSENT_CENTER_PAGE_SIZE,
+        force: Boolean(options?.force),
+      });
+    },
+  });
+  // The tab actually visible right now, in the exact shape the rest of this
+  // component already expects from "the one active list resource".
+  const listResource = tab === "requests"
+    ? pendingResource
+    : tab === "history"
+      ? previousResource
+      : tab === "active"
+        ? activeResource
+        : null;
   const forcedMutationRefreshRef = useRef(0);
 
   useEffect(() => {
@@ -1629,7 +1872,7 @@ export function ConsentCenterPage() {
     if (tab === "connections") {
       void centerResource.refresh({ force: true });
     } else {
-      void listResource.refresh({ force: true });
+      void listResource?.refresh({ force: true });
     }
   }, [centerResource, listResource, mutationTick, summaryResource, tab]);
 
@@ -1640,15 +1883,15 @@ export function ConsentCenterPage() {
   }, [summaryCacheKey, summaryResource.data]);
 
   useEffect(() => {
-    if (listResource.data) {
+    if (listResource?.data) {
       setRetainedList({ key: listCacheKey, data: listResource.data });
     }
-  }, [listCacheKey, listResource.data]);
+  }, [listCacheKey, listResource?.data]);
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
   const listData =
-    listResource.data ??
+    listResource?.data ??
     (retainedList?.key === listCacheKey ? retainedList.data : null);
 
   const applyConfirmedConsentMutation = useCallback(
@@ -1748,37 +1991,74 @@ export function ConsentCenterPage() {
       ),
     [centerResource.data, deferredQuery],
   );
-  const items = useMemo(() => {
-    const source =
-      tab === "connections" ? connectionItems : listData?.items || [];
-    return source.filter((entry) => {
-      if (
-        listSurface === "pending" &&
-        entry.request_id &&
-        locallyHandledRequestIds.has(entry.request_id)
-      ) {
-        return false;
-      }
-      if (listSurface === "pending" && locallyHandledRequestIds.has(entry.id)) {
-        return false;
-      }
-      if (
-        entry.scope &&
-        locallyRevokedScopes.has(entry.scope) &&
-        entry.kind === "active_grant"
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [
-    listData?.items,
-    locallyHandledRequestIds,
-    locallyRevokedScopes,
-    listSurface,
-    connectionItems,
-    tab,
-  ]);
+  const items = useMemo(
+    () =>
+      filterConsentSurfaceEntries(
+        tab === "connections" ? connectionItems : listData?.items || [],
+        listSurface,
+        locallyHandledRequestIds,
+        locallyRevokedScopes,
+      ),
+    [
+      listData?.items,
+      locallyHandledRequestIds,
+      locallyRevokedScopes,
+      listSurface,
+      connectionItems,
+      tab,
+    ],
+  );
+  // Every pane stays mounted under SwipeViews, so whichever pane is NOT the
+  // active tab still needs its own filtered items to render - `items` above
+  // only ever reflects the currently active surface.
+  const pendingItems = useMemo(
+    () =>
+      tab === "requests"
+        ? items
+        : filterConsentSurfaceEntries(
+            pendingResource.data?.items || [],
+            "pending",
+            locallyHandledRequestIds,
+            locallyRevokedScopes,
+          ),
+    [tab, items, pendingResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+  );
+  const activeSurfaceItems = useMemo(
+    () =>
+      tab === "active"
+        ? items
+        : filterConsentSurfaceEntries(
+            activeResource.data?.items || [],
+            "active",
+            locallyHandledRequestIds,
+            locallyRevokedScopes,
+          ),
+    [tab, items, activeResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+  );
+  const previousItems = useMemo(
+    () =>
+      tab === "history"
+        ? items
+        : filterConsentSurfaceEntries(
+            previousResource.data?.items || [],
+            "previous",
+            locallyHandledRequestIds,
+            locallyRevokedScopes,
+          ),
+    [tab, items, previousResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+  );
+  const connectionsSurfaceItems = useMemo(
+    () =>
+      tab === "connections"
+        ? items
+        : filterConsentSurfaceEntries(
+            connectionItems,
+            "connections",
+            locallyHandledRequestIds,
+            locallyRevokedScopes,
+          ),
+    [tab, items, connectionItems, locallyHandledRequestIds, locallyRevokedScopes],
+  );
   const selectedEntryFromList = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -1834,11 +2114,13 @@ export function ConsentCenterPage() {
     return pendingLookupItemToConsentEntry(item);
   }, [locallyHandledRequestIds, selectedPendingLookupResource.data]);
   const activeListError =
-    tab === "connections" ? centerResource.error : listResource.error;
+    tab === "connections" ? centerResource.error : listResource!.error;
   const activeListLoading =
-    tab === "connections" ? centerResource.loading : listResource.loading;
+    tab === "connections" ? centerResource.loading : listResource!.loading;
   const activeListRefreshing =
-    tab === "connections" ? centerResource.refreshing : listResource.refreshing;
+    tab === "connections"
+      ? centerResource.refreshing
+      : listResource!.refreshing;
   const consentLoadError = activeListError || summaryResource.error;
   const isAuthLoadError = isAuthConsentLoadError(consentLoadError);
   const hasVisibleConsentListData =
@@ -1854,10 +2136,10 @@ export function ConsentCenterPage() {
     (!authLoading && !user) || (isAuthLoadError && !hasVisibleConsentListData),
   );
   const visibleSnapshot =
-    tab === "connections" ? centerResource.snapshot : listResource.snapshot;
+    tab === "connections" ? centerResource.snapshot : listResource!.snapshot;
   const isConsentActionRefreshing =
     summaryResource.refreshing ||
-    listResource.refreshing ||
+    Boolean(listResource?.refreshing) ||
     centerResource.refreshing;
   const accessibilityStatusMessage = activeListLoading
     ? "Consent entries are loading."
@@ -1881,7 +2163,7 @@ export function ConsentCenterPage() {
   const selectedRequestResolving = Boolean(
     selectedId &&
     !selectedEntry &&
-    (listResource.loading ||
+    (Boolean(listResource?.loading) ||
       selectedPendingLookupResource.loading ||
       selectedPendingLookupResource.refreshing),
   );
@@ -1899,7 +2181,7 @@ export function ConsentCenterPage() {
   const listMismatchRetryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (tab === "connections") return;
+    if (tab === "connections" || !listResource) return;
     if (deferredQuery) return;
     if (listResource.loading || listResource.refreshing) return;
     if (!summaryData || !listData) return;
@@ -2077,8 +2359,8 @@ export function ConsentCenterPage() {
         : null,
       busyOperations: [
         ...(summaryResource.loading ? ["consent_summary_load"] : []),
-        ...(listResource.loading ? ["consent_list_load"] : []),
-        ...(listResource.refreshing ? ["consent_list_refresh"] : []),
+        ...(listResource?.loading ? ["consent_list_load"] : []),
+        ...(listResource?.refreshing ? ["consent_list_refresh"] : []),
       ],
       screenMetadata: {
         actor,
@@ -2102,8 +2384,8 @@ export function ConsentCenterPage() {
     items.length,
     lastVoiceControlId,
     listData?.total,
-    listResource.loading,
-    listResource.refreshing,
+    listResource?.loading,
+    listResource?.refreshing,
     managerView,
     riaOutgoingCompatibilityRoute,
     searchValue,
@@ -2178,6 +2460,54 @@ export function ConsentCenterPage() {
     tab === "connections"
       ? "Search connections by name, email, scope, or status"
       : `Search ${tab} by name, email, scope, or reason`;
+
+  // Pagination stays URL-backed for whichever surface is the active tab (so
+  // links/back-forward keep working exactly as today); a swiped-to-but-not-
+  // committed background pane pages through its own local state instead.
+  function buildSurfacePagination(
+    surface: "requests" | "active" | "history",
+    displayData: ConsentCenterPageListResponse | null,
+    currentPage: number,
+    setLocalPage: (value: number) => void,
+  ) {
+    if (!displayData) return null;
+    return {
+      page: displayData.page,
+      limit: displayData.limit,
+      total: displayData.total,
+      hasMore: displayData.has_more,
+      onPrevious: () => {
+        const next = Math.max(1, currentPage - 1);
+        if (tab === surface) setParam({ page: String(next) });
+        else setLocalPage(next);
+      },
+      onNext: () => {
+        const next = currentPage + 1;
+        if (tab === surface) setParam({ page: String(next) });
+        else setLocalPage(next);
+      },
+    };
+  }
+
+  const pendingPagination = buildSurfacePagination(
+    "requests",
+    tab === "requests" ? listData : pendingResource.data,
+    pendingPage,
+    setPendingLocalPage,
+  );
+  const activePagination = buildSurfacePagination(
+    "active",
+    tab === "active" ? listData : activeResource.data,
+    activePage,
+    setActiveLocalPage,
+  );
+  const previousPagination = buildSurfacePagination(
+    "history",
+    tab === "history" ? listData : previousResource.data,
+    previousPage,
+    setPreviousLocalPage,
+  );
+
   return (
     <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
       <CapabilityExploreCard capabilityId="consent" />
@@ -2238,7 +2568,7 @@ export function ConsentCenterPage() {
                 </div>
                 {(tab === "connections"
                   ? centerResource.loading || centerResource.refreshing
-                  : listResource.loading || listResource.refreshing) &&
+                  : listResource!.loading || listResource!.refreshing) &&
                 items.length > 0 ? (
                   <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
@@ -2249,115 +2579,100 @@ export function ConsentCenterPage() {
 
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
-                <div className="space-y-2 px-2 py-2">
-                  <AccessibilityStatusAnnouncer
-                    message={accessibilityStatusMessage}
-                  />
+                <AccessibilityStatusAnnouncer
+                  message={accessibilityStatusMessage}
+                />
 
-                  {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+                {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 
-                  {isConsentActionRefreshing && items.length > 0 ? (
-                    <AsyncActionStatus
-                      state="loading"
-                      label="Refreshing consent state..."
-                      compact
-                    />
-                  ) : null}
-
-                  {showCompactRetryState ? (
-                    <ApiRetryState
-                      variant="compact"
-                      title="Showing saved consent information"
-                      description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
-                      onRetry={retryConsentCenter}
-                      showRetryAction={false}
-                    />
-                  ) : null}
-
-                  {showFullRetryState && !showSessionRecovery ? (
-                    <ApiRetryState
-                      title="Consent service is unavailable"
-                      description={
-                        consentLoadError
-                          ? `The consent service did not return the latest access state. ${consentLoadError}`
-                          : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
-                      }
-                      onRetry={retryConsentCenter}
-                      showRetryAction={false}
-                    />
-                  ) : null}
-
-                  {listResource.loading &&
-                  items.length === 0 &&
-                  !showFullRetryState ? (
-                    <div className="px-3 py-6 text-sm text-muted-foreground">
-                      Loading consent entries…
-                    </div>
-                  ) : null}
-                  {!listResource.loading &&
-                  !showFullRetryState &&
-                  tab !== "connections" &&
-                  items.length === 0 ? (
-                    <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No {tab} entries match this view right now.
-                    </div>
-                  ) : null}
-                  {!centerResource.loading &&
-                  !showFullRetryState &&
-                  tab === "connections" &&
-                  items.length === 0 ? (
-                    <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No connections match this view right now.
-                    </div>
-                  ) : null}
-                  {items.map((entry, index) => (
-                    <ConsentEntryRow
-                      key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-                      entry={entry}
-                      selected={
-                        // Bug: when nothing is selected, selectedEntry is null,
-                        // so selectedEntry?.id and selectedEntry?.request_id are
-                        // both undefined. Entries without their own request_id
-                        // (e.g. one_location_grant rows) also have
-                        // entry.request_id === undefined, so
-                        // "undefined === undefined" was true and falsely
-                        // highlighted that row as selected on every render -
-                        // this is the row that appeared to randomly "jump" to
-                        // a different entry on every tab switch. Require a
-                        // real selectedEntry (or a matching selectedId) before
-                        // comparing ids at all.
-                        Boolean(
-                          selectedEntry &&
-                          (selectedEntry.id === entry.id ||
-                            (selectedEntry.request_id &&
-                              selectedEntry.request_id === entry.request_id)),
-                        ) ||
-                        Boolean(
-                          selectedId &&
-                          consentEntryMatchesSelectedId(entry, selectedId),
-                        )
-                      }
-                      onSelect={() =>
-                        setParam({
-                          requestId: entry.request_id || entry.id,
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-
-                {tab !== "connections" && listData ? (
-                  <PaginatedListFooter
-                    page={listData.page}
-                    limit={listData.limit}
-                    total={listData.total}
-                    hasMore={listData.has_more}
-                    onPrevious={() =>
-                      setParam({ page: String(Math.max(1, page - 1)) })
-                    }
-                    onNext={() => setParam({ page: String(page + 1) })}
+                {isConsentActionRefreshing && items.length > 0 ? (
+                  <AsyncActionStatus
+                    state="loading"
+                    label="Refreshing consent state..."
+                    compact
                   />
                 ) : null}
+
+                {showCompactRetryState ? (
+                  <ApiRetryState
+                    variant="compact"
+                    title="Showing saved consent information"
+                    description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
+                    onRetry={retryConsentCenter}
+                    showRetryAction={false}
+                  />
+                ) : null}
+
+                {showFullRetryState && !showSessionRecovery ? (
+                  <ApiRetryState
+                    title="Consent service is unavailable"
+                    description={
+                      consentLoadError
+                        ? `The consent service did not return the latest access state. ${consentLoadError}`
+                        : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
+                    }
+                    onRetry={retryConsentCenter}
+                    showRetryAction={false}
+                  />
+                ) : null}
+
+                <SwipeViews
+                  tabSetId={TOP_SHELL_TAB_REGISTRY.consent.id}
+                  activeValue={visibleTab}
+                  options={TOP_SHELL_TAB_REGISTRY.consent.tabs}
+                  onSelectionChange={(value) =>
+                    setVisibleTab(value as ConsentTab)
+                  }
+                  onSelectionCommit={(value) =>
+                    commitConsentTab(value as ConsentTab)
+                  }
+                  panelInset="none"
+                >
+                  <ConsentSurfaceListSection
+                    loading={pendingResource.loading}
+                    emptyMessage="No requests entries match this view right now."
+                    items={pendingItems}
+                    selectedEntry={selectedEntry}
+                    selectedId={selectedId}
+                    onSelectEntry={(entry) =>
+                      setParam({ requestId: entry.request_id || entry.id })
+                    }
+                    pagination={pendingPagination}
+                  />
+                  <ConsentSurfaceListSection
+                    loading={activeResource.loading}
+                    emptyMessage="No active entries match this view right now."
+                    items={activeSurfaceItems}
+                    selectedEntry={selectedEntry}
+                    selectedId={selectedId}
+                    onSelectEntry={(entry) =>
+                      setParam({ requestId: entry.request_id || entry.id })
+                    }
+                    pagination={activePagination}
+                  />
+                  <ConsentSurfaceListSection
+                    loading={previousResource.loading}
+                    emptyMessage="No history entries match this view right now."
+                    items={previousItems}
+                    selectedEntry={selectedEntry}
+                    selectedId={selectedId}
+                    onSelectEntry={(entry) =>
+                      setParam({ requestId: entry.request_id || entry.id })
+                    }
+                    pagination={previousPagination}
+                  />
+                  <ConsentSurfaceListSection
+                    loading={centerResource.loading}
+                    emptyMessage="No connections match this view right now."
+                    items={connectionsSurfaceItems}
+                    selectedEntry={selectedEntry}
+                    selectedId={selectedId}
+                    onSelectEntry={(entry) =>
+                      setParam({ requestId: entry.request_id || entry.id })
+                    }
+                    pagination={null}
+                  />
+                </SwipeViews>
               </SettingsGroup>
             </section>
           </section>

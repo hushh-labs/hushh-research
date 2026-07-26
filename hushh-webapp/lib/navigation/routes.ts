@@ -108,6 +108,8 @@ export const ROUTES = {
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
+  /** Cross-domain activity feed: consent, location, Kai, KYC, connected systems, connections. */
+  ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
   AGENT: "/agent",

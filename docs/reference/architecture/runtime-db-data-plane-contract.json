@@ -612,6 +612,21 @@
       "trust_boundary": "Developer metadata and token hashes/wrappers only; no user PKM payloads.",
       "plaintext_posture": "metadata_and_token_hashes",
       "expected_row_growth": "low_developer"
+    },
+    {
+      "id": "feed_events",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "feed_events"
+      ],
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking",
+      "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
+      "deletion_behavior": "Hard-delete with account deletion.",
+      "trust_boundary": "Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
     }
   ]
 }

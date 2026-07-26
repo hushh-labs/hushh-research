@@ -49,6 +49,7 @@ from hushh_mcp.operons.kai.llm import (
     _gemini_unavailable_payload,
     _require_gemini_ready,
 )
+from hushh_mcp.services.feed_service import FeedService
 
 try:
     from google.genai import types as _genai_types  # type: ignore
@@ -5586,7 +5587,19 @@ class OneEmailKycService:
                 status_code=404,
                 code="ONE_KYC_WORKFLOW_NOT_FOUND",
             )
-        return self._public_workflow(dict(rows[0]))
+        row = dict(rows[0])
+        if "status" in updates and row.get("user_id"):
+            FeedService().record_event(
+                user_id=row["user_id"],
+                source_domain="kyc",
+                event_type="kyc_status_changed",
+                actor_label="KYC",
+                metadata={
+                    "new_status": row.get("status"),
+                    "counterparty_label": row.get("counterparty_label"),
+                },
+            )
+        return self._public_workflow(row)
 
     def _get_workflow_by_id(self, workflow_id: str) -> dict[str, Any] | None:
         rows = self.db.execute_raw(

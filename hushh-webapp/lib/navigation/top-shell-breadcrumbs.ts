@@ -118,6 +118,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
+    [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Kai",
     [ROUTES.CONNECT]: "Connect",

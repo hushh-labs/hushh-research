@@ -85,10 +85,10 @@ export const ShellActionSurface = React.forwardRef<
       {badge ? (
         <span
           className={cn(
-            // Callers that show a badge reserve trailing space with
-            // `wrapperClassName="pr-5"`. This anchors the badge at the outer
-            // edge of that gutter, clear of the icon well and adjacent action.
-            "pointer-events-none absolute right-0 top-0 z-20 -translate-y-1",
+            // A fixed corner overlay on the icon's own box, not the wrapper:
+            // the trigger's footprint never changes size when a badge
+            // appears or disappears, so sibling shell actions never shift.
+            "pointer-events-none absolute -right-1 -top-1 z-20",
             badgeClassName
           )}
         >

@@ -231,6 +231,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_KYC) {
     return { screen: "one_kyc", subview: query.get("panel") || null };
   }
+  if (normalizedPath === ROUTES.ONE_FEED) {
+    return { screen: "one_feed", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
     return { screen: "one_location_map", subview: null };
   }

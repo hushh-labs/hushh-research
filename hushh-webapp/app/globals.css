@@ -273,6 +273,13 @@ textarea {
   --app-accent-hero-from: #0a2f5e;
   --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #4a9eff;
+  /* Accent PICKER swatches only (Profile → Preferences → Accent). Both
+     identities are theme-invariant (see the "ONE Action Blue" / gold-base
+     comments above and below), so these stay unscoped by .dark or
+     data-accent and can render both options' true colors side by side in
+     the selector, regardless of which one is currently live. */
+  --accent-preview-blue: #007aff;
+  --accent-preview-gold: #d4a574;
 
   /* Legacy gold names now ALIAS the accent family so every existing
      consumer follows the accent preference automatically. The literal
@@ -3149,7 +3156,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--ambient-chrome-bottom-fg, #1d1d1f) !important;
+  color: var(--app-accent) !important;
   font-weight: 600;
 }
 

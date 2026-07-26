@@ -25,7 +25,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
-5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition.
+5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition. The paired swipeable content pager is `SwipeViews` at `@/lib/morphy-ux/ui/swipe-views` (see Lean Route Headers And Responsive Lists below) — use it instead of a new carousel/tab-content implementation whenever a page has more than one locally-selectable view.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 8. `AppPageShell` and `FullscreenFlowShell` own the route container contract; feature files must not replace that contract with route-local `max-w-* mx-auto px-*` wrappers.
@@ -217,6 +217,24 @@ The top shell’s Finance, Location, Consent Center, and public Explore tab sets
 use equal fixed tracks from the central registry. They remain visible and
 interactive above the ambient mask on every responsive surface; route bodies
 may supply only the paired pager, never another tab row.
+
+`SwipeViews` (`@/lib/morphy-ux/ui/swipe-views`) is that paired pager and the
+one canonical primitive for any route or panel with more than one
+locally-selectable content view, whether the selection is query-backed
+(Finance, Location, Consent Center, the Analysis workspace's Debate/Summary/
+Detailed split) or purely local state (Marketplace, Profile's PKM Agent Lab).
+It keeps every pane mounted (`aria-hidden`, never unmounted) and reports
+selection in two stages — `onSelectionChange` fires immediately for the
+visible pill/underline, `onSelectionCommit` fires after the drag settles for
+the URL or state write that should not sit in the pointer/scroll hot path.
+Use `panelInset="page"` when the surrounding shell has cancelled its own
+gutter (Finance/Location's full-bleed layout); use the default
+`panelInset="none"` when the shell already provides normal padding
+(Marketplace, Profile, Analysis, Consent Center). Do not build a new
+swipeable-pane implementation, and do not reach for the stock shadcn
+`components/ui/carousel` for tab content — `SwipeViews` is the only one with
+the tab-underline swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
+that the top shell's pill relies on.
 
 Motion has one standard content-enter expression across One and every
 specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,

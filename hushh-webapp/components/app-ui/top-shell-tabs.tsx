@@ -57,6 +57,11 @@ export function TopShellTabs({
     0,
     tabSet.tabs.findIndex((tab) => tab.value === selectedValue),
   );
+  // A single-entry tab set has nothing to switch between, so the sliding
+  // pill and accent underline (both designed to show which of several
+  // segments is active) would otherwise render as one meaningless
+  // full-width bar. Skip the decorative indicators in that case.
+  const showIndicators = tabSet.tabs.length > 1;
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
@@ -151,35 +156,39 @@ export function TopShellTabs({
             </button>
           );
         })}
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-1.5 left-0 motion-reduce:transition-none",
-            tabSwipeState.isDragging
-              ? "transition-none"
-              : "transition-transform duration-150 ease-out",
-          )}
-          style={{
-            transform: indicatorTransform,
-            width: tabWidth,
-          }}
-        >
-          <div className="mx-1 h-full rounded-full bg-current/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.05)] ring-1 ring-inset ring-current/[0.05]" />
-        </div>
-        <div
-          aria-hidden
-          data-testid="top-shell-tab-indicator"
-          className={cn(
-            "absolute bottom-0 left-0 z-20 h-[3px] rounded-full bg-[var(--app-accent)] shadow-[0_1px_10px_color-mix(in_oklab,var(--app-accent)_45%,transparent)] motion-reduce:transition-none",
-            tabSwipeState.isDragging
-              ? "transition-none"
-              : "transition-transform duration-150 ease-out",
-          )}
-          style={{
-            transform: indicatorTransform,
-            width: tabWidth,
-          }}
-        />
+        {showIndicators ? (
+          <>
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-1.5 left-0 motion-reduce:transition-none",
+                tabSwipeState.isDragging
+                  ? "transition-none"
+                  : "transition-transform duration-150 ease-out",
+              )}
+              style={{
+                transform: indicatorTransform,
+                width: tabWidth,
+              }}
+            >
+              <div className="mx-1 h-full rounded-full bg-current/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.05)] ring-1 ring-inset ring-current/[0.05]" />
+            </div>
+            <div
+              aria-hidden
+              data-testid="top-shell-tab-indicator"
+              className={cn(
+                "absolute bottom-0 left-0 z-20 h-[3px] rounded-full bg-[var(--app-accent)] shadow-[0_1px_10px_color-mix(in_oklab,var(--app-accent)_45%,transparent)] motion-reduce:transition-none",
+                tabSwipeState.isDragging
+                  ? "transition-none"
+                  : "transition-transform duration-150 ease-out",
+              )}
+              style={{
+                transform: indicatorTransform,
+                width: tabWidth,
+              }}
+            />
+          </>
+        ) : null}
       </div>
     </div>
   );

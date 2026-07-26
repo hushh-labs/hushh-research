@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { DeveloperDocsHub } from "@/components/developers/developer-docs-hub";
 import { BlogIndex } from "@/components/research/blog-index";
 import { ResearchLanding } from "@/components/research/research-landing";

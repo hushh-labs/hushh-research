@@ -46,10 +46,9 @@ function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Route-hop gestures for finite, route-backed shell tabs. Consent is the one
- * query-backed exception: its tab registry produces complete canonical URLs
- * and clears transient list/detail state before navigation. Other query-backed
- * workspaces retain their controlled pager.
+ * Route-hop gestures for finite, route-backed shell tabs. Query-backed
+ * workspaces (Finance, Location, Consent, public Explore) render their own
+ * in-page SwipeViews pager instead, which owns its own drag gesture.
  */
 export function TopShellRouteSwipe({
   children,
@@ -62,9 +61,7 @@ export function TopShellRouteSwipe({
   const pathname = usePathname();
   const swipeContentRef = useRef<HTMLDivElement | null>(null);
   const enabled = Boolean(
-    tabSet &&
-    (tabSet.queryParam === null || tabSet.id === "consent") &&
-    tabSet.tabs.length > 1,
+    tabSet && tabSet.queryParam === null && tabSet.tabs.length > 1,
   );
 
   useEffect(() => {

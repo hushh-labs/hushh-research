@@ -619,14 +619,13 @@ export function locationWorkflowNotificationCopy(params: {
 // Consent-surface routing
 // ---------------------------------------------------------------------------
 // One Location is a CONSENT feature, so its lifecycle events (share, access
-// request, approve, deny, revoke, expire) must surface in the consent
-// notification icon (the shield "Pending consents" dropdown) and the consent
-// manager tabs (Requests / Active Access / History) - NOT the general bell
-// (DebateTaskCenter / AppBackgroundTaskService). Those consent surfaces read
+// request, approve, deny, revoke, expire) must surface in the Consent Center
+// manager tabs (Requests / Active Access / History) and the Feed - NOT the
+// AppBackgroundTaskService task-active surface. Those consent surfaces read
 // from /api/consent/center/*, which now includes One Location rows via the
 // backend OneLocationCenterContributor merge. Dispatching this event nudges the
-// consent inbox + consent manager to refetch so the new row appears promptly
-// instead of waiting for the next poll.
+// consent manager to refetch so the new row appears promptly instead of
+// waiting for the next poll.
 function notifyConsentSurfaceRefresh(
   notificationType: string,
   id: string,
@@ -669,10 +668,10 @@ export function recordOneLocationShareNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the recipient's "Shared with me" section, so the
-  // share is reachable from the bell - not only the transient toast. The copy is
-  // kind-aware so the bell entry reads "SMS · Save my soul" / "Check-in shared" (with the
+  // Surface via AppBackgroundTaskService (Feed tab spinner + task-active
+  // state) with an "Open" deep-link into the recipient's "Shared with me"
+  // section, so the share is reachable beyond the transient toast. The copy is
+  // kind-aware so the entry reads "SMS · Save my soul" / "Check-in shared" (with the
   // note) / "Location shared" instead of one generic line for every share.
   const ownerLabel =
     String(params.ownerLabel || "").trim() || "A trusted person";
@@ -729,9 +728,9 @@ export function recordOneLocationWorkflowNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the relevant One-Location section, so the workflow
-  // event is reachable from the bell - not only the transient toast.
+  // Surface via AppBackgroundTaskService (Feed tab spinner + task-active
+  // state) with an "Open" deep-link into the relevant One-Location section, so
+  // the workflow event is reachable beyond the transient toast.
   const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
   AppBackgroundTaskService.startTask({
     taskId,

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
@@ -45,7 +45,11 @@ describe("TopShellRouteSwipe", () => {
     );
   });
 
-  it("tracks Consent swipe progress and commits the adjacent contextual tab", async () => {
+  it("does not attach a route-hop swipe gesture for Consent - it owns an in-page SwipeViews pager instead", () => {
+    // Consent used to be the one query-backed exception here. It now renders
+    // its own SwipeViews inside the page body (like Finance/Location already
+    // did), so this component must stay fully inert for it: no gesture
+    // listeners, no wrapper element, and no navigation on drag.
     const view = render(
       <TopShellRouteSwipe tabSet={CONSENT_TABS}>
         <div>Consent content</div>
@@ -54,7 +58,7 @@ describe("TopShellRouteSwipe", () => {
     const surface = view.container.querySelector<HTMLElement>(
       "[data-top-shell-route-swipe-content='true']",
     );
-    expect(surface).not.toBeNull();
+    expect(surface).toBeNull();
 
     fireEvent.touchStart(document, {
       touches: [{ clientX: 320, clientY: 120 }],
@@ -64,32 +68,12 @@ describe("TopShellRouteSwipe", () => {
       touches: [{ clientX: 180, clientY: 122 }],
       timeStamp: 100,
     });
-
-    expect(surface?.style.transform).toBe("translate3d(-25.2px, 0, 0)");
-    expect(
-      Number(
-        document.documentElement.style.getPropertyValue(
-          "--top-shell-tab-swipe-consent-position",
-        ),
-      ),
-    ).toBeGreaterThan(0);
-
     fireEvent.touchEnd(document, {
       changedTouches: [{ clientX: 160, clientY: 122 }],
       timeStamp: 140,
     });
 
-    await waitFor(() => {
-      expect(navigation.begin).toHaveBeenCalledWith(
-        "/one/consent?tab=active",
-        expect.any(Function),
-        "tap",
-        "contextual",
-      );
-    });
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/one/consent?tab=active",
-      { scroll: false },
-    );
+    expect(navigation.begin).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 });
