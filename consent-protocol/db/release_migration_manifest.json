@@ -95,7 +95,8 @@
     "114_one_action_directive_ledger.sql",
     "115_one_location_map_presence.sql",
     "116_one_location_sms_contacts.sql",
-    "117_feed_events.sql"
+    "117_feed_events.sql",
+    "118_preference_world_model.sql"
   ],
   "groups": {
     "iam": [

@@ -351,6 +351,12 @@ from api.routes import world_model  # noqa: E402
 
 app.include_router(world_model.router)
 
+# Personal World Model store (PCHP RFC-002 subscription fabric): the uid-keyed
+# preference doc behind /api/pwm and cross-device "your private agent knows you".
+from api.routes import pwm  # noqa: E402
+
+app.include_router(pwm.router)
+
 # Account deletion and management
 app.include_router(account.router)
 
@@ -650,6 +656,28 @@ async def startup_market_cache_store_table():
             raise
         logger.warning(
             "startup.market_cache_store_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
+
+
+@app.on_event("startup")
+async def startup_pwm_documents_table():
+    """Ensure the Personal World Model table exists before any /api/pwm request."""
+    from hushh_mcp.services.pwm_service import get_pwm_service
+
+    try:
+        await get_pwm_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.pwm_documents_table_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.pwm_documents_table_skipped environment=%s reason=%s",
             _environment(),
             exc,
         )
