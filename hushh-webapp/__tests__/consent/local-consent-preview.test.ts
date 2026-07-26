@@ -99,22 +99,20 @@ describe("local consent manager preview", () => {
         protocol: "capacitor:",
       }),
     ).toBe(false);
-    expect(
-      isLocalConsentPreviewRequest({
-        ...enabled,
-        searchParams: new URLSearchParams(
-          "tab=connections&preview=consent",
-        ),
-      }),
-    ).toBe(false);
-    expect(
-      isLocalConsentPreviewRequest({
-        ...enabled,
-        searchParams: new URLSearchParams(
-          "mode=connections&preview=consent",
-        ),
-      }),
-    ).toBe(false);
+    for (const query of [
+      "tab=connections",
+      "tab=relationships",
+      "view=connections",
+      "view=relationships",
+      "mode=connections",
+    ]) {
+      expect(
+        isLocalConsentPreviewRequest({
+          ...enabled,
+          searchParams: new URLSearchParams(`${query}&preview=consent`),
+        }),
+      ).toBe(false);
+    }
   });
 
   it("stays sticky across the three fixture tabs but never enters Connections", () => {
@@ -129,9 +127,17 @@ describe("local consent manager preview", () => {
     window.history.replaceState({}, "", "/one/consent?tab=active");
     expect(isLocalConsentPreviewRuntime()).toBe(true);
 
-    window.history.replaceState({}, "", "/one/consent?tab=connections");
-    expect(isLocalConsentPreviewRuntime()).toBe(false);
-    expect(syncLocalConsentPreviewSession()).toBe(false);
+    for (const query of [
+      "tab=connections",
+      "tab=relationships",
+      "view=connections",
+      "view=relationships",
+      "mode=connections",
+    ]) {
+      window.history.replaceState({}, "", `/one/consent?${query}`);
+      expect(isLocalConsentPreviewRuntime()).toBe(false);
+      expect(syncLocalConsentPreviewSession()).toBe(false);
+    }
 
     window.history.replaceState({}, "", "/one/consent?tab=history");
     expect(isLocalConsentPreviewRuntime()).toBe(true);

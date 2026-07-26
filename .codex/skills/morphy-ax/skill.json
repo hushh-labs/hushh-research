@@ -47,7 +47,7 @@
   ],
   "handoff_targets": [
     "frontend",
-    "kai-voice-governance",
+    "one-voice-governance",
     "backend-agents-operons",
     "frontend-design-system",
     "quality-contracts",
@@ -55,7 +55,7 @@
   ],
   "adjacent_skills": [
     "frontend-design-system",
-    "kai-voice-governance",
+    "one-voice-governance",
     "backend-agents-operons",
     "quality-contracts"
   ],

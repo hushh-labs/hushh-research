@@ -65,6 +65,7 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
@@ -3163,7 +3164,7 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={
-            <ThemeToggleLean size="expanded" className="w-full min-w-0" />
+            <ThemeToggleLean size="expanded" className="w-full sm:w-60 min-w-0" />
           }
           stackTrailingOnMobile
         />
@@ -3179,20 +3180,39 @@ function ProfilePageContent() {
               }}
             >
               <SelectTrigger
-                className="w-full min-w-[11rem] sm:w-[228px]"
+                className="w-full sm:w-60 min-w-[11rem]"
                 aria-label="App accent color"
               >
                 <SelectValue placeholder="iOS Blue" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="blue">iOS Blue</SelectItem>
-                <SelectItem value="gold">Molten Gold</SelectItem>
+                <SelectItem value="blue">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
+                    />
+                    iOS Blue
+                  </span>
+                </SelectItem>
+                <SelectItem value="gold">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
+                    />
+                    Molten Gold
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           }
           stackTrailingOnMobile
         />
       </SettingsGroup>
+      <SavedLocationsSection />
     </div>
   );
 

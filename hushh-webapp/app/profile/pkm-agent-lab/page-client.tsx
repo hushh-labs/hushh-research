@@ -30,6 +30,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -352,6 +353,14 @@ export default function PkmAgentLabPageClient() {
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"overview" | "permissions" | "advanced">("overview");
+  const pkmAgentLabTabOptions = useMemo(
+    () => [
+      { value: "overview", label: "Memory overview" },
+      { value: "permissions", label: "Permissions" },
+      { value: "advanced", label: "Advanced" },
+    ],
+    [],
+  );
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [manifests, setManifests] = useState<Record<string, DomainManifest | null>>({});
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
@@ -1102,15 +1111,16 @@ export default function PkmAgentLabPageClient() {
           <SettingsSegmentedTabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
-            options={[
-              { value: "overview", label: "Memory overview" },
-              { value: "permissions", label: "Permissions" },
-              { value: "advanced", label: "Advanced" },
-            ]}
+            options={pkmAgentLabTabOptions}
           />
 
+          <SwipeViews
+            tabSetId="pkm-agent-lab"
+            activeValue={activeTab}
+            options={pkmAgentLabTabOptions}
+            onSelectionChange={(value) => setActiveTab(value as typeof activeTab)}
+          >
           {/* ── Memory Overview tab ── */}
-          {activeTab === "overview" ? (
             <div className="space-y-4">
               <SettingsGroup embedded>
                 <SettingsRow
@@ -1126,10 +1136,8 @@ export default function PkmAgentLabPageClient() {
               </SettingsGroup>
               <PkmNaturalPanel onOpenExplorer={() => setActiveTab("advanced")} />
             </div>
-          ) : null}
 
           {/* ── Permissions tab ── */}
-          {activeTab === "permissions" ? (
           <SettingsGroup
             embedded
             title="Domain controls"
@@ -1244,10 +1252,8 @@ export default function PkmAgentLabPageClient() {
               })
             )}
           </SettingsGroup>
-          ) : null}
 
           {/* ── Advanced tab ── */}
-          {activeTab === "advanced" ? (
           <div className="space-y-4">
           <SettingsGroup
             embedded
@@ -1374,7 +1380,7 @@ export default function PkmAgentLabPageClient() {
             </div>
           ) : null}
           </div>
-          ) : null}
+          </SwipeViews>
         </SurfaceInset>
       </PkmSettingsShell>
 

@@ -100,6 +100,12 @@ const routes = (surfaceMap.routes || [])
       mode === "redirect" ||
       /oauth\/return|callback|logout/.test(route) ||
       (mode === "hidden" && actionIds.length === 0);
+    // Delegation is blocked only on genuine redirect/callback surfaces where the
+    // user is mid-flow and never actually converses (OAuth return, logout,
+    // redirect). Context-only "hidden" screens are real interactive surfaces
+    // where One must still be able to delegate, so they are NOT blocked here.
+    const blocksDelegation =
+      mode === "redirect" || /oauth\/return|callback|logout/.test(route);
     const authored =
       routeActions
         .map((action) => surfaces.get(action.surface_id)?.orchestration)
@@ -150,10 +156,20 @@ const routes = (surfaceMap.routes || [])
         : entry.voice_action_contract_file
           ? "local"
           : "none",
+      // One is the single routing authority: admission defaults to allow, so
+      // no_delegation/one_action_gate both admit and allowed_delegate_agent_ids
+      // is advisory (the screen's primary specialists). Only transitional
+      // surfaces (redirect, OAuth-return, callback, logout) explicitly block
+      // delegation, where mid-flow specialist work would be incoherent. Consent
+      // and TrustLink still gate every call inside the specialist.
       delegation_policy: {
         mode:
           authored.delegation_policy ||
-          (delegateAgentIds.length ? "one_action_gate" : "no_delegation"),
+          (blocksDelegation
+            ? "block_delegation"
+            : delegateAgentIds.length
+              ? "one_action_gate"
+              : "no_delegation"),
         allowed_delegate_agent_ids: delegateAgentIds,
       },
       trust_boundary: authored.trust_boundary || trustBoundary(actionIds, byId),

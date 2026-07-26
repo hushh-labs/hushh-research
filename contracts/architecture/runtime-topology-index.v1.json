@@ -734,6 +734,16 @@
       "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "feed_events"
+      ],
+      "id": "feed_events",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking"
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [],
       "id": "funding_trading_audit",
@@ -2061,6 +2071,29 @@
           "agent_nav"
         ],
         "playbook_id": "route.consents"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-feed",
+      "page_file": "app/one/feed/page.tsx",
+      "pathname": "/one/feed",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.feed"
       }
     },
     {
@@ -4188,14 +4221,14 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
-    "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
-    "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "2450e780a874943549dfd6c5abb5c83eca1dee1222e70e26244e17b0bb1a83f2",
+    "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
+    "cache_manifest": "36a64f281e836ea255caedfb78feac08bb3d862932352d11e1fcc0771a9af8c3",
+    "data_plane": "dff54bb9aaf3a3771050897ba56a91273026d2346848807a10de0f6a7144c16e",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
-    "route_layout": "e8b17d619c2e741ecc03634daeb56ef4d28a2c51250bb859b7d0dff4be95f57e",
-    "surface_map": "1b59ea094944b72064fe966be31317e97afa365cb736eaddc5273177e02b6b9b",
+    "route_index": "46d94273cc53d297b8a4f4cdc7916f6cb23d602209555b5328201c0a9b78423b",
+    "route_layout": "2bd1577d7fd12145de7ed3a460bc69266dbec4da2cf7df0102fa4dbfb765426e",
+    "surface_map": "cb395b54cdc13be7b6fde6abfbaa3f98e1227dae2195139f6c009b62cb758135",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4207,8 +4240,8 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 112,
+    "physical_routes": 113,
     "semantic_routes": 14,
-    "table_families": 32
+    "table_families": 33
   }
 }

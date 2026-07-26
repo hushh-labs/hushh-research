@@ -49,6 +49,12 @@ export type SpecialistDirectiveEvent = {
   stateChanged: boolean;
 };
 
+export type AgentSource = {
+  agentId: string;
+  label: string;
+  reason: string;
+};
+
 export type AgentChatStreamHandlers = {
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
@@ -58,6 +64,8 @@ export type AgentChatStreamHandlers = {
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onError?: (message: string) => void;
   onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
+  onThought?: (text: string) => void;
+  onSources?: (sources: AgentSource[]) => void;
 };
 
 const SSE_OPEN_TIMEOUT_MS = 10_000;
@@ -321,6 +329,11 @@ export async function consumeAgentChatStream(
       }
       return Boolean(readString(payload, "token"));
     }
+    if (event === "thought") {
+      const thought = readString(payload, "text");
+      if (thought) handlers?.onThought?.(thought);
+      return true;
+    }
     if (event === "tool_start") {
       handlers?.onToolStart?.(normalizeToolEvent(payload));
       return true;
@@ -362,6 +375,19 @@ export async function consumeAgentChatStream(
         message: String(p.message ?? ""),
         stateChanged: Boolean(p.state_changed),
       });
+      return true;
+    }
+    if (event === "sources") {
+      const raw = Array.isArray(payload.sources) ? payload.sources : [];
+      const sources: AgentSource[] = raw
+        .map((entry) => asRecord(entry))
+        .filter((r): r is Record<string, unknown> => r !== null)
+        .map((r) => ({
+          agentId: readString(r, "agent_id"),
+          label: readString(r, "label"),
+          reason: readString(r, "reason"),
+        }));
+      handlers?.onSources?.(sources);
       return true;
     }
     return false;

@@ -1,6 +1,6 @@
 # One Voice Governance
 
-Use this workflow pack when the task matches `kai-voice-governance`.
+Use this workflow pack when the task matches `one-voice-governance`.
 
 ## Goal
 
@@ -8,7 +8,7 @@ Keep One Voice, Kai runtime compatibility, typed search, UI actionables, persona
 
 ## Steps
 
-1. Start with `kai-voice-governance`.
+1. Start with `one-voice-governance`.
 2. Read the gateway contract doc, runtime architecture doc, and review checklist before editing behavior.
 3. Author capability existence in local `.voice-action-contract.json` files, not in runtime heuristics.
 4. Rebuild the generated gateway and route orchestration index after any contract change.

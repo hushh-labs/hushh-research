@@ -12,6 +12,7 @@ import {
   History,
   Search,
   ShieldCheck,
+  TrendingUp,
   UserRound,
   X,
 } from "lucide-react";
@@ -554,7 +555,7 @@ export function KaiCommandPalette({
                   })
                 }
               >
-                <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
+                <Icon icon={TrendingUp} size="sm" className="mr-2 text-muted-foreground" />
                 <span className="font-semibold">{ticker}</span>
                 <span className="ml-2 text-xs text-muted-foreground truncate">
                   {title}

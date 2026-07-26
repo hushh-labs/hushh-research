@@ -350,8 +350,9 @@ function buildPendingAnchors(now: number): ConsentCenterEntry[] {
         expires_at: hoursFrom(now, 21),
         reason: "Coordinate an itinerary through One.",
         metadata: {
-          request_source: "one_a2a_invocation",
+          request_source: "one_invocation_preview_v1",
           task_id: "preview-a2a-task",
+          expiry_hours: 24,
         },
       },
       {
@@ -496,15 +497,11 @@ function buildPendingAnchors(now: number): ConsentCenterEntry[] {
         counterpart_label: "Anika Sharma",
         counterpart_email: "anika@example.test",
         issued_at: hoursAgo(now, 1),
-        expires_at: hoursFrom(now, 23),
-        approval_timeout_at: hoursFrom(now, 23),
         reason: "Coordinate the airport pickup.",
         metadata: {
           request_source: "one_location_access_request",
           request_id: "preview-location-request",
           requester_label: "Anika Sharma",
-          duration_label: "1 hour",
-          expiry_hours: 1,
           section: "approvals",
         },
       },

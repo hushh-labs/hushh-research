@@ -88,7 +88,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
-import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   resolveRegisteredTopShellTabValue,
   TOP_SHELL_TAB_REGISTRY,
@@ -1472,7 +1472,9 @@ function SosFlow({
       onEditContacts={onEditContacts}
       recipientLabel={vm.recipientLabel}
       isRecipientShareReady={vm.isRecipientShareReady}
+      myLocationPoint={vm.myLocationPoint}
     />
+
   );
 }
 

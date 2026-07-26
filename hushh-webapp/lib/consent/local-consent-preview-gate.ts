@@ -7,6 +7,7 @@ const PREVIEW_QUERY_VALUE = "consent";
 const PREVIEW_DISABLE_QUERY_VALUE = "live";
 const PREVIEW_SESSION_KEY = "hushh.local-consent-preview.v2";
 const CONSENT_CENTER_PATH = "/one/consent";
+const CONNECTION_SURFACE_ALIASES = new Set(["connections", "relationships"]);
 
 interface SearchParamsLike {
   get(name: string): string | null;
@@ -32,7 +33,9 @@ function normalizeHost(hostname?: string | null) {
 
 function targetsPreviewSurface(searchParams?: SearchParamsLike | null) {
   if (searchParams?.get("mode") === "connections") return false;
-  return searchParams?.get("tab") !== "connections";
+  if (CONNECTION_SURFACE_ALIASES.has(searchParams?.get("tab") || ""))
+    return false;
+  return !CONNECTION_SURFACE_ALIASES.has(searchParams?.get("view") || "");
 }
 
 /**

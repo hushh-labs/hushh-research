@@ -1,5 +1,6 @@
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -196,6 +197,54 @@ function emptyListResponse() {
   };
 }
 
+function pendingListResponse(
+  entry: Record<string, unknown>,
+) {
+  return {
+    ...emptyListResponse(),
+    total: 1,
+    items: [entry],
+  };
+}
+
+function configureLocalPreview(search: string) {
+  resetLocalConsentPreviewState(
+    Date.parse("2026-07-23T12:00:00.000Z"),
+  );
+  mocks.localPreview = true;
+  mocks.search = search;
+  mocks.getSummary.mockResolvedValue(
+    getLocalConsentPreviewSummary("user-1"),
+  );
+  mocks.listEntries.mockImplementation(
+    ({
+      surface,
+      q,
+      page,
+      limit,
+    }: {
+      surface: "pending" | "active" | "previous";
+      q?: string;
+      page?: number;
+      limit?: number;
+    }) =>
+      Promise.resolve(
+        getLocalConsentPreviewList({
+          userId: "user-1",
+          surface,
+          q,
+          page,
+          limit,
+        }),
+      ),
+  );
+}
+
+function expectInHiddenSwipePanel(text: string) {
+  const panel = screen.getByText(text).closest('[role="tabpanel"]');
+  expect(panel?.getAttribute("aria-hidden")).toBe("true");
+}
+
 function groupedHistoryListResponse() {
   return {
     user_id: "user-1",
@@ -370,6 +419,165 @@ describe("ConsentCenterPage requestId deep links", () => {
     },
   );
 
+  it("keeps Northstar's material decision terms once without duplicate controls", async () => {
+    configureLocalPreview(
+      "tab=requests&requestId=preview-request-scope-upgrade&preview=consent",
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findByRole("dialog", { name: "Northstar Planning" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Don't allow" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(screen.queryByText("Future updates")).toBeNull();
+    expect(
+      screen.getByText("Includes approved updates until access ends."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Requested for 2 days. You can choose a shorter window.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("combobox", { name: "Access duration" }),
+    );
+    expect(
+      await screen.findByRole("option", { name: "24 hours" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("option", { name: "2 days" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
+  });
+
+  it("renders a fixed 24-hour request without a one-option selector and preserves its approval duration", async () => {
+    mocks.search = "tab=requests&requestId=fixed-24";
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "fixed-24",
+        request_id: "fixed-24",
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        scope: "attr.financial.documents.*",
+        scope_description: "Verification documents",
+        counterpart_type: "developer",
+        counterpart_id: "one",
+        counterpart_label: "One",
+        issued_at: "2026-07-24T09:00:00.000Z",
+        request_url: "/one/kyc?workflowId=fixed-24",
+        metadata: {
+          request_source: "one_email_kyc_v1",
+          workflow_id: "fixed-24",
+          gmail_thread_id: "thread-fixed-24",
+          expiry_hours: 24,
+        },
+      }),
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Requested duration")).toBeTruthy();
+    expect(screen.getAllByText("1 day")).toHaveLength(1);
+    expect(
+      screen.getByText(
+        "Shares a one-time copy; later changes are not included.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("combobox", { name: "Access duration" }),
+    ).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(
+      1,
+    );
+    expect(screen.queryByText("Original request")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await waitFor(() => {
+      expect(mocks.handleApprove).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "fixed-24",
+          durationHours: 24,
+        }),
+      );
+    });
+  });
+
+  it("does not invent duration or update controls for a request without those terms", async () => {
+    mocks.search = "tab=requests&requestId=agent-task";
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "agent-task",
+        request_id: "agent-task",
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        scope: "cap.one.invoke",
+        scope_description: "Invoke the private agent for this task",
+        counterpart_type: "developer",
+        counterpart_id: "travel-agent",
+        counterpart_label: "Travel Agent",
+        issued_at: "2026-07-24T09:00:00.000Z",
+        metadata: { request_source: "legacy_agent_task" },
+      }),
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Your decision")).toBeTruthy();
+    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "Access duration" }),
+    ).toBeNull();
+    expect(screen.queryByText(/one-time copy/i)).toBeNull();
+    expect(screen.queryByText(/future updates/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await waitFor(() => {
+      expect(mocks.handleApprove).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "agent-task",
+          durationHours: undefined,
+        }),
+      );
+    });
+  });
+
+  it("shows no decision CTAs while a request is awaiting the other party", async () => {
+    mocks.search = "tab=requests&requestId=awaiting-party";
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "awaiting-party",
+        request_id: "awaiting-party",
+        kind: "incoming_request",
+        status: "request_pending",
+        allowed_next_action: "await_decision",
+        action: "REQUESTED",
+        scope: "attr.financial.profile.*",
+        scope_description: "Financial profile",
+        counterpart_type: "ria",
+        counterpart_id: "ria-awaiting",
+        counterpart_label: "Awaiting Advisor",
+        issued_at: "2026-07-24T09:00:00.000Z",
+      }),
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findByRole("dialog", { name: "Awaiting Advisor" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Your decision")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Don't allow" }),
+    ).toBeNull();
+  });
+
   it("resolves a selected pending request that is not present in the current list page", async () => {
     render(<ConsentCenterPage />);
 
@@ -461,7 +669,7 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Share this summary?")).toBeTruthy();
+    expect(await screen.findByText("Your decision")).toBeTruthy();
     expect(screen.getByText("Requested duration")).toBeTruthy();
     expect(screen.getAllByText("3 days").length).toBeGreaterThan(0);
     expect(screen.getByText("Decision due")).toBeTruthy();
@@ -692,13 +900,13 @@ describe("ConsentCenterPage requestId deep links", () => {
         expect.objectContaining({ surface: "active" }),
       );
     });
-    expect(screen.queryByText("Pending location workflow")).toBeNull();
+    expectInHiddenSwipePanel("Pending location workflow");
 
     await act(async () => {
       resolveActive?.(activeResponse);
     });
     expect(await screen.findByText("Active location workflow")).toBeTruthy();
-    expect(screen.queryByText("Pending location workflow")).toBeNull();
+    expectInHiddenSwipePanel("Pending location workflow");
 
     mocks.search = "tab=history&preview=consent";
     rerender(<ConsentCenterPage />);
@@ -707,14 +915,14 @@ describe("ConsentCenterPage requestId deep links", () => {
         expect.objectContaining({ surface: "previous" }),
       );
     });
-    expect(screen.queryByText("Active location workflow")).toBeNull();
+    expectInHiddenSwipePanel("Active location workflow");
 
     await act(async () => {
       resolveHistory?.(historyResponse);
     });
     expect(await screen.findByText("Revoked location workflow")).toBeTruthy();
-    expect(screen.queryByText("Pending location workflow")).toBeNull();
-    expect(screen.queryByText("Active location workflow")).toBeNull();
+    expectInHiddenSwipePanel("Pending location workflow");
+    expectInHiddenSwipePanel("Active location workflow");
   });
 
   it("does not falsely highlight a row that lacks its own request_id when nothing is selected", async () => {
@@ -941,14 +1149,16 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
 
     expect(await screen.findByText("Access history")).toBeTruthy();
-    expect(screen.getByText("History details")).toBeTruthy();
+    expect(screen.queryByText("History details")).toBeNull();
     expect(screen.queryByText("Your decision")).toBeNull();
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.getByText("Access 1")).toBeTruthy();
     expect(screen.getByText("Access 2")).toBeTruthy();
     expect(screen.getAllByText("Shopping profile").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Receipts").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Stop active access" }),
+    ).toBeTruthy();
   });
 
   it("disables the matching lifecycle revoke button while revoke is in flight", async () => {
@@ -968,7 +1178,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
 
     const revokeButton = (await screen.findByRole("button", {
-      name: "Revoking...",
+      name: "Stopping...",
     })) as HTMLButtonElement;
     expect(revokeButton.disabled).toBe(true);
   });

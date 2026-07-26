@@ -19,7 +19,7 @@ describe("tabbed ambient chrome contract", () => {
     expect(topShell).toContain(': "var(--top-shell-visual-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
     expect(styles).toContain("var(--top-shell-reserved-height)");
-    expect(styles).toContain("var(--top-ambient-tab-tail-midpoint, 32px)");
+    expect(styles).toContain("var(--top-fade-active)");
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
     );

@@ -46,14 +46,14 @@
     "vault-pkm-governance",
     "iam-consent-governance",
     "repo-operations",
-    "kai-voice-governance"
+    "one-voice-governance"
   ],
   "adjacent_skills": [
     "security-audit",
     "vault-pkm-governance",
     "iam-consent-governance",
     "repo-operations",
-    "kai-voice-governance"
+    "one-voice-governance"
   ],
   "risk_tags": [
     "destructive-data-delete",

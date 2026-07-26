@@ -20,7 +20,8 @@ export type OneNavKey =
   | "guardian"
   | "pkm"
   | "marketplace"
-  | "connected";
+  | "connected"
+  | "feed";
 export type AppBottomNavKey = InvestorNavKey | RiaNavKey | OneNavKey;
 export type AppBottomNavScope = "one" | "investor" | "ria";
 export type AppBottomNavAction =
@@ -135,6 +136,9 @@ export function resolveOneNavSlot(
   ) {
     return "guardian";
   }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_FEED)) {
+    return "feed";
+  }
   return "dashboard";
 }
 
@@ -241,6 +245,9 @@ export function resolveBottomNavActiveKey(
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
   }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_FEED)) {
+    return "feed";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     // Profile is reached from One but is not a persistent bottom-bar option.
     // Keep the visible control selected rather than pointing at a removed tab.
@@ -264,7 +271,7 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["dashboard", "connect", "search"];
+  return ["dashboard", "connect", "feed", "search"];
 }
 
 /** Contextual workspace tabs belong exclusively to the unified top shell. */
@@ -301,6 +308,8 @@ export function resolveBottomNavAction(
             ? buildRiaConsentManagerHref("pending")
             : buildConsentCenterHref("pending"),
       };
+    case "feed":
+      return { type: "route", href: ROUTES.ONE_FEED };
     case "pkm":
       return { type: "route", href: ROUTES.PKM };
     case "marketplace":

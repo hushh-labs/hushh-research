@@ -60,7 +60,7 @@ export function buildPublicKnowledgeRoute(tab: PublicKnowledgeTab): string {
  * the explicit local preview opt-in used by the three consent data surfaces.
  * Connections always stays on its live-data path.
  */
-function buildConsentCenterTabRoute(
+export function buildConsentCenterTabRoute(
   tab: ConsentCenterTab,
   searchParams: URLSearchParams,
 ): string {

@@ -20,6 +20,8 @@ const {
   mockOpenLocationSettings,
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
+  mockReverseGeocode,
+  mockAddSavedLocation,
   mockCreateGrant,
   mockStoreEnvelope,
   mockViewEnvelope,
@@ -53,6 +55,8 @@ const {
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
+  mockReverseGeocode: vi.fn(),
+  mockAddSavedLocation: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
@@ -117,7 +121,7 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
 // Location redesign uses SwipeViews for its route-owned tabs. This suite tests
 // the Location views, so replace the browser viewport primitive with controls
 // that simulate a swipe by reporting the selected tab upward.
-vi.mock("@/components/app-ui/swipe-views", () => ({
+vi.mock("@/lib/morphy-ux/ui/swipe-views", () => ({
   SwipeViews: ({
     children,
     options,
@@ -180,6 +184,7 @@ vi.mock("@/lib/one-location/service", () => ({
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
+    reverseGeocode: mockReverseGeocode,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
     clearLocationWatch: vi.fn().mockResolvedValue(undefined),
@@ -199,6 +204,10 @@ vi.mock("@/lib/one-location/service", () => ({
     revokePublicInvite: vi.fn(),
     revokeCircleInvite: vi.fn(),
   },
+}));
+
+vi.mock("@/lib/one-location/saved-locations", () => ({
+  addSavedLocation: mockAddSavedLocation,
 }));
 
 vi.mock("@/lib/one-location/contact-signals", () => ({
@@ -544,6 +553,12 @@ describe("OneLocationAgentPage", () => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
+    // Legacy page-flow tests are not about the optional saved-place prompt.
+    // A dedicated integration test below clears this flag and proves that flow.
+    window.localStorage.setItem(
+      "one_location_saved_location_prompt_v1:user_a",
+      "1",
+    );
     // The workspace now seeds from the memory-only OneLocationStateResource
     // (CacheService singleton); clear it so a prior test's server-state
     // snapshot cannot leak into the next test's initial render.
@@ -564,6 +579,7 @@ describe("OneLocationAgentPage", () => {
     });
     mockUseVault.mockReturnValue({
       isVaultUnlocked: true,
+      vaultKey: "vault-key",
       vaultOwnerToken: "vault-token",
     });
     mockEnsureKey.mockResolvedValue({
@@ -600,6 +616,21 @@ describe("OneLocationAgentPage", () => {
       capturedAt: "2026-05-20T07:30:00.000Z",
       sourcePlatform: "web",
     });
+    mockReverseGeocode.mockResolvedValue({
+      name: "India Gate",
+      formattedAddress: "Kartavya Path, New Delhi, Delhi 110001, India",
+    });
+    mockAddSavedLocation.mockResolvedValue([
+      {
+        id: "home",
+        category: "home",
+        label: "Home",
+        latitude: 28.6139,
+        longitude: 77.209,
+        address: "Kartavya Path, New Delhi, Delhi 110001, India",
+        savedAt: "2026-05-20T07:30:00.000Z",
+      },
+    ]);
     mockCreateGrant.mockResolvedValue({
       id: "grant_new",
       ownerUserId: "user_a",
@@ -1068,6 +1099,85 @@ describe("OneLocationAgentPage", () => {
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
+  });
+
+  it("offers to save the granted location into encrypted PKM before onboarding continues", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v1:user_a",
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetPermissionState
+      .mockResolvedValueOnce({
+        state: "prompt",
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      })
+      .mockResolvedValueOnce({
+        state: "prompt",
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      })
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+    expect(
+      await screen.findByRole("dialog", { name: "Save this place" }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(mockReverseGeocode).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        lat: 28.6139,
+        lng: 77.209,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+    await waitFor(() =>
+      expect(mockAddSavedLocation).toHaveBeenCalledWith({
+        context: {
+          userId: "user_a",
+          vaultKey: "vault-key",
+          vaultOwnerToken: "vault-token",
+        },
+        input: {
+          category: "home",
+          label: "",
+          latitude: 28.6139,
+          longitude: 77.209,
+          address: "Kartavya Path, New Delhi, Delhi 110001, India",
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Save this place" }),
+      ).toBeNull(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "one_location_saved_location_prompt_v1:user_a",
+      ),
+    ).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Add people" }),
+    ).toBeTruthy();
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {

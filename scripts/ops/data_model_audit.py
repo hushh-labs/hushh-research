@@ -21,14 +21,6 @@ RUNTIME_SCAN_ROOTS = [
     REPO_ROOT / "hushh-webapp/app",
     REPO_ROOT / "hushh-webapp/lib",
 ]
-CREATE_TABLE_RE = re.compile(
-    r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-zA-Z_][\w]*)",
-    re.IGNORECASE,
-)
-DROP_TABLE_RE = re.compile(
-    r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-zA-Z_][\w]*)",
-    re.IGNORECASE,
-)
 TABLE_EVENT_RE = re.compile(
     r"\b(?:(?:CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"
     r"(?P<create>[a-zA-Z_][\w]*))|(?:DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"

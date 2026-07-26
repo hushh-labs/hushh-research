@@ -12,7 +12,14 @@ import {
 import { ChevronLeft, Phone } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
+import type {
+  OneLocationRecipient,
+  PlainLocationPoint,
+} from "@/lib/one-location/types";
+import {
+  DEFAULT_EMERGENCY,
+  emergencyInfoForPoint,
+} from "@/lib/one-location/emergency-numbers";
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
@@ -26,7 +33,14 @@ export type SosPanelProps = {
   onEditContacts: () => void;
   recipientLabel: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
+  /**
+   * The user's last known location, used to pick the correct local emergency
+   * number (e.g. 112 in India, 999 in the UAE, 911 in the US). When omitted we
+   * fall back to US 911.
+   */
+  myLocationPoint?: PlainLocationPoint | null;
 };
+
 
 function firstNameOf(label: string): string {
   return label.trim().split(/\s+/)[0] || label.trim();
@@ -49,8 +63,16 @@ export function SosPanel({
   onEditContacts,
   recipientLabel,
   isRecipientShareReady,
+  myLocationPoint = null,
 }: SosPanelProps) {
   const [message, setMessage] = useState<SmsQuickMessage | null>(null);
+  // Resolve the correct local emergency number from the user's location
+  // (e.g. 112 in India, 999 in the UAE, 911 in the US). Falls back to US 911.
+  const emergency = useMemo(
+    () => emergencyInfoForPoint(myLocationPoint) ?? DEFAULT_EMERGENCY,
+    [myLocationPoint],
+  );
+
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -72,6 +94,10 @@ export function SosPanel({
     [readyRecipients, recipientLabel],
   );
   const disabled = busy || active || readyRecipients.length === 0;
+  // Radar pulse is active the moment the user starts pressing, and keeps
+  // emanating continuously while the SMS is sending and after it goes live.
+  const showPulse = active || busy || progress > 0;
+
 
   const clearHold = useCallback((resetProgress = true) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -189,6 +215,29 @@ export function SosPanel({
           <div className="relative flex h-[252px] w-[252px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
+
+            {/* Radar / alarm rings that emanate continuously from the red core
+                while the SMS is being held, sent, and after it goes live. */}
+            {showPulse ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  data-sos-pulse
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                />
+                <span
+                  aria-hidden="true"
+                  data-sos-pulse
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                />
+                <span
+                  aria-hidden="true"
+                  data-sos-pulse
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                />
+              </>
+            ) : null}
+
             <button
               type="button"
               disabled={disabled}
@@ -207,6 +256,7 @@ export function SosPanel({
               className={cn(
                 "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[#ff3b30] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
+                (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
               )}
               style={{
@@ -231,6 +281,22 @@ export function SosPanel({
             </button>
           </div>
         </div>
+
+        <style>{`
+          @keyframes sosRadarPulse {
+            0% { transform: scale(1); opacity: 0.55; }
+            80% { opacity: 0; }
+            100% { transform: scale(1.62); opacity: 0; }
+          }
+          @keyframes sosCorePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.045); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            [data-sos-pulse] { animation: none !important; opacity: 0 !important; }
+          }
+        `}</style>
+
 
         <div className="mt-auto">
           <p className="truncate px-2 text-center text-[13px] text-white/70">
@@ -267,12 +333,19 @@ export function SosPanel({
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             <a
-              href="tel:911"
+              href={`tel:${emergency.number}`}
+              aria-label={
+                emergency.countryName
+                  ? `Call ${emergency.number} emergency services (${emergency.countryName})`
+                  : `Call ${emergency.number} emergency services`
+              }
               className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] text-[15px] font-semibold text-white"
             >
               <Phone className="h-4 w-4 fill-current" aria-hidden />
-              Call 911
+              Call {emergency.number}
             </a>
+
+
             <button
               type="button"
               onClick={onClose}

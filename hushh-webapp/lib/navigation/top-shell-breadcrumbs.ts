@@ -118,6 +118,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
+    [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Kai",
     [ROUTES.CONNECT]: "Connect",
@@ -285,6 +286,7 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
+    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
 
     if (debateId) {
       return {
@@ -321,6 +323,19 @@ function resolveTopShellBreadcrumbInner(
           { label: "Kai", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
+        ],
+      };
+    }
+
+    if (view === "debate") {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: "Debate" },
         ],
       };
     }

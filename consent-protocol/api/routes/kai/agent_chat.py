@@ -670,6 +670,7 @@ async def stream_agent_chat(
     async def generate():
         chunks: list[str] = []
         directives: list[OneTextDirective] = []
+        sources_seen: dict[str, dict[str, Any]] = {}
         saved = False
         first_meaningful_logged = False
         try:
@@ -712,7 +713,24 @@ async def stream_agent_chat(
                     )
                     saved = True
                     return
-                if one_event.kind == "token" and one_event.text:
+                if one_event.kind == "thought" and one_event.text:
+                    # Visible reasoning trace, streamed separately from the answer
+                    # so the client can render a collapsible "Thinking" panel. Not
+                    # persisted to the saved message (chunks) - it is not the answer.
+                    yield _event("thought", {"text": one_event.text})
+                elif one_event.kind == "source" and one_event.source is not None:
+                    # A subagent (specialist) One consulted this turn. Dedupe by
+                    # agent and re-emit the accumulated list so the client can
+                    # render a "Sources = which subagents were required" rail.
+                    src = one_event.source
+                    if src.agent_id not in sources_seen:
+                        sources_seen[src.agent_id] = {
+                            "agent_id": src.agent_id,
+                            "label": src.label,
+                            "reason": src.reason,
+                        }
+                        yield _event("sources", {"sources": list(sources_seen.values())})
+                elif one_event.kind == "token" and one_event.text:
                     if not first_meaningful_logged:
                         first_meaningful_logged = True
                         logger.info(

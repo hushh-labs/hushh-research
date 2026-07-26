@@ -102,6 +102,18 @@
       "ahujagautam024"
     ]
   },
+  "founder": {
+    "environment": "founder",
+    "manual_dispatch_users": [
+      "kushaltrivedi5",
+      "RGlodAkshat",
+      "ankitkumarsingh1702",
+      "azfx",
+      "Jhumma-hushh",
+      "DamriaNeelesh",
+      "ahujagautam024"
+    ]
+  },
   "uat": {
     "auto_deploy_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",

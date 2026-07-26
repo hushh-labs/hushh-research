@@ -48,7 +48,7 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "directive", "boundary"]
+OneTextEventKind = Literal["token", "thought", "source", "directive", "boundary"]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
@@ -62,10 +62,20 @@ class OneTextDirective:
 
 
 @dataclass(frozen=True)
+class OneTextSource:
+    """A subagent (specialist) One consulted this turn, surfaced as a source."""
+
+    agent_id: str
+    label: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class OneTextStreamEvent:
     kind: OneTextEventKind
     text: str = ""
     directive: OneTextDirective | None = None
+    source: OneTextSource | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
@@ -156,6 +166,60 @@ def _event_text(event: Any) -> str:
         if isinstance(getattr(part, "text", None), str)
         and not bool(getattr(part, "thought", False))
     )
+
+
+def _event_thought(event: Any) -> str:
+    """Extract only Gemini thought-summary parts (the visible reasoning trace)."""
+    if str(getattr(event, "author", "") or "") != "one":
+        return ""
+    content = getattr(event, "content", None)
+    parts = getattr(content, "parts", None) or []
+    return "".join(
+        str(part.text)
+        for part in parts
+        if isinstance(getattr(part, "text", None), str) and bool(getattr(part, "thought", False))
+    )
+
+
+# Specialist/tool function-call name -> (agent_id, human label). Only true
+# subagents (and web search) become sources; app-action tools do not.
+_SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
+    "ask_email_agent": ("agent_email", "Email"),
+    "ask_location_agent": ("agent_location", "Location"),
+    "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),
+    "ask_consent_agent": ("agent_nav", "Consent Center"),
+    "finance": ("agent_kai", "Finance"),
+    "google_search": ("web", "Web search"),
+}
+
+
+def _event_sources(event: Any) -> list[OneTextSource]:
+    """Map One's specialist/tool function-calls to subagent source records."""
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    get_calls = getattr(event, "get_function_calls", None)
+    if not callable(get_calls):
+        return []
+    sources: list[OneTextSource] = []
+    for call in get_calls() or []:
+        name = str(getattr(call, "name", "") or "")
+        mapped = _SPECIALIST_TOOL_SOURCES.get(name)
+        if mapped is None:
+            continue
+        agent_id, label = mapped
+        args = getattr(call, "args", None)
+        # Nav's Consent Center vs its Connections child is selected by `target`.
+        if (
+            name == "ask_consent_agent"
+            and isinstance(args, dict)
+            and args.get("target") == "connections"
+        ):
+            agent_id, label = "agent_connections", "Connections"
+        reason = ""
+        if isinstance(args, dict):
+            reason = str(args.get("request") or args.get("query") or "").strip()[:160]
+        sources.append(OneTextSource(agent_id=agent_id, label=label, reason=reason))
+    return sources
 
 
 def _directive_from_value(value: Any) -> OneTextDirective | None:
@@ -327,6 +391,13 @@ async def _stream_one_text_turn_once(
                 first_visible_at = time.perf_counter()
             yield OneTextStreamEvent(kind="directive", directive=directive)
 
+        thought = _event_thought(event)
+        if thought:
+            yield OneTextStreamEvent(kind="thought", text=thought)
+
+        for text_source in _event_sources(event):
+            yield OneTextStreamEvent(kind="source", source=text_source)
+
         text = _event_text(event)
         if not text:
             continue
@@ -406,6 +477,12 @@ async def stream_one_text_turn(
                 if event.kind == "boundary":
                     replay_boundary_crossed = True
                     continue
+                if event.kind in ("thought", "source"):
+                    # Reasoning + source records stream around the answer; forward
+                    # them but keep the turn replay-safe so a pre-answer failover
+                    # can still retry without duplicating visible answer output.
+                    yield event
+                    continue
                 replay_boundary_crossed = True
                 yield event
             return
@@ -484,6 +561,13 @@ async def stream_one_intro_text_turn(
                 continue
             emitted_directives.add(fingerprint)
             yield OneTextStreamEvent(kind="directive", directive=directive)
+
+        thought = _event_thought(event)
+        if thought:
+            yield OneTextStreamEvent(kind="thought", text=thought)
+
+        for text_source in _event_sources(event):
+            yield OneTextStreamEvent(kind="source", source=text_source)
 
         text = _event_text(event)
         if not text:
