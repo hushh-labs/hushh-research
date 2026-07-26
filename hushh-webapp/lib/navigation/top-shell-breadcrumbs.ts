@@ -285,6 +285,7 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
+    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
 
     if (debateId) {
       return {
@@ -321,6 +322,19 @@ function resolveTopShellBreadcrumbInner(
           { label: "Kai", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
+        ],
+      };
+    }
+
+    if (view === "debate") {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: "Debate" },
         ],
       };
     }

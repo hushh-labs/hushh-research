@@ -1,10 +1,10 @@
 {
-  "id": "kai-voice-governance",
+  "id": "one-voice-governance",
   "title": "One Voice Governance",
   "goal": "Author, generate, verify, and review One Voice action contracts and Kai compatibility runtime contracts so voice, typed search, UI actionables, persona gating, and durable memory boundaries stay aligned under one shared gateway.",
-  "owner_skill": "kai-voice-governance",
+  "owner_skill": "one-voice-governance",
   "default_spoke": null,
-  "task_type": "kai-voice-governance",
+  "task_type": "one-voice-governance",
   "affected_surfaces": [
     "contracts/kai",
     "consent-protocol/hushh_mcp/services/action_gateway.py",
@@ -18,13 +18,13 @@
     "hushh-webapp/app/kai",
     "hushh-webapp/app/profile",
     "hushh-webapp/app/ria",
-    ".codex/skills/kai-voice-governance"
+    ".codex/skills/one-voice-governance"
   ],
   "required_reads": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
     "docs/reference/one/one-voice-runtime-architecture.md",
     "docs/reference/one/one-voice-kai-compatibility-runtime.md",
-    ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
+    ".codex/skills/one-voice-governance/references/voice-review-checklist.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run build:voice-gateway",
@@ -35,7 +35,7 @@
     "./bin/hushh docs verify"
   ],
   "verification_bundle": {
-    "id": "kai-voice-governance",
+    "id": "one-voice-governance",
     "commands": [
       "cd hushh-webapp && npm run build:voice-gateway",
       "cd hushh-webapp && npm run verify:voice-gateway",
@@ -65,7 +65,7 @@
     "Verification commands executed"
   ],
   "handoff_chain": [
-    "kai-voice-governance",
+    "one-voice-governance",
     "frontend",
     "backend-api-contracts",
     "vault-pkm-governance",
