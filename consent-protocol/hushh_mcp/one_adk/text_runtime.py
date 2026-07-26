@@ -395,8 +395,8 @@ async def _stream_one_text_turn_once(
         if thought:
             yield OneTextStreamEvent(kind="thought", text=thought)
 
-        for source in _event_sources(event):
-            yield OneTextStreamEvent(kind="source", source=source)
+        for text_source in _event_sources(event):
+            yield OneTextStreamEvent(kind="source", source=text_source)
 
         text = _event_text(event)
         if not text:
@@ -566,8 +566,8 @@ async def stream_one_intro_text_turn(
         if thought:
             yield OneTextStreamEvent(kind="thought", text=thought)
 
-        for source in _event_sources(event):
-            yield OneTextStreamEvent(kind="source", source=source)
+        for text_source in _event_sources(event):
+            yield OneTextStreamEvent(kind="source", source=text_source)
 
         text = _event_text(event)
         if not text:
