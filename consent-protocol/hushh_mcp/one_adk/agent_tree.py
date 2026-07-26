@@ -705,9 +705,9 @@ async def _specialist_turn(
             "reason": availability.reason_code,
             "availability": availability_payload,
             "message": (
-                "That specialist is not available from the current route. "
-                "Open its declared workspace first; consent and TrustLink "
-                "checks still apply after route admission."
+                "This screen is a redirect or sign-out step, so specialist work "
+                "is paused here. Ask again once the app lands on its workspace; "
+                "consent and TrustLink checks still apply."
             ),
         }
     if availability.state in {"needs_auth", "vault_locked"}:

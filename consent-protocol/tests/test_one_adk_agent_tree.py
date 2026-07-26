@@ -403,11 +403,38 @@ class TestSpecialistTurn:
         assert result["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_route_admission_blocks_specialist_outside_declared_workspace(self):
+    async def test_route_admission_allows_intent_routing_from_any_route(self):
+        # One is the single routing authority: a wired, consent-bearing
+        # specialist is admitted from any conversational screen, even one that
+        # does not declare it (here /profile). Consent + TrustLink still gate the
+        # call inside the specialist.
+        turn = SpecialistTurnResult(
+            conversation_id="conv_admit",
+            text="Location is ready.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="test",
+        )
         state = {
             STATE_USER_ID: "u1",
             STATE_CONSENT_TOKEN: "tok",
             "hussh:voice_context": {"route_family": "/profile"},
+        }
+        with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock(return_value=turn)):
+            result = await _specialist_turn(
+                "agent_location", "share location", _tool_context(state)
+            )
+        assert result["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_route_admission_blocks_only_transitional_redirect_stubs(self):
+        # Redirect/OAuth-return/logout stubs are the sole explicit opt-out; the
+        # user is mid-flow there and never actually converses.
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_CONSENT_TOKEN: "tok",
+            "hussh:voice_context": {"route_family": "/logout"},
         }
         with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock()) as dispatch:
             result = await _specialist_turn(
