@@ -8,11 +8,6 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
-import {
-  getLocalConsentPreviewList,
-  getLocalConsentPreviewSummary,
-  resetLocalConsentPreviewState,
-} from "@/lib/consent/local-consent-preview";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -30,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   handleLocationApprove: vi.fn(),
   handleLocationDeny: vi.fn(),
   handleLocationRevoke: vi.fn(),
-  localPreview: false,
   busyRequestIds: new Set<string>(),
 
   busyScopes: new Set<string>(),
@@ -53,12 +47,6 @@ vi.mock("@/hooks/use-auth", () => ({
     user: { uid: "user-1", getIdToken: mocks.getIdToken },
     loading: false,
   }),
-}));
-
-vi.mock("@/lib/consent/local-consent-preview-gate", () => ({
-  isLocalConsentPreviewRuntime: () => mocks.localPreview,
-  syncLocalConsentPreviewSession: () => mocks.localPreview,
-  loadLocalConsentPreviewModule: vi.fn().mockResolvedValue(null),
 }));
 
 // CapabilityExploreCard reads useAuth from the firebase context directly, not
@@ -207,39 +195,6 @@ function pendingListResponse(
   };
 }
 
-function configureLocalPreview(search: string) {
-  resetLocalConsentPreviewState(
-    Date.parse("2026-07-23T12:00:00.000Z"),
-  );
-  mocks.localPreview = true;
-  mocks.search = search;
-  mocks.getSummary.mockResolvedValue(
-    getLocalConsentPreviewSummary("user-1"),
-  );
-  mocks.listEntries.mockImplementation(
-    ({
-      surface,
-      q,
-      page,
-      limit,
-    }: {
-      surface: "pending" | "active" | "previous";
-      q?: string;
-      page?: number;
-      limit?: number;
-    }) =>
-      Promise.resolve(
-        getLocalConsentPreviewList({
-          userId: "user-1",
-          surface,
-          q,
-          page,
-          limit,
-        }),
-      ),
-  );
-}
-
 function expectInHiddenSwipePanel(text: string) {
   const panel = screen.getByText(text).closest('[role="tabpanel"]');
   expect(panel?.getAttribute("aria-hidden")).toBe("true");
@@ -325,12 +280,10 @@ function groupedHistoryListResponse() {
 describe("ConsentCenterPage requestId deep links", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.sessionStorage.clear();
     mocks.search =
       "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0";
     mocks.getVaultOwnerToken.mockImplementation(() => "vault-token");
     mocks.isVaultUnlocked = true;
-    mocks.localPreview = false;
     mocks.getSummary.mockResolvedValue(summaryResponse());
     mocks.listEntries.mockResolvedValue(emptyListResponse());
     mocks.handleApprove.mockResolvedValue(undefined);
@@ -355,73 +308,35 @@ describe("ConsentCenterPage requestId deep links", () => {
     installDesktopMediaQuery();
   });
 
-  it.each([
-    {
-      tab: "requests",
-      searchName: "Search requests",
-    },
-    {
-      tab: "active",
-      searchName: "Search active access",
-    },
-    {
-      tab: "history",
-      searchName: "Search history",
-    },
-  ])(
-    "renders a complete paginated $tab layout in local preview mode",
-    async ({ tab, searchName }) => {
-      resetLocalConsentPreviewState(
-        Date.parse("2026-07-23T12:00:00.000Z"),
-      );
-      mocks.localPreview = true;
-      mocks.search = `tab=${tab}&preview=consent`;
-      mocks.getSummary.mockResolvedValue(
-        getLocalConsentPreviewSummary("user-1"),
-      );
-      mocks.listEntries.mockImplementation(
-        ({
-          surface,
-          q,
-          page,
-          limit,
-        }: {
-          surface: "pending" | "active" | "previous";
-          q?: string;
-          page?: number;
-          limit?: number;
-        }) =>
-          Promise.resolve(
-            getLocalConsentPreviewList({
-              userId: "user-1",
-              surface,
-              q,
-              page,
-              limit,
-            }),
-          ),
-      );
-
-      render(<ConsentCenterPage />);
-
-      expect(await screen.findByText("Layout preview")).toBeTruthy();
-      expect(screen.getByText(/never reach the backend/i)).toBeTruthy();
-      expect(
-        screen.getByRole("textbox", { name: searchName }),
-      ).toBeTruthy();
-      expect(await screen.findAllByTestId("consent-entry-row")).toHaveLength(
-        20,
-      );
-      expect(screen.getByText("Page 1 of 2")).toBeTruthy();
-      expect(
-        screen.getByRole("button", { name: "Go to next page" }),
-      ).not.toBeDisabled();
-    },
-  );
-
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {
-    configureLocalPreview(
-      "tab=requests&requestId=preview-request-scope-upgrade&preview=consent",
+    mocks.search = "tab=requests&requestId=northstar-scope-upgrade";
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "northstar-scope-upgrade",
+        request_id: "northstar-scope-upgrade",
+        kind: "incoming_request",
+        status: "pending",
+        allowed_next_action: "review_request",
+        action: "REQUESTED",
+        scope: "attr.financial.portfolio.*",
+        scope_description: "Portfolio positions and allocation",
+        counterpart_type: "developer",
+        counterpart_id: "northstar-planning",
+        counterpart_label: "Northstar Planning",
+        counterpart_email: "access@northstar.example",
+        issued_at: "2026-07-24T09:00:00.000Z",
+        expires_at: "2026-07-26T09:00:00.000Z",
+        approval_timeout_at: "2026-07-26T09:00:00.000Z",
+        reason:
+          "Prepare a consolidated allocation review before your next meeting.",
+        is_scope_upgrade: true,
+        additional_access_summary:
+          "Adds portfolio positions to the financial profile access already approved.",
+        metadata: {
+          expiry_hours: 48,
+          refresh_policy: "continuous_until_expiry",
+        },
+      }),
     );
 
     render(<ConsentCenterPage />);
@@ -830,7 +745,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       total: 1,
       items: [
         {
-          id: "preview-active",
+          id: "active-entry",
           kind: "active_grant",
           status: "active",
           counterpart_type: "investor",
@@ -845,7 +760,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       total: 1,
       items: [
         {
-          id: "preview-history",
+          id: "history-entry",
           kind: "history",
           status: "revoked",
           counterpart_type: "developer",
@@ -855,7 +770,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       ],
     };
 
-    mocks.search = "tab=requests&preview=consent";
+    mocks.search = "tab=requests";
     mocks.getSummary.mockResolvedValue({
       ...summaryResponse(),
       counts: { pending: 1, active: 1, previous: 1 },
@@ -877,9 +792,9 @@ describe("ConsentCenterPage requestId deep links", () => {
           total: 1,
           items: [
             {
-              id: "preview-request",
-              request_id: "preview-request",
-              kind: "pending_request",
+              id: "pending-entry",
+              request_id: "pending-entry",
+              kind: "incoming_request",
               status: "pending",
               counterpart_type: "investor",
               counterpart_label: "Pending location workflow",
@@ -893,7 +808,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     const { rerender } = render(<ConsentCenterPage />);
     expect(await screen.findByText("Pending location workflow")).toBeTruthy();
 
-    mocks.search = "tab=active&preview=consent";
+    mocks.search = "tab=active";
     rerender(<ConsentCenterPage />);
     await waitFor(() => {
       expect(mocks.listEntries).toHaveBeenCalledWith(
@@ -908,7 +823,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(await screen.findByText("Active location workflow")).toBeTruthy();
     expectInHiddenSwipePanel("Pending location workflow");
 
-    mocks.search = "tab=history&preview=consent";
+    mocks.search = "tab=history";
     rerender(<ConsentCenterPage />);
     await waitFor(() => {
       expect(mocks.listEntries).toHaveBeenCalledWith(

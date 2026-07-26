@@ -57,11 +57,6 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import {
-  isLocalConsentPreviewRuntime,
-  loadLocalConsentPreviewModule,
-  syncLocalConsentPreviewSession,
-} from "@/lib/consent/local-consent-preview-gate";
-import {
   useConsentActions,
   useOneLocationConsentActions,
   useMarketplaceConsentActions,
@@ -1515,7 +1510,6 @@ export function ConsentCenterPage() {
   const consentScopeKey = apiActor === "ria" ? "ria" : "one";
   const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
-  const localConsentPreview = isLocalConsentPreviewRuntime();
   // SwipeViews keeps every pane mounted, so each tab's resource must load only
   // once it has actually been visited (never eagerly on mount) - otherwise a
   // background Connections pane would call getCenter() on every page load.
@@ -1585,22 +1579,22 @@ export function ConsentCenterPage() {
     setMutationTick((value) => value + 1);
   };
   const summaryCacheKey = user?.uid
-    ? `${CACHE_KEYS.CONSENT_CENTER_SUMMARY(
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(
         user.uid,
         `${consentScopeKey}:${mode}`,
-      )}${localConsentPreview ? ":local-preview" : ""}`
+      )
     : "consent_center_summary_guest";
   const listSurface =
     tab === "requests" ? "pending" : tab === "history" ? "previous" : "active";
   const listCacheKey = user?.uid
-    ? `${CACHE_KEYS.CONSENT_CENTER_LIST(
+    ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
         `${consentScopeKey}:${mode}`,
         listSurface,
         deferredQuery,
         page,
         CONSENT_CENTER_PAGE_SIZE,
-      )}${localConsentPreview ? ":local-preview" : ""}`
+      )
     : "consent_center_list_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -1625,14 +1619,6 @@ export function ConsentCenterPage() {
     // while its deferred URL update is still pending.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeQuery]);
-
-  useEffect(() => {
-    if (!syncLocalConsentPreviewSession()) return;
-    if (searchParams.get("preview") === "consent") return;
-    const next = new URLSearchParams(searchParams.toString());
-    next.set("preview", "consent");
-    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     if (searchParams.get("mode") !== "connections") return;
@@ -1674,7 +1660,6 @@ export function ConsentCenterPage() {
   // relative to unlock-warm, once per mount) to seal + deliver those requests.
   const marketplaceSweptRef = useRef(false);
   useEffect(() => {
-    if (localConsentPreview) return;
     if (marketplaceSweptRef.current) return;
     if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
     const vaultOwnerToken = getVaultOwnerToken();
@@ -1700,7 +1685,6 @@ export function ConsentCenterPage() {
   }, [
     getVaultOwnerToken,
     isVaultUnlocked,
-    localConsentPreview,
     user?.uid,
     vaultKey,
   ]);
@@ -1778,33 +1762,8 @@ export function ConsentCenterPage() {
       isMarketplaceConsent(entry.metadata, entry.scope),
     [],
   );
-  const applyPreviewAction = useCallback(
-    async (
-      action: "approve" | "deny" | "revoke",
-      entry: ConsentCenterEntry,
-      durationHours?: number,
-    ) => {
-      if (!localConsentPreview) return;
-      const previewModule = await loadLocalConsentPreviewModule();
-      if (!previewModule) return;
-      const { applyLocalConsentPreviewMutation } = previewModule;
-      const detail = applyLocalConsentPreviewMutation({
-        action,
-        entry,
-        durationHours,
-      });
-      window.dispatchEvent(
-        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail }),
-      );
-    },
-    [localConsentPreview],
-  );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
-      if (localConsentPreview) {
-        void applyPreviewAction("approve", entry, durationHours);
-        return;
-      }
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1838,22 +1797,16 @@ export function ConsentCenterPage() {
       void handleApprove(toPendingConsent(entry, durationHours));
     },
     [
-      applyPreviewAction,
       handleApprove,
       handleLocationApprove,
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
-      localConsentPreview,
       user,
     ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
-      if (localConsentPreview) {
-        void applyPreviewAction("deny", entry);
-        return;
-      }
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1887,22 +1840,16 @@ export function ConsentCenterPage() {
       void handleDeny(entry.request_id || entry.id);
     },
     [
-      applyPreviewAction,
       handleDeny,
       handleLocationDeny,
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
-      localConsentPreview,
       user,
     ],
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
-      if (localConsentPreview) {
-        void applyPreviewAction("revoke", entry);
-        return;
-      }
       if (isLocationEntry(entry)) {
         void handleLocationRevoke(entry);
         return;
@@ -1915,32 +1862,18 @@ export function ConsentCenterPage() {
       void handleRevoke(entry.scope);
     },
     [
-      applyPreviewAction,
       handleLocationRevoke,
       handleMarketplaceRevoke,
       handleRevoke,
       isLocationEntry,
       isMarketplaceEntry,
-      localConsentPreview,
     ],
   );
   const revokeScope = useCallback(
     (scope: string) => {
-      if (localConsentPreview) {
-        void loadLocalConsentPreviewModule().then((previewModule) => {
-          if (previewModule) {
-            const { revokeLocalConsentPreviewScope } = previewModule;
-            const detail = revokeLocalConsentPreviewScope(scope);
-            window.dispatchEvent(
-              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail }),
-            );
-          }
-        });
-        return;
-      }
       void handleRevoke(scope);
     },
-    [handleRevoke, localConsentPreview],
+    [handleRevoke],
   );
 
   const idTokenLoader = async () => user?.getIdToken();
@@ -2762,9 +2695,7 @@ export function ConsentCenterPage() {
   );
   return (
     <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
-      {!localConsentPreview ? (
-        <CapabilityExploreCard capabilityId="consent" />
-      ) : null}
+      <CapabilityExploreCard capabilityId="consent" />
       <AppPageHeaderRegion>
         <PageHeader
           title="Consent Center"
@@ -2775,40 +2706,6 @@ export function ConsentCenterPage() {
 
       <AppPageContentRegion>
         <SurfaceStack>
-          {localConsentPreview ? (
-            <div
-              role="status"
-              data-testid="consent-preview-banner"
-              className="flex flex-col gap-3 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground">
-                  Layout preview
-                </p>
-                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                  Showing deterministic sample consents. Changes stay in this
-                  browser tab and never reach the backend.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                className="self-start sm:self-auto"
-                onClick={() =>
-                  setParam({
-                    preview: "live",
-                    requestId: null,
-                    selected: null,
-                    page: "1",
-                  })
-                }
-              >
-                Use live data
-              </Button>
-            </div>
-          ) : null}
           <section className="space-y-4" data-testid="consent-manager-primary">
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
