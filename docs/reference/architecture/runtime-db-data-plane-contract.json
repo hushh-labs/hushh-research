@@ -44,7 +44,7 @@
     },
     {
       "family_id": "one_action_directive_authority",
-      "owner": "kai-voice-governance",
+      "owner": "one-voice-governance",
       "mode": "report_only",
       "job_id": "directive_ledger_retention_report"
     },

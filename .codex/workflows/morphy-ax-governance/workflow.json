@@ -57,7 +57,7 @@
   ],
   "handoff_chain": [
     "morphy-ax",
-    "kai-voice-governance",
+    "one-voice-governance",
     "backend-agents-operons",
     "frontend-design-system",
     "quality-contracts",

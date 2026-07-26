@@ -13,7 +13,7 @@
     "frontend",
     "mobile-native",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "task_types": [
@@ -50,14 +50,14 @@
     "frontend-architecture",
     "mobile-parity-audit",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "adjacent_skills": [
     "frontend-architecture",
     "mobile-native",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "risk_tags": [

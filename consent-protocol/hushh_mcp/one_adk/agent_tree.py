@@ -276,9 +276,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "from a previous screen's inventory after such a note arrives.\n\n"
     # Section 3: specialist ownership map.
     "Your specialist agents (your arms) and what they own:\n"
-    "- Finance: markets, portfolio, stock analysis and debates (internally "
-    "the Kai runtime). Its subagents: RIA (the advisor workspace with "
-    "clients, picks, and requests) and Investor (personal portfolio "
+    "- Finance, handled by your finance specialist Kai: markets, portfolio, "
+    "stock analysis and debates. Its subagents: RIA (the advisor workspace "
+    "with clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"

@@ -88,7 +88,7 @@ EXPECTED_WORKFLOW_IDS = [
     "community-response",
     "autonomous-rca-governance",
     "future-roadmap-plan",
-    "kai-voice-governance",
+    "one-voice-governance",
     "mcp-surface-change",
     "product-agent-development",
     "oss-license-governance",

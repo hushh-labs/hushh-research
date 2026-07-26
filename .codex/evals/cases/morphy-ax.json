@@ -18,7 +18,7 @@
     "negative": [
       {
         "prompt": "change the generated voice action gateway and author a new action contract",
-        "owner": "kai-voice-governance"
+        "owner": "one-voice-governance"
       },
       {
         "prompt": "create a reusable visual card primitive in the design system",
