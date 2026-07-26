@@ -122,6 +122,8 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
     primary = str(playbook.get("primary_action_id") or "")
     active_actions = context.get("available_action_ids")
     action_inventory = ", ".join(active_actions) if isinstance(active_actions, list) else ""
+    visible_modules = context.get("visible_modules")
+    module_inventory = ", ".join(visible_modules) if isinstance(visible_modules, list) else ""
     interaction_layer = context.get("interaction_layer")
     layer_id = (
         str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
@@ -138,6 +140,7 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
         "and run the exact returned id before any identity or greeting response. "
         f"The currently visible generated action ids are: "
         f"{action_inventory or 'none on this screen (cross-screen navigation actions remain available)'}. "
+        f"The content currently visible to the person is: {module_inventory or 'not reported'}. "
         f"The current top interaction layer is: {layer_id or 'none'}. "
         f"The preferred action reference is '{primary or 'none'}'. "
         + (
