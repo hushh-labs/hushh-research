@@ -1869,13 +1869,6 @@ export function ConsentCenterPage() {
       isMarketplaceEntry,
     ],
   );
-  const revokeScope = useCallback(
-    (scope: string) => {
-      void handleRevoke(scope);
-    },
-    [handleRevoke],
-  );
-
   const idTokenLoader = async () => user?.getIdToken();
 
   const summaryResource = useStaleResource({
@@ -2970,7 +2963,7 @@ export function ConsentCenterPage() {
               revokeEntry(entry);
             }}
 
-            onRevokeScope={revokeScope}
+            onRevokeScope={(scope) => void handleRevoke(scope)}
             activeAction={activeAction}
             isRequestBusy={isRequestBusy}
             isScopeBusy={isScopeBusy}
