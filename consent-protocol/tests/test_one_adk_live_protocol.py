@@ -269,6 +269,24 @@ def test_route_note_prioritizes_visible_actions_without_granting_authority():
     assert "only execution authority" in note
 
 
+def test_route_note_surfaces_visible_content_for_active_screen_awareness():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/",
+            "available_action_ids": ["onboarding.claim_one"],
+            "visible_modules": ["market_summary", "watchlist"],
+        }
+    )
+    note = _compose_route_context_note(context)
+
+    assert note is not None
+    # One is told what the person is currently looking at, so a content/selection
+    # change on the same route gives it fresh active-screen awareness.
+    assert "content currently visible to the person is" in note
+    assert "market_summary" in note
+    assert "watchlist" in note
+
+
 def test_action_settlement_requires_matching_issued_directive_and_can_retry_after_invalid():
     issued = {"directive-1": "analysis.start"}
 

@@ -26,6 +26,7 @@ export type AgentTurnStreamPanelProps = {
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
+  thinkingText?: string;
 };
 
 function cleanVisibleText(value: string | null | undefined, fallback: string): string {
@@ -73,6 +74,7 @@ export function AgentTurnStreamPanel({
   opportunities,
   response,
   className,
+  thinkingText,
 }: AgentTurnStreamPanelProps) {
   const progressItems: AppStreamProgressItem[] = streamEvents.map((event) => ({
     id: event.id,
@@ -80,11 +82,21 @@ export function AgentTurnStreamPanel({
     message: event.message,
     status: event.status,
   }));
+  const thinkingItems: AppStreamProgressItem[] = thinkingText?.trim()
+    ? [
+        {
+          id: "one-thinking",
+          message: thinkingText,
+          status: isStreaming ? "running" : "done",
+        },
+      ]
+    : [];
 
   return (
     <AppStreamPanel
       title="Agent response stream"
       progressItems={progressItems}
+      thinkingItems={thinkingItems}
       responseText={responseText}
       response={response}
       isStreaming={isStreaming}

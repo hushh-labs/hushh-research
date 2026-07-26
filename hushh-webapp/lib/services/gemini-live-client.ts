@@ -185,6 +185,14 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Upper bound on the setup handshake (socket open + runtime_bootstrap + relay
+ * run_live + first {"setupComplete": {}}). Generous enough to absorb a cold
+ * managed-Vertex start, small enough that a stalled session fails loudly
+ * instead of hanging with a dead mic.
+ */
+const SETUP_COMPLETE_TIMEOUT_MS = 20_000;
+
 export class GeminiLiveClient implements RealtimeVoiceTransport {
   readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
@@ -196,10 +204,19 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private captureNode: AudioWorkletNode | null = null;
   private closed = false;
   private setupComplete = false;
+  /**
+   * Guards the setup handshake. The socket can open and accept our
+   * runtime_bootstrap yet never return {"setupComplete": {}} (relay stall, a
+   * model not enabled for the region, or a cold managed-Vertex start that never
+   * finishes). Without this the mic stays gated forever and One silently never
+   * "comes alive". On expiry we fail with a diagnosable message + telemetry.
+   */
+  private setupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private runtimeCredentialMode: "hushh_managed_vertex" | "byok" =
     "hushh_managed_vertex";
   private runtimeCredential: string | null = null;
-  private runtimeCredentialTransport: "developer_api" | "vertex_api_key" = "developer_api";
+  private runtimeCredentialTransport: "developer_api" | "vertex_api_key" =
+    "developer_api";
   private runtimeVertexProject: string | null = null;
   private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
@@ -475,9 +492,37 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     return false;
   }
 
+  private clearSetupTimeout(): void {
+    if (this.setupTimeoutTimer !== null) {
+      clearTimeout(this.setupTimeoutTimer);
+      this.setupTimeoutTimer = null;
+    }
+  }
+
   private connectSocket(relayUrl: string): void {
     const ws = new WebSocket(relayUrl);
     this.ws = ws;
+
+    // Arm the handshake watchdog for the whole open -> bootstrap -> setup path.
+    // onerror/onclose (which call fail -> stop) clear it if the socket dies
+    // first; a socket that opens but never reaches setupComplete trips this.
+    this.clearSetupTimeout();
+    this.setupTimeoutTimer = setTimeout(() => {
+      this.setupTimeoutTimer = null;
+      if (this.closed || this.setupComplete) return;
+      // Telemetry: distinct, greppable tag so a stalled handshake is
+      // diagnosable in browser logs without exposing any credential.
+      console.warn(
+        "[one-voice] setup handshake timed out before setupComplete",
+        {
+          elapsedMs: SETUP_COMPLETE_TIMEOUT_MS,
+          socketOpen: ws.readyState === WebSocket.OPEN,
+        },
+      );
+      this.fail(
+        "Voice took too long to start. This usually clears on a retry; if it keeps happening the voice model may not be enabled for this workspace.",
+      );
+    }, SETUP_COMPLETE_TIMEOUT_MS);
 
     // The first post-ticket frame picks the current connection's provider mode.
     // A BYOK credential exists only in this closure and is cleared immediately
@@ -545,6 +590,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if ("setupComplete" in message) {
       this.setupComplete = true;
+      this.clearSetupTimeout();
       // Push the initial app context (screen + governed consent token) now
       // that the session is live; the relay never accepts these in the URL.
       // Do not expose a listening mic until the relay acknowledges it. The
@@ -591,7 +637,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (waiter) {
         clearTimeout(waiter.timer);
         this.actionConfirmationWaiters.delete(rejectedDirectiveId);
-        waiter.reject(new Error("This voice action is stale or was already confirmed."));
+        waiter.reject(
+          new Error("This voice action is stale or was already confirmed."),
+        );
       }
       return;
     }
@@ -857,20 +905,28 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   private beginInitialContextHandshake(context: OneVoiceContextSnapshot): void {
-    if (this.initialContextReady || this.initialContextInFlight || this.closed) {
+    if (
+      this.initialContextReady ||
+      this.initialContextInFlight ||
+      this.closed
+    ) {
       return;
     }
     this.initialContextInFlight = true;
-    void this.applyContextAndWait(context, { timeoutMs: 1500 }).then((result) => {
-      this.initialContextInFlight = false;
-      if (this.closed || !this.setupComplete) return;
-      if (result.status !== "acknowledged") {
-        this.fail("Voice could not confirm the current screen. Please try again.");
-        return;
-      }
-      this.initialContextReady = true;
-      this.setState("listening");
-    });
+    void this.applyContextAndWait(context, { timeoutMs: 1500 }).then(
+      (result) => {
+        this.initialContextInFlight = false;
+        if (this.closed || !this.setupComplete) return;
+        if (result.status !== "acknowledged") {
+          this.fail(
+            "Voice could not confirm the current screen. Please try again.",
+          );
+          return;
+        }
+        this.initialContextReady = true;
+        this.setState("listening");
+      },
+    );
   }
 
   private sendSnapshotContext(context: OneVoiceContextSnapshot): boolean {
@@ -998,18 +1054,32 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     actionId: string;
     contextRevision: string;
   }): Promise<OneVoiceActionConfirmation> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    ) {
       return Promise.reject(new Error("Voice confirmation is not connected."));
     }
     if (this.actionConfirmationWaiters.has(input.directiveId)) {
-      return Promise.reject(new Error("Voice confirmation is already pending."));
+      return Promise.reject(
+        new Error("Voice confirmation is already pending."),
+      );
     }
     return new Promise<OneVoiceActionConfirmation>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.actionConfirmationWaiters.delete(input.directiveId);
-        reject(new Error("Voice confirmation timed out. Ask One to propose it again."));
+        reject(
+          new Error(
+            "Voice confirmation timed out. Ask One to propose it again.",
+          ),
+        );
       }, 5000);
-      this.actionConfirmationWaiters.set(input.directiveId, { resolve, reject, timer });
+      this.actionConfirmationWaiters.set(input.directiveId, {
+        resolve,
+        reject,
+        timer,
+      });
       this.ws?.send(
         JSON.stringify({
           type: "action_confirm",
@@ -1158,6 +1228,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.clearSetupTimeout();
     this.initialContextReady = false;
     this.initialContextInFlight = false;
     this.runtimeCredential = null;

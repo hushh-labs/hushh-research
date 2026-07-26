@@ -1,5 +1,5 @@
 ---
-name: kai-voice-governance
+name: one-voice-governance
 description: Use when changing One Voice capability authoring, Kai compatibility runtime contracts, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.
 ---
 
@@ -7,14 +7,14 @@ description: Use when changing One Voice capability authoring, Kai compatibility
 
 ## Purpose and Trigger
 
-- Primary scope: `kai-voice-governance`
+- Primary scope: `one-voice-governance`
 - Trigger on One Voice capability authoring, Kai compatibility runtime changes, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
 - Avoid overlap with `frontend`, `backend-api-contracts`, and `vault-pkm-governance`.
 
 ## Coverage and Ownership
 
 - Role: `owner`
-- Owner family: `kai-voice-governance`
+- Owner family: `one-voice-governance`
 
 Owned repo surfaces:
 
@@ -30,7 +30,7 @@ Owned repo surfaces:
 10. `hushh-webapp/app/kai`
 11. `hushh-webapp/app/profile`
 12. `hushh-webapp/app/ria`
-13. `.codex/skills/kai-voice-governance`
+13. `.codex/skills/one-voice-governance`
 
 Non-owned surfaces:
 
@@ -58,7 +58,7 @@ Non-owned surfaces:
 2. `docs/reference/one/one-voice-runtime-architecture.md`
 3. `docs/reference/one/one-agent-hierarchy.md`
 4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
-5. `.codex/skills/kai-voice-governance/references/voice-review-checklist.md`
+5. `.codex/skills/one-voice-governance/references/voice-review-checklist.md`
 
 ## Workflow
 

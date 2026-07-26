@@ -4239,9 +4239,11 @@ body[data-vault-unlock-active] [data-agent-bar-shell] {
 /* Session verification is a focused transition surface. The bottom controls
    are fixed siblings of the route guard, so suppress them before paint rather
    than allowing a stale Agent Bar/nav frame to overlap the session loader. */
+html[data-session-check-active] [data-app-top-bar],
 html[data-session-check-active] [data-app-bottom-nav],
 html[data-session-check-active] [data-agent-bar-shell],
 html[data-session-check-active] [data-app-bottom-chrome-glass],
+body[data-session-check-active] [data-app-top-bar],
 body[data-session-check-active] [data-app-bottom-nav],
 body[data-session-check-active] [data-agent-bar-shell],
 body[data-session-check-active] [data-app-bottom-chrome-glass] {

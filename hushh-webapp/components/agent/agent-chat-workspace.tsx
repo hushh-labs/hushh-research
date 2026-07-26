@@ -106,6 +106,7 @@ import {
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
+  type AgentSource,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
@@ -152,6 +153,8 @@ type AgentMessage = {
   kind?: "selection";
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
+  thought?: string;
+  sources?: AgentSource[];
 };
 
 type AgentDebugEvent = {
@@ -824,7 +827,9 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
-  const shouldRenderStreamPanel = !isUser && (isStreaming || streamEvents.length > 0);
+  const shouldRenderStreamPanel =
+    !isUser &&
+    (isStreaming || streamEvents.length > 0 || Boolean(message.thought));
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -892,6 +897,7 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
+              thinkingText={message.thought}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -906,6 +912,32 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
+        {!isUser && message.sources && message.sources.length > 0 ? (
+          <nav
+            aria-label="Sources"
+            className="mt-2 flex flex-wrap items-center gap-1.5"
+          >
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Sources
+            </span>
+            {message.sources.map((source) => (
+              <span
+                key={source.agentId}
+                title={source.reason || undefined}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-black/10 bg-background/70 px-2 py-0.5 text-[11px] dark:border-white/10"
+              >
+                <span className="font-semibold text-foreground">
+                  {source.label}
+                </span>
+                {source.reason ? (
+                  <span className="max-w-[13rem] truncate text-muted-foreground">
+                    {source.reason}
+                  </span>
+                ) : null}
+              </span>
+            ))}
+          </nav>
+        ) : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
@@ -2755,6 +2787,20 @@ export function AgentChatWorkspace({
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
           },
+          onThought: (delta) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              thought: (message.thought ?? "") + delta,
+            }));
+          },
+          onSources: (sources) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              sources,
+            }));
+          },
           onSpecialistDirective: (event) => {
             if (streamAbortController.signal.aborted) return;
             specialistDirectiveReceived = true;
@@ -2969,6 +3015,20 @@ export function AgentChatWorkspace({
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
+          },
+          onThought: (delta) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              thought: (message.thought ?? "") + delta,
+            }));
+          },
+          onSources: (sources) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              sources,
+            }));
           },
           onSpecialistDirective: (event) => {
             if (streamAbortController.signal.aborted) return;

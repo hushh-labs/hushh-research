@@ -124,7 +124,7 @@ Common high-signal lanes:
 2. `autonomous-rca-governance`: RCA investigator plus repo operator, with backend/frontend/security lanes added only when the failure boundary requires them.
 3. `release-readiness` and `ci-watch-and-heal`: repo operator first, then RCA investigator on failures.
 4. `security-consent-audit`: security consent auditor first, with backend/frontend lanes when caller or route contracts are implicated.
-5. `kai-voice-governance`: voice systems architect plus reviewer when generated contracts, planner/executor flow, or UI action parity changes.
+5. `one-voice-governance`: voice systems architect plus reviewer when generated contracts, planner/executor flow, or UI action parity changes.
 6. `pr-governance-review`: data model architect when migrations, schema contracts, UAT parity, cache coherence, or local-first/cloud projection authority is implicated.
 7. Product/docs/founder-language tasks: product docs architect when founder language, founder wiki north-star review, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
 8. Analytics/observability tasks: analytics observability architect when GA4, Firebase Analytics, BigQuery, event taxonomy, route ids, or dashboard contracts are implicated.
