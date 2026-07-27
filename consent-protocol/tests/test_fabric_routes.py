@@ -1,8 +1,9 @@
 """Tests for the Preference Subscription Fabric (grants, receipts, subscriber read).
 
 Route tests mock the service layer (no DB); the full DB-backed grant -> read ->
-revoke -> chain-verify flow is exercised against a real Postgres in
-scripts/smoke (see PR notes). Scope-registry and receipt-hash tests are pure.
+revoke -> chain-verify flow (plus the handshake) is exercised against a real
+Postgres by the ``db``-marked integration test in tests/test_fabric_e2e_db.py.
+Scope-registry and receipt-hash tests are pure.
 """
 
 import asyncio
