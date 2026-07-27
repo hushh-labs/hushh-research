@@ -286,11 +286,39 @@ class FabricReceiptsService:
             "created_at_ms": int(row["created_at_ms"]),
         }
 
-    async def verify_chain(self, user_id: str) -> dict[str, Any]:
-        """Recompute the chain and signatures; report the first break, if any."""
+    async def verify_chain(
+        self,
+        user_id: str,
+        *,
+        expected_head_seq: int | None = None,
+        expected_head_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Recompute the chain and signatures; report the first break, if any.
+
+        Beyond per-link integrity this enforces two whole-chain invariants that a
+        pure prev_hash walk misses:
+
+        1. **Gap-free sequence.** Seq must run 1..N with no gaps. A mid-chain
+           delete already breaks the next row's prev_hash, but requiring a dense
+           sequence makes any missing row explicit rather than inferred.
+        2. **Head anchoring (optional).** A prev_hash walk cannot detect
+           *tail-truncation* or a *full wipe*: dropping the newest receipts (or
+           all of them) leaves rows 1..k -- or zero rows -- linking perfectly, so
+           a naive check returns ok. The owner's client pins the last head it saw
+           (``head_seq``/``head_hash`` from a prior call, trust-on-first-use) and
+           passes it back here; if the current head has regressed below or diverged
+           from the pinned head, the chain has been truncated and we fail closed.
+        """
         receipts = await self.list_receipts(user_id, limit=1000)
         prev_hash = GENESIS_HASH
+        expected_seq = 1
         for receipt in receipts:
+            if receipt["seq"] != expected_seq:
+                return {
+                    "ok": False,
+                    "broken_at_seq": receipt["seq"],
+                    "reason": "sequence_gap",
+                }
             payload = _canonical_payload(
                 user_id=user_id,
                 seq=receipt["seq"],
@@ -319,7 +347,34 @@ class FabricReceiptsService:
                     "reason": "signature_mismatch",
                 }
             prev_hash = receipt["hash"]
-        return {"ok": True, "count": len(receipts), "head_hash": prev_hash}
+            expected_seq += 1
+
+        head_seq = len(receipts)
+        # Tail-truncation / wipe detection against a client-pinned head. Absence
+        # of a pin means first-use: we return the head so the client can pin it.
+        if expected_head_seq is not None:
+            if head_seq < int(expected_head_seq):
+                return {
+                    "ok": False,
+                    "broken_at_seq": head_seq,
+                    "reason": "head_regressed",
+                    "head_seq": head_seq,
+                    "head_hash": prev_hash,
+                    "expected_head_seq": int(expected_head_seq),
+                }
+            if (
+                head_seq == int(expected_head_seq)
+                and expected_head_hash is not None
+                and not hmac.compare_digest(prev_hash, str(expected_head_hash))
+            ):
+                return {
+                    "ok": False,
+                    "broken_at_seq": head_seq,
+                    "reason": "head_diverged",
+                    "head_seq": head_seq,
+                    "head_hash": prev_hash,
+                }
+        return {"ok": True, "count": head_seq, "head_seq": head_seq, "head_hash": prev_hash}
 
 
 _fabric_receipts_service: FabricReceiptsService | None = None

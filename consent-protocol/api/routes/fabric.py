@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from api.developer_auth import authenticate_developer_principal
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.developer_registry_service import DeveloperPrincipal
 from hushh_mcp.services.fabric_grant_service import FabricGrantError, get_fabric_grant_service
 from hushh_mcp.services.fabric_receipts_service import get_fabric_receipts_service
@@ -45,6 +46,20 @@ from hushh_mcp.services.pwm_service import get_pwm_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fabric", tags=["subscription-fabric"])
+
+# Handle/grant authorization failures are collapsed to one generic denial for
+# the subscriber so the /read response cannot be used as an oracle (forged vs.
+# valid-but-wrong-subscriber vs. revoked vs. expired). The specific code is
+# logged server-side for the owner's audit, never returned to the caller.
+_READ_DENY_CODES = frozenset(
+    {
+        "FABRIC_HANDLE_INVALID",
+        "FABRIC_HANDLE_EXPIRED",
+        "FABRIC_SUBSCRIBER_MISMATCH",
+        "FABRIC_GRANT_NOT_FOUND",
+        "FABRIC_GRANT_REVOKED",
+    }
+)
 
 
 def require_subscriber_principal(request: Request) -> DeveloperPrincipal:
@@ -80,20 +95,22 @@ def _raise(err: FabricGrantError) -> NoReturn:
 
 
 @router.post("/grants")
+@limiter.limit(RateLimits.FABRIC_GRANT_WRITE)
 async def create_grant(
-    request: CreateGrantRequest,
+    request: Request,
+    payload: CreateGrantRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     try:
         created: dict[str, Any] = await get_fabric_grant_service().create_grant(
             user_id=firebase_uid,
-            subscriber_id=request.subscriber_id,
-            scopes=request.scopes,
-            purpose=request.purpose,
-            subscriber_label=request.subscriber_label,
-            ttl_ms=request.ttl_ms,
-            price_cents=request.price_cents,
-            currency=request.currency,
+            subscriber_id=payload.subscriber_id,
+            scopes=payload.scopes,
+            purpose=payload.purpose,
+            subscriber_label=payload.subscriber_label,
+            ttl_ms=payload.ttl_ms,
+            price_cents=payload.price_cents,
+            currency=payload.currency,
         )
         return created
     except FabricGrantError as err:
@@ -101,7 +118,9 @@ async def create_grant(
 
 
 @router.get("/grants")
+@limiter.limit(RateLimits.FABRIC_OWNER_READ)
 async def list_grants(
+    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     grants = await get_fabric_grant_service().list_grants(firebase_uid)
@@ -109,7 +128,9 @@ async def list_grants(
 
 
 @router.post("/grants/{grant_id}/revoke")
+@limiter.limit(RateLimits.FABRIC_GRANT_WRITE)
 async def revoke_grant(
+    request: Request,
     grant_id: str,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
@@ -123,7 +144,9 @@ async def revoke_grant(
 
 
 @router.get("/receipts")
+@limiter.limit(RateLimits.FABRIC_OWNER_READ)
 async def list_receipts(
+    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
     limit: int = 200,
 ) -> dict[str, Any]:
@@ -132,15 +155,28 @@ async def list_receipts(
 
 
 @router.get("/receipts/verify")
+@limiter.limit(RateLimits.FABRIC_OWNER_READ)
 async def verify_receipts(
+    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
+    expected_head_seq: int | None = None,
+    expected_head_hash: str | None = None,
 ) -> dict[str, Any]:
-    verification: dict[str, Any] = await get_fabric_receipts_service().verify_chain(firebase_uid)
+    # The owner's client may pin the last head it saw (trust-on-first-use) and
+    # pass it back to detect tail-truncation / a wiped ledger, which a plain
+    # prev_hash walk cannot see.
+    verification: dict[str, Any] = await get_fabric_receipts_service().verify_chain(
+        firebase_uid,
+        expected_head_seq=expected_head_seq,
+        expected_head_hash=expected_head_hash,
+    )
     return verification
 
 
 @router.post("/read")
+@limiter.limit(RateLimits.FABRIC_READ)
 async def subscriber_read(
+    request: Request,
     body: ReadRequest = Body(...),
     principal: DeveloperPrincipal = Depends(require_subscriber_principal),
 ) -> dict[str, Any]:
@@ -160,6 +196,22 @@ async def subscriber_read(
         )
         return result
     except FabricGrantError as err:
+        # Collapse every handle/grant authz failure to one generic denial so the
+        # response is not a signature/existence oracle; log the real reason for
+        # the owner's audit trail only.
+        if err.code in _READ_DENY_CODES:
+            logger.info(
+                "fabric.read_denied",
+                extra={
+                    "event_type": "fabric_read_denied",
+                    "subscriber_id": principal.agent_id,
+                    "reason_code": err.code,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "FABRIC_READ_DENIED", "message": "Read denied."},
+            )
         _raise(err)
 
 
@@ -185,7 +237,9 @@ class RespondRequestBody(BaseModel):
 
 
 @router.post("/requests")
+@limiter.limit(RateLimits.FABRIC_GRANT_WRITE)
 async def create_consent_request(
+    request: Request,
     body: CreateRequestBody,
     principal: DeveloperPrincipal = Depends(require_subscriber_principal),
 ) -> dict[str, Any]:
@@ -213,7 +267,9 @@ async def create_consent_request(
 
 
 @router.get("/requests/code/{code}")
+@limiter.limit(RateLimits.FABRIC_REQUEST_LOOKUP)
 async def lookup_consent_request(
+    request: Request,
     code: str,
     _firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
@@ -226,7 +282,9 @@ async def lookup_consent_request(
 
 
 @router.post("/requests/{request_id}/approve")
+@limiter.limit(RateLimits.FABRIC_GRANT_WRITE)
 async def approve_consent_request(
+    request: Request,
     request_id: str,
     body: RespondRequestBody,
     firebase_uid: str = Depends(require_firebase_auth),
@@ -243,7 +301,9 @@ async def approve_consent_request(
 
 
 @router.post("/requests/{request_id}/deny")
+@limiter.limit(RateLimits.FABRIC_GRANT_WRITE)
 async def deny_consent_request(
+    request: Request,
     request_id: str,
     body: RespondRequestBody,
     firebase_uid: str = Depends(require_firebase_auth),
@@ -260,7 +320,9 @@ async def deny_consent_request(
 
 
 @router.get("/requests/{request_id}")
+@limiter.limit(RateLimits.FABRIC_READ)
 async def poll_consent_request(
+    request: Request,
     request_id: str,
     principal: DeveloperPrincipal = Depends(require_subscriber_principal),
 ) -> dict[str, Any]:

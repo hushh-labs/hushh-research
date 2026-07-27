@@ -26,9 +26,10 @@ Security
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.pwm_service import (
     PWM_MAX_TOP_LEVEL_KEYS,
     PwmDocumentTooLargeError,
@@ -62,7 +63,9 @@ def _sanitize_partial(body: Any) -> dict[str, Any]:
 
 
 @router.get("")
+@limiter.limit(RateLimits.PWM_READ)
 async def get_pwm_document(
+    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     doc: dict[str, Any] | None = await get_pwm_service().get_document(firebase_uid)
@@ -75,7 +78,9 @@ async def get_pwm_document(
 
 
 @router.put("")
+@limiter.limit(RateLimits.PWM_WRITE)
 async def put_pwm_document(
+    request: Request,
     body: dict[str, Any] | None = Body(default=None),
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
@@ -96,7 +101,9 @@ async def put_pwm_document(
 
 
 @router.delete("")
+@limiter.limit(RateLimits.PWM_WRITE)
 async def delete_pwm_document(
+    request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     existed = await get_pwm_service().delete_document(firebase_uid)
