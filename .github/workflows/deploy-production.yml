@@ -538,13 +538,23 @@ jobs:
           PARITY_OUTCOME: ${{ steps.verify-parity.outcome }}
           PROMOTE_OUTCOME: ${{ steps.promote-traffic.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          UPSTREAM_JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
+          upstream_failed=false
           backend_failure=false
           frontend_failure=false
           parity_failed=false
           promote_failed=false
           passkey_associations_failed=false
+
+          # GitHub marks job.status as failure when any earlier non-optional step
+          # failed. This catches configuration, authentication, backup, migration,
+          # build, and other pre-traffic failures even when their downstream
+          # outputs are empty.
+          if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then
+            upstream_failed=true
+          fi
 
           # Runtime health remains the rollback trigger after promotion. Candidate
           # parity is a pre-traffic gate, so a parity failure leaves serving traffic
@@ -571,13 +581,15 @@ jobs:
           # parity is not optional: missing consent origins, provider credentials,
           # or key mounts must fail closed before promotion.
           release_failed=false
-          if [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
+          if [ "$upstream_failed" = "true" ] \
+             || [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
              || [ "$parity_failed" = "true" ] || [ "$promote_failed" = "true" ] \
              || [ "$passkey_associations_failed" = "true" ]; then
             release_failed=true
           fi
 
           {
+            echo "upstream_failed=$upstream_failed"
             echo "backend_failure=$backend_failure"
             echo "frontend_failure=$frontend_failure"
             echo "parity_failed=$parity_failed"
@@ -586,7 +598,7 @@ jobs:
             echo "release_failed=$release_failed"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed promote_failed=$promote_failed passkey_associations_failed=$passkey_associations_failed"
+          echo "Release classification: release_failed=$release_failed upstream_failed=$upstream_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed promote_failed=$promote_failed passkey_associations_failed=$passkey_associations_failed"
 
       - name: Roll back backend revision
         id: rollback-backend
@@ -632,7 +644,7 @@ jobs:
             echo ""
             echo "- Commit SHA: \`${{ github.event.inputs.sha }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
-            if [ "${{ steps.classify.outputs.release_failed }}" = "true" ]; then
+            if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then
               echo "- Status: \`FAILED\`"
             else
               echo "- Status: \`healthy\`"
@@ -671,8 +683,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.classify.outputs.release_failed }}" = "true" ]; then
+          if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then
             echo "Production release did not end healthy."
+            echo "upstream_failed=${{ steps.classify.outputs.upstream_failed }}"
             echo "backend_failure=${{ steps.classify.outputs.backend_failure }}"
             echo "frontend_failure=${{ steps.classify.outputs.frontend_failure }}"
             echo "parity_failed=${{ steps.classify.outputs.parity_failed }}"

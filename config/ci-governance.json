@@ -106,6 +106,10 @@
     "auto_deploy_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
     "environment": "uat",
+    "required_environment_variables": [
+      "GCP_WORKLOAD_IDENTITY_PROVIDER",
+      "GCP_DEPLOY_SERVICE_ACCOUNT"
+    ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
@@ -118,6 +122,10 @@
   },
   "production": {
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
+    "required_environment_variables": [
+      "GCP_WORKLOAD_IDENTITY_PROVIDER",
+      "GCP_DEPLOY_SERVICE_ACCOUNT"
+    ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "ankitkumarsingh1702"
