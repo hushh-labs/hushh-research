@@ -14,9 +14,18 @@ Owner endpoints (Firebase auth; uid only from the verified token):
     GET    /api/fabric/receipts             -> my hash-chained receipt ledger
     GET    /api/fabric/receipts/verify      -> verify my chain integrity
 
-Subscriber endpoint (developer-principal auth; Bearer token):
+Subscriber endpoints (developer-principal auth; Bearer token):
     POST   /api/fabric/read                 -> present a grant handle, receive
                                                only the granted fields + a receipt
+    POST   /api/fabric/requests             -> open a pairing request; returns a
+                                               short code to show the person
+    GET    /api/fabric/requests/{id}        -> poll; on approval the signed
+                                               handle is returned exactly once
+
+Owner handshake endpoints (Firebase auth):
+    GET    /api/fabric/requests/code/{code} -> who is asking, for what, why
+    POST   /api/fabric/requests/{id}/approve -> mint the grant (+ receipt)
+    POST   /api/fabric/requests/{id}/deny    -> one-tap no
 """
 
 import logging
@@ -30,6 +39,7 @@ from api.middleware import require_firebase_auth
 from hushh_mcp.services.developer_registry_service import DeveloperPrincipal
 from hushh_mcp.services.fabric_grant_service import FabricGrantError, get_fabric_grant_service
 from hushh_mcp.services.fabric_receipts_service import get_fabric_receipts_service
+from hushh_mcp.services.fabric_request_service import get_fabric_request_service
 from hushh_mcp.services.pwm_service import get_pwm_service
 
 logger = logging.getLogger(__name__)
@@ -149,5 +159,124 @@ async def subscriber_read(
             pwm_doc_loader=get_pwm_service().get_document,
         )
         return result
+    except FabricGrantError as err:
+        _raise(err)
+
+
+# ---------------------------------------------------------------------------
+# The brand-initiated handshake (device-authorization-style pairing).
+# The subscriber opens a request and shows a short code; the person's agent
+# looks the code up, sees exactly who is asking for what and why, and approves
+# or denies. Approval mints the grant; the subscriber claims the handle once.
+# ---------------------------------------------------------------------------
+
+
+class CreateRequestBody(BaseModel):
+    scopes: list[str] = Field(min_length=1, max_length=64)
+    purpose: str = Field(min_length=1, max_length=500)
+    subscriber_label: str | None = Field(default=None, max_length=200)
+    ttl_ms: int | None = Field(default=None, ge=1)
+    price_cents: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=8)
+
+
+class RespondRequestBody(BaseModel):
+    pairing_code: str = Field(min_length=8, max_length=16)
+
+
+@router.post("/requests")
+async def create_consent_request(
+    body: CreateRequestBody,
+    principal: DeveloperPrincipal = Depends(require_subscriber_principal),
+) -> dict[str, Any]:
+    if not principal.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FABRIC_SUBSCRIBER_UNIDENTIFIED",
+                "message": "Subscriber has no agent id.",
+            },
+        )
+    try:
+        created: dict[str, Any] = await get_fabric_request_service().create_request(
+            subscriber_id=principal.agent_id,
+            scopes=body.scopes,
+            purpose=body.purpose,
+            subscriber_label=body.subscriber_label or principal.display_name,
+            ttl_ms=body.ttl_ms,
+            price_cents=body.price_cents,
+            currency=body.currency,
+        )
+        return created
+    except FabricGrantError as err:
+        _raise(err)
+
+
+@router.get("/requests/code/{code}")
+async def lookup_consent_request(
+    code: str,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """What is this code asking me to share? Sign-in required; no uid binding yet."""
+    try:
+        found: dict[str, Any] = await get_fabric_request_service().lookup_by_code(code)
+        return found
+    except FabricGrantError as err:
+        _raise(err)
+
+
+@router.post("/requests/{request_id}/approve")
+async def approve_consent_request(
+    request_id: str,
+    body: RespondRequestBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    try:
+        approved: dict[str, Any] = await get_fabric_request_service().approve(
+            user_id=firebase_uid,
+            request_id=request_id,
+            pairing_code=body.pairing_code,
+        )
+        return approved
+    except FabricGrantError as err:
+        _raise(err)
+
+
+@router.post("/requests/{request_id}/deny")
+async def deny_consent_request(
+    request_id: str,
+    body: RespondRequestBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    try:
+        denied: dict[str, Any] = await get_fabric_request_service().deny(
+            user_id=firebase_uid,
+            request_id=request_id,
+            pairing_code=body.pairing_code,
+        )
+        return denied
+    except FabricGrantError as err:
+        _raise(err)
+
+
+@router.get("/requests/{request_id}")
+async def poll_consent_request(
+    request_id: str,
+    principal: DeveloperPrincipal = Depends(require_subscriber_principal),
+) -> dict[str, Any]:
+    if not principal.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FABRIC_SUBSCRIBER_UNIDENTIFIED",
+                "message": "Subscriber has no agent id.",
+            },
+        )
+    try:
+        polled: dict[str, Any] = await get_fabric_request_service().poll(
+            subscriber_id=principal.agent_id,
+            request_id=request_id,
+        )
+        return polled
     except FabricGrantError as err:
         _raise(err)

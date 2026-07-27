@@ -97,7 +97,8 @@
     "116_one_location_sms_contacts.sql",
     "117_feed_events.sql",
     "118_preference_world_model.sql",
-    "119_preference_subscription_fabric.sql"
+    "119_preference_subscription_fabric.sql",
+    "120_fabric_consent_requests.sql"
   ],
   "groups": {
     "iam": [

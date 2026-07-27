@@ -693,9 +693,11 @@ async def startup_pwm_documents_table():
 async def startup_fabric_tables():
     """Ensure the subscription-fabric tables exist before any /api/fabric request."""
     from hushh_mcp.services.fabric_grant_service import get_fabric_grant_service
+    from hushh_mcp.services.fabric_request_service import get_fabric_request_service
 
     try:
         await get_fabric_grant_service().ensure_table()
+        await get_fabric_request_service().ensure_table()
     except Exception as exc:
         if _require_database_on_startup():
             logger.critical(
