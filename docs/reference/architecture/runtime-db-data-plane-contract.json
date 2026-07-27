@@ -627,6 +627,51 @@
       "trust_boundary": "Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "preference_world_model",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_documents"
+      ],
+      "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)",
+      "retention_policy": "Retain while the account exists; one row per owner, overwritten in place on update.",
+      "deletion_behavior": "Hard-delete on account deletion, an explicit DELETE /api/pwm, or an empty PUT.",
+      "trust_boundary": "The owner's own plaintext preference metadata, keyed by and returned only to the verified uid; never another party's data and never vault ciphertext.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "subscription_fabric_grants",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_subscription_grants"
+      ],
+      "primary_access_path": "PCHP RFC-002 subscription grants: owner-issued, subscriber-scoped read access to PWM fields (/api/fabric/grants)",
+      "retention_policy": "Retain while the grant is active or for audit; revoked/expired grants compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion; revoke (fail-closed status) on owner revocation or expiry.",
+      "trust_boundary": "Grant metadata only (subscriber, scopes, purpose, price, handle fingerprint); never the PWM values and never the plaintext handle.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "subscription_fabric_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_receipts"
+      ],
+      "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
     }
   ]
 }

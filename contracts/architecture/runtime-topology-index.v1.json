@@ -925,6 +925,16 @@
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pwm_documents"
+      ],
+      "id": "preference_world_model",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)"
+    },
+    {
       "data_class": "reference",
       "exact_tables": [
         "investor_profiles",
@@ -952,6 +962,26 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "fabric_subscription_grants"
+      ],
+      "id": "subscription_fabric_grants",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PCHP RFC-002 subscription grants: owner-issued, subscriber-scoped read access to PWM fields (/api/fabric/grants)"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "fabric_receipts"
+      ],
+      "id": "subscription_fabric_receipts",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)"
     },
     {
       "data_class": "workflow_state",
@@ -4223,7 +4253,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "36a64f281e836ea255caedfb78feac08bb3d862932352d11e1fcc0771a9af8c3",
-    "data_plane": "dff54bb9aaf3a3771050897ba56a91273026d2346848807a10de0f6a7144c16e",
+    "data_plane": "ac69d1fe4fa5b2cfe9a6eb7bc06784472238a3d557f477ba371fd0e56d7b11d9",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "46d94273cc53d297b8a4f4cdc7916f6cb23d602209555b5328201c0a9b78423b",
@@ -4242,6 +4272,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 113,
     "semantic_routes": 14,
-    "table_families": 33
+    "table_families": 36
   }
 }
