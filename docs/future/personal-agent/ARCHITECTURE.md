@@ -13,7 +13,7 @@
 **One consent-native runtime — Agent One — portable across many compute backends.**
 The runtime is defined by *identity + consent*, not by where it runs. `HusshID`
 (one per human, phone-anchored) and its `spaceID`s (one per node/instance) are the
-invariant; every compute host — the user's Mac, a Hushh-hosted GCP pod, a burst into
+invariant; every compute host — the user's Mac, a hussh-hosted GCP pod, a burst into
 the user's *own* GCP project, tomorrow an orbital node — is an interchangeable
 **backend** underneath the same identity, the same PCHP consent handshake, and the
 same zero-knowledge boundary.
@@ -33,7 +33,7 @@ everything. Working backwards from the outcome — every person's agent runs on 
 compliant, operable platform, at the best cost for its class — and anchored to the code:
 
 - **Anypoint is the PRIMARY for general / mass-market deployments (the default runtime).**
-  Primary because Hushh holds **pre-purchased Titanium capacity** (already paid for → the
+  Primary because hussh holds **pre-purchased Titanium capacity** (already paid for → the
   best cost per workload at 1B scale), operated by the dedicated MuleSoft team on **CloudHub
   2.0 / Runtime Fabric**. It hosts the per-user pod **and** carries the enterprise lane
   (CRM / OmniGateway, consent events, syncs, data-correction). FedRAMP **Moderate** (Gov
@@ -69,7 +69,7 @@ posture: the primary is chosen **per workload class** — **Anypoint** is primar
 **general / mass** tier (pre-purchased Titanium capacity → best cost at scale), while **GCP**
 is primary for the **FedRAMP-High / regulated** tier (higher compliance ceiling than MuleSoft
 Government Cloud's Moderate + the validated live loop). Anypoint still hosts the general
-runtime **and** carries the enterprise lane. In every case Hushh remains the **consent /
+runtime **and** carries the enterprise lane. In every case hussh remains the **consent /
 identity / audit authority** — the pod reaches a person's data only through a per-user consent
 token, never holding or issuing consent itself.
 
@@ -90,7 +90,7 @@ Four layers. None of them changes when the compute backend changes.
 - `spaceID` — the node/instance. Every compute surface an agent runs on gets one; many
   `spaceID`s : one `HusshID`. Today the registry stores a single per-user agent row;
   the column rename in §6 makes it a first-class `spaceID` + `backend`.
-- **A2A address indirection** — a stable Hushh address (`…/u/{hushh_id}`) resolves to
+- **A2A address indirection** — a stable hussh address (`…/u/{hushh_id}`) resolves to
   the agent's *current* backend route, so the agent is portable ("on wheels") without
   its address changing.
 
@@ -105,8 +105,8 @@ Every job/instance carries:
   one user, logged to the *visible* consent ledger and revocable.
 - **Transparency Log** — one ledger entry per execution (the PCHP receipt).
 - **Ephemeral Envelope** — the pod holds its own **X25519** keypair
-  (`pod_connector_keypair_service.py`); Hushh stores only the public key and wraps each
-  scoped export to it. Hushh never decrypts. Zero-knowledge.
+  (`pod_connector_keypair_service.py`); hussh stores only the public key and wraps each
+  scoped export to it. hussh never decrypts. Zero-knowledge.
 
 **Layer C — Agent runtime contract.**
 ADK agents (`hushh_mcp/one_adk/`), the A2A surface (`api/routes/one/a2a.py`), MCP tool
@@ -118,7 +118,7 @@ differs per backend.
 **Layer D — On-device body.**
 The Capacitor/mobile background agent and the macOS "One Puppy" agent: local UX, BYOK
 vault unlock, on-device PKM cache, sync to the cloud body. This is the default runtime
-per the 2026-07-13 framing ("on-device and on Hushh infrastructure").
+per the 2026-07-13 framing ("on-device and on hussh infrastructure").
 
 ## 4. What Phase 0 already built (the invariant is real code)
 
@@ -175,7 +175,7 @@ rotation stay exactly as they are.** Adapters are thin:
   / governance lane).** The per-user pod as a Mule app on **CloudHub 2.0 / Runtime Fabric**,
   isolated in a **Private Space** (optional `ANYPOINT_PRIVATE_SPACE_ID`), provisioned via the
   **AMC Application Manager API** with a Connected-App client-credential (mirrors the existing
-  outbound OmniGateway CRM connector). Primary for general / mass deployments because Hushh
+  outbound OmniGateway CRM connector). Primary for general / mass deployments because hussh
   holds **pre-purchased Titanium capacity** (already paid for → best cost per workload at 1B
   scale; founder-stated / unreconciled). It hosts the agent **and** carries the enterprise
   consent-event / sync / correction-request path. FedRAMP **Moderate** (Gov Cloud). Renders
@@ -254,7 +254,7 @@ model that keeps zero-knowledge intact:
 
 | Replica | What it holds | Role |
 |---|---|---|
-| **Cloud backup-of-record** | canonical PKM, encrypted, in Hushh's **zero-knowledge vault** | durable backup; already live today |
+| **Cloud backup-of-record** | canonical PKM, encrypted, in hussh's **zero-knowledge vault** | durable backup; already live today |
 | **Pod cache** | a **per-pod-key-encrypted** working copy next to the agents | fast local read/write = "shared compute + storage" |
 | **Device** | the on-device **BYOK** copy (mobile / Puppy One) | offline-first; the user's own hardware |
 
@@ -262,9 +262,9 @@ They stay consistent by syncing **encrypted deltas** over a **single-use, signed
 replay-checked private tunnel** (the existing One ADK relay ticket) — never a
 public reusable URL. **Zero-knowledge is preserved end to end:** plaintext exists
 only inside the pod's isolated (M5: hardware-attested) process and on the device;
-Hushh's backend and the transit see **ciphertext only**. This is *consistent* with
+hussh's backend and the transit see **ciphertext only**. This is *consistent* with
 §7 — on the attested tier the operator cannot read even a persisted per-pod cache,
-so "the pod stores your PKM" and "neither operator nor Hushh can read it" hold at
+so "the pod stores your PKM" and "neither operator nor hussh can read it" hold at
 once. Honest divergence: on the logical tier the cache is crypto-isolated but not
 attested (weaker; documented in §9); the attested tier (M5) closes that gap.
 
@@ -281,7 +281,7 @@ receipted (`pod_access_audit.py`).
 **Surface split — the control plane stays central.** The pod does **not** run the whole
 backend. The **consent control plane** (token issuance, the audit-DB authority,
 developer/admin APIs) and every unrelated surface (RIA, email, marketplace, account,
-IAM, login/WebAuthn) stay **central at Hushh**; the pod runs only the **agent runtime +
+IAM, login/WebAuthn) stay **central at hussh**; the pod runs only the **agent runtime +
 storage + consent *enforcement*** (validate the token, revocation check, owner-verified
 pod-access receipt — enforcement, not issuance). The slim entrypoint (`pod_server:app`,
 `Dockerfile.pod`) mounts an allowlist of exactly four routers (health, A2A + well-known,
@@ -330,7 +330,7 @@ regulated primary** + validated — see §2. Kept side-by-side to prevent drift.
 3. **FedRAMP High is GCP-only** (Assured Workloads) vs Anypoint Moderate (Gov Cloud) — a
    property of the **platforms**. Material for the compliance north star, and the **reason
    the FedRAMP-High / regulated tier is primary on GCP** (the 2026-07-25 workload-segmented
-   posture, §2). Hushh's own posture stays **"in pursuit"** until a 3PAO/ATO — never claimed.
+   posture, §2). hussh's own posture stays **"in pursuit"** until a 3PAO/ATO — never claimed.
 4. **Cost model.** Anypoint = **pre-purchased Titanium capacity** (~$1.2M/yr licensed,
    founder-stated, unreconciled) — **already paid for**, so it is the best cost per workload
    for the **general / mass-tier primary** at 1B scale. GCP = pay-as-you-go +
@@ -382,7 +382,7 @@ provider with no divergence.
   / the attested tier / a PKM-read-through-the-pod); **Anypoint live raises until wired**
   (`HUSSH_ANYPOINT_BACKEND_LIVE` + Connected App + written MuleSoft confirmation) — so the
   **general-tier primary is the intent, not yet a live claim.** GCP FedRAMP High is a
-  **platform** property; Hushh's own ATO stays **"in pursuit"** — never claimed. The
+  **platform** property; hussh's own ATO stays **"in pursuit"** — never claimed. The
   pre-purchased Titanium capacity is **founder-stated / unreconciled** (verbal ≠ contract).
 - **MuleSoft 1B capacity:** **verbal, unverified** (verbal ≠ contract); written
   entitlement exhibit requested. Never stated as fact. ([Verification Findings](https://wiki.hushh.ai/wiki/reference/verification-findings).)

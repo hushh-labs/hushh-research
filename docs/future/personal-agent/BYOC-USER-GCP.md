@@ -10,32 +10,32 @@
 
 ## What it is
 
-The sovereignty flagship: instead of Hushh hosting the per-user pod, the user runs
+The sovereignty flagship: instead of hussh hosting the per-user pod, the user runs
 it in **their own GCP project** — so the compute *and* the storage are literally
-theirs, and Hushh never holds their data. It is the **same slim pod image** and the
-**same `ComputeBackend` contract** as the Hushh-hosted `GcpBackend`; only the
+theirs, and hussh never holds their data. It is the **same slim pod image** and the
+**same `ComputeBackend` contract** as the hussh-hosted `GcpBackend`; only the
 **target project** and the **credential model** differ.
 
 ## A tier, not the mass default (honest)
 
 Most consumers do not have (or want to pay for) a GCP project, and "free for life for
 every hussh One user" cannot require it. So BYOC is the **prosumer / enterprise /
-"own your compute" tier**. The mass tier stays Hushh-hosted (`GcpBackend`), and the
+"own your compute" tier**. The mass tier stays hussh-hosted (`GcpBackend`), and the
 endgame is the user's own hardware (edge / Puppy One). All three sit on one seam
 (`compute_backend.py`), selected by `PERSONAL_AGENT_BACKEND`.
 
 ## Keyless by construction (least privilege)
 
-**Hushh never holds standing credentials into the user's project.** The user
+**hussh never holds standing credentials into the user's project.** The user
 authorizes a **one-time, least-privilege bootstrap** that stands up, in *their*
 project, everything the pod needs, plus a **Workload Identity Federation** trust so
-Hushh's consent-plane identity is *federated in* (no service-account key is ever
+hussh's consent-plane identity is *federated in* (no service-account key is ever
 exported from the user's project). From then on:
 
-- **Inbound:** the Hushh A2A gateway reaches the pod because the user granted the
-  Hushh consent-plane SA **only** `roles/run.invoker` on **that one pod service** —
+- **Inbound:** the hussh A2A gateway reaches the pod because the user granted the
+  hussh consent-plane SA **only** `roles/run.invoker` on **that one pod service** —
   no broad or standing grant.
-- **Outbound:** the pod calls back to Hushh's consent MCP with a **per-user HCT** to
+- **Outbound:** the pod calls back to hussh's consent MCP with a **per-user HCT** to
   *enforce* consent (validate token + revocation + receipt) — enforcement, not
   issuance. The consent authority stays central; the pod holds only its own X25519
   key and sees plaintext only inside its isolated process.
@@ -44,7 +44,7 @@ exported from the user's project). From then on:
 
 A declarative contract — the resource + IAM + federation + tunnel spec that a
 Terraform/Deployment-Manager module (or the user's own device Agent One over MCP,
-on Hushh's signed instruction) applies. It carries **no key material**.
+on hussh's signed instruction) applies. It carries **no key material**.
 
 | Resource (in the user's project) | Purpose |
 |---|---|
@@ -59,7 +59,7 @@ IAM (least privilege only):
 |---|---|---|
 | pod SA | `roles/cloudkms.cryptoKeyDecrypter` | the KMS key |
 | pod SA | `roles/storage.objectAdmin` | the bucket |
-| **Hushh consent-plane SA** | `roles/run.invoker` | **only** the pod service |
+| **hussh consent-plane SA** | `roles/run.invoker` | **only** the pod service |
 
 Federation: `workload_identity_federation` (pool + provider) — keyless; no owner/editor
 role is ever granted.
@@ -70,24 +70,24 @@ role is ever granted.
    their project (a "deploy" button / marketplace flow), granting exactly the scoped
    roles above.
 2. **Agent-driven (most sovereign)** — the user's **device Agent One applies the
-   bootstrap locally over MCP** on Hushh's signed instruction, so credentials never
+   bootstrap locally over MCP** on hussh's signed instruction, so credentials never
    leave the user's control at all. Agent-to-agent, consent-first.
 
 ## Reference bootstrap sketch (illustrative — not yet wired)
 
 ```bash
-# In the USER's project (they authorize this; Hushh holds no key here):
+# In the USER's project (they authorize this; hussh holds no key here):
 gcloud kms keyrings create hussh --location "$REGION"
 gcloud kms keys create "one-pod-$SLUG-key" --location "$REGION" --keyring hussh --purpose encryption
 gsutil mb -p "$USER_PROJECT" -l "$REGION" "gs://one-pod-$SLUG-blobs"
 gcloud iam service-accounts create "one-pod-$SLUG-sa"
-# Keyless WIF: let Hushh's consent-plane SA be federated in (no key export).
+# Keyless WIF: let hussh's consent-plane SA be federated in (no key export).
 gcloud iam workload-identity-pools create hushh-pool --location global
 # Deploy the slim pod, running as the least-privilege SA, internal ingress, min=1:
 gcloud run deploy "one-pod-$SLUG" --image "$SLIM_POD_IMAGE" \
   --service-account "one-pod-$SLUG-sa@$USER_PROJECT.iam.gserviceaccount.com" \
   --ingress internal --min-instances 1 --no-allow-unauthenticated
-# Grant ONLY the Hushh gateway invoke on THIS service:
+# Grant ONLY the hussh gateway invoke on THIS service:
 gcloud run services add-iam-policy-binding "one-pod-$SLUG" \
   --member "serviceAccount:$HUSHH_CONSENT_PLANE_SA" --role roles/run.invoker
 ```

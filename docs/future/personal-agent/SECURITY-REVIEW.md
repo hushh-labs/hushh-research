@@ -178,7 +178,7 @@ different digest than the ASCII form of the same number.
 
 The parser validates length and encoding but does not reject low-order points.
 
-- **Scenario:** a pod supplies an all-zero/low-order public key. When Hushh wraps a
+- **Scenario:** a pod supplies an all-zero/low-order public key. When hussh wraps a
   scoped export to it, the ECDH shared secret is a known constant, so the derived
   AES-256-GCM wrapping key (`SHA256(shared_secret)`) is predictable and the wrapped
   export key is decryptable by anyone who sees the ciphertext — breaking export

@@ -1,7 +1,7 @@
 # Personal Agent (Private Cloud Compute) — cluster index
 
 > **Status:** in pursuit, dev-branch only, feature-flagged **OFF**
-> (`PERSONAL_AGENT_ENABLED`, default off). The Hushh-side foundation is built and the
+> (`PERSONAL_AGENT_ENABLED`, default off). The hussh-side foundation is built and the
 > **GCP live path is validated end-to-end in `hushh-pda-dev`** (deploy → agents
 > orchestrate → teardown); nothing is enabled in released environments.
 > Branch: `claude/hushh-infrastructure-analysis-7o991c`.
@@ -39,7 +39,7 @@ information wherever it lives.
 
 **Deployment posture** (see [ARCHITECTURE §2](./ARCHITECTURE.md)). **The primary is chosen
 per workload class.** **Anypoint is the primary for general / mass-market deployments** (the
-default runtime) — primary because Hushh holds **pre-purchased Titanium capacity** (already
+default runtime) — primary because hussh holds **pre-purchased Titanium capacity** (already
 paid for → best cost per workload at 1B scale), operated by the dedicated MuleSoft team on
 CloudHub 2.0 / Runtime Fabric; it hosts the per-user pod **and** carries the enterprise lane
 (`AnypointBackend` renders the AMC descriptor today; **live is gated** — M7, on the critical
@@ -49,13 +49,13 @@ carries **FedRAMP High** (a higher compliance ceiling than MuleSoft Gov Cloud's 
 matching the FedRAMP-High + DoD-IL north star) **and** it is the validated, live-wired backend
 where the deploy → orchestrate → teardown loop was first proven live (2026-07-21, bounded
 scope). **User-owned GCP (BYOC)** and **edge / Puppy One** are the sovereignty tiers. Across
-all of them Hushh stays the **consent, identity, and audit authority**, and the runtime is
+all of them hussh stays the **consent, identity, and audit authority**, and the runtime is
 portable behind one provider abstraction. *(This supersedes the 2026-07-13 "MuleSoft =
 enterprise lane, not runtime" framing and refines the intermediate 2026-07 "Anypoint-primary"
 framing — 2026-07-25 → workload-segmented: Anypoint = general primary, GCP =
 FedRAMP-High/regulated primary.)*
 
-Phase 0 landed the backend-neutral Hushh-side foundation (identity, consent, zero-knowledge
+Phase 0 landed the backend-neutral hussh-side foundation (identity, consent, zero-knowledge
 pod, provisioning brain), entirely behind a kill-switch, so nothing changes until it is
 explicitly turned on.
 
@@ -71,7 +71,7 @@ explicitly turned on.
   never present it. Per-hop delegation still requires attenuated authority
   (`hushh_mcp/adk_bridge/contract.py::require_attenuated_authority`), so the
   standing read never crosses the delegation boundary.
-- **Zero-knowledge.** The pod holds its own X25519 private key; Hushh stores only
+- **Zero-knowledge.** The pod holds its own X25519 private key; hussh stores only
   the public key and wraps scoped exports to it, never decrypting.
 
 ## What Phase 0 built (all flag-gated, tested)
@@ -91,7 +91,7 @@ explicitly turned on.
 | Prompt-sync read endpoint (`GET /api/one/agent-prompt`) | `consent-protocol/api/routes/one/agent_prompt.py` |
 | Recycled-phone HusshID generation rotation + tombstone index | `personal_agent_provisioning_service.py`, migration `902_personal_agent_tombstone_hushh_id_index.sql` |
 | Live wiring — phone-verify kickoff + account-deletion teardown | `hushh_mcp/services/actor_identity_service.py` (`schedule_provision_personal_agent`), `api/routes/account.py` (`_deprovision_personal_agent`) |
-| Tests | `consent-protocol/tests/test_personal_agent_*`, `test_agent_prompt_*` (registered in `scripts/test-ci.manifest.txt`) |
+| Tests | `consent-protocol/tests/test_personal_agent_*`, `test_agent_prompt_*` (registered in `consent-protocol/scripts/test-ci.manifest.txt`) |
 
 ## Beyond Phase 0 — compute backends, the slim pod, audit/storage, WebAuthn
 

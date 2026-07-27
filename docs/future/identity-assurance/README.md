@@ -18,7 +18,7 @@
 > a hard AAL3 (both flagged in §3/§5).
 >
 > **Scope:** `hushh-research` only (the app is `hushh-webapp/`, the backend is
-> `consent-protocol/`). The `docs/ENTERPRISE_SSO.md` / `sso-providers.ts` surfaces
+> `consent-protocol/`). The `ENTERPRISE_SSO.md` / `sso-providers.ts` surfaces
 > live in the separate `hushh-search-console` repo and are **not** part of this.
 
 ## 1. The honest current state (what "biometric/FaceID" means today)
