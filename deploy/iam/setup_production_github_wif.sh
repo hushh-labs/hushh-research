@@ -11,6 +11,7 @@ readonly POOL_ID="github-actions-prod"
 readonly PROVIDER_ID="hushh-research-prod"
 readonly DEPLOY_SERVICE_ACCOUNT_ID="github-actions-prod-deployer"
 readonly DEPLOY_SERVICE_ACCOUNT_EMAIL="${DEPLOY_SERVICE_ACCOUNT_ID}@${PROD_PROJECT_ID}.iam.gserviceaccount.com"
+readonly RUNTIME_SERVICE_ACCOUNT_EMAIL="consent-protocol-runtime@${PROD_PROJECT_ID}.iam.gserviceaccount.com"
 readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"
 readonly BACKEND_ARTIFACT_LOCATION="us"
 readonly ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
@@ -114,6 +115,15 @@ gcloud iam service-accounts add-iam-policy-binding "${DEPLOY_SERVICE_ACCOUNT_EMA
   --format=none
 
 gcloud iam service-accounts add-iam-policy-binding "${build_service_account_email}" \
+  --project="${PROD_PROJECT_ID}" \
+  --role="roles/iam.serviceAccountUser" \
+  --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \
+  --quiet \
+  --format=none
+
+# Cloud Run revalidates act-as authority on the revision runtime identity when
+# traffic changes. Keep this binding on the exact runtime service account.
+gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SERVICE_ACCOUNT_EMAIL}" \
   --project="${PROD_PROJECT_ID}" \
   --role="roles/iam.serviceAccountUser" \
   --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \

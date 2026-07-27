@@ -18,8 +18,9 @@ The script is idempotent. It:
 3. restricts OIDC subjects to this repository, the `production` GitHub
    environment, and the `main` branch
 4. applies the deployment roles used by the governed production workflow,
-   including act-as authority only on the project build service account and
-   image-read authority only on the production backend artifact repository
+   including act-as authority only on the exact build and backend runtime
+   service accounts, plus image-read authority only on the production backend
+   artifact repository
 5. writes the provider and service-account identifiers as GitHub `production`
    environment variables
 6. runs the live deployment-environment governance verifier

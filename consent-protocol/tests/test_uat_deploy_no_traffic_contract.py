@@ -143,7 +143,10 @@ def test_production_wif_has_one_keyless_setup_path() -> None:
     assert "assertion.ref == 'refs/heads/main'" in setup_script
     assert "roles/iam.workloadIdentityUser" in setup_script
     assert 'build_service_account_email="${prod_project_number}-compute' in setup_script
-    assert setup_script.count('"roles/iam.serviceAccountUser"') == 1
+    assert (
+        'RUNTIME_SERVICE_ACCOUNT_EMAIL="consent-protocol-runtime@${PROD_PROJECT_ID}' in setup_script
+    )
+    assert setup_script.count('"roles/iam.serviceAccountUser"') == 2
     assert 'readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"' in setup_script
     assert 'readonly BACKEND_ARTIFACT_LOCATION="us"' in setup_script
     assert "gcloud artifacts repositories add-iam-policy-binding" in setup_script
