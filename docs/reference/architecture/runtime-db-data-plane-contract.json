@@ -672,6 +672,21 @@
       "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "subscription_fabric_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_consent_requests"
+      ],
+      "primary_access_path": "brand-initiated PCHP RFC-002 pairing requests: create, code lookup, approve/deny, single handle claim (/api/fabric/requests)",
+      "retention_policy": "Short-lived pairing workflow: requests expire in minutes; terminal rows compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion for bound rows; expired/denied/claimed rows are terminal and compactable.",
+      "trust_boundary": "Workflow state and grant metadata only; the signed handle is held solely between approval and its single claim, then cleared. Never PWM values; uid binds only at approval from the verified token.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
     }
   ]
 }
