@@ -349,44 +349,65 @@ class FabricGrantService:
         user_id = str(payload.get("uid") or "")
         fingerprint = _fingerprint(handle)
 
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            grant = await conn.fetchrow(
-                """
-                SELECT grant_id, scopes, fields, purpose, status
-                FROM fabric_subscription_grants
-                WHERE token_fingerprint = $1 AND user_id = $2 AND subscriber_id = $3
-                """,
-                fingerprint,
-                user_id,
-                subscriber_id,
-            )
-        if grant is None:
-            raise FabricGrantError("FABRIC_GRANT_NOT_FOUND", "No grant for this handle.", 404)
-        if grant["status"] != "active":
-            raise FabricGrantError("FABRIC_GRANT_REVOKED", "This grant has been revoked.", 403)
-
-        fields = _as_list(grant["fields"])
-        doc = await pwm_doc_loader(user_id) or {}
         from hushh_mcp.services.fabric_privacy import project_privacy_signals
         from hushh_mcp.services.fabric_scope_registry import project_fields
 
-        projected = project_fields(doc, fields)
-        # The cookie-banner-replacement payload: when privacy fields were
-        # granted, hand the brand ready-to-apply Consent Mode v2 / GPC signals.
-        privacy_signals = project_privacy_signals(projected)
-
+        # Serialize the whole read against a concurrent revoke, and write the READ
+        # receipt in the SAME advisory-locked transaction. This closes two gaps:
+        #   * TOCTOU on revoke -- revoke_grant holds the same per-owner advisory
+        #     lock, so a read that observes `active` cannot interleave with a
+        #     committing revoke; whoever gets the lock second sees the final
+        #     status and, if revoked, fails closed before any data leaves.
+        #   * Atomic accountability (AU-12) -- data can never be projected and
+        #     returned without its READ receipt committing in the same txn.
+        # The PWM doc is loaded on a separate pooled connection (a plain SELECT,
+        # no shared row locks), so no deadlock with the receipt insert.
         now_ms = _now_ms()
-        receipt = await self._receipts.append(
-            user_id=user_id,
-            event_type="READ",
-            created_at_ms=now_ms,
-            subscriber_id=subscriber_id,
-            grant_id=grant["grant_id"],
-            scopes=_as_list(grant["scopes"]),
-            fields=list(projected.keys()),
-            purpose=grant["purpose"],
-        )
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext($1))", f"fabric_receipts:{user_id}"
+                )
+                grant = await conn.fetchrow(
+                    """
+                    SELECT grant_id, scopes, fields, purpose, status
+                    FROM fabric_subscription_grants
+                    WHERE token_fingerprint = $1 AND user_id = $2 AND subscriber_id = $3
+                    FOR SHARE
+                    """,
+                    fingerprint,
+                    user_id,
+                    subscriber_id,
+                )
+                if grant is None:
+                    raise FabricGrantError(
+                        "FABRIC_GRANT_NOT_FOUND", "No grant for this handle.", 404
+                    )
+                if grant["status"] != "active":
+                    raise FabricGrantError(
+                        "FABRIC_GRANT_REVOKED", "This grant has been revoked.", 403
+                    )
+
+                fields = _as_list(grant["fields"])
+                doc = await pwm_doc_loader(user_id) or {}
+                projected = project_fields(doc, fields)
+                # The cookie-banner-replacement payload: when privacy fields were
+                # granted, hand the brand ready-to-apply Consent Mode v2 / GPC
+                # signals.
+                privacy_signals = project_privacy_signals(projected)
+
+                receipt = await self._receipts.append_in_conn(
+                    conn,
+                    user_id=user_id,
+                    event_type="READ",
+                    created_at_ms=now_ms,
+                    subscriber_id=subscriber_id,
+                    grant_id=grant["grant_id"],
+                    scopes=_as_list(grant["scopes"]),
+                    fields=list(projected.keys()),
+                    purpose=grant["purpose"],
+                )
         result = {
             "user_id": user_id,
             "subscriber_id": subscriber_id,
