@@ -368,9 +368,13 @@ class FabricGrantService:
 
         fields = _as_list(grant["fields"])
         doc = await pwm_doc_loader(user_id) or {}
+        from hushh_mcp.services.fabric_privacy import project_privacy_signals
         from hushh_mcp.services.fabric_scope_registry import project_fields
 
         projected = project_fields(doc, fields)
+        # The cookie-banner-replacement payload: when privacy fields were
+        # granted, hand the brand ready-to-apply Consent Mode v2 / GPC signals.
+        privacy_signals = project_privacy_signals(projected)
 
         now_ms = _now_ms()
         receipt = await self._receipts.append(
@@ -383,7 +387,7 @@ class FabricGrantService:
             fields=list(projected.keys()),
             purpose=grant["purpose"],
         )
-        return {
+        result = {
             "user_id": user_id,
             "subscriber_id": subscriber_id,
             "grant_id": grant["grant_id"],
@@ -391,6 +395,9 @@ class FabricGrantService:
             "fields": projected,
             "receipt": receipt,
         }
+        if privacy_signals is not None:
+            result["privacy_signals"] = privacy_signals
+        return result
 
 
 def _json(value: Any) -> str:
