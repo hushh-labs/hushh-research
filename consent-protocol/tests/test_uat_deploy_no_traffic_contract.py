@@ -122,6 +122,33 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow
 
 
+def test_production_release_result_fails_closed_on_upstream_or_missing_classification() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert "UPSTREAM_JOB_STATUS: ${{ job.status }}" in workflow
+    assert 'if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then' in workflow
+    assert 'if [ "$upstream_failed" = "true" ]' in workflow
+    assert (
+        workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
+        == 2
+    )
+
+
+def test_production_wif_has_one_keyless_setup_path() -> None:
+    setup_script = _read("deploy/iam/setup_production_github_wif.sh")
+
+    assert 'readonly PROD_PROJECT_ID="hushh-pda"' in setup_script
+    assert 'readonly GITHUB_ENVIRONMENT="production"' in setup_script
+    assert "environment:${GITHUB_ENVIRONMENT}" in setup_script
+    assert "assertion.ref == 'refs/heads/main'" in setup_script
+    assert "roles/iam.workloadIdentityUser" in setup_script
+    assert 'build_service_account_email="${prod_project_number}-compute' in setup_script
+    assert setup_script.count('"roles/iam.serviceAccountUser"') == 1
+    assert "gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER" in setup_script
+    assert "gh variable set GCP_DEPLOY_SERVICE_ACCOUNT" in setup_script
+    assert "service-account keys create" not in setup_script
+
+
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
     for path in (".github/workflows/deploy-uat.yml", ".github/workflows/deploy-dev.yml"):
         workflow = _read(path)
