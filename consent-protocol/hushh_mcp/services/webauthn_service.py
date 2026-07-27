@@ -42,6 +42,7 @@ from webauthn.helpers.structs import (
 )
 
 from hushh_mcp.services.webauthn_aal import classify
+from hushh_mcp.services.webauthn_mds import mds_verified_aaguid
 
 CEREMONY_REGISTRATION = "registration"
 CEREMONY_AUTHENTICATION = "authentication"
@@ -162,6 +163,7 @@ class WebAuthnService:
             user_verified=verified.user_verified,
             aaguid=aaguid,
             backed_up=verified.credential_backed_up,
+            mds_verified=mds_verified_aaguid(aaguid),
         )
         return {
             "credentialId": credential_id,
@@ -215,7 +217,12 @@ class WebAuthnService:
             sign_count=int(verified.new_sign_count),
             last_used_at=_now_iso(),
         )
-        assurance = classify(user_verified=verified.user_verified, aaguid=record.get("aaguid"))
+        _aaguid = record.get("aaguid")
+        assurance = classify(
+            user_verified=verified.user_verified,
+            aaguid=_aaguid,
+            mds_verified=mds_verified_aaguid(_aaguid),
+        )
         return {
             "userId": record["user_id"],
             "credentialId": credential_id,
