@@ -20,7 +20,7 @@ Subscriber endpoint (developer-principal auth; Bearer token):
 """
 
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -63,7 +63,7 @@ class ReadRequest(BaseModel):
     handle: str = Field(min_length=8, max_length=4096)
 
 
-def _raise(err: FabricGrantError) -> None:
+def _raise(err: FabricGrantError) -> NoReturn:
     raise HTTPException(
         status_code=err.status_code, detail={"code": err.code, "message": err.message}
     )
@@ -75,7 +75,7 @@ async def create_grant(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     try:
-        return await get_fabric_grant_service().create_grant(
+        created: dict[str, Any] = await get_fabric_grant_service().create_grant(
             user_id=firebase_uid,
             subscriber_id=request.subscriber_id,
             scopes=request.scopes,
@@ -85,6 +85,7 @@ async def create_grant(
             price_cents=request.price_cents,
             currency=request.currency,
         )
+        return created
     except FabricGrantError as err:
         _raise(err)
 
@@ -103,9 +104,10 @@ async def revoke_grant(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     try:
-        return await get_fabric_grant_service().revoke_grant(
+        revoked: dict[str, Any] = await get_fabric_grant_service().revoke_grant(
             user_id=firebase_uid, grant_id=grant_id
         )
+        return revoked
     except FabricGrantError as err:
         _raise(err)
 
@@ -123,7 +125,8 @@ async def list_receipts(
 async def verify_receipts(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    return await get_fabric_receipts_service().verify_chain(firebase_uid)
+    verification: dict[str, Any] = await get_fabric_receipts_service().verify_chain(firebase_uid)
+    return verification
 
 
 @router.post("/read")
@@ -140,10 +143,11 @@ async def subscriber_read(
             },
         )
     try:
-        return await get_fabric_grant_service().read_for_subscriber(
+        result: dict[str, Any] = await get_fabric_grant_service().read_for_subscriber(
             handle=body.handle,
             subscriber_id=principal.agent_id,
             pwm_doc_loader=get_pwm_service().get_document,
         )
+        return result
     except FabricGrantError as err:
         _raise(err)

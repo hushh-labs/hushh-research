@@ -65,7 +65,7 @@ def _sanitize_partial(body: Any) -> dict[str, Any]:
 async def get_pwm_document(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    doc = await get_pwm_service().get_document(firebase_uid)
+    doc: dict[str, Any] | None = await get_pwm_service().get_document(firebase_uid)
     if doc is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -86,7 +86,8 @@ async def put_pwm_document(
         await service.delete_document(firebase_uid)
         return {}
     try:
-        return await service.merge_document(firebase_uid, partial)
+        merged: dict[str, Any] = await service.merge_document(firebase_uid, partial)
+        return merged
     except PwmDocumentTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
