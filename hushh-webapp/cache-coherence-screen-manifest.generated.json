@@ -1583,7 +1583,7 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": false,
+        "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
@@ -1594,9 +1594,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/gmail",
@@ -5068,5 +5066,5 @@
       ]
     }
   ],
-  "content_sha256": "935c552cbdd965a2a25a5f403bee666ebb66b65f57adb1ebde9ae50e536c9c3c"
+  "content_sha256": "2712e54cc6274310ce0c31c60888570340e19224c850d24fbbfb8f8a2d78ff9e"
 }

@@ -2476,9 +2476,7 @@
         "shell_verification_file": "app/one/feed/page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "SurfaceStack"
+          "AppPageContentRegion"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -7619,5 +7617,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "82446bd5f7dc609a9681fed60d478e9f9dbe343459ddee40469d93210629304a"
+  "content_sha256": "a80fc2d258f24a74c5638565229c68cd86315276be591580b3d823846eed989a"
 }

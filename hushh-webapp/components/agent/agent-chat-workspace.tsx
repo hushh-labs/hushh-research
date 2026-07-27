@@ -609,7 +609,7 @@ function AgentWelcomePanel({
               type="button"
               disabled={disabled}
               onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[color:var(--app-accent-ring)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              className="group min-h-24 rounded-xl border border-border bg-card p-4 text-left text-sm font-medium text-foreground shadow-sm transition hover:border-primary/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[color:var(--app-accent-ring)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)]"
             >
               <span className="block leading-5">{prompt}</span>
               <span className="mt-4 flex items-center justify-between">
@@ -849,6 +849,16 @@ function AgentBubble({
   );
   const showResponseActions =
     !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
+  // Give the assistant turn the same rounded-card shape as the user bubble
+  // (just in a neutral tone, not primary) so both sides of the conversation
+  // read as one consistent rhythm. The stream panel and the consent-actions-
+  // only turn (nothing rendered here; actions render elsewhere) own their
+  // own framing, so they're excluded to avoid a double card or an empty box.
+  const showAssistantBubble =
+    !isUser &&
+    !shouldRenderStreamPanel &&
+    (assistantText.trim().length > 0 ||
+      !(canRenderConsentActions || canRenderPendingConsentRequest));
 
   const handleCopy = async () => {
     try {
@@ -868,7 +878,7 @@ function AgentBubble({
       )}
     >
       {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.58)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground sm:grid">
           <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -887,7 +897,9 @@ function AgentBubble({
             "text-sm leading-6",
             isUser
               ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
-              : "px-0 py-1 text-[#1d1d1f] dark:text-zinc-200",
+              : showAssistantBubble
+                ? "rounded-2xl bg-muted/50 px-4 py-3 text-foreground"
+                : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
@@ -3611,7 +3623,7 @@ export function AgentChatWorkspace({
             // Rounded card framing is only for the floating windowed popover at
             // >=sm. On phones the sheet is edge-to-edge, so no rounding/border.
             isPopover &&
-              "sm:rounded-lg sm:border sm:border-black/10 sm:shadow-sm sm:dark:border-white/10"
+              "sm:rounded-lg sm:border sm:border-border sm:shadow-sm"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -3636,7 +3648,7 @@ export function AgentChatWorkspace({
                   onClick={onMinimize}
                   aria-label="Back"
                   title="Back"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/[0.04] text-[rgba(0,0,0,0.62)] transition-colors hover:bg-black/[0.07] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.10] sm:hidden"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/70 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:hidden"
                 >
                   <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
                 </button>
@@ -3646,7 +3658,7 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-black/[0.035] dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 dark:max-sm:bg-white/[0.04] lg:hidden"
+                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -3654,7 +3666,7 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-black/10 bg-black/[0.035] max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[rgba(214,175,106,0.30)] dark:border-white/10 dark:bg-white/[0.04] dark:max-sm:border-[rgba(212,175,106,0.25)]">
+              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[color:var(--app-accent-border)]">
                 <Image
                   src="/one-quiet-emoji.png"
                   alt="One"
@@ -3676,7 +3688,7 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-black/10 bg-black/[0.035] px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:inline-flex">
+              <span className="hidden rounded-md border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
                 {statusText}
               </span>
               {isPopover ? (
@@ -3684,7 +3696,7 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-full bg-black/[0.035] text-[rgba(0,0,0,0.56)] hover:bg-black/[0.06] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-zinc-50 sm:hidden"
+                  className="h-9 w-9 rounded-full bg-muted text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -3697,7 +3709,7 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={handlePageMinimize}
                   aria-label="Minimize Agent"
                   title="Minimize Agent"

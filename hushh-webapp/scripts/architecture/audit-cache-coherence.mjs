@@ -97,6 +97,9 @@ function sourceForRoute(route, contractEntry) {
       ),
     );
   }
+  if (joined.includes("FeedPage")) {
+    sources.push(read(path.join(appRoot, "components/feed/feed-page.tsx")));
+  }
   return sources.join("\n\n");
 }
 
