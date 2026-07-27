@@ -4,12 +4,22 @@ export interface RawConsentResponse {
   status?: string | null;
   permissions?: string[];
   scopes?: string[];
+  /** Schema version.  When present, must be exactly 1 or "1". */
+  version?: number | string;
+  /** Alias for version; evaluated identically. */
+  schemaVersion?: number | string;
 }
 
 export interface NormalizedConsentState {
   isGranted: boolean;
   permissions: string[];
 }
+
+/**
+ * Exhaustive set of schema versions this normalizer accepts.
+ * Any other value — including future versions — returns DENY_STATE.
+ */
+const SUPPORTED_SCHEMA_VERSIONS = new Set<number | string>([1, "1"]);
 
 /** Closed fallback returned whenever structural integrity cannot be confirmed. */
 const DENY_STATE: NormalizedConsentState = { isGranted: false, permissions: [] };
@@ -52,8 +62,25 @@ export function normalizeConsentResponse(
     ) {
       return DENY_STATE;
     }
+
+    // ── Schema version guard (inline, default-deny) ──────────────────────────
+    // When a caller supplies version or schemaVersion, it must be an exact match
+    // in SUPPORTED_SCHEMA_VERSIONS.  Null, empty string, wrong type, or any
+    // value not in the set returns DENY_STATE immediately — before any mapping.
+    if (own("version") || own("schemaVersion")) {
+      const rawVersion = own("version") ? r["version"] : r["schemaVersion"];
+      if (
+        rawVersion === null ||
+        rawVersion === undefined ||
+        (typeof rawVersion !== "number" && typeof rawVersion !== "string") ||
+        (typeof rawVersion === "string" && rawVersion.trim() === "") ||
+        !SUPPORTED_SCHEMA_VERSIONS.has(rawVersion)
+      ) {
+        return DENY_STATE;
+      }
+    }
   }
-  // ── End integrity guard ────────────────────────────────────────────────────
+  // ── End guards ─────────────────────────────────────────────────────────────
 
   const permissions = [
     ...(Array.isArray(response?.permissions) ? response.permissions : []),
