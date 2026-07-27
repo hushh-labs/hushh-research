@@ -17,7 +17,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Assert that a GitHub actor is allowed to dispatch a governed workflow."
     )
-    parser.add_argument("--surface", choices=("dev", "uat", "founder", "production"), required=True)
+    parser.add_argument("--surface", choices=("dev", "uat", "production"), required=True)
     parser.add_argument("--actor", required=True)
     args = parser.parse_args()
 
