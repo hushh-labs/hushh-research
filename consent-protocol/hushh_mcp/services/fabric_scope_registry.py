@@ -25,9 +25,21 @@ from typing import Any
 # `connect = { want, zip, updatedAt }` (see hushh-search-console pwm-local /
 # /api/pwm). A subscriber granted the "advisor want" receives the want + ZIP so
 # it can make the local match -- and nothing else.
+#
+# The privacy.* scopes mirror the shipped public scope registry
+# (/pchp/scopes.json v0.2.0) one-to-one: each scope authorizes exactly its own
+# boolean preference in the PWM privacy section -- the wedge stream that
+# replaces the cookie banner (see fabric_privacy for the brand-side
+# Consent Mode v2 / GPC projection).
 _SCOPE_FIELD_MAP: dict[str, list[str]] = {
     "wants.money.advisor": ["connect.want", "connect.zip"],
     "wants.financial-services": ["connect.want", "connect.zip"],
+    "privacy.marketing-email": ["privacy.marketing-email"],
+    "privacy.marketing-sms": ["privacy.marketing-sms"],
+    "privacy.analytics": ["privacy.analytics"],
+    "privacy.personalization": ["privacy.personalization"],
+    "privacy.ads": ["privacy.ads"],
+    "privacy.data-sale": ["privacy.data-sale"],
 }
 
 
