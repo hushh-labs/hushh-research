@@ -3,6 +3,7 @@
 Health check endpoints.
 """
 
+import asyncio
 import hmac
 import logging
 import os
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from api.middlewares.rate_limit import limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+from db.connection import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -92,13 +94,63 @@ def health_check():
 
 @router.get("/health")
 def health():
-    """Detailed health check with agent list."""
+    """Liveness check: is the process up? (Does NOT check dependencies.)
+
+    Use ``/health/ready`` as the deploy readiness gate — this endpoint stays a
+    pure liveness probe so a wedged process is restarted, not one with a slow dep.
+    """
     return {
         "status": "healthy",
         "agents": ["one", "kai", "nav", "kyc"],
         "agent_model": AGENT_MODEL,
         "one_runtime": _one_runtime_dependency_evidence(),
     }
+
+
+@router.get("/health/ready")
+async def health_ready():
+    """Readiness probe: checks real dependencies; 503 if the service can't serve.
+
+    Wire this (not ``/health``) as the deploy/load-balancer readiness gate so a
+    DB-down instance is pulled from rotation instead of accepting traffic it
+    cannot honor. The DB is a hard gate everywhere; Firebase Admin is a hard gate
+    only in production (auth cannot work without it), and reported otherwise.
+    """
+    checks: dict[str, str] = {}
+    ready = True
+
+    # Database: a short-timeout SELECT 1 through the shared pool.
+    try:
+        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
+        async with pool.acquire() as conn:
+            await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=2.0)
+        checks["database"] = "ok"
+    except Exception as exc:
+        ready = False
+        checks["database"] = "unavailable"
+        logger.warning("health_ready.database_unavailable error=%s", type(exc).__name__)
+
+    # Firebase Admin: cached "configured" check (no network round-trip).
+    try:
+        configured, _ = ensure_firebase_auth_admin()
+        if configured:
+            checks["firebase_admin"] = "ok"
+        else:
+            checks["firebase_admin"] = "not_configured"
+            if _is_production_runtime():
+                ready = False
+    except Exception as exc:
+        checks["firebase_admin"] = "error"
+        if _is_production_runtime():
+            ready = False
+        logger.warning("health_ready.firebase_check_failed error=%s", type(exc).__name__)
+
+    body = {"status": "ready" if ready else "not_ready", "checks": checks}
+    return JSONResponse(
+        body,
+        status_code=200 if ready else 503,
+        headers=NO_STORE_HEADERS,
+    )
 
 
 @router.get("/api/app-config/review-mode")

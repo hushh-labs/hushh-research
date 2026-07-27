@@ -303,7 +303,7 @@ Manual dispatch now supports `scope`:
 2. **Backup variables:** configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_BACKUP_SERVICE_ACCOUNT` for the scheduled production backup posture check. The backup identity should be read-only for the governed backup bucket.
 3. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
 4. **Environment policy:** keep only the canonical deploy environments in active use:
-   - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md))
+   - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md)) — also the fast lane for previewing unstable feature branches (any CI-green ref)
    - `uat`
    - `production`
    Legacy unused production environments should not remain as parallel approval lanes.

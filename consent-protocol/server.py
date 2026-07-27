@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
-from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
+from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
 # Configure logging
@@ -491,6 +491,9 @@ async def startup_pool_and_iam_cache() -> None:
 @app.on_event("startup")
 async def startup_consent_listener():
     """Start background task that LISTENs to consent_audit_new (NOTIFY)."""
+    if pod_mode():
+        logger.info("startup.consent_listener_skipped reason=pod_mode")
+        return
     import asyncio
 
     from api.consent_listener import run_consent_listener
@@ -723,6 +726,9 @@ async def startup_market_insights_refresh():
 @app.on_event("startup")
 async def startup_gmail_receipts_sync():
     """Start Gmail catch-up/watch renewal loop for configured runtimes."""
+    if pod_mode():
+        logger.info("startup.gmail_receipts_sync_skipped reason=pod_mode")
+        return
     start_gmail_receipts_background_sync()
 
 
@@ -793,6 +799,11 @@ async def startup_consent_revocation_worker() -> None:
     Canonical attach point: hushh_mcp/services/revocation_worker.py
     Integrated by Abdul Gaffar — canonical temporal-consent boundary.
     """
+    if pod_mode():
+        # The revocation sweep is a shared control-plane singleton; per-user pods
+        # must not run it (per-request validate_token() still enforces expiry).
+        logger.info("startup.consent_revocation_worker_skipped reason=pod_mode")
+        return
     try:
         from hushh_mcp.services.consent_db import ConsentDBService
         from hushh_mcp.services.revocation_worker import start_revocation_loop

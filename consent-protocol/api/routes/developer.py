@@ -1754,7 +1754,7 @@ async def _request_consent_impl(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error_code": "INTERNAL_SCOPE_NOT_REQUESTABLE",
-                "message": "Internal PKM and vault authorities cannot be requested externally.",
+                "message": "Internal authorities cannot be requested externally.",
             },
         )
     if normalized_scope in EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES and normalized_scope not in (
