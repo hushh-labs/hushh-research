@@ -68,6 +68,23 @@ def _classify_traffic(eta_seconds: int, static_seconds: int) -> str | None:
     return "heavy"
 
 
+def _country_code_from_components(components: Any) -> str | None:
+    """Read an ISO alpha-2 country code from Geocoding or Places components."""
+    if not isinstance(components, list):
+        return None
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        types = component.get("types") or []
+        if "country" not in types:
+            continue
+        value = component.get("short_name") or component.get("shortText")
+        normalized = str(value or "").strip().upper()
+        if len(normalized) == 2 and normalized.isalpha():
+            return normalized
+    return None
+
+
 class GoogleMapsService:
     async def _nearest_place_address(
         self,
@@ -84,7 +101,9 @@ class GoogleMapsService:
                     headers={
                         "Content-Type": "application/json",
                         "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": ("places.displayName,places.formattedAddress"),
+                        "X-Goog-FieldMask": (
+                            "places.displayName,places.formattedAddress,places.addressComponents"
+                        ),
                     },
                     json={
                         "maxResultCount": 1,
@@ -116,13 +135,18 @@ class GoogleMapsService:
 
         places = response.json().get("places") or []
         if not places:
-            return {"name": None, "formattedAddress": None}
+            return {
+                "name": None,
+                "formattedAddress": None,
+                "countryCode": None,
+            }
         place = places[0]
         name = (place.get("displayName") or {}).get("text") or None
         formatted = place.get("formattedAddress") or None
         return {
             "name": str(name) if name else None,
             "formattedAddress": str(formatted) if formatted else None,
+            "countryCode": _country_code_from_components(place.get("addressComponents")),
         }
 
     async def autocomplete(
@@ -207,22 +231,34 @@ class GoogleMapsService:
             if provider_status == "REQUEST_DENIED":
                 return await self._nearest_place_address(key=key, lat=lat, lng=lng)
             if provider_status in {"", "OK", "ZERO_RESULTS"}:
-                return {"name": None, "formattedAddress": None}
+                return {
+                    "name": None,
+                    "formattedAddress": None,
+                    "countryCode": None,
+                }
             logger.warning(
                 "maps.reverse_geocode logical status %s",
                 provider_status,
             )
             raise GoogleMapsError("Reverse geocode failed.", status_code=502)
         formatted = results[0].get("formatted_address") or None
+        country_code: str | None = None
         name: str | None = None
         for result in results:
+            if country_code is None:
+                country_code = _country_code_from_components(result.get("address_components"))
             types = result.get("types") or []
-            if any(t in types for t in ("point_of_interest", "establishment", "premise")):
+            if name is None and any(
+                t in types for t in ("point_of_interest", "establishment", "premise")
+            ):
                 components = result.get("address_components") or []
                 if components:
                     name = components[0].get("long_name") or None
-                break
-        return {"name": name, "formattedAddress": formatted}
+        return {
+            "name": name,
+            "formattedAddress": formatted,
+            "countryCode": country_code,
+        }
 
     async def route_eta(
         self,

@@ -143,6 +143,8 @@ import {
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
 import {
   LocationRedesignHub,
+  ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+  ONE_LOCATION_SHARE_NOTE_MAX_LENGTH,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
@@ -168,6 +170,11 @@ import {
   selectShareReadyRecipients,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
+import {
+  emergencyInfoForCountryCode,
+  type EmergencyInfo,
+  type EmergencyNumberLookupStatus,
+} from "@/lib/one-location/emergency-numbers";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -1672,6 +1679,12 @@ export function OneLocationAgentPageContent({
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
 
   const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
+  const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
+  const [sosEmergencyStatus, setSosEmergencyStatus] =
+    useState<EmergencyNumberLookupStatus>("idle");
+  const sosLocationResolutionRef =
+    useRef<Promise<PlainLocationPoint | null> | null>(null);
+  const sosEmergencyLookupIdRef = useRef(0);
 
   // Hydrate the persisted SOS incident once on mount.
   useEffect(() => {
@@ -1750,6 +1763,10 @@ export function OneLocationAgentPageContent({
     useState<OneLocationActivityResponse | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [shareDurationHours, setShareDurationHours] = useState(
+    ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+  );
+  const [shareMessage, setShareMessage] = useState("");
   const [durationHours, setDurationHours] = useState("1");
   const [requestMessage, setRequestMessage] = useState("");
   const [referralTargets, setReferralTargets] = useState<
@@ -2929,6 +2946,8 @@ export function OneLocationAgentPageContent({
     setSelectedRecipientId("");
     setSelectedRecipientIds([]);
     setShareReviewOpen(false);
+    setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+    setShareMessage("");
   }, []);
   const resetRequestComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
@@ -2942,6 +2961,7 @@ export function OneLocationAgentPageContent({
       !vaultOwnerToken ||
       !shareReadySelectedRecipients.length ||
       setupNeededSelectedRecipients.length ||
+      shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
       locationPermissionBlocksSharing(permission)
     )
       return;
@@ -2961,7 +2981,9 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           recipientUserId: recipient.userId,
           recipientKeyId: recipient.keyId,
-          durationHours: Number(durationHours),
+          durationHours: Number(shareDurationHours),
+          reason: shareMessage.trim() || undefined,
+          shareKind: "share",
         });
         await publishEnvelopeWithRetry(grant, recipient, "manual", point);
         successCount += 1;
@@ -2972,7 +2994,7 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: 0,
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(shareDurationHours),
         review_required: shareReviewOpen,
       });
       toast.success(
@@ -2994,7 +3016,7 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(shareDurationHours),
         review_required: shareReviewOpen,
       });
       toast.error(
@@ -3004,17 +3026,88 @@ export function OneLocationAgentPageContent({
       setBusy(null);
     }
   }, [
-    durationHours,
     ensureForegroundLocationReady,
     permission,
     publishEnvelopeWithRetry,
     refresh,
     resetShareComposer,
     setupNeededSelectedRecipients.length,
+    shareDurationHours,
+    shareMessage,
     shareReviewOpen,
     shareReadySelectedRecipients,
     vaultOwnerToken,
   ]);
+
+  const resolveSosLocation = useCallback(() => {
+    const inFlight = sosLocationResolutionRef.current;
+    if (inFlight) return inFlight;
+
+    setSosEmergency(null);
+    setSosEmergencyStatus("resolving");
+    const emergencyLookupId = sosEmergencyLookupIdRef.current + 1;
+    sosEmergencyLookupIdRef.current = emergencyLookupId;
+    const resolution = (async (): Promise<PlainLocationPoint | null> => {
+      try {
+        const result = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: false,
+        });
+        if (!result.ready || !result.point) {
+          setSosEmergencyStatus("unavailable");
+          return null;
+        }
+        // The point remains in foreground-only workspace memory. Merely opening
+        // Save My Soul never publishes or durably persists these coordinates.
+        setMyLocationPoint(result.point);
+        if (!vaultOwnerToken) {
+          setSosEmergencyStatus("unavailable");
+          return result.point;
+        }
+        // Country lookup continues independently so a slow Maps response never
+        // delays the actual Save My Soul SMS after the user completes the hold.
+        void OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat: result.point.latitude,
+          lng: result.point.longitude,
+        })
+          .then((place) => {
+            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+            const emergency = emergencyInfoForCountryCode(place.countryCode);
+            if (!emergency) {
+              setSosEmergencyStatus("unavailable");
+              return;
+            }
+            setSosEmergency(emergency);
+            setSosEmergencyStatus("resolved");
+          })
+          .catch(() => {
+            if (sosEmergencyLookupIdRef.current === emergencyLookupId) {
+              setSosEmergencyStatus("unavailable");
+            }
+          });
+        return result.point;
+      } catch {
+        setSosEmergencyStatus("unavailable");
+        return null;
+      }
+    })();
+
+    sosLocationResolutionRef.current = resolution;
+    void resolution.then(
+      () => {
+        if (sosLocationResolutionRef.current === resolution) {
+          sosLocationResolutionRef.current = null;
+        }
+      },
+      () => {
+        if (sosLocationResolutionRef.current === resolution) {
+          sosLocationResolutionRef.current = null;
+        }
+      },
+    );
+    return resolution;
+  }, [ensureForegroundLocationReady, setMyLocationPoint, vaultOwnerToken]);
 
   const handleTriggerSos = useCallback(
     async (note?: "Come get me" | "I'm not safe" | null) => {
@@ -3035,17 +3128,13 @@ export function OneLocationAgentPageContent({
       }
       setBusy("sos");
       try {
-        const readiness = await ensureForegroundLocationReady({
-          capturePoint: true,
-          autoOpenSettings: true,
-        });
-        if (!readiness.ready || !readiness.point) {
+        const point = await resolveSosLocation();
+        if (!point) {
           toast.error(
             "Couldn't get your location — SMS not sent. Check location permissions.",
           );
           return;
         }
-        const point = readiness.point;
         const incident = await runSosPanic({
           vaultOwnerToken,
           recipients: readyRecipients,
@@ -3076,9 +3165,9 @@ export function OneLocationAgentPageContent({
       }
     },
     [
-      ensureForegroundLocationReady,
       permission,
       publishEnvelopeWithRetry,
+      resolveSosLocation,
       smsActionRecipients,
       refresh,
       sosIncident,
@@ -4936,6 +5025,7 @@ export function OneLocationAgentPageContent({
     selectedShareRecipients.length &&
     shareReadySelectedRecipients.length &&
     !setupNeededSelectedRecipients.length &&
+    shareMessage.length <= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH &&
     !locationPermissionBlocksSharing(permission),
   );
   const handleOpenShareReview = useCallback(async () => {
@@ -4954,7 +5044,7 @@ export function OneLocationAgentPageContent({
         route_id: "one_location",
         result: "success",
         selected_count: shareReadySelectedRecipients.length,
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(shareDurationHours),
         has_permission_warning: permission?.state !== "granted",
         has_professional_signal: shareReadySelectedRecipients.some(
           (recipient) =>
@@ -4969,15 +5059,15 @@ export function OneLocationAgentPageContent({
         has_setup_warning: Boolean(setupNeededSelectedRecipients.length),
       },
       {
-        dedupeKey: `one_location_share_review_opened:${shareReadySelectedRecipients.length}:${durationHours}`,
+        dedupeKey: `one_location_share_review_opened:${shareReadySelectedRecipients.length}:${shareDurationHours}`,
       },
     );
   }, [
     canShare,
-    durationHours,
     ensureForegroundLocationReady,
     permission?.state,
     setupNeededSelectedRecipients.length,
+    shareDurationHours,
     shareReadySelectedRecipients,
   ]);
   const dataState: "loading" | "loaded" | "unavailable-valid" = loadError
@@ -5600,12 +5690,16 @@ export function OneLocationAgentPageContent({
     recipientSearch,
     selectedRecipientIds,
     selectedRequestOwnerIds,
+    shareDurationHours,
+    shareMessage,
     durationHours,
     requestMessage,
     shareReviewOpen,
     publicInviteUrl,
     circleInviteUrl,
     setRecipientSearch,
+    setShareDurationHours,
+    setShareMessage,
     setDurationHours,
     setRequestMessage,
     setShareReviewOpen,
@@ -5658,6 +5752,9 @@ export function OneLocationAgentPageContent({
     sosStartedAtLabel: sosIncident
       ? formatDateTime(sosIncident.startedAt)
       : null,
+    sosEmergency,
+    sosEmergencyStatus,
+    onResolveSosLocation: resolveSosLocation,
     onTriggerSos: handleTriggerSos,
     onStopSos: handleStopSos,
     onAddSmsContact: (recipientUserId) =>
@@ -5687,7 +5784,7 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell
         width="reading"
-        className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+        className="relative isolate"
         nativeTest={nativeTestConfig}
       >
         <AppPageContentRegion className="min-w-0 space-y-6 overflow-x-hidden">

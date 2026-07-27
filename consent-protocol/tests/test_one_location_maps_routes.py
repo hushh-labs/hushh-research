@@ -55,7 +55,11 @@ def test_route_eta_route(client, monkeypatch):
 
 def test_reverse_geocode_route(client, monkeypatch):
     async def fake(self, *, lat, lng):
-        return {"name": "Central Library", "formattedAddress": "476 5th Ave"}
+        return {
+            "name": "Central Library",
+            "formattedAddress": "476 5th Ave",
+            "countryCode": "US",
+        }
 
     monkeypatch.setattr(gms.GoogleMapsService, "reverse_geocode", fake)
     res = client.post(
@@ -66,6 +70,7 @@ def test_reverse_geocode_route(client, monkeypatch):
     data = res.json()
     assert data["place"]["name"] == "Central Library"
     assert data["place"]["formattedAddress"] == "476 5th Ave"
+    assert data["place"]["countryCode"] == "US"
 
 
 def test_maps_unconfigured_returns_503(client, monkeypatch):

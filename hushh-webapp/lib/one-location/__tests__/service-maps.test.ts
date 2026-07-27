@@ -37,6 +37,7 @@ describe("OneLocationService maps methods", () => {
       place: {
         name: "Cubbon Park",
         formattedAddress: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+        countryCode: "IN",
       },
     } as never);
     const out = await OneLocationService.reverseGeocode({
@@ -47,6 +48,7 @@ describe("OneLocationService maps methods", () => {
     expect(out).toEqual({
       name: "Cubbon Park",
       formattedAddress: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+      countryCode: "IN",
     });
   });
 

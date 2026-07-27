@@ -9,16 +9,13 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ChevronLeft, Phone } from "lucide-react";
+import { ChevronLeft, Loader2, Phone } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { OneLocationRecipient } from "@/lib/one-location/types";
 import type {
-  OneLocationRecipient,
-  PlainLocationPoint,
-} from "@/lib/one-location/types";
-import {
-  DEFAULT_EMERGENCY,
-  emergencyInfoForPoint,
+  EmergencyInfo,
+  EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 
 const HOLD_DURATION_MS = 2_000;
@@ -33,12 +30,9 @@ export type SosPanelProps = {
   onEditContacts: () => void;
   recipientLabel: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
-  /**
-   * The user's last known location, used to pick the correct local emergency
-   * number (e.g. 112 in India, 999 in the UAE, 911 in the US). When omitted we
-   * fall back to US 911.
-   */
-  myLocationPoint?: PlainLocationPoint | null;
+  emergency: EmergencyInfo | null;
+  emergencyStatus: EmergencyNumberLookupStatus;
+  onResolveEmergencyNumber: () => void;
 };
 
 
@@ -63,15 +57,11 @@ export function SosPanel({
   onEditContacts,
   recipientLabel,
   isRecipientShareReady,
-  myLocationPoint = null,
+  emergency,
+  emergencyStatus,
+  onResolveEmergencyNumber,
 }: SosPanelProps) {
   const [message, setMessage] = useState<SmsQuickMessage | null>(null);
-  // Resolve the correct local emergency number from the user's location
-  // (e.g. 112 in India, 999 in the UAE, 911 in the US). Falls back to US 911.
-  const emergency = useMemo(
-    () => emergencyInfoForPoint(myLocationPoint) ?? DEFAULT_EMERGENCY,
-    [myLocationPoint],
-  );
 
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -332,18 +322,55 @@ export function SosPanel({
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
-            <a
-              href={`tel:${emergency.number}`}
-              aria-label={
-                emergency.countryName
-                  ? `Call ${emergency.number} emergency services (${emergency.countryName})`
-                  : `Call ${emergency.number} emergency services`
-              }
-              className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] text-[15px] font-semibold text-white"
-            >
-              <Phone className="h-4 w-4 fill-current" aria-hidden />
-              Call {emergency.number}
-            </a>
+            {emergencyStatus === "resolved" && emergency ? (
+              <a
+                href={`tel:${emergency.number}`}
+                aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
+                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+              >
+                <Phone className="h-4 w-4 fill-current" aria-hidden />
+                <span className="min-w-0 text-left leading-tight">
+                  <span className="block text-[15px] font-semibold">
+                    Call {emergency.number}
+                  </span>
+                  <span className="block truncate text-[10px] text-white/75">
+                    {emergency.countryName}
+                  </span>
+                </span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={onResolveEmergencyNumber}
+                disabled={
+                  emergencyStatus === "idle" || emergencyStatus === "resolving"
+                }
+                aria-label={
+                  emergencyStatus === "unavailable"
+                    ? "Retry local emergency number"
+                    : "Finding local emergency number"
+                }
+                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white disabled:cursor-wait disabled:opacity-75"
+              >
+                {emergencyStatus === "unavailable" ? (
+                  <Phone className="h-4 w-4 fill-current" aria-hidden />
+                ) : (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                )}
+                <span className="min-w-0 text-left leading-tight">
+                  <span className="block text-[13px] font-semibold">
+                    {emergencyStatus === "unavailable"
+                      ? "Retry local number"
+                      : "Finding local number"}
+                  </span>
+                  <span className="block truncate text-[10px] text-white/75">
+                    {emergencyStatus === "unavailable"
+                      ? "Location unavailable"
+                      : "Using current location"}
+                  </span>
+                </span>
+              </button>
+            )}
 
 
             <button

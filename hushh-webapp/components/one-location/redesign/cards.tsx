@@ -54,7 +54,7 @@ export function TrustedPersonCard({
   selected,
 }: {
   name: string;
-  subtitle: string;
+  subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
   actionLabel?: string;
@@ -77,9 +77,16 @@ export function TrustedPersonCard({
         <p className="break-words text-[13px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] sm:text-base">
           {name}
         </p>
-        <p className={cn(MUTED_TEXT, "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs")}>
-          {subtitle}
-        </p>
+        {subtitle ? (
+          <p
+            className={cn(
+              MUTED_TEXT,
+              "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs",
+            )}
+          >
+            {subtitle}
+          </p>
+        ) : null}
       </div>
 
       {statusLabel ? (
