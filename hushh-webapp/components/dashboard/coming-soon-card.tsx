@@ -28,7 +28,7 @@ export function ComingSoonCard({ title, description, icon: Icon, color = 'text-a
         </p>
         <div className="p-4 bg-muted/50 rounded-lg border border-dashed">
           <p className="text-sm text-center text-muted-foreground">
-            🚧 This domain is under development
+            This domain is under development
           </p>
         </div>
         <Button variant="gradient" effect="glass" className="w-full" disabled showRipple>

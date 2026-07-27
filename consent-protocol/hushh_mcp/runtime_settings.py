@@ -278,6 +278,71 @@ def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
     return tuple(headers)
 
 
+def personal_agent_enabled() -> bool:
+    """Kill-switch feature flag for the per-user personal-information agent.
+
+    Master off-switch for the entire Phase 0 personal-agent surface (registry,
+    HusshID minting, standing pkm.read issuance, pod keypair, prompt sync).
+    Defaults OFF: nothing in that surface activates until this is explicitly
+    turned on, and flipping it back to off disables the surface with no
+    redeploy."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_ENABLED"), default=False)
+
+
+def personal_agent_backend() -> str:
+    """Selected compute backend for the per-user agent (see ``compute_backend``).
+
+    The provider abstraction's selector: which host stands a user's agent up.
+    Empty/unset (the default) resolves to the inert ``NullBackend`` -- so even with
+    the kill-switch on, nothing calls out to a real host until a backend is both
+    implemented and explicitly named here. Reserved values ('gcp', 'anypoint')
+    land with their milestones (docs/future/personal-agent/ROADMAP.md M4/M7)."""
+    return (_clean_env("PERSONAL_AGENT_BACKEND") or "").strip().lower()
+
+
+def one_db_sessions_enabled() -> bool:
+    """Feature flag: durable ADK ``DatabaseSessionService`` for One's runners.
+
+    Default **OFF** -> ``InMemorySessionService`` (today's behavior: One's voice
+    and text sessions are process-local, so a mid-conversation reconnect that
+    lands on another worker starts with zero context). When **ON**, One's managed
+    voice and text runners resolve a durable ``DatabaseSessionService`` on the
+    existing Postgres so sessions survive worker changes -- the documented
+    ``get_one_runner`` scale seam. Fail-safe: if the DB session service cannot be
+    built the runner falls back to in-memory, so the live runtime degrades to
+    today's behavior rather than failing to start. Gate the rollout on the
+    voice-session write-load measurement the runner docstring calls for."""
+    return _bool_from_value(_clean_env("ONE_DB_SESSIONS_ENABLED"), default=False)
+
+
+def webauthn_enabled() -> bool:
+    """Kill-switch for the server-side WebAuthn/FIDO2 ceremony (M14).
+
+    Default **OFF**: the register/authenticate endpoints return 404 and no
+    credential is verified or stored. When on, hussh performs real, server-verified
+    passkey + hardware-key (Titan/YubiKey) ceremonies. Independent of the existing
+    client-side vault-unlock PRF flow, which is unaffected either way."""
+    return _bool_from_value(_clean_env("WEBAUTHN_ENABLED"), default=False)
+
+
+def pod_mode() -> bool:
+    """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
+
+    Default **OFF** -> today's behavior: the process runs every fleet-wide
+    background worker (the consent NOTIFY->FCM listener, the Gmail catch-up/watch
+    renewal loop, and the consent-revocation sweep). Those workers are singletons
+    of the shared control plane; a per-user pod must NOT run them, or a fleet of
+    pods would each duplicate pushes, watch renewals, and revocation sweeps against
+    shared state.
+
+    When **ON** (``HUSSH_POD_MODE=1``, set by the pod deploy config), the process
+    still serves the full agent runtime + HTTP surface (Agent One orchestrating its
+    specialists, the A2A endpoint, health) and keeps its own DB pool + in-memory
+    warmups, but SKIPS the fleet-wide workers. This is the runtime half of the pod
+    architecture (the deploy half is ``GcpBackend.render_deploy_config``)."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
+
+
 def crm_registry_db_enabled() -> bool:
     """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
     registry (decrypting credentials with VAULT_DATA_KEY) instead of the

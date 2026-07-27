@@ -68,6 +68,13 @@ class ConsentScope(str, Enum):
     CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
     CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
 
+    # ==================== INTERNAL AGENT-RUNTIME CAPABILITIES ====================
+    # Control-plane capability a Hushh-operated agent runtime (pod) uses to fetch
+    # its own system prompt at runtime (prompt-sync). INTERNAL ONLY: never
+    # external-requestable and never a data authority, so it can never read PKM or
+    # a user's data. Listed in INTERNAL_ONLY_SCOPE_VALUES below.
+    CAP_AGENT_PROMPT_SYNC = "cap.agent.prompt.sync"
+
     @classmethod
     def list(cls):
         """List all static scopes."""
@@ -254,6 +261,7 @@ INTERNAL_ONLY_SCOPE_VALUES: frozenset[str] = frozenset(
         ConsentScope.VAULT_OWNER.value,
         ConsentScope.PKM_READ.value,
         ConsentScope.PKM_WRITE.value,
+        ConsentScope.CAP_AGENT_PROMPT_SYNC.value,
     }
 )
 EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(

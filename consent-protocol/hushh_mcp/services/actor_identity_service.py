@@ -13,6 +13,7 @@ import asyncpg
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
+from hushh_mcp.runtime_settings import personal_agent_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ _IDENTITY_STALE_AFTER = timedelta(hours=24)
 _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
 _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
+# In-flight personal-agent provisioning kickoffs, deduped per user (phone-verify seam).
+_PERSONAL_AGENT_PROVISION_TASKS: dict[str, asyncio.Task[None]] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 
 
@@ -79,6 +82,66 @@ class ActorIdentityService:
 
         task.add_done_callback(_cleanup)
         return True
+
+    def schedule_provision_personal_agent(self, user_id: str, phone_number: str) -> bool:
+        """Fire-and-forget: register the user's PENDING personal agent on phone-verify.
+
+        Flag-gated and strictly best-effort -- it never blocks or fails phone
+        verification. When ``PERSONAL_AGENT_ENABLED`` is off this is a no-op.
+        Deduped by an in-flight task per user; the actual work (HusshID + pending
+        registry row) is idempotent and non-destructive.
+        """
+        if not personal_agent_enabled():
+            return False
+
+        normalized_user_id = str(user_id or "").strip()
+        normalized_phone = str(phone_number or "").strip()
+        if not normalized_user_id or not normalized_phone:
+            return False
+        if not self._looks_like_firebase_uid(normalized_user_id):
+            return False
+
+        existing = _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id)
+        if existing and not existing.done():
+            return False
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+
+        task = loop.create_task(
+            self._register_pending_personal_agent(normalized_user_id, normalized_phone)
+        )
+        _PERSONAL_AGENT_PROVISION_TASKS[normalized_user_id] = task
+
+        def _cleanup(completed: asyncio.Task[None]) -> None:
+            if _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id) is completed:
+                _PERSONAL_AGENT_PROVISION_TASKS.pop(normalized_user_id, None)
+            try:
+                completed.result()
+            except Exception as exc:
+                logger.debug(
+                    "personal-agent provisioning kickoff skipped for %s: %s",
+                    normalized_user_id,
+                    exc,
+                )
+
+        task.add_done_callback(_cleanup)
+        return True
+
+    async def _register_pending_personal_agent(self, user_id: str, phone_number: str) -> None:
+        # Deferred import: no personal-agent dependency at module import time, and
+        # nothing runs unless the flag gated the scheduler open.
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        service = PersonalAgentProvisioningService(registry=PersonalAgentRegistryRepo())
+        await service.register_pending(user_id=user_id, phone_e164=phone_number)
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
@@ -666,6 +729,14 @@ class ActorIdentityService:
                 exc,
             )
             return None
+
+        # Phone-verify seam: kick off the user's personal-agent provisioning
+        # (flag-gated, fire-and-forget). Wrapped defensively so it can never affect
+        # the phone-claim result.
+        try:
+            self.schedule_provision_personal_agent(normalized_user_id, normalized_phone_number)
+        except Exception:  # noqa: S110 -- provisioning kickoff must never break phone verify
+            pass
 
         return self._normalize_row(row)
 

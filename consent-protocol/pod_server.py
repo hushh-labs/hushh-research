@@ -1,0 +1,100 @@
+"""Slim pod ASGI app — runs ONLY the agent + its storage/enforcement surface.
+
+This is the per-user **pod** entrypoint — the "Docker image that only runs the
+agent and its storage." It is deliberately **not** the full backend:
+
+- **Central at Hushh (never mounted here):** the governing consent *control plane*
+  (token issuance, the audit-DB authority, developer/admin APIs) and every
+  unrelated surface — RIA, email, marketplace, account, IAM, PKM admin, and
+  login / WebAuthn. Those stay with the fleet hub.
+- **In the pod (mounted here):** the agent runtime (Agent One orchestrating its
+  specialists) reachable over the **A2A** endpoint; the consent **enforcement**
+  path at the pod's own door (validate the HCT/consent token, revocation check,
+  owner-verified pod-access receipt — *enforcement, not issuance*); the pod's own
+  **health**; and the versioned **prompt** it hydrates at runtime.
+
+Fleet-wide workers (the consent NOTIFY→FCM listener, Gmail renewal, the revocation
+sweep) are **never registered** by this app — it simply does not add them — so a
+fleet of pods cannot duplicate the hub's side effects. ``HUSSH_POD_MODE`` is also
+asserted for any shared code that reads it.
+
+Run: ``gunicorn pod_server:app`` (see ``Dockerfile.pod``). The physical image can
+be slimmed further (trimmed dependency set) as a follow-up; this entrypoint fixes
+the *runtime surface* — the security-relevant property — now.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+
+# A pod is a pod: assert pod-mode BEFORE importing app code that may read it.
+os.environ.setdefault("HUSSH_POD_MODE", "1")
+
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+
+from api.middlewares.rate_limit import limiter  # noqa: E402
+from api.routes import health  # noqa: E402
+from api.routes.one.a2a import router as a2a_router  # noqa: E402
+from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
+from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from db.connection import DatabaseUnavailableError  # noqa: E402
+from db.db_client import DatabaseExecutionError  # noqa: E402
+from hushh_mcp.runtime_settings import pod_mode  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+# The pod's ALLOWLISTED surface — the ONLY routers a pod mounts. Anything not in
+# this tuple (consent issuance, developer/admin, RIA, email, marketplace, account,
+# IAM, PKM admin, login/WebAuthn) is central-plane and intentionally absent.
+_POD_ROUTERS = (health.router, a2a_well_known_router, a2a_router, agent_prompt_router)
+
+app = FastAPI(
+    title="hussh One — sovereign pod",
+    description="Per-user agent + storage. The consent authority stays central at Hushh.",
+    version="pod-1",
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+
+@app.exception_handler(DatabaseUnavailableError)
+async def _db_unavailable(_request: Request, _exc: DatabaseUnavailableError) -> JSONResponse:
+    # The pod hits the DB only to VALIDATE consent (enforcement); a DB blip is a
+    # clean 503, never a raw 500 that could leak internals.
+    return JSONResponse(status_code=503, content={"detail": "database unavailable"})
+
+
+@app.exception_handler(DatabaseExecutionError)
+async def _db_exec_error(_request: Request, _exc: DatabaseExecutionError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": "database error"})
+
+
+for _router in _POD_ROUTERS:
+    app.include_router(_router)
+
+
+@app.get("/pod/info", tags=["pod"])
+def pod_info() -> dict:
+    """Identify this process as a slim pod and report its mounted surface."""
+    return {
+        "role": "sovereign-pod",
+        "podMode": pod_mode(),
+        "hushhId": os.getenv("HUSSH_ID") or None,
+        "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
+        "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
+        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt"],
+    }
+
+
+@app.on_event("startup")
+async def _pod_startup() -> None:
+    logger.info(
+        "pod.startup pod_mode=%s hushh_id_present=%s space_id_present=%s",
+        pod_mode(),
+        bool(os.getenv("HUSSH_ID")),
+        bool(os.getenv("HUSSH_SPACE_ID")),
+    )

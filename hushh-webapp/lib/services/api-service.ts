@@ -450,6 +450,11 @@ async function apiFetch(
     const text = await response.clone().text().catch(() => "");
     const normalized = text.toLowerCase();
     return (
+      // Preferred: the backend's typed contract code (api/utils/firebase_auth.py).
+      // Keying off the stable code, not prose, is what makes "don't sign out on a
+      // transient auth-provider outage" hold by construction rather than by luck.
+      normalized.includes("auth_provider_unavailable") ||
+      normalized.includes("authentication service temporarily unavailable") ||
       normalized.includes("firebase validation unavailable") ||
       normalized.includes("firebase id token verification timed out") ||
       normalized.includes("auth/network-request-failed") ||

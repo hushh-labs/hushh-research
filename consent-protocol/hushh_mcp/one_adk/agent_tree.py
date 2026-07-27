@@ -30,6 +30,7 @@ from typing import Any, Literal, Optional
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
+from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
@@ -57,6 +58,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+from hushh_mcp.runtime_settings import one_db_sessions_enabled
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
@@ -1109,24 +1111,52 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
 _runner: Runner | None = None
 
 
-def get_one_runner() -> Runner:
-    """Process-wide Runner for One (in-memory sessions; voice sessions are
-    ephemeral and the durable record lives in the app's own stores).
+def _build_one_session_service() -> BaseSessionService:
+    """Session service for One's process-wide runners.
 
-    SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): InMemorySessionService
-    means a mid-conversation reconnect that lands on another worker/instance
-    starts with zero context, and session count is bounded by one process's
-    memory. The documented upgrade is ADK's DatabaseSessionService on the
-    existing Postgres (asyncpg driver, SELECT FOR UPDATE row locking) for
-    resumable voice sessions; swap here, contract unchanged. Gate that swap on
-    a voice-session write-load measurement against the DB pool budget.
+    In-memory by default (today's behavior). When ``ONE_DB_SESSIONS_ENABLED`` is
+    on, resolve a durable ``DatabaseSessionService`` on the existing Postgres so a
+    session survives a worker change -- the documented ``get_one_runner`` scale
+    seam. Fail-safe: any construction error falls back to in-memory, so the live
+    runtime never fails to start on a bad DB URL/driver; it degrades to today's
+    behavior and logs. Rollout is gated on the voice-session write-load
+    measurement the runner docstring calls for.
+    """
+    if not one_db_sessions_enabled():
+        return InMemorySessionService()
+    try:
+        from google.adk.sessions.database_session_service import DatabaseSessionService
+
+        from db.connection import get_database_url
+
+        service = DatabaseSessionService(db_url=get_database_url())
+        logger.info("one.session_service=database")
+        return service
+    except Exception as exc:  # fail-safe: never block runner startup on a DB issue
+        logger.warning("one.db_sessions_unavailable fallback=in_memory err=%s", type(exc).__name__)
+        return InMemorySessionService()
+
+
+def get_one_runner() -> Runner:
+    """Process-wide Runner for One.
+
+    Sessions are in-memory by default; when ``ONE_DB_SESSIONS_ENABLED`` is on they
+    resolve a durable ``DatabaseSessionService`` on the existing Postgres (see
+    ``_build_one_session_service``).
+
+    SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): with in-memory sessions a
+    mid-conversation reconnect that lands on another worker/instance starts with
+    zero context, and session count is bounded by one process's memory. The
+    documented upgrade is ADK's DatabaseSessionService on the existing Postgres for
+    resumable voice sessions -- now wired behind the flag (default off). Gate the
+    rollout on a voice-session write-load measurement against the DB pool budget.
     """
     global _runner
     if _runner is None:
         _runner = Runner(
             app_name=ONE_APP_NAME,
             agent=build_one_root_agent(),
-            session_service=InMemorySessionService(),
+            session_service=_build_one_session_service(),
             auto_create_session=True,
         )
     return _runner
@@ -1187,6 +1217,10 @@ def build_one_live_runner(
             ),
             specialist_model=specialist_model,
         ),
+        # The BYOK-live runner is connection-local and deliberately in-memory: its
+        # session state is influenced by a user-supplied key and stays turn/connection
+        # bounded (matching the text_runtime BYOK isolation), so it is intentionally
+        # NOT routed through the durable ONE_DB_SESSIONS_ENABLED path.
         session_service=InMemorySessionService(),
         auto_create_session=True,
     )
@@ -1198,16 +1232,16 @@ _text_runner: Runner | None = None
 def get_one_text_runner() -> Runner:
     """Process-wide Runner for One's text head (external A2A, future chat).
 
-    Sessions are per-request ephemeral today; the same DatabaseSessionService
-    scale seam documented on get_one_runner applies here when multi-turn
-    external conversations need durability.
+    Sessions are in-memory by default; the same ``ONE_DB_SESSIONS_ENABLED`` flag
+    (``_build_one_session_service``) resolves a durable DatabaseSessionService when
+    multi-turn external conversations need durability across worker changes.
     """
     global _text_runner
     if _text_runner is None:
         _text_runner = Runner(
             app_name=ONE_APP_NAME,
             agent=build_one_text_agent(),
-            session_service=InMemorySessionService(),
+            session_service=_build_one_session_service(),
             auto_create_session=True,
         )
     return _text_runner

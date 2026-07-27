@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+# Slim pod image — runs ONLY the sovereign per-user agent + storage/enforcement
+# surface (`pod_server:app`), NOT the consent control plane. See pod_server.py.
+#
+# It shares the base build with the hub image; what differs is the RUNTIME surface
+# (the entrypoint mounts an allowlist of routers) and pod-mode (no fleet workers).
+# Physically slimming the dependency set is a tracked follow-up — this image fixes
+# the security-relevant property (surface + workers) now.
+
+# Stage 1: build dependencies
+FROM python:3.13-slim as builder
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install uv
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --compile-bytecode -r requirements.txt
+
+# Stage 2: production runtime
+FROM python:3.13-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local /usr/local
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/usr/local/bin:$PATH \
+    HUSSH_POD_MODE=1
+COPY . .
+RUN python -m compileall -q .
+# Non-root, least-privilege (FedRAMP CM-6 / SC-2).
+RUN useradd --system --uid 10001 --home-dir /app appuser
+# gunicorn's control server writes a runtime dir under CWD/HOME; the code tree is
+# root-owned + read-only for the runtime user, so give it one writable path.
+RUN mkdir -p /app/.gunicorn && chown 10001:10001 /app/.gunicorn
+USER 10001
+EXPOSE 8080
+# Slim pod entrypoint: agent + storage + enforcement only (no consent control plane).
+CMD ["sh", "-c", "exec gunicorn pod_server:app -w 2 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]

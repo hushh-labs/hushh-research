@@ -377,6 +377,47 @@ async def _delete_firebase_auth_user(user_id: str) -> str:
         return "failed"
 
 
+async def _deprovision_personal_agent(user_id: str) -> str:
+    """Best-effort teardown of the user's personal agent on account deletion.
+
+    Not flag-gated: it must clean up any existing registry row even if the feature
+    was later turned off. A missing row is a safe no-op (nothing to tombstone or
+    delete). ``revoke=False`` because the deletion cascade has ALREADY wiped this
+    user's consent_audit rows (which fail-closes the standing read) -- writing a
+    REVOKED event here would re-create a row for a just-deleted user and break the
+    erasure guarantee. The retained tombstone (needed for recycled-phone rotation)
+    and the registry-row delete (the row is outside the cascade) still happen.
+    Never raises; account deletion must complete regardless.
+    """
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return "skipped"
+
+    try:
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        # Teardown must route to the SAME backend that provisioned the host (else a
+        # real host would orphan); resolve_compute_backend defaults to inert NullBackend.
+        service = PersonalAgentProvisioningService(
+            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+        )
+        result = await service.deprovision(user_id=normalized_user_id, revoke=False)
+        return str(result.get("status") or "deprovisioned")
+    except Exception as exc:
+        logger.warning(
+            "Personal-agent deprovision failed for deleted account user=%s error=%s",
+            normalized_user_id,
+            type(exc).__name__,
+        )
+        return "failed"
+
+
 def _firebase_user_provider_ids(user_record: Any) -> set[str]:
     provider_data = getattr(user_record, "provider_data", None) or []
     provider_ids: set[str] = set()
@@ -685,6 +726,9 @@ async def delete_account(
             phone_number=verified_phone_number,
             protected_uid=user_id,
         )
+        # Best-effort teardown of the user's personal agent (registry row + retained
+        # tombstone). revoke=False: the cascade already wiped consent_audit.
+        details["personal_agent"] = await _deprovision_personal_agent(user_id)
         # Fail-loud on Firebase identity orphan: the encrypted account is already
         # gone, so we keep the 200, but surface the incomplete cleanup so callers can
         # alert/retry instead of silently treating the identity as removed.

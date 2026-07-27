@@ -59,9 +59,15 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
     except firebase_auth.CertificateFetchError as exc:
         logger.error("firebase.verify_id_token certificate_fetch_failed: %s", exc)
+        # Typed code so the client keeps the user signed in through a transient
+        # provider outage by CODE, not by prose-matching (a real cross-tier
+        # contract). The human-readable message is retained for logs/humans.
         raise HTTPException(
             status_code=503,
-            detail="Authentication service temporarily unavailable",
+            detail={
+                "error_code": "AUTH_PROVIDER_UNAVAILABLE",
+                "message": "Authentication service temporarily unavailable",
+            },
         ) from None
     except Exception as exc:
         logger.exception("firebase.verify_id_token unexpected_error: %s", exc)
