@@ -144,9 +144,26 @@ def test_production_wif_has_one_keyless_setup_path() -> None:
     assert "roles/iam.workloadIdentityUser" in setup_script
     assert 'build_service_account_email="${prod_project_number}-compute' in setup_script
     assert setup_script.count('"roles/iam.serviceAccountUser"') == 1
+    assert 'readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"' in setup_script
+    assert 'readonly BACKEND_ARTIFACT_LOCATION="us"' in setup_script
+    assert "gcloud artifacts repositories add-iam-policy-binding" in setup_script
+    assert '"roles/artifactregistry.reader"' in setup_script
     assert "gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER" in setup_script
     assert "gh variable set GCP_DEPLOY_SERVICE_ACCOUNT" in setup_script
     assert "service-account keys create" not in setup_script
+
+
+def test_production_health_gates_only_probe_after_successful_promotion() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert (
+        "if: steps.scope.outputs.deploy_backend == 'true' "
+        "&& steps.promote-traffic.outcome == 'success'"
+    ) in workflow
+    assert (
+        "if: steps.scope.outputs.deploy_frontend == 'true' "
+        "&& steps.promote-traffic.outcome == 'success'"
+    ) in workflow
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:

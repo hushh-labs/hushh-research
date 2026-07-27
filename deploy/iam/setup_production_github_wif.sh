@@ -11,6 +11,8 @@ readonly POOL_ID="github-actions-prod"
 readonly PROVIDER_ID="hushh-research-prod"
 readonly DEPLOY_SERVICE_ACCOUNT_ID="github-actions-prod-deployer"
 readonly DEPLOY_SERVICE_ACCOUNT_EMAIL="${DEPLOY_SERVICE_ACCOUNT_ID}@${PROD_PROJECT_ID}.iam.gserviceaccount.com"
+readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"
+readonly BACKEND_ARTIFACT_LOCATION="us"
 readonly ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
 readonly ATTRIBUTE_CONDITION="assertion.sub == 'repo:${GITHUB_REPOSITORY}:environment:${GITHUB_ENVIRONMENT}' && assertion.ref == 'refs/heads/main'"
 
@@ -121,6 +123,17 @@ gcloud iam service-accounts add-iam-policy-binding "${build_service_account_emai
 for deploy_role in "${DEPLOY_PROJECT_ROLES[@]}"; do
   add_project_role_binding "${deploy_role}"
 done
+
+# Cloud Run validates the candidate image while shifting traffic. Keep image
+# read authority scoped to the production backend repository instead of adding
+# Artifact Registry read access across the entire project.
+gcloud artifacts repositories add-iam-policy-binding "${BACKEND_ARTIFACT_REPOSITORY}" \
+  --project="${PROD_PROJECT_ID}" \
+  --location="${BACKEND_ARTIFACT_LOCATION}" \
+  --role="roles/artifactregistry.reader" \
+  --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \
+  --quiet \
+  --format=none
 
 readonly provider_resource="projects/${prod_project_number}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
 printf '%s' "${provider_resource}" | gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER \
