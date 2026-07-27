@@ -49,6 +49,7 @@ tests/test_pod_server.py
 tests/test_pod_connector_keypair_service.py
 tests/test_personal_agent_grant_service.py
 tests/test_consent_audit_chain.py
+tests/test_kms_key_resolver.py
 tests/test_personal_agent_provisioning_service.py
 tests/test_personal_agent_registry_repo.py
 tests/test_personal_agent_routes.py

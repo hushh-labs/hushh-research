@@ -23,6 +23,11 @@ load_dotenv(_REPO_ROOT / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
+# KMS envelope resolution (SC-12/SC-28): the DEKs above may instead be supplied as
+# KMS-wrapped ciphertext + a KEK resource, unwrapped once at startup. Off by default.
+APP_SIGNING_KEY_CIPHERTEXT_ENV = "APP_SIGNING_KEY_CIPHERTEXT"
+VAULT_DATA_KEY_CIPHERTEXT_ENV = "VAULT_DATA_KEY_CIPHERTEXT"
+KMS_KEK_RESOURCE_ENV = "KMS_KEK_RESOURCE"
 # Connector-credential encryption password (PBKDF2 input) for the MuleSoft
 # PBKDF2-AES256-CBC scheme. Separate trust domain from VAULT_DATA_KEY (user
 # data). Falls back to VAULT_DATA_KEY until a dedicated key is provisioned.
@@ -366,15 +371,60 @@ def consent_audit_chain_enabled() -> bool:
     return _bool_from_value(_clean_env("CONSENT_AUDIT_CHAIN_ENABLED"), default=False)
 
 
+def kms_key_resolution_enabled() -> bool:
+    """Feature flag: resolve APP_SIGNING_KEY / VAULT_DATA_KEY by KMS envelope-
+    decryption (SC-12/SC-28) instead of a plaintext env var.
+
+    Default **OFF** -> the plaintext env var, byte-for-byte as today. When **ON**,
+    each DEK is stored only as KMS-wrapped ciphertext (`*_CIPHERTEXT`) and unwrapped
+    once at startup via the KEK named in `KMS_KEK_RESOURCE`; the hot path
+    (HMAC/AES on the in-memory DEK) is unchanged. Enabling also requires the
+    `google-cloud-kms` dependency (lazy-imported). See
+    docs/reference/kms-key-custody.md."""
+    return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_ENABLED"), default=False)
+
+
+def kms_key_resolution_strict() -> bool:
+    """Fail-closed toggle for KMS key resolution.
+
+    Default **OFF** (fail-safe, dev): on a KMS misconfiguration or unwrap failure
+    the resolver falls back to the plaintext env var with a warning, so enabling
+    the flag cannot brick startup. When **ON** (production): startup fails closed
+    rather than run on a fallback key."""
+    return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_STRICT"), default=False)
+
+
 @lru_cache(maxsize=1)
 def get_core_security_settings() -> CoreSecuritySettings:
-    app_signing_key = _clean_env(APP_SIGNING_KEY_ENV)
+    # KMS envelope resolution (SC-12 / SC-28): unwrap each DEK from KMS-wrapped
+    # ciphertext when enabled; otherwise the plaintext env var, unchanged.
+    from hushh_mcp.kms_key_resolver import resolve_key
+
+    _kms_enabled = kms_key_resolution_enabled()
+    _kms_strict = kms_key_resolution_strict()
+    _kek = _clean_env(KMS_KEK_RESOURCE_ENV)
+
+    app_signing_key = resolve_key(
+        label=APP_SIGNING_KEY_ENV,
+        plaintext=_clean_env(APP_SIGNING_KEY_ENV),
+        wrapped_b64=_clean_env(APP_SIGNING_KEY_CIPHERTEXT_ENV),
+        kek_resource=_kek,
+        enabled=_kms_enabled,
+        strict=_kms_strict,
+    )
     if not app_signing_key or len(app_signing_key) < 32:
         raise ValueError(
             f"❌ {APP_SIGNING_KEY_ENV} must be set in .env and at least 32 characters long"
         )
 
-    vault_data_key = _clean_env(VAULT_DATA_KEY_ENV)
+    vault_data_key = resolve_key(
+        label=VAULT_DATA_KEY_ENV,
+        plaintext=_clean_env(VAULT_DATA_KEY_ENV),
+        wrapped_b64=_clean_env(VAULT_DATA_KEY_CIPHERTEXT_ENV),
+        kek_resource=_kek,
+        enabled=_kms_enabled,
+        strict=_kms_strict,
+    )
     if not vault_data_key or len(vault_data_key) != 64:
         raise ValueError(
             f"❌ {VAULT_DATA_KEY_ENV} must be a 64-character hex string (256-bit AES key)"
