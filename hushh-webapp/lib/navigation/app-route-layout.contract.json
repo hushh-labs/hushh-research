@@ -920,9 +920,7 @@
       "file": "app/one/feed/page.tsx",
       "includes": [
         "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
+        "AppPageContentRegion"
       ]
     },
     "voicePlaybook": {

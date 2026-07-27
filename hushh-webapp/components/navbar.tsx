@@ -19,10 +19,9 @@ import {
   Database,
   FileSpreadsheet,
   FolderSearch,
-  Loader2,
   Mail,
   MapPin,
-  Rss,
+  Newspaper,
   ShieldCheck,
   Store,
   Users,
@@ -33,7 +32,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { useAnyTaskActive, type TaskActiveState } from "@/lib/feed/use-any-task-active";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -65,10 +63,6 @@ function FilledCompassIcon(props: PhosphorIconProps) {
 
 function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
   return <MagnifyingGlass {...props} weight="fill" />;
-}
-
-function SpinningLoaderIcon(props: React.SVGProps<SVGSVGElement>) {
-  return <Loader2 {...props} className={cn(props.className, "animate-spin")} />;
 }
 
 const BOTTOM_NAV_OPTION_META: Record<
@@ -152,7 +146,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   feed: {
     value: "feed",
     label: "Feed",
-    icon: Rss,
+    icon: Newspaper,
     dataTourId: "nav-one-feed",
   },
   pkm: {
@@ -192,7 +186,6 @@ function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number,
   feedUnreadCount: number,
-  taskActive: TaskActiveState,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
@@ -203,9 +196,6 @@ function navOptionForKey(
     badge = pendingConsents;
   } else if (key === "feed" && feedUnreadCount > 0) {
     badge = feedUnreadCount;
-  }
-  if (key === "feed" && (taskActive.hasActiveTask || taskActive.hasEmergencyAlert)) {
-    return { ...option, badge, icon: SpinningLoaderIcon, activeIcon: SpinningLoaderIcon };
   }
   return { ...option, badge };
 }
@@ -226,7 +216,6 @@ export const Navbar = ({
   const agentPopover = useOptionalAgentPopover();
   const pendingConsents = useConsentPendingSummaryCount();
   const feedUnreadCount = useFeedUnreadCount();
-  const taskActive = useAnyTaskActive();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -291,9 +280,9 @@ export const Navbar = ({
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
     return keys.map((key) =>
-      navOptionForKey(key, pendingConsents ?? 0, feedUnreadCount ?? 0, taskActive),
+      navOptionForKey(key, pendingConsents ?? 0, feedUnreadCount ?? 0),
     );
-  }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount, taskActive]);
+  }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;

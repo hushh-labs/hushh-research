@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Bell,
   Database,
   MapPin,
+  Newspaper,
   ShieldCheck,
   TrendingUp,
   UserRound,
@@ -50,7 +50,7 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
  * copy iterates via a frontend deploy rather than a migration.
  */
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
-  const icon = DOMAIN_ICON[item.source_domain] || Bell;
+  const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
   const counterparty = metadataString(item.metadata, "counterpart_label");

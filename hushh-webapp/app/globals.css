@@ -3407,11 +3407,55 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    mirrors the quiet root treatment so public, authenticated, and nested
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
-  /* Light mode is intentionally neutral white. Accent washes make a gold
-     preference read as a pale-yellow page instead of a clean canvas. */
-  --foundation-grain-opacity: 0.07;
+  /* Light mode gets the same four-corner accent wash as dark mode, tuned
+     stronger, not weaker: mixing an accent into near-white at the same
+     percentage as near-black reads as far fainter, because the relative
+     luminance/hue shift off a bright base is much smaller. These percentages
+     are deliberately above dark mode's 6-8% so the corners actually read as
+     an accent glow instead of disappearing into the white canvas. */
+  --foundation-grain-opacity: 0.1;
+  --foundation-ambient-primary: 12%;
+  --foundation-ambient-secondary: 10%;
+  --foundation-ambient-tertiary: 9%;
+  --foundation-ambient-quaternary: 7%;
   background-color: var(--background);
-  background-image: none;
+  background-image:
+    radial-gradient(
+      circle at 4% 4%,
+      color-mix(
+        in oklab,
+        var(--app-accent) var(--foundation-ambient-primary),
+        transparent
+      ),
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 100% 0%,
+      color-mix(
+        in oklab,
+        var(--app-accent-bright) var(--foundation-ambient-secondary),
+        transparent
+      ),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 0% 100%,
+      color-mix(
+        in oklab,
+        var(--app-accent) var(--foundation-ambient-tertiary),
+        transparent
+      ),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 100% 100%,
+      color-mix(
+        in oklab,
+        var(--app-accent-bright) var(--foundation-ambient-quaternary),
+        transparent
+      ),
+      transparent 31%
+    );
 }
 
 .dark .foundation-public-ambient {

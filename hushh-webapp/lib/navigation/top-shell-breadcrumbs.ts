@@ -707,6 +707,26 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.ONE_FEED) {
+    // Feed is a bottom-nav destination but reads as a One sub-surface: the
+    // shared top bar owns its "Feed" title + a single back-to-One arrow, so
+    // the page itself carries no in-body header.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Feed" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.GMAIL) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {

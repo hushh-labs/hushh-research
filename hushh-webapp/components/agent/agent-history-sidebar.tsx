@@ -270,15 +270,18 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <MessageSquare
-                className={cn(
-                  "h-[18px] w-[18px] shrink-0",
-                  active ? "text-foreground" : "text-muted-foreground",
-                )}
-                strokeWidth={1.8}
-                aria-hidden="true"
-              />
-              {collapsed ? null : <span className="truncate">{title}</span>}
+              {collapsed ? (
+                <MessageSquare
+                  className={cn(
+                    "h-[18px] w-[18px] shrink-0",
+                    active ? "text-foreground" : "text-muted-foreground",
+                  )}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+              ) : (
+                <span className="truncate">{title}</span>
+              )}
             </button>
             {collapsed ? null : (
               <DropdownMenu>
@@ -327,7 +330,7 @@ export function AgentHistorySidebar({
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
           isMobileMode
             ? "chrome-glass-surface rounded-r-[28px] border-r border-border/60 bg-background/88 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-background/88"
-            : "border-r border-black/10 bg-white/92 shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:border-white/10 dark:bg-[#101216] dark:shadow-none",
+            : "border-r border-border bg-background shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:shadow-none",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -338,7 +341,7 @@ export function AgentHistorySidebar({
           <div className="border-b border-border/65 px-4 pb-3 pt-[max(1rem,var(--app-safe-area-top-effective))] dark:border-white/10">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-foreground/[0.06] text-foreground dark:bg-white/[0.09]">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
                   <MessageSquare className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                 </span>
                 <h2 className="truncate text-[17px] font-semibold tracking-[-0.01em] text-foreground">

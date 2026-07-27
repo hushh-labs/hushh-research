@@ -496,8 +496,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let pageObserver: MutationObserver | null = null;
     let refreshFrame: number | null = null;
     let retryTimer = 0;
+    let headerRetryCount = 0;
     let lastScrollY: number | null = null;
     let topChromeProgress = 0;
+    // Routes with no primary page header (e.g. an immersive full-bleed
+    // layout) never satisfy this query, so retrying must stop eventually.
+    // 10 tries (~1.5s) is generous for a late-mounting header while still
+    // giving up cleanly for routes that will never have one.
+    const MAX_HEADER_RETRIES = 10;
 
     const updateHeaderVisibility = () => {
       const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
@@ -555,6 +561,23 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       });
     };
 
+    // Re-checks for a late-mounting header without touching the scroll
+    // baseline or listeners. The old code called the full `attach()` here,
+    // which reset `lastScrollY` to null on every retry; for a route with no
+    // header at all (immersive full-bleed layouts) that ran forever, forcing
+    // every scroll update back onto the "initial absolute position" snap
+    // instead of the smooth "follow the gesture" delta path. That could pin
+    // the shared top bar collapsed with no way to scroll it back into view.
+    const retryFindHeader = () => {
+      if (retryTimer || headerRetryCount >= MAX_HEADER_RETRIES) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = 0;
+        headerRetryCount += 1;
+        refreshHeader();
+        if (!header) retryFindHeader();
+      }, 150);
+    };
+
     const attach = () => {
       detachListeners();
 
@@ -562,6 +585,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         '[data-app-scroll-root="true"]',
       );
       lastScrollY = null;
+      headerRetryCount = 0;
       refreshHeader();
       attachedScrollRoot = scrollRoot;
       attachedScrollRoot?.addEventListener("scroll", updateHeaderVisibility, {
@@ -572,11 +596,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       });
       window.addEventListener("resize", updateHeaderVisibility);
 
-      if (!header && !retryTimer) {
-        retryTimer = window.setTimeout(() => {
-          retryTimer = 0;
-          attach();
-        }, 150);
+      if (!header) {
+        retryFindHeader();
       }
 
       pageObserver?.disconnect();

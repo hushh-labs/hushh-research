@@ -190,6 +190,9 @@ class CacheService {
       CACHE_KEYS.RIA_PICKS(userId),
       CACHE_KEYS.ONE_LOCATION_STATE(userId),
       CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
+      CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+      CACHE_KEYS.FEED_LIST(userId),
+      CACHE_KEYS.CONNECTIONS_INCOMING(userId),
     ]);
 
     for (const key of this.cache.keys()) {
@@ -313,6 +316,13 @@ export const CACHE_KEYS = {
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
+  // First page only; "load more" pagination stays live/uncached so a
+  // stale-while-revalidate render on revisit doesn't need to reason about
+  // cursor-scoped entries beyond the initial view.
+  FEED_LIST: (userId: string) => `feed_list_${userId}`,
+  // Incoming connection requests, read by the Feed's actionable ("Needs you")
+  // zone so a revisit renders the pending Confirm/Decline rows instantly.
+  CONNECTIONS_INCOMING: (userId: string) => `connections_incoming_${userId}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   // Cached licence-verify result, keyed by normalized regulator:license so a

@@ -13,7 +13,7 @@ flowchart TD
   feed_events["feed_events table"]
   api["GET/POST /api/one/feed*<br/>FeedService"]
   page["/one/feed page<br/>FeedItemRow"]
-  tab["Feed bottom-nav tab<br/>unread badge + task spinner"]
+  tab["Feed bottom-nav tab<br/>unread badge"]
 
   consent -->|trigger| feed_events
   location -->|trigger| feed_events
@@ -102,17 +102,52 @@ it (see `hushh_mcp/services/feed_service.py`'s docstring).
   Fired once when the Feed page opens (Instagram/Twitter's "opening the tab
   clears the badge" convention), not per item.
 
-Feed is read-only and navigational: tapping an item deep-links into the
-originating domain screen (Consent Center, Analysis, Location, KYC,
-Connected Systems, Connect) rather than exposing inline approve/deny
-actions.
+The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
+static navigational affordance, and unread state surfaces only through its
+badge count, not an icon swap.
 
-## Live-task visibility
+## Two zones: "Needs you" over "Earlier"
 
-The Feed tab's icon shows a spinner while a debate or background task is
-actively running (`hushh-webapp/lib/feed/use-any-task-active.ts`), extracted
-from the same `DebateRunManagerService` / `AppBackgroundTaskService`
-singletons the old `DebateTaskCenter` popover read. Task-level control
-(cancel a running debate, retry a failed save, dismiss a completed one)
-stays on the pages that own those flows (Analysis, `kai-flow.tsx`), not in
-the shell — Feed shows what happened, not live process control.
+The Feed route renders under one fixed (sticky) header where only the list
+scrolls, in two stacked zones modelled on Instagram's Activity pane (pinned
+actionable requests over a chronological log):
+
+1. **"Needs you" (live + actionable).** A `useFeedActionables`
+   (`hushh-webapp/lib/feed/use-feed-actionables.ts`) hook aggregates the live
+   domain stores/services — not the `feed_events` log — so each action is real
+   and current:
+   - pending consent → **Review** (deep-links to the consent manager; the feed
+     never one-tap-approves because approval requires the BYOK export-key
+     ceremony that lives there),
+   - pending location-access requests → inline **Approve** (1h) / **Deny**
+     (`OneLocationService`),
+   - incoming connection requests → inline **Confirm** / **Decline**
+     (`ConnectionsService`),
+   - running Kai debates → **Resume** (reconnects the stream via
+     `analysis?focus=active&run_id=…`) + **Cancel**, and running background
+     tasks → **Open** / **Cancel** (`DebateRunManagerService`,
+     `AppBackgroundTaskService`).
+   Vault-gated actions disable cleanly when the vault is locked.
+2. **"Earlier" (history).** The `feed_events` log, day-grouped
+   (Today / Yesterday / date), each row deep-linking into its origin screen.
+
+Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
+primitives (`FeedRow` for history, `FeedActionableRow` for the actionable
+zone), so the feed shares the app's list vocabulary.
+
+## Caching
+
+`FeedPage` (`hushh-webapp/components/feed/feed-page.tsx`) loads its first
+page through `useStaleResource` under `CACHE_KEYS.FEED_LIST(userId)`
+(`CACHE_TTL.SHORT`), so a revisit renders the last-known page instantly while
+a background refresh runs, matching every other cache-coherent route.
+Pagination beyond the first page ("load more") stays a live, uncached fetch
+appended to local state — only the first page needs an instant warm render.
+Opening the feed calls `FeedService.markRead` (clearing the unread badge via
+`dispatchFeedStateChanged`) but deliberately does **not** force-refresh the
+list: the rows on screen keep their unread styling for the current visit and
+only read as seen on the next open, matching Instagram's "opening clears the
+badge, the items you're looking at stay highlighted" behavior. `FEED_LIST`,
+`FEED_UNREAD_COUNT`, and `CONNECTIONS_INCOMING` (the actionable zone's
+connection-requests read) are all covered by `CacheService.invalidateUser`, so
+sign-out and account deletion purge them with the rest of the session.

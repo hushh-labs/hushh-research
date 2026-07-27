@@ -52,11 +52,28 @@ async function authHeader(idToken: string): Promise<Record<string, string>> {
 }
 
 export class FeedService {
+  /**
+   * The first page (no cursor) is the only page cached: it's what a revisit
+   * needs to render instantly, and it's what the mutation/poll paths below
+   * can coherently invalidate. Pagination ("load more") always calls this
+   * with a cursor and a `userId`-less request, so it skips the cache.
+   */
   static async list(options: {
     idToken: string;
+    userId?: string;
     cursor?: string | null;
     limit?: number;
+    force?: boolean;
   }): Promise<FeedListResponse> {
+    const isFirstPage = !options.cursor;
+    const cacheKey =
+      isFirstPage && options.userId ? CACHE_KEYS.FEED_LIST(options.userId) : null;
+    const cache = CacheService.getInstance();
+    if (cacheKey && !options.force) {
+      const cached = cache.get<FeedListResponse>(cacheKey);
+      if (cached) return cached;
+    }
+
     const query = new URLSearchParams();
     if (options.cursor) query.set("cursor", options.cursor);
     if (options.limit) query.set("limit", String(options.limit));
@@ -73,6 +90,9 @@ export class FeedService {
       .catch(() => ({}))) as FeedListResponse & ErrorPayload;
     if (!response.ok) {
       throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
+    }
+    if (cacheKey) {
+      cache.set(cacheKey, payload, CACHE_TTL.SHORT);
     }
     return payload;
   }
