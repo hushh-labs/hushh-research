@@ -31,7 +31,7 @@ def default_kms_decryptor(*, ciphertext: bytes, key_name: str) -> bytes:
     Lazy-imports ``google-cloud-kms`` so the dependency is only needed when KMS
     key resolution is actually enabled and configured.
     """
-    from google.cloud import kms  # lazy: only required at enablement
+    import google.cloud.kms as kms  # lazy: only required at enablement
 
     client = kms.KeyManagementServiceClient()
     response = client.decrypt(request={"name": key_name, "ciphertext": ciphertext})
