@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 AAL1 = "AAL1"
 AAL2 = "AAL2"
+AAL3 = "AAL3"
 AAL3_CANDIDATE = "AAL3-candidate"
 
 CLASS_HARDWARE_KEY = "hardware_security_key"
@@ -50,15 +51,25 @@ def hardware_key_aaguids() -> dict[str, str]:
 
 
 def classify(
-    *, user_verified: bool, aaguid: Optional[str], backed_up: Optional[bool] = None
+    *,
+    user_verified: bool,
+    aaguid: Optional[str],
+    backed_up: Optional[bool] = None,
+    mds_verified: Optional[bool] = None,
 ) -> dict[str, Any]:
-    """Classify an authenticator into {aal, authenticatorClass, hardwareKey, vendor}."""
+    """Classify an authenticator into {aal, authenticatorClass, hardwareKey, vendor}.
+
+    ``mds_verified`` gates real AAL3: a hardware key + user verification is
+    ``AAL3-candidate`` until its AAGUID is FIDO-MDS-verified (``mds_verified is
+    True``), at which point it elevates to ``AAL3``. ``None`` (MDS disabled) keeps
+    the honest candidate. See ``webauthn_mds``.
+    """
     aid = (aaguid or "").strip().lower()
     registry = hardware_key_aaguids()
     is_hardware = aid in registry
     authenticator_class = CLASS_HARDWARE_KEY if is_hardware else CLASS_PLATFORM
     if is_hardware and user_verified:
-        aal = AAL3_CANDIDATE
+        aal = AAL3 if mds_verified is True else AAL3_CANDIDATE
     elif user_verified:
         aal = AAL2
     else:
@@ -68,4 +79,5 @@ def classify(
         "authenticatorClass": authenticator_class,
         "hardwareKey": is_hardware,
         "vendor": registry.get(aid),
+        "mdsVerified": mds_verified,
     }

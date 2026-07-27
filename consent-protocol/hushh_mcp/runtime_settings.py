@@ -330,6 +330,17 @@ def webauthn_enabled() -> bool:
     return _bool_from_value(_clean_env("WEBAUTHN_ENABLED"), default=False)
 
 
+def webauthn_mds_enabled() -> bool:
+    """Kill-switch for FIDO Metadata Service (MDS) attestation verification (IA-2).
+
+    Default **OFF**: a hardware key + user verification stays the honest
+    ``AAL3-candidate``. When **ON**, an authenticator whose AAGUID is MDS-verified
+    (FIDO-certified + uncompromised) elevates to real **AAL3**. Requires a
+    provisioned, verified MDS extract at ``WEBAUTHN_MDS_BLOB_PATH``. See
+    docs/reference/webauthn-aal3-mds.md."""
+    return _bool_from_value(_clean_env("WEBAUTHN_MDS_ENABLED"), default=False)
+
+
 def pod_mode() -> bool:
     """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
 
