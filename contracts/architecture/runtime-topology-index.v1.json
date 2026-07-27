@@ -640,6 +640,16 @@
       "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly"
     },
     {
+      "data_class": "reference",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "id": "agent_prompt_registry",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [
         "connected_system_audit_events"
@@ -875,6 +885,17 @@
       "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "id": "personal_agent_registry",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "per-user sovereign-agent provisioning/deprovision and status services (flag-off, PERSONAL_AGENT_ENABLED)"
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "pkm_default_available_projections"
@@ -1024,6 +1045,26 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "id": "webauthn_authenticators",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "webauthn_challenges"
+      ],
+      "id": "webauthn_ceremony_state",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)"
     }
   ],
   "database_retirements": [
@@ -4263,7 +4304,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "1a02aa456549e92ceea962f8e2daa679d8f2c83eeefdea77b36612e981ecc147",
-    "data_plane": "741bd6db61bfcd8d5bb1f27a1fe84240a88c9c2b4f82ccbafec45a1c1c1875a2",
+    "data_plane": "ed3d4b7de0e2064d5bbcbf6d133515c36201aeaed7187fca6d375c81d33500ff",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "46d94273cc53d297b8a4f4cdc7916f6cb23d602209555b5328201c0a9b78423b",
@@ -4282,6 +4323,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 113,
     "semantic_routes": 14,
-    "table_families": 37
+    "table_families": 41
   }
 }

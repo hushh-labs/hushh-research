@@ -687,6 +687,67 @@
       "trust_boundary": "Workflow state and grant metadata only; the signed handle is held solely between approval and its single claim, then cleared. Never PWM values; uid binds only at approval from the verified token.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "personal_agent_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "primary_access_path": "per-user sovereign-agent provisioning/deprovision and status services (flag-off, PERSONAL_AGENT_ENABLED)",
+      "retention_policy": "Retain the registry row while the agent is provisioned; a deletion tombstone (HusshID hash only) is retained for recycled-phone generation rotation.",
+      "deletion_behavior": "Registry row hard-deleted on deprovision and on account deletion; the tombstone is retained deliberately and carries no personal data beyond a HusshID hash.",
+      "trust_boundary": "Stores an HMAC-hashed phone, the opaque HusshID, and the pod public key only; never a raw phone number and never a private key.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "agent_prompt_registry",
+      "owner": "backend-agents-operons",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off",
+      "retention_policy": "Retain active and superseded system-prompt versions for rollback and audit; no per-user rows.",
+      "deletion_behavior": "No per-user deletion; system-prompt configuration is pruned only by admin policy.",
+      "trust_boundary": "System-prompt configuration and version hashes only; contains no personal data.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "webauthn_authenticators",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)",
+      "retention_policy": "Retain a user's registered authenticators while the account exists.",
+      "deletion_behavior": "Hard-delete with account deletion; a user may remove an individual authenticator.",
+      "trust_boundary": "Stores the credential id, COSE public key, and sign count only; a public key is not a secret and no private key material is ever held.",
+      "plaintext_posture": "metadata_and_token_hashes",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "webauthn_ceremony_state",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "webauthn_challenges"
+      ],
+      "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)",
+      "retention_policy": "Short-lived security nonces: challenges expire in minutes (5-minute TTL) and are single-use.",
+      "deletion_behavior": "Deleted on consume (before validation, so a challenge can never be replayed) or on expiry; user_id may be null for usernameless auth.",
+      "trust_boundary": "Ephemeral ceremony state (a random challenge, RP id, ceremony kind) only; no personal data or credential material.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     }
   ]
 }
