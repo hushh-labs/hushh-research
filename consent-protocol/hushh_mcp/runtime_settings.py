@@ -341,6 +341,18 @@ def webauthn_mds_enabled() -> bool:
     return _bool_from_value(_clean_env("WEBAUTHN_MDS_ENABLED"), default=False)
 
 
+def a2a_agent_card_enabled() -> bool:
+    """Feature flag: serve the conformant A2A discovery card at
+    ``/.well-known/agent-card.json``.
+
+    Default **OFF** -> the standard well-known path returns 404 (today's contract).
+    When **ON**, Agent One publishes a conformant A2A v1 AgentCard for external
+    discovery / marketplace listing. Honest: the card declares the current HTTP+JSON
+    invocation-preview transport via a capability extension, not full A2A v1 Tasks.
+    See docs/reference/a2a-agent-card.md."""
+    return _bool_from_value(_clean_env("A2A_AGENT_CARD_ENABLED"), default=False)
+
+
 def pod_mode() -> bool:
     """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
 
