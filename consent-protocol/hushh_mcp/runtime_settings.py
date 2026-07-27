@@ -350,6 +350,22 @@ def crm_registry_db_enabled() -> bool:
     return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
 
 
+def consent_audit_chain_enabled() -> bool:
+    """Kill-switch for the tamper-evident consent-audit receipt chain (AU-9/AU-10).
+
+    Default **OFF**: consent events are written to ``consent_audit`` exactly as
+    today; no receipt chain is computed or stored, and the write path is
+    byte-for-byte unchanged. When **ON**, every consent event (grant/deny/revoke/
+    request) is ALSO mirrored, fail-safe, into an append-only per-subject
+    hash-chained + HMAC-signed ledger (``consent_audit_receipts``, migration 904)
+    that ``verify_chain`` can replay to detect any dropped, reordered, or tampered
+    event -- the FedRAMP-High / NIST 800-53 AU-9 (audit protection) + AU-10
+    (non-repudiation) posture. The mirror never blocks the operational consent
+    write: a chain-append failure is logged for reconcile and shows up as a gap
+    ``verify_chain`` flags, rather than failing the consent event."""
+    return _bool_from_value(_clean_env("CONSENT_AUDIT_CHAIN_ENABLED"), default=False)
+
+
 @lru_cache(maxsize=1)
 def get_core_security_settings() -> CoreSecuritySettings:
     app_signing_key = _clean_env(APP_SIGNING_KEY_ENV)
