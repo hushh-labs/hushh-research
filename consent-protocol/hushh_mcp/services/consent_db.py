@@ -1446,14 +1446,35 @@ class ConsentDBService:
         # Extract event ID from response
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
+            audit_event_id = int(event_id) if isinstance(event_id, int) else None
             logger.info(f"Inserted {action} event: {event_id}")
-            return event_id
         else:
             # Fallback: return issued_at as ID if response doesn't have id
             logger.warning(
                 f"Inserted {action} event but no ID returned, using issued_at: {issued_at}"
             )
-            return issued_at
+            event_id = issued_at
+            audit_event_id = None
+
+        # AU-9 / AU-10: mirror this consent event into the tamper-evident receipt
+        # chain (flag-gated + fail-safe; never breaks this operational write).
+        # Local import keeps the audit-mirror module fully decoupled at import time.
+        from hushh_mcp.services.consent_audit_chain_service import (
+            append_consent_receipt_safe,
+        )
+
+        await append_consent_receipt_safe(
+            subject_id=user_id,
+            event_type=action,
+            issued_at_ms=issued_at,
+            agent_id=agent_id,
+            scope=scope,
+            request_id=request_id,
+            token_id=token_id,
+            audit_event_id=audit_event_id,
+            metadata=metadata,
+        )
+        return event_id
 
     async def insert_internal_event(
         self,
