@@ -91,7 +91,7 @@ async def _upsert(repo, *, status="provisioned"):
         phone_e164_hash="deadbeef",
         pod_pubkey="cG9kcHVi",
         pod_key_id="pod-1",
-        pod_key_wrapping_alg="X25519-AES256-GCM",
+        pod_key_wrapping_alg="X25519-AES256-GCM",  # gitleaks:allow -- algorithm name, not key material
         status=status,
     )
 
