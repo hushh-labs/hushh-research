@@ -1265,8 +1265,9 @@ function OnboardingRouteActions() {
             Sign out
           </DropdownMenuItem>
           <DropdownMenuItem
+            variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="text-red-600 focus:text-red-600"
+            className="hover:bg-popover data-[variant=destructive]:focus:bg-popover focus-visible:ring-2 focus-visible:ring-accent/70 dark:data-[variant=destructive]:focus:bg-popover"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account

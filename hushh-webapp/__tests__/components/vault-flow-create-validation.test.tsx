@@ -172,7 +172,14 @@ describe("VaultFlow create validation", () => {
   });
 
   it("submits vault creation when Enter is pressed on a valid confirmation", async () => {
-    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+    const onRecoveryKeyDisclosureChange = vi.fn();
+    const view = render(
+      <VaultFlow
+        user={user}
+        onSuccess={vi.fn()}
+        onRecoveryKeyDisclosureChange={onRecoveryKeyDisclosureChange}
+      />,
+    );
 
     fireEvent.change(await screen.findByLabelText("Vault Key"), {
       target: { value: "correct horse battery staple" },
@@ -184,9 +191,15 @@ describe("VaultFlow create validation", () => {
 
     fireEvent.submit(confirmation.closest("form")!);
 
-    await screen.findByRole("dialog", { name: /save your recovery key/i });
+    await screen.findByRole("heading", { name: /save your recovery key/i });
+    expect(document.querySelector("[data-vault-recovery-key]")).toBeTruthy();
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
+    expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(true);
     expect(createVaultMock).toHaveBeenCalledTimes(1);
     expect(createVaultMock).toHaveBeenCalledWith("correct horse battery staple");
+
+    view.unmount();
+    expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(false);
   });
 
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
@@ -198,6 +211,9 @@ describe("VaultFlow create validation", () => {
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
     expect(screen.queryByRole("button", { name: /continue to vault setup/i })).toBeNull();
     expect(document.querySelector('[data-vault-flow-step="create"]')).toBeTruthy();
+    expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
+      "bg-[color:var(--app-accent-tint)]",
+    );
   });
 
   it("uses compact Vault Key primary copy with Passkey and Recovery Key alternatives", async () => {
@@ -215,6 +231,9 @@ describe("VaultFlow create validation", () => {
     expect(screen.getByText("Other methods")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Recovery Key" })).toBeTruthy();
+    expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
+      "bg-[color:var(--app-accent-tint)]",
+    );
   });
 
   it("uses Vault Key and Recovery Key alternatives when Passkey is primary", async () => {
@@ -246,6 +265,9 @@ describe("VaultFlow create validation", () => {
     expect(screen.getByText("Other methods")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Vault Key" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
+    expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
+      "bg-[color:var(--app-accent-tint)]",
+    );
   });
 
   it("omits Passkey when no generated unlock method exists", async () => {

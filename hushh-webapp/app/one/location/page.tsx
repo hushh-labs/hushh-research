@@ -144,11 +144,11 @@ import { OneLocationActivityDashboard } from "@/components/one-location/activity
 import {
   LocationRedesignHub,
   ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
-  ONE_LOCATION_SHARE_NOTE_MAX_LENGTH,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
@@ -3110,7 +3110,7 @@ export function OneLocationAgentPageContent({
   }, [ensureForegroundLocationReady, setMyLocationPoint, vaultOwnerToken]);
 
   const handleTriggerSos = useCallback(
-    async (note?: "Come get me" | "I'm not safe" | null) => {
+    async (note?: string | null) => {
       if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
         return;

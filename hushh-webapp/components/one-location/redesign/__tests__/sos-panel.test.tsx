@@ -156,6 +156,74 @@ describe("SosPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a 140-character short-message composer and fails closed above the limit", () => {
+    render(<SosPanel {...baseProps} />);
+
+    expect(
+      screen.getByRole("button", { name: "Short text message" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Short text message" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Short text message" }),
+    );
+    const composer = screen.getByRole("textbox", {
+      name: "Short text message",
+    });
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+
+    expect(screen.getByText("0/140")).toBeInTheDocument();
+    expect(hold).toBeDisabled();
+
+    fireEvent.change(composer, { target: { value: "a".repeat(140) } });
+    expect(screen.getByText("140/140")).toBeInTheDocument();
+    expect(hold).toBeEnabled();
+    expect(screen.queryByText("character limit exceed")).toBeNull();
+
+    fireEvent.change(composer, { target: { value: "a".repeat(141) } });
+    expect(screen.getByText("141/140")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "character limit exceed",
+    );
+    expect(hold).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    expect(
+      screen.queryByRole("textbox", { name: "Short text message" }),
+    ).toBeNull();
+    expect(hold).toBeEnabled();
+  });
+
+  it("sends a valid custom short message exactly once after the hold", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Short text message" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Short text message" }),
+      { target: { value: "  Meet me by the north entrance.  " } },
+    );
+
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(hold, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    expect(onTrigger).toHaveBeenCalledWith(
+      "Meet me by the north entrance.",
+    );
+  });
+
   it("fails closed when no selected recipient is ready", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} recipients={[]} onTrigger={onTrigger} />);
