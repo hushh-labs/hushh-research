@@ -11,7 +11,7 @@ This bundle does not grant direct access to personal information. The developer 
 - No native OpenClaw plugin code
 - No bundled secrets
 
-This is a Codex bundle, detected through `.codex-plugin/plugin.json`. It intentionally contains no native OpenClaw runtime entrypoint.
+This is a Codex bundle, detected through `.codex-plugin/plugin.json`. ClawHub requires a lightweight `openclaw.plugin.json` for package publishing, but this package intentionally contains no native OpenClaw runtime entrypoint.
 
 This is published on ClawHub as a plugin package named `@hushh/one-mcp`. Search for it under ClawHub **Plugins**, not **Skills**. The included skill is named `hushh-one-pkm`; it can also be published separately for Skills-tab discovery, but installing that skill alone does not add the MCP server config.
 

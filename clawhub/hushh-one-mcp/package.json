@@ -30,6 +30,7 @@
   "files": [
     ".codex-plugin/",
     ".mcp.json",
+    "openclaw.plugin.json",
     ".clawhubignore",
     "skills/",
     "README.md"
