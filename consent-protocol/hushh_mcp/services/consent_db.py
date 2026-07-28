@@ -1068,6 +1068,27 @@ class ConsentDBService:
 
         return results
 
+    async def is_trusted_device_active(self, user_id: str, device_id: str) -> bool:
+        """Confirm a device-bound principal is still active.
+
+        Callers intentionally receive database errors rather than a fallback:
+        device-bound owner capabilities must fail closed when revocation state
+        cannot be confirmed.
+        """
+        rows = (
+            self._get_db()
+            .table("trusted_devices")
+            .select("device_id")
+            .eq("user_id", user_id)
+            .eq("device_id", device_id)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return bool(rows)
+
     async def is_token_active(
         self,
         user_id: str,
