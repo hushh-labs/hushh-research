@@ -181,21 +181,15 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     browser history as its parent resolver. The left edge wins over contextual
     tab swipes, appears only when the route exposes a back action, and never
     runs over a modal surface. Android preserves platform system-back behavior.
-30. Persistent signed-in chrome uses `AmbientChromeMask` and its shared ambient
-    token engine. It samples the painted app surface behind the top and bottom
-    edges, including Foundation's computed `oklch()` theme colors, excludes
-    chrome and transient overlays, and keeps theme-derived fallback tokens
-    until the first valid sample. Do not set global
-    `--background` from a chrome sample or add a route-local blur/tint recipe.
-    The only edge variables are `--ambient-chrome-{top,bottom}-{bg,fg}`;
-    a bottom-specific Foundation/base tint is prohibited. Every chrome child
-    inherits the matching sampled foreground through `currentColor`, so dark
-    tint yields light ink and light tint yields dark ink on both platforms.
-    The top mask height is the resolved shell height plus a mode-specific tail:
-    `bar-with-tabs` must dissolve farther below its tab underline than `bar`.
-    The engine also publishes the top surface tone for native system-bar icon
-    contrast; native bridges consume that shared decision rather than guessing
-    from the global theme.
+30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
+    compositor. Both edges paint a neutral `--background` to transparent
+    feather with `--foreground` ink; route colors must not tint either bar.
+    The sampling engine remains limited to publishing the top surface tone for
+    native system-bar icon contrast and must not recolor web chrome. Do not set
+    global `--background` from a sample or add a route-local blur/tint recipe.
+    The top mask height is the currently visible shell height plus a
+    mode-specific tail: `bar-with-tabs` stays solid through the visible tab
+    underline and its dissolve moves with partial or full header collapse.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     bottom mask, safe-area stack, and scroll-hide transform, then renders the
     bottom navigation and Agent Bar as separate accessible slots. Keep route
@@ -379,7 +373,7 @@ Rules:
 2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
-5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame` and both edges consume its sampled tint and foreground tokens. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame`, and both edges consume the neutral theme feather and foreground contract. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
 6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
 
 ## Foundation Color Contract

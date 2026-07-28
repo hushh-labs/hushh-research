@@ -121,6 +121,8 @@ npx -y ${contract.packageName} --help
 
 The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
+Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at \`${contract.authentication.discoveryUrl}\`, request \`${contract.authentication.scope}\`, and send the resulting credential only as \`${contract.authentication.bearerHeader}\`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority.
+
 Every tool uses shallow, fully described JSON Schema. Successful calls return \`structuredContent\` as the canonical result and \`content[0].text\` as its compatibility mirror. Execution errors return \`isError: true\` with safe JSON text only, so a strict client never validates an error against a success output schema.
 
 ### MuleSoft trusted connector for Salesforce and Agentforce
