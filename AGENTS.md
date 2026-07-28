@@ -54,6 +54,20 @@ Durable persona rationale lives in `docs/reference/operations/hussh-code-persona
 
 Repository rules, skills, workflow packs, tests, generated contracts, and runtime evidence override this kernel when they are more specific.
 
+## Project-Wide Bacterial Software Architecture Gate
+
+Parent and child agents must apply [Bacterial Software Architecture](docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.
+
+1. Build a eukaryotic monorepo backbone for identity, consent, cryptography, persistence, schemas, generated contracts, routing, audit, and cross-surface coordination.
+2. Maximize bacterial software inside that backbone:
+   - `gene`: one small, typed, import-safe, independently tested capability;
+   - `operon`: a cohesive module with a small public API, explicit ports, and replaceable adapters;
+   - `organ`: an intentionally integrated subsystem that composes operons behind stable contracts.
+3. Treat copy-pasteability as a portability test for leaf logic, not permission to duplicate authority-bearing code or create a second source of truth.
+4. Preserve every working output during corrective work. Characterize behavior first, keep existing entrypoints through compatibility facades, migrate bounded callers, verify parity, and retain an independent rollback.
+5. Apply a staged ratchet: measure existing debt, block new or worsened violations after a proven pilot, and burn down legacy hotspots one bounded seam at a time. Never mass-split code to satisfy a line count.
+6. Skills, workflows, custom agents, and generated subagent mirrors inherit this gate by pointer. Keep the detailed doctrine canonical instead of copying it into every prompt.
+
 ## Project-Wide Runtime Telemetry Default
 
 When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
@@ -137,7 +151,9 @@ Do not write as if the project is blank. Hussh already has many shipped contract
 
 Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
 
-The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner.
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
+
+When you need to know *where* something lives rather than *which lane owns it*, start at [docs/project_context_map.md](docs/project_context_map.md): it maps the seven platform layers to their real repo anchors and states the four non-negotiables. This file governs behavior; that file governs orientation.
 
 Operator precedence:
 
@@ -179,11 +195,7 @@ At the start of every non-trivial request, run a quick delegation suitability ch
 
 This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 
-Use the repo delegation router when the intent or changed paths are not obvious:
-
-```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow <workflow-id> --phase start --prompt "<user request>" --paths "<comma-separated paths>" --text
-```
+Detection uses the same delegation-router command as step 5 of the Routing Gate above; do not run it twice.
 
 Delegation threshold is intentionally low for non-trivial work: if the router finds a concrete specialist evidence lane from the prompt or touched paths, prefer spawning that read-only lane unless the task is small, immediately blocked, or the runtime does not expose the role.
 

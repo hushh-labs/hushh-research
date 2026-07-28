@@ -182,6 +182,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
+        "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
+        "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
     }
     return _drop_empty(config)
 
@@ -228,6 +230,8 @@ def main() -> int:
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
     parser.add_argument("--consent-center-summary-v2-enabled", default="false")
     parser.add_argument("--db-bulk-batching-enabled", default="false")
+    parser.add_argument("--hushh-trusted-device-enabled", default="false")
+    parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
     args = parser.parse_args()
 
     sync_summary: list[str] = []

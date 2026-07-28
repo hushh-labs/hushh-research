@@ -119,6 +119,26 @@ Private data is always consent-gated and scoped.
 
 Cross-device sharing rides the consent protocol as a standard. A live-location grant mints a signed HCT consent token scoped `cap.location.live.view`, bound to a `device:<recipient_user_id>` agent identity, expiring with the grant. The recipient device exercises this token as its capability; the backend validates signature, expiry, and scope before accepting any ciphertext envelope. This makes the grant's authority a verifiable cryptographic capability rather than a descriptive column.
 
+### First-Party Hermes Trusted Devices
+
+Hermes is an additive first-party device surface, not a developer-token
+elevation:
+
+1. Firebase OAuth identifies the account through Authorization Code + PKCE.
+2. A registered P-256 device key proves the exact Hermes installation.
+3. The existing passphrase wrapper is fetched and unwrapped locally; the
+   passphrase and vault key never enter Hussh infrastructure or model context.
+4. A signed, single-use device challenge permits a 15-minute
+   device-bound `VAULT_OWNER` capability.
+5. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
+   validation/store endpoints and optimistic concurrency contract.
+6. Developer tokens remain application identity only. They never map to
+   `VAULT_OWNER`, PKM write, vault unwrap, or a trusted-device credential.
+
+Postgres owns one-time codes, nonce replay protection, device state, and
+metadata-only audit today. `TrustedDeviceStore` is the replaceable seam for a
+future Redis/Memorystore replay and revocation fan-out adapter.
+
 ## Change Control
 
 Any IAM contract change must update, in the same PR:

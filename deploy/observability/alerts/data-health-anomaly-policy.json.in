@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Data Health Anomaly",
   "documentation": {
-    "content": "Supabase data-health check reported one or more anomalies.",
+    "content": "Cloud SQL data-health check reported one or more anomalies.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",

@@ -5,7 +5,7 @@ validation path.  A silent regression here = a scope-isolation bypass.
 
 All tests are pure (no DB, no network):
 - DynamicScopeGenerator.matches_wildcard operates only on strings.
-- No Supabase call is triggered by parse_scope / matches_wildcard.
+- No Cloud SQL call is triggered by parse_scope / matches_wildcard.
 """
 
 from __future__ import annotations

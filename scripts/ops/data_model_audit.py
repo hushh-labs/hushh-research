@@ -28,7 +28,7 @@ TABLE_EVENT_RE = re.compile(
     re.IGNORECASE,
 )
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
-SUPABASE_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
+DB_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -175,8 +175,8 @@ def _scan_legacy_writes(legacy_tables: list[str]) -> list[dict[str, Any]]:
         lines = text.splitlines()
         for table in legacy_tables:
             sql_write = re.compile(SQL_WRITE_TEMPLATE.format(table=re.escape(table)), re.IGNORECASE)
-            supabase_write = re.compile(
-                SUPABASE_WRITE_TEMPLATE.format(table=re.escape(table)),
+            db_write = re.compile(
+                DB_WRITE_TEMPLATE.format(table=re.escape(table)),
                 re.IGNORECASE | re.DOTALL,
             )
             for line_no, line in enumerate(lines, start=1):
@@ -190,7 +190,7 @@ def _scan_legacy_writes(legacy_tables: list[str]) -> list[dict[str, Any]]:
                             "snippet": line.strip()[:180],
                         }
                     )
-            for match in supabase_write.finditer(text):
+            for match in db_write.finditer(text):
                 line_no = text.count("\n", 0, match.start()) + 1
                 snippet = " ".join(text[match.start() : match.end()].split())[:180]
                 findings.append(
@@ -198,7 +198,7 @@ def _scan_legacy_writes(legacy_tables: list[str]) -> list[dict[str, Any]]:
                         "table": table,
                         "path": _rel(path),
                         "line": line_no,
-                        "kind": "supabase_insert_upsert_or_update",
+                        "kind": "db_insert_upsert_or_update",
                         "snippet": snippet,
                     }
                 )

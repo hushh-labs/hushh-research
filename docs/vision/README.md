@@ -155,6 +155,15 @@ This is the “eukaryotic backbone, bacterial modules” rule for the repo:
 - integrated where the platform needs deep coordination
 - small, reusable, copy-pasteable pieces everywhere else
 
+The canonical contributor contract is
+[Bacterial Software Architecture](./bacterial-software-architecture.md). It
+defines genes, operons, organs, the compatibility-preserving retrofit, and the
+line between portable leaf logic and canonical trust infrastructure.
+
+## Domains
+
+- [kai/README.md](./kai/README.md): Kai product thesis and positioning.
+
 ## Public Naming Rule
 
 Use **Hussh** in public docs and product copy.

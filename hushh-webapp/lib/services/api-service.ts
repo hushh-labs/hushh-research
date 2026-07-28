@@ -1478,6 +1478,58 @@ export class ApiService {
     }
   }
 
+  static async authorizeTrustedDevice(data: {
+    redirect_uri: string;
+    code_challenge: string;
+    code_challenge_method: string;
+    device_public_key: string;
+    device_name: string;
+    platform: string;
+    state: string;
+  }): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+    return apiFetch("/api/account/trusted-device-authorizations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async listTrustedDevices(): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+    return apiFetch("/api/account/trusted-devices", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${authToken}` },
+      cache: "no-store",
+    });
+  }
+
+  static async revokeTrustedDevice(deviceId: string): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+    return apiFetch(`/api/account/trusted-devices/${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+  }
+
   /**
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.

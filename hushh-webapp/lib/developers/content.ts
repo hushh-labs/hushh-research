@@ -72,7 +72,7 @@ function renderMcpTemplate(
     apiOrigin: string;
     tokenEnvVar: string;
     developerToken: string;
-  }
+  },
 ) {
   return template
     .replaceAll("{{REMOTE_URL}}", replacements.remoteUrl)
@@ -82,11 +82,14 @@ function renderMcpTemplate(
     .replaceAll("<developer-token>", replacements.developerToken);
 }
 
-function buildMcpHostExamples(developerToken = "<developer-token>"): McpHostExample[] {
-  const remoteUrl = MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
-    "<developer-token>",
-    developerToken
-  );
+function buildMcpHostExamples(
+  developerToken = "<developer-token>",
+): McpHostExample[] {
+  const remoteUrl =
+    MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
+      "<developer-token>",
+      developerToken,
+    );
 
   return MCP_PUBLIC_DOCS.hostExamples.map((example) => ({
     id: example.id,
@@ -160,12 +163,15 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
 
 export const PUBLIC_TOOL_NAMES = [...MCP_PUBLIC_DOCS.publicTools] as const;
 export const MCP_PROTOCOL_REVISION = MCP_PUBLIC_DOCS.mcpProtocolRevision;
-export const PUBLIC_RESOURCE_URIS = [...MCP_PUBLIC_DOCS.publicResources] as const;
+export const PUBLIC_RESOURCE_URIS = [
+  ...MCP_PUBLIC_DOCS.publicResources,
+] as const;
 export const PUBLIC_MCP_ENVIRONMENT = {
   label: MCP_PUBLIC_DOCS.promotedEnvironment.label,
   apiOrigin: MCP_PUBLIC_DOCS.promotedEnvironment.apiOrigin,
   remoteUrlTemplate: MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate,
 } as const;
+export const PUBLIC_MCP_AUTHENTICATION = MCP_PUBLIC_DOCS.authentication;
 
 // Kept in sync with the live grammar returned by GET /api/v1/list-scopes
 // (verified against api.uat.hushh.ai — v2, 2 scope entries), rather than a
@@ -211,11 +217,13 @@ const PUBLIC_MCP_TOOL_SUMMARIES: Readonly<Record<string, string>> = {
     "Retrieve the encrypted export for an approved scoped grant.",
 };
 
-export const PUBLIC_MCP_TOOLS: readonly PublicMcpTool[] =
-  PUBLIC_TOOL_NAMES.map((name) => ({
+export const PUBLIC_MCP_TOOLS: readonly PublicMcpTool[] = PUBLIC_TOOL_NAMES.map(
+  (name) => ({
     name,
-    summary: PUBLIC_MCP_TOOL_SUMMARIES[name] ?? "Public Hussh consent MCP tool.",
-  }));
+    summary:
+      PUBLIC_MCP_TOOL_SUMMARIES[name] ?? "Public Hussh consent MCP tool.",
+  }),
+);
 
 export const REST_ENDPOINTS: RestEndpoint[] = [
   {
@@ -234,13 +242,15 @@ export const REST_ENDPOINTS: RestEndpoint[] = [
     method: "GET",
     path: "/api/v1/tool-catalog",
     auth: "Optional Authorization: Bearer",
-    purpose: "Current tool visibility for the public developer lane or a specific developer app.",
+    purpose:
+      "Current tool visibility for the public developer lane or a specific developer app.",
   },
   {
     method: "GET",
     path: "/api/v1/user-scopes/{user_id}",
     auth: "Authorization: Bearer required",
-    purpose: "Discovered scope strings and available domains for a specific user.",
+    purpose:
+      "Discovered scope strings and available domains for a specific user.",
   },
   {
     method: "GET",
@@ -258,13 +268,15 @@ export const REST_ENDPOINTS: RestEndpoint[] = [
     method: "POST",
     path: "/api/v1/public-profile-export",
     auth: "Authorization: Bearer required",
-    purpose: "Publish or update an owner-controlled public-profile projection (separate from encrypted attr.* consent grants).",
+    purpose:
+      "Publish or update an owner-controlled public-profile projection (separate from encrypted attr.* consent grants).",
   },
   {
     method: "POST",
     path: "/api/v1/scoped-export",
     auth: "Authorization: Bearer required",
-    purpose: "Return ciphertext and wrapped-key metadata for one approved grant.",
+    purpose:
+      "Return ciphertext and wrapped-key metadata for one approved grant.",
   },
 ];
 
@@ -282,17 +294,19 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "What is the one scalable read path?",
     answer:
-      "Use get_encrypted_scoped_export after approval. Hussh returns ciphertext plus wrapped-key metadata, and your connector decrypts locally.",
+      "Use get-encrypted-scoped-export after approval. Hussh returns ciphertext plus wrapped-key metadata, and your connector decrypts locally.",
   },
   {
-    question: "What happens if I ask for a narrower scope while I already have a broader one?",
+    question:
+      "What happens if I ask for a narrower scope while I already have a broader one?",
     answer:
       "Hussh reuses the existing broader active grant and returns it immediately, but the exported package remains the canonical broader encrypted export. Pass the narrower scope as expected_scope and narrow it locally after decrypting.",
   },
   {
-    question: "What happens if I ask for a broader scope while I already have a narrower one?",
+    question:
+      "What happens if I ask for a broader scope while I already have a narrower one?",
     answer:
-      "That is a privilege increase, so it still requires fresh user approval in Kai. After approval, the broader token becomes canonical and the older narrower token is superseded in the audit trail.",
+      "That is a privilege increase, so it still requires fresh user approval in the Consent Center. After approval, the broader token becomes canonical and the older narrower token is superseded in the audit trail.",
   },
   {
     question: "Where does consent approval happen?",
@@ -302,7 +316,7 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "When is a connector key required?",
     answer:
-      "Hosted MCP and raw HTTP provide connector_public_key, connector_key_id, and connector_wrapping_alg on request_consent. The npm bridge manages its persistent X25519 keypair locally, so stdio callers do not provide private-key material to the model.",
+      "Hosted MCP and raw HTTP provide connector_public_key, connector_key_id, and connector_wrapping_alg on request-consent. The npm bridge manages its persistent X25519 keypair locally, so stdio callers do not provide private-key material to the model.",
   },
   {
     question: "When should I use remote MCP versus npm?",
@@ -320,7 +334,7 @@ export const DEVELOPER_ACCESS_NOTES = [
 export const DEVELOPER_SCOPE_NOTES = [
   "Scopes evolve as Hussh adds richer private-agent coverage and tighter domain metadata.",
   "Discover available scopes per user at runtime instead of hardcoding a fixed universal list.",
-  "The current Kai test-user shape is mostly financial, so early community integrations should expect financial-first examples.",
+  "Current reviewer fixtures are financial-first examples; discover each person's live scopes instead of assuming those examples are universal.",
   "A broader active grant can satisfy a narrower request, but a narrower active grant never auto-upgrades to a broader parent scope.",
 ];
 
@@ -356,13 +370,14 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
   },
 ];
 
-export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMode[] {
+export function buildIntegrationModes(
+  _runtime: DeveloperRuntime,
+): IntegrationMode[] {
   return [
     {
       id: "remote-mcp",
       title: "Remote/Streamable MCP",
-      summary:
-        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the trailing-slash /mcp/ endpoint with a Bearer token.`,
+      summary: `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the trailing-slash /mcp/ endpoint with a Bearer token.`,
     },
     {
       id: "rest",
@@ -373,13 +388,15 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
     {
       id: "npm",
       title: "npm Bridge",
-      summary:
-        `Use ${MCP_PUBLIC_DOCS.packageName} only when the host still expects a local stdio MCP process instead of streamable HTTP MCP.`,
+      summary: `Use ${MCP_PUBLIC_DOCS.packageName} only when the host still expects a local stdio MCP process instead of streamable HTTP MCP.`,
     },
   ];
 }
 
-export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+export function buildRestSnippets(
+  runtime: DeveloperRuntime,
+  developerToken = "<developer-token>",
+) {
   // The developer API requires "Authorization: Bearer <token>"; it explicitly
   // rejects query-string ?token=... auth (verified live against
   // api.uat.hushh.ai/api/v1/user-scopes/{id}, which returns
@@ -420,11 +437,15 @@ export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<
   };
 }
 
-export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<developer-token>") {
-  const remoteUrl = MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
-    "<developer-token>",
-    developerToken
-  );
+export function buildMcpSnippets(
+  _runtime: DeveloperRuntime,
+  developerToken = "<developer-token>",
+) {
+  const remoteUrl =
+    MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
+      "<developer-token>",
+      developerToken,
+    );
   const examples = buildMcpHostExamples(developerToken);
   const byId = new Map(examples.map((example) => [example.id, example]));
 
@@ -437,15 +458,19 @@ export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<
     codexStdio: byId.get("codex-stdio")?.code || "",
     claudeDesktop: byId.get("claude-desktop")?.code || "",
     primaryExamples: examples.filter(
-      (example) => example.id === "generic-remote"
+      (example) => example.id === "generic-remote",
     ),
     hostExamples: examples.filter(
-      (example) => example.id !== "generic-remote" && example.id !== "npm-bridge"
+      (example) =>
+        example.id !== "generic-remote" && example.id !== "npm-bridge",
     ),
   };
 }
 
-export function buildWorkspaceSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+export function buildWorkspaceSnippets(
+  runtime: DeveloperRuntime,
+  developerToken = "<developer-token>",
+) {
   return {
     envVar: `HUSHH_DEVELOPER_TOKEN=${developerToken}`,
     remoteUrl: runtime.remoteMcpUrlTemplate,

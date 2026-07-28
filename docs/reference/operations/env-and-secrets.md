@@ -10,6 +10,59 @@ Canonical visual owner: [Operations Index](README.md). Use that map for the top-
 
 See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.example](../../../consent-protocol/.env.example), [hushh-webapp/.env.example](../../../hushh-webapp/.env.example), [deploy/.env.backend.example](../../../deploy/.env.backend.example), [deploy/.env.frontend.example](../../../deploy/.env.frontend.example). For FCM push notifications, see [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md).
 
+## Visual Map
+
+Where env values originate, how they reach each runtime, and which scripts
+enforce the parity rule. Counts live in the cloudbuild files, not here, because a
+number written in prose drifts the first time a secret is added.
+
+```mermaid
+flowchart TB
+  subgraph templates["Tracked templates"]
+    beex["consent-protocol/.env.example"]
+    feex["hushh-webapp/.env.local.local.example<br/>plus .env.uat, .env.dev, .env.prod variants"]
+  end
+
+  subgraph localrt["Local runtime, uncommitted"]
+    boot["bin/hushh bootstrap<br/>scripts/env/bootstrap_profiles.sh"]
+    active["scripts/env/use_profile.sh activates<br/>consent-protocol/.env and hushh-webapp/.env.local"]
+  end
+
+  subgraph gcp["GCP Secret Manager"]
+    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by append_optional_secret"]
+    fesec["Frontend secrets<br/>build-time args plus Cloud Run runtime secrets"]
+  end
+
+  subgraph deploy["Deploy path, GitHub OIDC Workload Identity Federation"]
+    wf["deploy-dev.yml, deploy-uat.yml,<br/>deploy-production.yml"]
+    becb["deploy/backend.cloudbuild.yaml<br/>set-secrets plus set-env-vars"]
+    fecb["deploy/frontend.cloudbuild.yaml<br/>build-args plus runtime set-secrets"]
+  end
+
+  subgraph runtime["Cloud Run"]
+    berun["consent-protocol<br/>hushh_mcp/config.py, hushh_mcp/runtime_settings.py"]
+    ferun["hushh-webapp<br/>lib/config.ts and app/api route handlers"]
+  end
+
+  audit["scripts/ops/verify-env-secrets-parity.py<br/>scripts/ops/verify-runtime-profile-env-shape.py"]
+
+  beex --> boot
+  feex --> boot
+  besec --> boot
+  fesec --> boot
+  boot --> active
+  besec --> becb
+  fesec --> fecb
+  wf --> becb
+  wf --> fecb
+  becb --> berun
+  fecb --> ferun
+  wf --> audit
+  active --> audit
+  audit --> besec
+  audit --> fesec
+```
+
 ---
 
 ## Parity rule: code ↔ .env ↔ Secret Manager
@@ -139,6 +192,12 @@ These are not Cloud Run runtime secrets.
 
 - Required on each `dev`, `uat`, and `production` GitHub environment:
   `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT`.
+- UAT and production declare these required names in
+  `config/ci-governance.json`; run
+  `python3 scripts/ci/verify-deployment-environment-governance.py` to detect
+  missing environment configuration before dispatch. The workflow reads
+  `vars.*`, so setting same-named GitHub environment secrets does not satisfy
+  the contract.
 - Required as repository variables for the scheduled production backup posture
   workflow: `GCP_WORKLOAD_IDENTITY_PROVIDER` and
   `GCP_BACKUP_SERVICE_ACCOUNT`.
@@ -149,7 +208,7 @@ Used by:
 - `.github/workflows/deploy-dev.yml`
 - `.github/workflows/deploy-uat.yml`
 - `.github/workflows/deploy-production.yml`
-- `.github/workflows/prod-supabase-backup-posture.yml`
+- `.github/workflows/prod-cloudsql-backup-posture.yml`
 
 ---
 
@@ -209,9 +268,9 @@ Used by:
 | `ROOT_PATH` | `server.py` | No | |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | No | Optional Next.js Kai proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env (Gemini SDK) | No | Set in deploy, not in .env |
-| `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Default off in production unless explicitly enabled |
+| `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Off by default in production (FCM-first); sourced from `BACKEND_RUNTIME_CONFIG_JSON`, not a literal Cloud Run env var |
 | `SYNC_REMOTE_ENABLED` | deploy env (`deploy/backend.cloudbuild.yaml`) | No | Legacy deploy flag; currently not read by backend code |
-| `DEVELOPER_API_ENABLED` | `server.py`, `mcp_modules/config.py` | No | Production default false; MCP developer tooling gate |
+| `DEVELOPER_API_ENABLED` | `server.py`, `mcp_modules/config.py`, `api/developer_auth.py` | No | Enabled in both UAT and production; sourced from `BACKEND_RUNTIME_CONFIG_JSON`'s `developer_api_enabled` key via `hydrate_runtime_environment()`, not a literal Cloud Run env var |
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py` (`/api/user/lookup`) | Optional | Self-serve developer token for stdio MCP and token-auth developer lookups. Not part of the normal hosted runtime bootstrap. |
 
@@ -248,7 +307,7 @@ Used by:
 |----------|----------|--------|-----------|--------|
 | `APP_SIGNING_KEY` | Yes | Yes | Local: `.env`; Prod: Secret Manager | 32+ chars; HMAC signing |
 | `VAULT_DATA_KEY` | Yes | Yes | Local: `.env`; Prod: Secret Manager | 64-char hex |
-| `DB_USER` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Supabase pooler username |
+| `DB_USER` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Cloud SQL database user |
 | `DB_PASSWORD` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | DB password |
 | `DB_HOST` | Yes | No | Local: `.env`; Prod: Cloud Run env | Pooler host |
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
@@ -313,10 +372,10 @@ One mailbox production caveats:
 | `CONSENT_TIMEOUT_SECONDS` | No | No | `.env` / MCP config | |
 | `PORT` | No | No | Optional (uvicorn/runner) | |
 | `ROOT_PATH` | No | No | Optional (Swagger) | |
-| `CONSENT_SSE_ENABLED` | No | No | Local: `.env`; UAT/Prod: Cloud Run env | Local + UAT should be true for web fallback validation; production stays false by default (FCM-first) |
-| `SYNC_REMOTE_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Legacy deploy flag; keep false |
-| `DEVELOPER_API_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Keep false in production |
-| `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Supabase data-health stale-ratio anomaly |
+| `CONSENT_SSE_ENABLED` | No | No | Local: `.env`; UAT/Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Local + UAT should be true for web fallback validation; production stays false by default (FCM-first) |
+| `SYNC_REMOTE_ENABLED` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Legacy deploy flag; keep false |
+| `DEVELOPER_API_ENABLED` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | Enabled in both UAT and production; the developer API and remote MCP are a first-class, always-on channel, not a debug backdoor |
+| `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Cloud SQL data-health stale-ratio anomaly |
 | `DEVELOPER_REGISTRY_JSON` | Optional legacy | No | Local/non-prod env | Legacy developer registry JSON |
 | `HUSHH_DEVELOPER_TOKEN` | Optional | No | Local: `.env` when needed | Self-serve developer token for stdio MCP and token-auth `/api/user/lookup` |
 
@@ -328,7 +387,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 
 - `CONSENT_API_URL` - MCP server FastAPI URL (defaults to `http://localhost:8000`)
 - `PRODUCTION_MODE` - MCP server production mode flag
-- `DEVELOPER_API_ENABLED` - MCP view of `/api/v1/*` availability (default false in production)
+- `DEVELOPER_API_ENABLED` - MCP view of `/api/v1/*` availability (enabled in production, matching UAT)
 - `HUSHH_DEVELOPER_TOKEN` - optional self-serve developer token for stdio MCP and token-auth lookup
 
 **Note:** These are not required for Cloud Run backend deployment; only needed when running the MCP server locally.
@@ -413,7 +472,9 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | `HUSHH_PROD_PHONE_TEST_NUMBERS` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CODE` | `HUSHH_PROD_PHONE_TEST_CODE` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
-**Not in Secret Manager (set as Cloud Run env vars in cloudbuild):** `DB_HOST`, `DB_PORT`, `DB_NAME`, `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `CORS_ALLOWED_ORIGINS`.
+**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
+
+**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 
@@ -481,25 +542,24 @@ Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the che
 
 | Variable | Scope | Used by | Notes |
 |----------|-------|---------|-------|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-supabase-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
-| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-supabase-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
+| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
 
-### Cloud Run Job runtime config (required for logical backup)
+### Backup posture config (Cloud SQL)
+
+Production backups are native Cloud SQL automated backups + PITR; there is no
+backup Cloud Run job or GCS backup bucket in the recovery path.
 
 | Key | Scope | Used by | Notes |
 |-----|-------|---------|-------|
-| `BACKUP_BUCKET` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py` | GCS bucket for backup artifacts |
-| `BACKUP_PREFIX` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py`, `scripts/ops/logical_backup_freshness_check.py` | Prefix path in bucket (`prod/supabase-logical`) |
-| `BACKUP_RETENTION_DAYS` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py` | Metadata + lifecycle target (default `14`) |
-| `BACKUP_MAX_AGE_HOURS` | Deploy/workflow env | `scripts/ops/logical_backup_freshness_check.py` | Freshness gate threshold (default `30`) |
+| `BACKUP_MAX_AGE_HOURS` | Deploy/workflow env | `scripts/ops/cloudsql_backup_freshness_check.py` | Freshness gate threshold (default `30`) |
 
 Validation command:
 
 ```bash
-python3 scripts/ops/logical_backup_freshness_check.py \
+python3 scripts/ops/cloudsql_backup_freshness_check.py \
   --project-id hushh-pda \
-  --bucket hushh-pda-prod-db-backups \
-  --prefix prod/supabase-logical \
+  --instance hushh-vault-db \
   --max-age-hours 30 \
   --report-path /tmp/prod-backup-posture-report.json
 ```

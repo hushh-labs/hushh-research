@@ -43,7 +43,10 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  * scoped vault prerequisite only when the specific operation requires it.
  * Every other private One route uses the hard vault gate below.
  */
-const AUTH_ONLY_ROUTE_PREFIXES = [ROUTES.PROFILE_GMAIL_OAUTH_RETURN] as const;
+const AUTH_ONLY_ROUTE_PREFIXES = [
+  ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
+  ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
+] as const;
 
 function isAuthOnlyRoute(pathname: string): boolean {
   return AUTH_ONLY_ROUTE_PREFIXES.some(

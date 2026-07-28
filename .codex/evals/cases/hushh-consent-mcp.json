@@ -1,0 +1,29 @@
+{
+  "skill_name": "hushh-consent-mcp",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run search_user_scopes for this email and tell me if the connector returns any requestable scopes",
+        "top_k": 3
+      },
+      {
+        "prompt": "does the Hushh Consent MCP connector return the same lifecycle result in prod and UAT for this identifier",
+        "top_k": 3
+      },
+      {
+        "prompt": "verify get_encrypted_scoped_export actually returns a scoped export for this consented user",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "change the consent scope semantics and the actor model in our IAM verification policy",
+        "owner": "iam-consent-governance"
+      },
+      {
+        "prompt": "update the @hushh/mcp package behavior and the developer API docs for MCP setup",
+        "owner": "mcp-developer-surface"
+      }
+    ]
+  }
+}

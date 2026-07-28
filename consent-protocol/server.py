@@ -411,7 +411,7 @@ async def startup_pool_and_iam_cache() -> None:
     in-flight API request.  That means the first real user request after a
     worker restart pays:
 
-      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
+      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Cloud SQL pooler
       • ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
                    checks, each ~50-80 ms over the Cloud SQL proxy)
 

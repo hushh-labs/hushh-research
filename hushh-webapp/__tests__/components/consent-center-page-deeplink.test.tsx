@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   handleLocationDeny: vi.fn(),
   handleLocationRevoke: vi.fn(),
   busyRequestIds: new Set<string>(),
+  cacheSubscribers: new Set<
+    (event: { type: string; key?: string; keys?: string[] }) => void
+  >(),
 
   busyScopes: new Set<string>(),
   activeAction: null as null | {
@@ -116,7 +119,18 @@ vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
     getInstance: () => ({
       peek: vi.fn(() => null),
-      subscribe: vi.fn(() => () => {}),
+      subscribe: vi.fn(
+        (
+          subscriber: (event: {
+            type: string;
+            key?: string;
+            keys?: string[];
+          }) => void,
+        ) => {
+          mocks.cacheSubscribers.add(subscriber);
+          return () => mocks.cacheSubscribers.delete(subscriber);
+        },
+      ),
     }),
   },
   CACHE_KEYS: {
@@ -185,9 +199,7 @@ function emptyListResponse() {
   };
 }
 
-function pendingListResponse(
-  entry: Record<string, unknown>,
-) {
+function pendingListResponse(entry: Record<string, unknown>) {
   return {
     ...emptyListResponse(),
     total: 1,
@@ -291,6 +303,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     mocks.handleRevoke.mockResolvedValue(undefined);
     mocks.busyRequestIds = new Set();
     mocks.busyScopes = new Set();
+    mocks.cacheSubscribers.clear();
     mocks.activeAction = null;
     mocks.lookupPendingRequests.mockResolvedValue({
       items: [
@@ -345,9 +358,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       await screen.findByRole("dialog", { name: "Northstar Planning" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Don't allow" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
     expect(screen.queryByText("Requested duration")).toBeNull();
     expect(screen.queryByText("Future updates")).toBeNull();
     expect(
@@ -359,9 +370,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       ),
     ).toBeTruthy();
 
-    fireEvent.click(
-      screen.getByRole("combobox", { name: "Access duration" }),
-    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Access duration" }));
     expect(
       await screen.findByRole("option", { name: "24 hours" }),
     ).toBeTruthy();
@@ -406,9 +415,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
-    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(
-      1,
-    );
+    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(1);
     expect(screen.queryByText("Original request")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -488,9 +495,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Your decision")).toBeNull();
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Don't allow" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Don't allow" })).toBeNull();
   });
 
   it("resolves a selected pending request that is not present in the current list page", async () => {
@@ -734,11 +739,9 @@ describe("ConsentCenterPage requestId deep links", () => {
 
   it("never reuses rows from the previous Consent Center tab while the next tab loads", async () => {
     let resolveActive:
-      | ((value: ReturnType<typeof emptyListResponse>) => void)
-      | undefined;
+      ((value: ReturnType<typeof emptyListResponse>) => void) | undefined;
     let resolveHistory:
-      | ((value: ReturnType<typeof emptyListResponse>) => void)
-      | undefined;
+      ((value: ReturnType<typeof emptyListResponse>) => void) | undefined;
     const activeResponse = {
       ...emptyListResponse(),
       surface: "active",
@@ -1034,6 +1037,55 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     expect(mocks.listEntries.mock.calls.length).toBe(listCallsBefore);
     expect(mocks.getSummary.mock.calls.length).toBe(summaryCallsBefore);
+  });
+
+  it("refreshes an invalidated visited tab only when the user returns to it", async () => {
+    mocks.search = "tab=requests";
+    const { rerender } = render(<ConsentCenterPage />);
+
+    await waitFor(() => {
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "pending" }),
+      );
+    });
+
+    mocks.search = "tab=active";
+    rerender(<ConsentCenterPage />);
+    await waitFor(() => {
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "active" }),
+      );
+    });
+
+    const pendingCallsBeforeInvalidation = mocks.listEntries.mock.calls.filter(
+      ([options]) => options.surface === "pending",
+    ).length;
+    act(() => {
+      for (const subscriber of mocks.cacheSubscribers) {
+        subscriber({
+          type: "invalidate",
+          keys: ["list:user-1:one:consents:pending::1:20"],
+        });
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      mocks.listEntries.mock.calls.filter(
+        ([options]) => options.surface === "pending",
+      ),
+    ).toHaveLength(pendingCallsBeforeInvalidation);
+
+    mocks.search = "tab=requests";
+    rerender(<ConsentCenterPage />);
+
+    await waitFor(() => {
+      expect(
+        mocks.listEntries.mock.calls.filter(
+          ([options]) => options.surface === "pending",
+        ),
+      ).toHaveLength(pendingCallsBeforeInvalidation + 1);
+    });
   });
 
   it("keeps grouped history lifecycles out of the history list row", async () => {

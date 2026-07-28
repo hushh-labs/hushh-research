@@ -1,6 +1,6 @@
 # Hussh Consent Protocol
 
-> Consent-first backend for Hussh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Supabase.
+> Consent-first backend for Hussh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Cloud SQL.
 
 
 ## Visual Map
@@ -88,7 +88,7 @@ uv sync --frozen --group dev
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your Supabase, Gemini, and Firebase credentials
+# Edit .env with your Cloud SQL, Gemini, and Firebase credentials
 
 # Run server
 ./bin/consent-protocol dev
@@ -127,10 +127,10 @@ FastAPI Routes (api/routes/)
 Service Layer (validates consent, no direct DB)
     │
     ▼
-DatabaseClient (SQLAlchemy + Supabase Session Pooler)
+DatabaseClient (SQLAlchemy + Cloud SQL)
     │
     ▼
-PostgreSQL (Supabase)
+PostgreSQL (Cloud SQL)
 ```
 
 ### The DNA Model (Agent Stack)

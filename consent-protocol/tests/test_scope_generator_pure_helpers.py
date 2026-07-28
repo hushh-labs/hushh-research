@@ -1,7 +1,7 @@
 """Hermetic unit tests for DynamicScopeGenerator pure helpers.
 
 All functions under test are pure (no DB, no network, no LLM).
-The generator instance is constructed directly - no Supabase connection
+The generator instance is constructed directly - no Cloud SQL connection
 is made unless async validate_scope is called, which these tests avoid.
 
 Covered:

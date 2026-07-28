@@ -1025,7 +1025,8 @@ function ConsentEntryDetail({
         : requestRoute
           ? {
               title: "Client workspace",
-              description: "Review this client's access and connected accounts.",
+              description:
+                "Review this client's access and connected accounts.",
               href: requestRoute,
               label: "Open client",
               external: false,
@@ -1098,18 +1099,16 @@ function ConsentEntryDetail({
       : isRevocableConsentStatus(entry.status));
   const requestDeadline =
     entry.approval_timeout_at || (isPendingDecision ? entry.expires_at : null);
-  const detailGroupTitle =
-    isConnectionDecision
-      ? "Connection request"
-      : entry.kind === "active_grant"
+  const detailGroupTitle = isConnectionDecision
+    ? "Connection request"
+    : entry.kind === "active_grant"
       ? "Active access"
       : entry.kind === "history"
         ? "History details"
         : "Request details";
-  const detailGroupDescription =
-    isConnectionDecision
-      ? "Who wants to connect with you and why."
-      : entry.kind === "active_grant"
+  const detailGroupDescription = isConnectionDecision
+    ? "Who wants to connect with you and why."
+    : entry.kind === "active_grant"
       ? "What is currently shared and when access ends."
       : entry.kind === "history"
         ? "The recorded outcome and how this access changed over time."
@@ -1163,10 +1162,7 @@ function ConsentEntryDetail({
     !isConnectionDecision &&
     !showDurationChoice &&
     requestedDurationLabel
-      ? [
-          "Requested duration",
-          requestedDurationLabel,
-        ]
+      ? ["Requested duration", requestedDurationLabel]
       : null,
     entry.is_scope_upgrade && entry.additional_access_summary
       ? ["What changes", entry.additional_access_summary]
@@ -1466,8 +1462,7 @@ function ConsentSurfaceListSection({
                   selectedEntry.request_id === entry.request_id)),
             ) ||
             Boolean(
-              selectedId &&
-              consentEntryMatchesSelectedId(entry, selectedId),
+              selectedId && consentEntryMatchesSelectedId(entry, selectedId),
             )
           }
           onSelect={() => onSelectEntry(entry)}
@@ -1579,10 +1574,7 @@ export function ConsentCenterPage() {
     setMutationTick((value) => value + 1);
   };
   const summaryCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(
-        user.uid,
-        `${consentScopeKey}:${mode}`,
-      )
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${consentScopeKey}:${mode}`)
     : "consent_center_summary_guest";
   const listSurface =
     tab === "requests" ? "pending" : tab === "history" ? "previous" : "active";
@@ -1682,12 +1674,7 @@ export function ConsentCenterPage() {
           error,
         );
       });
-  }, [
-    getVaultOwnerToken,
-    isVaultUnlocked,
-    user?.uid,
-    vaultKey,
-  ]);
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
 
   const {
     handleApprove,
@@ -2010,14 +1997,39 @@ export function ConsentCenterPage() {
   });
   // The tab actually visible right now, in the exact shape the rest of this
   // component already expects from "the one active list resource".
-  const listResource = tab === "requests"
-    ? pendingResource
-    : tab === "history"
-      ? previousResource
-      : tab === "active"
-        ? activeResource
-        : null;
+  const listResource =
+    tab === "requests"
+      ? pendingResource
+      : tab === "history"
+        ? previousResource
+        : tab === "active"
+          ? activeResource
+          : null;
   const forcedMutationRefreshRef = useRef(0);
+
+  // CacheSyncService invalidates every consent surface after a real mutation,
+  // while SwipeViews deliberately keeps previously visited panes mounted.
+  // A background pane therefore remains enabled after its cached data is
+  // cleared. Refresh only when that pane becomes visible again and has no
+  // retained resource; this avoids eager fan-out across hidden tabs while
+  // preventing a stale invalidation from rendering as a false empty state.
+  useEffect(() => {
+    if (!user?.uid || tab === "connections") return;
+    if (
+      !listResource ||
+      listResource.data ||
+      listResource.loading ||
+      listResource.refreshing
+    ) {
+      return;
+    }
+    void listResource.refresh();
+    // This is intentionally a tab-entry effect. Watching the resource's
+    // transition-backed data/loading fields can observe the brief state where
+    // loading has settled before React commits data, causing a redundant fetch
+    // loop. Current-tab mutations already use the forced refresh effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, user?.uid]);
 
   useEffect(() => {
     if (!mutationTick) return;
@@ -2177,7 +2189,13 @@ export function ConsentCenterPage() {
             locallyHandledRequestIds,
             locallyRevokedScopes,
           ),
-    [tab, items, pendingResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+    [
+      tab,
+      items,
+      pendingResource.data,
+      locallyHandledRequestIds,
+      locallyRevokedScopes,
+    ],
   );
   const activeSurfaceItems = useMemo(
     () =>
@@ -2189,7 +2207,13 @@ export function ConsentCenterPage() {
             locallyHandledRequestIds,
             locallyRevokedScopes,
           ),
-    [tab, items, activeResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+    [
+      tab,
+      items,
+      activeResource.data,
+      locallyHandledRequestIds,
+      locallyRevokedScopes,
+    ],
   );
   const previousItems = useMemo(
     () =>
@@ -2201,7 +2225,13 @@ export function ConsentCenterPage() {
             locallyHandledRequestIds,
             locallyRevokedScopes,
           ),
-    [tab, items, previousResource.data, locallyHandledRequestIds, locallyRevokedScopes],
+    [
+      tab,
+      items,
+      previousResource.data,
+      locallyHandledRequestIds,
+      locallyRevokedScopes,
+    ],
   );
   const connectionsSurfaceItems = useMemo(
     () =>
@@ -2213,7 +2243,13 @@ export function ConsentCenterPage() {
             locallyHandledRequestIds,
             locallyRevokedScopes,
           ),
-    [tab, items, connectionItems, locallyHandledRequestIds, locallyRevokedScopes],
+    [
+      tab,
+      items,
+      connectionItems,
+      locallyHandledRequestIds,
+      locallyRevokedScopes,
+    ],
   );
   const selectedEntryFromList = useMemo(() => {
     if (!items.length) return null;

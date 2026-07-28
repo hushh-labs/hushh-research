@@ -27,7 +27,7 @@ Founder-language note: this contract is part of the platform's `Tamper-Evident H
 - Quotes/market snapshot: `Finnhub` -> `PMP/FMP` -> `yfinance` -> Yahoo quote fallback.
 - News sentiment: `Finnhub` -> `PMP/FMP` -> NewsAPI -> Google News RSS.
 - SEC fundamentals: SEC EDGAR `companyfacts` and filings.
-- Renaissance policy context: Supabase `renaissance_*` tables.
+- Renaissance policy context: Cloud SQL `renaissance_*` tables.
 
 ## Fail-Closed Policy
 - Deterministic optimize/dependency-critical paths return `REALTIME_DATA_UNAVAILABLE` when required sources fail.

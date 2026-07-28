@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "something is off across the Hussh web frontend and I am not sure which specialist owns it",
+        "top_k": 3
+      },
+      {
+        "prompt": "who owns this Hussh web frontend work, is there a specialist for it or do I just start",
+        "top_k": 3
+      },
+      {
+        "prompt": "give me a starting point for a web frontend request that spans several areas of hushh-webapp",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "register the Capacitor plugin on iOS and align the Android native bridge",
+        "owner": "mobile-plugin-contracts"
+      },
+      {
+        "prompt": "scan the whole repo first and tell me which owner family should take this next step",
+        "owner": "repo-context"
+      }
+    ]
+  }
+}

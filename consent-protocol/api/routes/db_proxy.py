@@ -13,7 +13,7 @@ All consent protocol logic runs locally on iOS - this only executes SQL operatio
 Security:
 - All routes now require Firebase ID token authentication
 - Only pre-defined operations allowed (no raw SQL)
-- All connections use Supabase session pooler (DB_*); SSL required
+- All connections use Cloud SQL session pooler (DB_*); SSL required
 """
 
 import logging

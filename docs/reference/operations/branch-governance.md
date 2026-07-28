@@ -189,6 +189,10 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
   must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
   widening or narrowing fails the check.
+- **Deploy identity variables are present.** Each deployment environment must
+  contain every name declared in its `required_environment_variables` policy.
+  These are GitHub environment variables consumed through `vars.*`, not
+  environment secrets. The verifier checks names only and never renders values.
 
 ### Rule: deploy-actor lists are governance, not routine config
 

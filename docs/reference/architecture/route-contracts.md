@@ -70,6 +70,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/security`
 - `/one/profile/security/vault`
 - `/one/profile/security/session`
+- `/one/profile/security/devices`
+- `/one/profile/security/devices/authorize`
 - `/one/profile/my-data`
 - `/one/profile/my-data/domain?key=<domain_key>`
 - `/one/profile/access`

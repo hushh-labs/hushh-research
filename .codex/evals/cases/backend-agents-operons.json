@@ -1,0 +1,29 @@
+{
+  "skill_name": "backend-agents-operons",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "add a new operon under consent-protocol/hushh_mcp/operons and wire it into the ADK bridge",
+        "top_k": 3
+      },
+      {
+        "prompt": "the agent hierarchy contract check is failing after I moved a Kai agent tool surface",
+        "top_k": 3
+      },
+      {
+        "prompt": "clean up the ADK bridge boundary between hushh_adk and the backend tools package",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the Next.js proxy response shape does not match the FastAPI endpoint it wraps",
+        "owner": "backend-api-contracts"
+      },
+      {
+        "prompt": "this is really a consent enforcement and audit trail question, not an orchestration change",
+        "owner": "security-audit"
+      }
+    ]
+  }
+}
