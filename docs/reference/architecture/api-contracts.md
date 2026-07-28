@@ -144,6 +144,12 @@ flowchart TB
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/consent/vault-owner-token` | Issue VAULT_OWNER token |
+| POST | `/api/consent/vault-owner-token/device` | Issue a 15-minute device-bound VAULT_OWNER token after Firebase auth and a signed one-time device challenge |
+| POST | `/api/account/trusted-device-authorizations` | Approve a UAT-flagged PKCE-bound Hermes installation for the signed-in account |
+| POST | `/api/account/trusted-device-authorizations/exchange` | Consume a one-time PKCE code and return a Firebase custom token plus registered device identity |
+| GET | `/api/account/trusted-devices` | List signed-in account device metadata and revocation status |
+| POST | `/api/account/trusted-devices/{device_id}/challenge` | Create a short-lived device proof-of-possession challenge |
+| DELETE | `/api/account/trusted-devices/{device_id}` | Revoke the device and its device-bound owner capabilities |
 | POST | `/api/notifications/register` | Register FCM push token |
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
@@ -740,9 +746,9 @@ Coverage rules:
 - partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 
 Production policy:
-- All `/api/v1/*` endpoints return `410` with:
-- `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}`
-- Non-production can enable `/api/v1/*` via `DEVELOPER_API_ENABLED=true` with runtime registry `DEVELOPER_REGISTRY_JSON`.
+- `/api/v1/*` is enabled in production, matching UAT (`DEVELOPER_API_ENABLED=true`, sourced from `BACKEND_RUNTIME_CONFIG_JSON`; see [env-and-secrets.md](../operations/env-and-secrets.md)).
+- When the developer API is off in a given environment, every `/api/v1/*` route returns `410` with `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}` (or the non-production variant of that error code).
+- Developer principals are DB-backed records issued via the registry service (`hushh_mcp/services/developer_registry_service.py`), not a static `DEVELOPER_REGISTRY_JSON` env var.
 
 ### Available Scopes
 
