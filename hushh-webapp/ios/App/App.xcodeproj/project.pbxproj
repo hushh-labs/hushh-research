@@ -13,6 +13,7 @@
 		39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */; };
 		3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */; };
 		43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 56ED1CF703740D03086A7499 /* GoogleService-Info.plist */; };
+		AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -77,6 +78,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		56ED1CF703740D03086A7499 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
 		695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSettingsPlugin.swift; path = Plugins/HushhSettingsPlugin.swift; sourceTree = "<group>"; };
 		71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeUiTestRunnerScript.swift; sourceTree = "<group>"; };
 		844A95957616D891DBC4D212 /* NativeSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeSupportTests.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				56ED1CF703740D03086A7499 /* GoogleService-Info.plist */,
+				AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */,
 				23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */,
 				E01327B97C0E35A824E086A8 /* Plugins */,
 				0E424BC311E720A549078D16 /* NativeTestSupport.swift */,
@@ -350,6 +353,7 @@
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
 				43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */,
+				AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
