@@ -6,7 +6,7 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 
 ## What this is
 
-One click cuts a Hushh One iOS build from **whatever is live on UAT** (the latest green `main`
+One click cuts a Hussh One iOS build from **whatever is live on UAT** (the latest green `main`
 SHA — the same source `deploy .uat` ships to the website), builds the Capacitor app against the
 **UAT backend + UAT Firebase**, signs it with **Apple-managed signing via an App Store Connect
 API key**, and **uploads it to TestFlight**. No manual "Missing Compliance" click, no public App
