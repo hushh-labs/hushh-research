@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
@@ -47,6 +48,11 @@ from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
     RIAIAMService,
+)
+from hushh_mcp.services.trusted_device_service import (
+    TrustedDeviceError,
+    TrustedDeviceService,
+    trusted_devices_enabled,
 )
 
 logger = logging.getLogger(__name__)
@@ -1317,6 +1323,132 @@ async def disconnect_relationship(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+async def _issue_or_reuse_vault_owner_token(
+    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 24 * 60 * 60 * 1000
+) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    service = ConsentDBService()
+    active_tokens = await service.get_active_internal_tokens(
+        user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER.value,
+    )
+    for token_row in active_tokens:
+        expires_at = int(token_row.get("expires_at") or 0)
+        if expires_at <= now_ms + min(60 * 60 * 1000, expires_in_ms // 4):
+            continue
+        candidate_token = str(token_row.get("token_id") or "")
+        if not candidate_token:
+            continue
+        is_valid, _reason, payload = await validate_token_with_db(
+            candidate_token, ConsentScope.VAULT_OWNER
+        )
+        if is_valid and payload:
+            return {
+                "token": candidate_token,
+                "expiresAt": expires_at,
+                "scope": ConsentScope.VAULT_OWNER.value,
+            }
+
+    token_obj = issue_token(
+        user_id=user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER,
+        expires_in_ms=expires_in_ms,
+    )
+    await service.insert_internal_event(
+        user_id=user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER.value,
+        action="CONSENT_GRANTED",
+        token_id=token_obj.token,
+        expires_at=token_obj.expires_at,
+        scope_description=(
+            "Trusted device vault owner session"
+            if agent_id.startswith("device:")
+            else "Vault owner session"
+        ),
+    )
+    return {
+        "token": token_obj.token,
+        "expiresAt": token_obj.expires_at,
+        "scope": ConsentScope.VAULT_OWNER.value,
+    }
+
+
+class TrustedDeviceVaultOwnerRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    device_id: str = Field(min_length=20, max_length=128)
+    challenge_id: str = Field(min_length=20, max_length=128)
+    nonce: str = Field(min_length=20, max_length=256)
+    signature: str = Field(min_length=40, max_length=2048)
+
+
+@router.post("/vault-owner-token/device")
+async def issue_trusted_device_vault_owner_token(
+    payload: TrustedDeviceVaultOwnerRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue a short-lived owner capability after device proof-of-possession."""
+    if not trusted_devices_enabled():
+        raise HTTPException(status_code=404, detail="Trusted-device authorization is disabled")
+    if firebase_uid != payload.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access another user's vault")
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().verify_challenge,
+            user_id=firebase_uid,
+            device_id=payload.device_id,
+            challenge_id=payload.challenge_id,
+            nonce=payload.nonce,
+            signature_b64=payload.signature,
+        )
+    except TrustedDeviceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    result = await _issue_or_reuse_vault_owner_token(
+        user_id=firebase_uid,
+        agent_id=f"device:{payload.device_id}",
+        expires_in_ms=15 * 60 * 1000,
+    )
+    still_active = await run_in_threadpool(
+        TrustedDeviceService().is_active_device,
+        user_id=firebase_uid,
+        device_id=payload.device_id,
+    )
+    if not still_active:
+        # Close the race where revocation lands after proof verification but
+        # before capability persistence. If revocation lands after this check,
+        # the revocation route sees the already-persisted token and revokes it.
+        revoke_token(result["token"])
+        await ConsentDBService().insert_internal_event(
+            user_id=firebase_uid,
+            agent_id=f"device:{payload.device_id}",
+            scope=ConsentScope.VAULT_OWNER.value,
+            action="REVOKED",
+            token_id=result["token"],
+            metadata={"reason": "trusted_device_revoked_during_issuance"},
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ACTIVE",
+                "message": "The trusted device is not active.",
+            },
+        )
+    await run_in_threadpool(
+        TrustedDeviceService().audit_event,
+        user_id=firebase_uid,
+        device_id=payload.device_id,
+        event_type="owner_capability_issued",
+        metadata={"expires_at": result["expiresAt"], "scope": result["scope"]},
+    )
+    logger.info("trusted_device.vault_owner_issued")
+    return result
+
+
 @router.post("/vault-owner-token")
 async def issue_vault_owner_token(request: Request):
     """
@@ -1357,73 +1489,9 @@ async def issue_vault_owner_token(request: Request):
                 status_code=403, detail="Cannot issue VAULT_OWNER token for another user"
             )
 
-        # Check for existing active VAULT_OWNER token in the internal ledger
-        now_ms = int(time.time() * 1000)
-        service = ConsentDBService()
-        active_tokens = await service.get_active_internal_tokens(
-            user_id,
-            agent_id="self",
-            scope=ConsentScope.VAULT_OWNER.value,
-        )
-
-        for t in active_tokens:
-            # Match scope = vault.owner and agent = self
-            if t.get("scope") == ConsentScope.VAULT_OWNER.value and t.get("agent_id") == "self":
-                # Check if token has > 1 hour left
-                expires_at = t.get("expires_at", 0)
-                if expires_at > now_ms + (60 * 60 * 1000):  # 1 hour buffer
-                    # REUSE existing token (only if it still validates)
-                    #
-                    # NOTE: In older deployments, some systems stored a non-token identifier in `token_id`.
-                    # If we blindly reuse it, downstream calls fail with "Invalid signature".
-                    candidate_token = t.get("token_id")
-                    if not candidate_token:
-                        logger.warning("vault_owner.reuse_missing_token_id")
-                        break
-
-                    is_valid, reason, payload = await validate_token_with_db(
-                        candidate_token, ConsentScope.VAULT_OWNER
-                    )
-                    if not is_valid or not payload:
-                        logger.warning(
-                            "vault_owner.stored_token_invalid reason=%s",
-                            reason,
-                        )
-                        break
-
-                    logger.info("vault_owner.token_reused expires_at=%s", expires_at)
-                    return {
-                        "token": candidate_token,
-                        "expiresAt": expires_at,
-                        "scope": ConsentScope.VAULT_OWNER.value,
-                    }
-
-        # No valid token found - issue new one
-        logger.info("vault_owner.issue_new_token")
-
-        # Issue new token (24-hour expiry)
-        token_obj = issue_token(
-            user_id=user_id,
-            agent_id="self",  # Vault owner accessing their own data
-            scope=ConsentScope.VAULT_OWNER,
-            expires_in_ms=24 * 60 * 60 * 1000,  # 24 hours
-        )
-
-        # Store in the internal ledger so self-session churn stays out of the investor consent feed.
-        service = ConsentDBService()
-        await service.insert_internal_event(
-            user_id=user_id,
-            agent_id="self",
-            scope="vault.owner",
-            action="CONSENT_GRANTED",
-            token_id=token_obj.token,
-            expires_at=token_obj.expires_at,
-            scope_description="Vault owner session",
-        )
-
-        logger.info("vault_owner.token_issued")
-
-        return {"token": token_obj.token, "expiresAt": token_obj.expires_at, "scope": "vault.owner"}
+        result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
+        logger.info("vault_owner.token_issued_or_reused")
+        return result
 
     except HTTPException:
         raise
