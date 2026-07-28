@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 120,
+  "expected_migration_version": 121,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -1033,6 +1033,48 @@
       "active_source",
       "created_at",
       "updated_at"
+    ],
+    "trusted_device_authorizations": [
+      "authorization_id",
+      "device_id",
+      "user_id",
+      "code_hash",
+      "redirect_uri",
+      "code_challenge",
+      "device_public_key",
+      "device_name",
+      "platform",
+      "created_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "trusted_devices": [
+      "device_id",
+      "user_id",
+      "device_public_key",
+      "device_name",
+      "platform",
+      "status",
+      "created_at",
+      "last_used_at",
+      "revoked_at"
+    ],
+    "trusted_device_challenges": [
+      "challenge_id",
+      "device_id",
+      "user_id",
+      "nonce_hash",
+      "created_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "trusted_device_audit_events": [
+      "event_id",
+      "user_id",
+      "device_id",
+      "event_type",
+      "created_at",
+      "metadata"
     ]
   }
 }

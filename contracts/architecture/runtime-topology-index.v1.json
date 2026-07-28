@@ -1004,6 +1004,37 @@
       "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight."
     },
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "trusted_device_audit_events"
+      ],
+      "id": "trusted_device_audit",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Metadata-only trusted-device authorization, challenge, capability issuance, use, and revocation audit events written by TrustedDeviceService."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "trusted_device_authorizations",
+        "trusted_device_challenges"
+      ],
+      "id": "trusted_device_authorization_workflows",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived PKCE authorization codes and single-use proof-of-possession challenges consumed atomically through TrustedDeviceService."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "trusted_devices"
+      ],
+      "id": "trusted_device_registry",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "connection_requests",
@@ -4263,7 +4294,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "1a02aa456549e92ceea962f8e2daa679d8f2c83eeefdea77b36612e981ecc147",
-    "data_plane": "741bd6db61bfcd8d5bb1f27a1fe84240a88c9c2b4f82ccbafec45a1c1c1875a2",
+    "data_plane": "88c984eead2fd6e0b350b5f5d14194c78b34d87c5b1825d0490508c6d6df66e5",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "46d94273cc53d297b8a4f4cdc7916f6cb23d602209555b5328201c0a9b78423b",
@@ -4282,6 +4313,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 113,
     "semantic_routes": 14,
-    "table_families": 37
+    "table_families": 40
   }
 }
