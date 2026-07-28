@@ -26,10 +26,32 @@ def test_vendored_catalogue_matches_its_pinned_digest():
 def test_every_published_scope_resolves_to_at_least_one_field():
     """The direct inverse of the bug: nothing published may resolve to nothing."""
     scopes = cat.all_scopes()
-    assert len(scopes) >= 55, "catalogue looks truncated"
+    assert len(scopes) >= 58, "catalogue looks truncated"
     fields, unmapped = resolve_fields(scopes)
     assert unmapped == []
     assert len(fields) >= len(scopes) - 2  # the two legacy connect.* aliases collapse
+
+
+def test_the_free_first_handshake_bundle_resolves():
+    """The handshake promises these three by name. If they stop resolving, the
+    first handshake would disclose a field nobody can grant."""
+    from hushh_mcp.services.fabric_handshake_economics import FIRST_HANDSHAKE_FREE_SCOPES
+
+    fields, unmapped = resolve_fields(list(FIRST_HANDSHAKE_FREE_SCOPES))
+    assert unmapped == []
+    assert sorted(fields) == sorted(FIRST_HANDSHAKE_FREE_SCOPES)
+
+
+def test_the_free_bundle_is_not_marked_sensitive():
+    """It is disclosed as a bundle, and `sensitive` means `never bundled`.
+
+    The two rules would contradict. Coarseness is what makes bundling safe here,
+    not a sensitivity flag.
+    """
+    from hushh_mcp.services.fabric_handshake_economics import FIRST_HANDSHAKE_FREE_SCOPES
+
+    for scope in FIRST_HANDSHAKE_FREE_SCOPES:
+        assert cat.is_sensitive(scope) is False, scope
 
 
 def test_unknown_scope_resolves_to_nothing_and_is_reported():

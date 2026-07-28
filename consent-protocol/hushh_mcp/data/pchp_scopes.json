@@ -1,16 +1,47 @@
 {
   "pchp": "rfc-002-draft",
   "registry": "https://hushh.ai/pchp/scopes.json",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "updated": "2026-07-28",
   "note": "The canonical scope registry for the Preference Subscription Fabric. Draft, published in the open. Grants are always field-level and per-subscriber; scopes marked sensitive:true must be requested individually, never bundled. The human can revoke any grant at any time, fabric-wide.",
   "roots": {
+    "profile": "The coarse qualifying bundle, disclosed free on a first handshake - an age band, sex, and a general area. Never a birthdate, never a street or ZIP.",
     "privacy": "Consent state every site legally needs - the wedge that replaces the cookie banner.",
     "prefs": "How to serve this person well - sizes, formats, channels, constraints.",
     "wants": "What this person is in the market for right now - the demand side of the 🤫 Yellow Pages, named to match its professions.",
     "favorites": "The things this person loves - published by them, subscribable at their terms."
   },
   "scopes": [
+    {
+      "scope": "profile.age-band",
+      "type": "enum",
+      "values": [
+        "under-18",
+        "18-24",
+        "25-34",
+        "35-44",
+        "45-54",
+        "55-64",
+        "65-plus"
+      ],
+      "label": "Your age range"
+    },
+    {
+      "scope": "profile.sex",
+      "type": "enum",
+      "values": [
+        "female",
+        "male",
+        "other",
+        "prefer-not-to-say"
+      ],
+      "label": "Your sex"
+    },
+    {
+      "scope": "profile.region",
+      "type": "string",
+      "label": "Your general area - city or region, never a street or ZIP"
+    },
     {
       "scope": "privacy.marketing-email",
       "type": "boolean",
