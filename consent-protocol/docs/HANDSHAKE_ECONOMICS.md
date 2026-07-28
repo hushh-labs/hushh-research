@@ -3,9 +3,12 @@
 Founder principle (Manish Sainani), recorded because it shapes the protocol and
 every integration inherits it:
 
-> The first handshake with any agent is free by default, so the handshake can
-> happen. After the first handshake, it is up to the user's agent to decide how
-> much they would like to charge for the second handshake.
+> The first handshake with any agent is free, and in it the user's agent shares
+> age, sex and location for free. Every handshake after that costs at least
+> 0.001 cent — the network minimum. For age, sex and location the user may charge
+> $200, or a thousand dollars. It is completely up to the user to decide what
+> each scope costs. The user does not make a lot of money from this. The point is
+> that their information goes to auction, so they can see who values it most.
 
 ## Visual Map
 
@@ -22,9 +25,9 @@ every integration inherits it:
                                     └────────────────┬───────────────┘
                                      no │                 │ yes
                                         ▼                 ▼
-                              price = 0, always     owner's agent quotes
-                              "first_handshake_      "owner_quoted", or
-                               always_free"          free if it stays silent
+                              price = 0, always     owner's agent quotes,
+                              + age-band, sex,       floored at 0.001 cent
+                                region disclosed     (never below)
                                         │                 │
                                         └────────┬────────┘
                                                  ▼
@@ -36,8 +39,12 @@ every integration inherits it:
 **Discovery is never gated by money.** A stranger's agent can always reach a
 person once — no price, no negotiation, no payment instrument. If the first
 approach cost anything the network would never form, and a person who cannot be
-reached cannot be served. The floor is **zero, not a token amount**: "nearly
-free" still requires a card on file, which is the barrier this rule removes.
+reached cannot be served. The first handshake is **zero, not a token amount**:
+"nearly free" still requires a card on file, which is the barrier this removes.
+
+**After that there is a non-zero floor.** 0.001 cent is not revenue — it is a
+price signal. It makes every subsequent read an economic act, which is what turns
+a profile into an auction rather than a feed.
 
 **The person sets the price, not the bidder.** This is the inversion. In adtech
 the buyer bids for attention and the person is inventory. Here the owner's agent
@@ -65,17 +72,44 @@ the owner's side can answer.
 
 | Condition | Price | Reason recorded |
 |---|---|---|
-| No prior grant from this owner to this subscriber | **0** | `first_handshake_always_free` |
-| Prior grant exists, owner quotes a price | owner's price | `owner_quoted` |
-| Prior grant exists, owner quotes nothing | **0** | `owner_did_not_charge` |
+| No prior grant from this owner to this subscriber | **0**, and the free bundle is disclosed | `first_handshake_always_free` |
+| Prior grant, owner quotes at or above the floor | owner's price | `owner_quoted` |
+| Prior grant, owner quotes nothing or below the floor | **1 millicent** | `network_minimum_applied` |
 | Priced but no currency | rejected | — |
+
+The floor is **0.001 cent = 1 millicent**, and it is a floor rather than a
+default: an owner may price above it, never below. That is not revenue. It is a
+*price signal* — it makes every subsequent read an economic act, which is what
+turns a profile into an auction rather than a feed.
+
+Ceilings belong to the person. **$200 or $1,000 for age, sex and location is a
+legitimate answer**, and a refusal expressed as a price is still a refusal.
+
+### The money unit
+
+Prices are **millicents** (1 cent = 1000 millicents). An integer-cent field
+cannot represent 0.001 cent, and a float would round at exactly the boundary the
+floor sits on. $1,000 is 100,000,000 millicents — comfortably inside BIGINT.
+
+### What the free first handshake discloses
+
+`profile.age-band`, `profile.sex`, `profile.region` — enough for an agent to
+judge whether this person is plausibly worth talking to.
+
+**Coarsened deliberately.** The precise triple {date of birth, sex, 5-digit ZIP}
+uniquely identifies the large majority of the US population. Releasing that free
+to any agent that knocks would make this network a re-identification service —
+the exact opposite of the thesis. An age *band*, sex, and a *region* preserve the
+qualifying signal without handing over an identity. A test asserts the bundle
+never drifts back toward birthdate or ZIP5.
 
 **Revocation does not reset the meter.** The count is grants *ever issued*, not
 grants still active. Otherwise a subscriber could revoke and re-handshake to farm
 free access forever, turning a courtesy into an exploit.
 
-**Fail-closed on the owner's side too.** A price the owner did not state is not a
-price. Silence means free rather than guessed at.
+**Silence means the floor, not free.** After the first handshake an owner who
+quotes nothing still charges the network minimum. The floor is the one price the
+owner cannot waive — it is what keeps the auction an auction.
 
 The reason travels into the grant and the receipt, so a person can later see not
 just *that* a handshake was free but *why*.
@@ -105,6 +139,26 @@ next — it is the only rail on the list that is genuinely agent-native, needs n
 banking partner, and settles without a chargeback window, which matters when the
 payer is software. AP2 and UCP are protocol work that should follow a real
 counterparty asking for them, not precede one.
+
+## The settlement consequence — this constrains everything
+
+**A 0.001-cent charge cannot settle on card rails.** Stripe's minimum charge is
+50 cents; the floor is 1/50,000th of that. So the floor is not merely a pricing
+choice, it is an architectural one. Sub-cent handshakes must either:
+
+- **accumulate** into a running balance and settle in batches when the total
+  clears a processor minimum, or
+- settle on a rail with **native sub-cent precision**.
+
+`settles_on_card_rails()` exists so callers branch on this rather than assume a
+charge will succeed. Nothing should attempt a direct card charge below 50 cents.
+
+This is the strongest argument for **Circle/USDC as a first-class rail** rather
+than a nice-to-have: USDC carries six decimals, so 0.001 cent is representable
+natively, there is no banking partner in the path, and there is no chargeback
+window — which matters a great deal when the payer is software rather than a
+person. Accumulate-and-settle on Stripe is the pragmatic first step; USDC is the
+one that makes per-read pricing work without a ledger of IOUs.
 
 ## Open decision
 
