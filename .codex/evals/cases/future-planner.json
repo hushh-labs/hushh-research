@@ -1,0 +1,29 @@
+{
+  "skill_name": "future-planner",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "is this idea a north-star vision item, a future roadmap concept, or active execution work",
+        "top_k": 3
+      },
+      {
+        "prompt": "write a planning-only R&D note under docs/future with promotion criteria for this concept",
+        "top_k": 3
+      },
+      {
+        "prompt": "assess this speculative connector idea against our trust boundaries and what the repo has today",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "triage and update the open issues on the Hushh Engineering Core GitHub board",
+        "owner": "planning-board"
+      },
+      {
+        "prompt": "consolidate these redundant docs, pick the canonical documentation home and update the doc map",
+        "owner": "docs-governance"
+      }
+    ]
+  }
+}

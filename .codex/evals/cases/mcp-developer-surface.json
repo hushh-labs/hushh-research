@@ -1,0 +1,29 @@
+{
+  "skill_name": "mcp-developer-surface",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "bump @hushh/mcp so npm run print-config matches what mcp-setup.md tells external developers",
+        "top_k": 3
+      },
+      {
+        "prompt": "the developer API reference is out of date after we changed the @hushh/mcp package exports",
+        "top_k": 3
+      },
+      {
+        "prompt": "update the MCP setup guidance for third-party developers installing our npm package",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "run a scoped consent export check with the Hushh Consent MCP lifecycle tool",
+        "owner": "hushh-consent-mcp"
+      },
+      {
+        "prompt": "wire the local MCP HTTP host on the Mac to mint CRT tokens for the OpenClaw DataSourceBinding",
+        "owner": "desktop-mac-mcp-host"
+      }
+    ]
+  }
+}
