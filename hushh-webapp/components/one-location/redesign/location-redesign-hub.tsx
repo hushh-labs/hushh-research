@@ -90,11 +90,11 @@ import type {
   EmergencyInfo,
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
 export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
-export const ONE_LOCATION_SHARE_NOTE_MAX_LENGTH = 140;
 
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
@@ -208,7 +208,7 @@ export type LocationHubViewModel = {
   sosEmergency: EmergencyInfo | null;
   sosEmergencyStatus: EmergencyNumberLookupStatus;
   onResolveSosLocation: () => void;
-  onTriggerSos: (message?: "Come get me" | "I'm not safe" | null) => void;
+  onTriggerSos: (message?: string | null) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;

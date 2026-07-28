@@ -17,15 +17,17 @@ import type {
   EmergencyInfo,
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
+type SmsMessageSelection = SmsQuickMessage | "custom" | null;
 
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   active: boolean;
   busy: boolean;
-  onTrigger: (message?: SmsQuickMessage | null) => void;
+  onTrigger: (message?: string | null) => void;
   onClose: () => void;
   onEditContacts: () => void;
   recipientLabel: (recipient: OneLocationRecipient) => string;
@@ -61,7 +63,9 @@ export function SosPanel({
   emergencyStatus,
   onResolveEmergencyNumber,
 }: SosPanelProps) {
-  const [message, setMessage] = useState<SmsQuickMessage | null>(null);
+  const [messageSelection, setMessageSelection] =
+    useState<SmsMessageSelection>(null);
+  const [customMessage, setCustomMessage] = useState("");
 
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,7 +87,16 @@ export function SosPanel({
       ),
     [readyRecipients, recipientLabel],
   );
-  const disabled = busy || active || readyRecipients.length === 0;
+  const customMessageLength = customMessage.length;
+  const customMessageLimitExceeded =
+    customMessageLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
+  const selectedMessage =
+    messageSelection === "custom" ? customMessage.trim() : messageSelection;
+  const customMessageInvalid =
+    messageSelection === "custom" &&
+    (!selectedMessage || customMessageLimitExceeded);
+  const disabled =
+    busy || active || readyRecipients.length === 0 || customMessageInvalid;
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
@@ -103,8 +116,8 @@ export function SosPanel({
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
-    onTrigger(message);
-  }, [clearHold, disabled, message, onTrigger]);
+    onTrigger(selectedMessage);
+  }, [clearHold, disabled, onTrigger, selectedMessage]);
 
   const updateProgress = useCallback(function tickProgress() {
     if (!holdStartedAtRef.current || firedRef.current) return;
@@ -305,13 +318,15 @@ export function SosPanel({
               <button
                 key={option}
                 type="button"
-                aria-pressed={message === option}
+                aria-pressed={messageSelection === option}
                 onClick={() =>
-                  setMessage((current) => (current === option ? null : option))
+                  setMessageSelection((current) =>
+                    current === option ? null : option,
+                  )
                 }
                 className={cn(
                   "press-scale h-10 rounded-full border text-[13px] font-semibold",
-                  message === option
+                  messageSelection === option
                     ? "border-white bg-white text-black"
                     : "border-white/5 bg-[#1c1c1e] text-white",
                 )}
@@ -319,7 +334,71 @@ export function SosPanel({
                 {option}
               </button>
             ))}
+            <button
+              type="button"
+              aria-pressed={messageSelection === "custom"}
+              onClick={() =>
+                setMessageSelection((current) =>
+                  current === "custom" ? null : "custom",
+                )
+              }
+              className={cn(
+                "press-scale col-span-2 h-10 rounded-full border text-[13px] font-semibold",
+                messageSelection === "custom"
+                  ? "border-white bg-white text-black"
+                  : "border-white/5 bg-[#1c1c1e] text-white",
+              )}
+            >
+              Short text message
+            </button>
           </div>
+
+          {messageSelection === "custom" ? (
+            <div className="mt-3">
+              <label htmlFor="sos-short-message" className="sr-only">
+                Short text message
+              </label>
+              <textarea
+                id="sos-short-message"
+                aria-describedby={
+                  customMessageLimitExceeded
+                    ? "sos-short-message-count sos-short-message-error"
+                    : "sos-short-message-count"
+                }
+                aria-invalid={customMessageLimitExceeded}
+                value={customMessage}
+                onChange={(event) => setCustomMessage(event.target.value)}
+                placeholder="Type a short message"
+                rows={2}
+                className={cn(
+                  "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] px-3.5 py-3 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
+                  customMessageLimitExceeded
+                    ? "border-[#ff453a]"
+                    : "border-white/10",
+                )}
+              />
+              <div
+                id="sos-short-message-count"
+                className={cn(
+                  "mt-1 text-right text-[12px]",
+                  customMessageLimitExceeded
+                    ? "text-[#ff6961]"
+                    : "text-white/55",
+                )}
+              >
+                {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
+              </div>
+              {customMessageLimitExceeded ? (
+                <p
+                  id="sos-short-message-error"
+                  role="alert"
+                  className="mt-0.5 text-right text-[12px] text-[#ff6961]"
+                >
+                  character limit exceed
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {emergencyStatus === "resolved" && emergency ? (

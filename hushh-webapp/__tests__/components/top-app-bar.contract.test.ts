@@ -243,6 +243,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain(
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
+    expect(source).toContain('variant="destructive"');
+    expect(source).toContain(
+      "data-[variant=destructive]:focus:bg-popover",
+    );
+    expect(source).toContain("focus-visible:ring-accent/70");
+    expect(source).not.toContain(
+      'className="text-red-600 focus:text-red-600"',
+    );
     expect(source).not.toContain(
       'return { label: "Get started", interactive: false as const };',
     );

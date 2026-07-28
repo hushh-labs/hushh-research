@@ -11,6 +11,7 @@ import {
   saveSosIncident,
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import type {
   OneLocationGrant,
   OneLocationNetworkConnection,
@@ -130,8 +131,8 @@ export interface RunSosPanicParams {
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
-  /** Optional fixed quick message shown in the recipient notification. */
-  note?: "Come get me" | "I'm not safe" | null;
+  /** Optional short message shown in the recipient notification. */
+  note?: string | null;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
    * encrypt+store implementation (and is therefore easy to unit-test).
@@ -162,6 +163,14 @@ export async function runSosPanic(
   params: RunSosPanicParams,
 ): Promise<SosIncident> {
   const { vaultOwnerToken, recipients, point, publish, note } = params;
+  const normalizedNote = note?.trim() || null;
+
+  if (
+    normalizedNote &&
+    normalizedNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
+  ) {
+    throw new SosPanicError("character limit exceed", null);
+  }
 
   if (!recipients.length) {
     throw new SosPanicError("No SMS contacts provided.", null);
@@ -179,7 +188,7 @@ export async function runSosPanic(
         recipientUserId: recipient.userId,
         recipientKeyId: recipient.keyId,
         durationHours: 8,
-        reason: note || "sos_panic",
+        reason: normalizedNote || "sos_panic",
         shareKind: "sos",
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
