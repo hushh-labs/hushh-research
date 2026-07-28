@@ -264,17 +264,31 @@ jobs:
       - name: Restore into production Cloud SQL
         if: inputs.mode == 'apply'
         shell: bash
-        env:
-          PGPASSWORD: ${{ steps.creds.outputs.prod_db_password }}
         run: |
           set -euo pipefail
+          PG_RESTORE=/usr/lib/postgresql/15/bin/pg_restore
+
           # No --clean: the previous step already wiped the target schema and
-          # pre-seeded its extensions, so a plain restore just creates
-          # everything into a known-empty, correctly-provisioned schema.
-          # --clean here would try to DROP SCHEMA public again and fail on the
-          # very extensions this step just pre-seeded.
-          /usr/lib/postgresql/15/bin/pg_restore \
+          # pre-seeded its extensions, so nothing needs dropping. But the dump
+          # still carries an unconditional `CREATE SCHEMA public;` TOC entry
+          # (pg_dump emits it whenever a --schema= dump is taken, with no
+          # `IF NOT EXISTS`), which collides with the schema the previous step
+          # already created. Filter just that one entry out of the restore
+          # plan; every other entry, including this dump's own
+          # `CREATE EXTENSION IF NOT EXISTS` lines, is a no-op or succeeds
+          # normally against the pre-seeded target.
+          "${PG_RESTORE}" --list /tmp/uat.dump > /tmp/uat.toc
+          grep -v -E '^[0-9]+; [0-9]+ [0-9]+ SCHEMA - public ' /tmp/uat.toc > /tmp/uat.filtered.toc
+          removed=$(( $(wc -l < /tmp/uat.toc) - $(wc -l < /tmp/uat.filtered.toc) ))
+          echo "Filtered ${removed} SCHEMA-creation entry/entries out of the restore plan."
+          if [ "${removed}" -ne 1 ]; then
+            echo "Expected to filter exactly 1 entry (CREATE SCHEMA public); got ${removed}. Aborting rather than guess." >&2
+            exit 1
+          fi
+
+          PGPASSWORD="${{ steps.creds.outputs.prod_db_password }}" "${PG_RESTORE}" \
             --dbname="host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}" \
+            --use-list=/tmp/uat.filtered.toc \
             --no-owner \
             --no-privileges \
             --exit-on-error \
