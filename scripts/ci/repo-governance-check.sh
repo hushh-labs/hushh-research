@@ -23,7 +23,17 @@ python3 scripts/ops/generate_runtime_topology_index.py --check
 python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
+python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py --self-test
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
+python3 .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --check
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test
+python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
+python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py
+python3 .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
+python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
+python3 .claude/skills/codex-bridge/scripts/route.py --check
+python3 .claude/skills/codex-bridge/scripts/test_route_hook.py
 ./bin/hushh db verify-release-contract
+./bin/hushh db report-prod-posture
