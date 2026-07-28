@@ -38,7 +38,8 @@ export default function TrustedDevicesPage() {
   const [devices, setDevices] = useState<TrustedDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [pendingRevocation, setPendingRevocation] = useState<TrustedDevice | null>(null);
+  const [pendingRevocation, setPendingRevocation] =
+    useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
 
   const load = useCallback(async () => {
@@ -47,7 +48,8 @@ export default function TrustedDevicesPage() {
     try {
       const response = await ApiService.listTrustedDevices();
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.detail?.message || "Devices unavailable.");
+      if (!response.ok)
+        throw new Error(payload?.detail?.message || "Devices unavailable.");
       setDevices(Array.isArray(payload.devices) ? payload.devices : []);
       setError("");
     } catch (cause) {
@@ -68,7 +70,9 @@ export default function TrustedDevicesPage() {
       const response = await ApiService.revokeTrustedDevice(deviceId);
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        setError(payload?.detail?.message || "The device could not be revoked.");
+        setError(
+          payload?.detail?.message || "The device could not be revoked.",
+        );
         return;
       }
       setPendingRevocation(null);
@@ -104,7 +108,7 @@ export default function TrustedDevicesPage() {
         ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="space-y-3">
-          {devices.map(device => (
+          {devices.map((device) => (
             <article
               className="flex items-center gap-4 rounded-2xl border bg-card p-4"
               key={device.device_id}
@@ -113,7 +117,9 @@ export default function TrustedDevicesPage() {
                 <Laptop className="size-5" aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-sm font-medium">{device.device_name}</h2>
+                <h2 className="truncate text-sm font-medium">
+                  {device.device_name}
+                </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {device.status === "active" ? "Active" : "Revoked"} ·{" "}
                   {device.platform}
@@ -140,7 +146,7 @@ export default function TrustedDevicesPage() {
       </AppPageContentRegion>
       <AlertDialog
         open={pendingRevocation !== null}
-        onOpenChange={open => {
+        onOpenChange={(open) => {
           if (!open && !revoking) setPendingRevocation(null);
         }}
       >
@@ -148,16 +154,17 @@ export default function TrustedDevicesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke this trusted device?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingRevocation?.device_name || "This device"} will immediately lose
-              access to new owner capabilities and PKM writes. Reconnecting requires
-              browser approval and local vault setup again.
+              {pendingRevocation?.device_name || "This device"} will immediately
+              lose access to new owner capabilities and Personal Data writes.
+              Reconnecting requires browser approval and local vault setup
+              again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revoking}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={revoking || pendingRevocation === null}
-              onClick={event => {
+              onClick={(event) => {
                 event.preventDefault();
                 if (pendingRevocation) void revoke(pendingRevocation.device_id);
               }}

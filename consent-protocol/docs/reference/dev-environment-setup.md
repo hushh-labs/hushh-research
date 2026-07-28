@@ -98,6 +98,25 @@ labels and provenance verification.
 2. Everything else (voice, Plaid, market data, Gmail receipts OAuth, Maps, reviewer
    smoke, phone test numbers) replicates UAT, using secret values copied into the dev
    project.
+3. **Managed Vertex inference temporarily uses the UAT Vertex project.** The Dev
+   Cloud Run service continues to run as
+   `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`, but
+   `GOOGLE_CLOUD_PROJECT=hushh-pda-uat` for managed Gemini text and One Live calls.
+   Dev keeps its own Cloud Run and database resources while managed Gemini requests
+   use UAT's working Vertex billing entitlement. UAT grants that Dev service account only
+   `roles/aiplatform.user` and `roles/serviceusage.serviceUsageConsumer`; Dev usage
+   therefore consumes UAT Vertex quota and appears in UAT billing and audit logs.
+   The shared backend build rejects this override outside `deploy-env=dev`.
+   The Dev Cloud Build identity has the UAT project-local
+   `devVertexDeployVerifier` custom role with only
+   `serviceusage.services.list` and `resourcemanager.projects.getIamPolicy`, allowing
+   the build to verify those runtime grants without broad UAT Viewer access.
+
+   Roll back after Google clears project `621416509462` by removing the Dev fallback
+   from `deploy/backend.cloudbuild.yaml`, redeploying Dev, proving managed Vertex
+   readiness against `hushh-pda-dev`, removing the two UAT IAM bindings from the Dev
+   runtime service account, and removing the verifier-role binding from the Dev Cloud
+   Build identity. Delete the custom role after no bindings remain.
 
 ---
 

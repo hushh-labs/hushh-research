@@ -50,23 +50,44 @@ steps:
           echo "Runtime service account must belong to ${PROJECT_ID}; got '${_RUNTIME_SERVICE_ACCOUNT}'." >&2
           exit 1
         fi
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
+        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
+          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
+          exit 1
+        fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
         vertex_api_name="$(gcloud services list --enabled \
-          --project="$PROJECT_ID" \
+          --project="${genai_project_id}" \
           --filter='config.name=aiplatform.googleapis.com' \
           --format='value(config.name)' | head -n 1)"
         if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
-          echo "Vertex AI API must be enabled in ${PROJECT_ID}." >&2
+          echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
           exit 1
         fi
-        runtime_vertex_role="$(gcloud projects get-iam-policy "$PROJECT_ID" \
+        runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
           --flatten='bindings[].members' \
           --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
           --format='value(bindings.role)' | head -n 1)"
         if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
-          echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${PROJECT_ID}." >&2
+          echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
           exit 1
+        fi
+        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+            --format='value(bindings.role)' | head -n 1)"
+          if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
+            echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
+            exit 1
+          fi
         fi
         append_optional_secret() {
           local secret_name="$1"
@@ -163,7 +184,7 @@ steps:
           "HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
           "HUSHH_GENAI_AUTH_MODE=vertex_adc"
           "GOOGLE_GENAI_USE_VERTEXAI=true"
-          "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+          "GOOGLE_CLOUD_PROJECT=${genai_project_id}"
           "GOOGLE_CLOUD_LOCATION=global"
           "HUSHH_VERTEX_LOCATIONS=global,us,eu"
           "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
@@ -248,6 +269,13 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
@@ -256,7 +284,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=$PROJECT_ID|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -277,6 +305,7 @@ timeout: "1800s"
 substitutions:
   _BACKEND_SERVICE: consent-protocol
   _RUNTIME_SERVICE_ACCOUNT: ""
+  _GENAI_PROJECT_ID: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
   _PLAID_CLIENT_ID_SECRET: ""

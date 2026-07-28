@@ -251,6 +251,7 @@ not the product owner for live location.
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
+| POST | `/api/one/location/maps/reverse-geocode` | VAULT_OWNER Bearer | Transiently resolve captured coordinates to display copy and an ISO alpha-2 `countryCode`; the service does not persist coordinates or reverse-geocoded output |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
 | GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |

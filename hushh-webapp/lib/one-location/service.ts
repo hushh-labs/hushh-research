@@ -506,9 +506,17 @@ export class OneLocationService {
     vaultOwnerToken: string;
     lat: number;
     lng: number;
-  }): Promise<{ name: string | null; formattedAddress: string | null }> {
+  }): Promise<{
+    name: string | null;
+    formattedAddress: string | null;
+    countryCode: string | null;
+  }> {
     const response = await apiJson<{
-      place: { name: string | null; formattedAddress: string | null };
+      place: {
+        name: string | null;
+        formattedAddress: string | null;
+        countryCode: string | null;
+      };
     }>("/api/one/location/maps/reverse-geocode", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),

@@ -18,7 +18,9 @@ describe("tabbed ambient chrome contract", () => {
     expect(topShell).toContain("ambient-chrome-mask--top-with-tabs");
     expect(topShell).toContain(': "var(--top-shell-visual-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
-    expect(styles).toContain("var(--top-shell-reserved-height)");
+    expect(styles).toContain("--ambient-chrome-top-solid-height");
+    expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
+    expect(styles).toContain("--ambient-chrome-top-visible-height");
     expect(styles).toContain("var(--top-fade-active)");
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
@@ -31,11 +33,15 @@ describe("tabbed ambient chrome contract", () => {
   it("samples past the content-facing mask edge instead of sampling chrome", () => {
     const ambient = read("lib/morphy-ux/ambient-chrome.ts");
 
-    expect(ambient).toContain('const contentEdge = edge === "top" ? rect.bottom : rect.top');
+    expect(ambient).toContain(
+      'const contentEdge = edge === "top" ? rect.bottom : rect.top',
+    );
     expect(ambient).toContain("sampleSurfaceAcrossMask");
     expect(ambient).toContain("AMBIENT_SAMPLE_COLUMNS");
     expect(ambient).toContain("AMBIENT_CHROME_FULL_BLEED_ATTR");
-    expect(ambient).toContain('observer.observe(root, { attributes: true, attributeFilter: ["class"] });');
+    expect(ambient).toContain(
+      'observer.observe(root, { attributes: true, attributeFilter: ["class"] });',
+    );
   });
 
   it("uses the shared Search Console dissolve curve at the bottom edge", () => {
@@ -57,12 +63,16 @@ describe("tabbed ambient chrome contract", () => {
     );
   });
 
-  it("keeps sampled chrome foreground authoritative for text and icons", () => {
+  it("keeps neutral theme foreground authoritative for text and icons", () => {
     const styles = read("app/globals.css");
 
-    expect(styles).toContain("[data-app-top-bar] .top-shell-ambient-ink .text-foreground");
+    expect(styles).toContain(
+      "[data-app-top-bar] .top-shell-ambient-ink .text-foreground",
+    );
     expect(styles).toContain("color: currentColor;");
-    expect(styles).toContain("var(--ambient-chrome-bottom-fg, #1d1d1f)");
+    expect(styles).toContain("--ambient-chrome-material-bg: var(--background)");
+    expect(styles).toContain("--ambient-chrome-material-fg: var(--foreground)");
+    expect(styles).not.toContain("color: var(--ambient-chrome-top-fg");
     expect(styles).not.toContain("ambient-chrome-bottom-base");
     expect(styles).toContain("--lucide-stroke-width: 1.6");
   });

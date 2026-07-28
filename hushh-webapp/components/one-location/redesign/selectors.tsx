@@ -8,8 +8,16 @@
  * They do not introduce new business logic.
  */
 
+import { useId } from "react";
 import { Search } from "lucide-react";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 
@@ -27,37 +35,70 @@ export function DurationSelector({
   onChange,
   options = REDESIGN_DURATION_OPTIONS,
   label = "Duration",
+  presentation = "buttons",
 }: {
   value: string;
   onChange: (next: string) => void;
   options?: { value: string; label: string }[];
   label?: string;
+  presentation?: "buttons" | "select";
 }) {
+  const labelId = useId();
+
   return (
     <div className="space-y-2">
       {label ? (
-        <p className="text-sm font-semibold text-foreground">{label}</p>
+        <p
+          id={labelId}
+          className="text-sm font-semibold text-foreground"
+        >
+          {label}
+        </p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => {
-          const active = option.value === value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onChange(option.value)}
-              className={cn(
-                "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
-                active
-                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                  : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+      {presentation === "select" ? (
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger
+            aria-label={label || "Duration"}
+            aria-labelledby={label ? labelId : undefined}
+            className="h-11 w-full rounded-[14px] border-border/70 bg-background text-sm shadow-none"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent
+            align="start"
+            position="popper"
+            className="rounded-[14px]"
+          >
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onChange(option.value)}
+                className={cn(
+                  "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
+                  active
+                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                    : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -81,12 +122,12 @@ export function LocationTypeSelector({
     {
       value: "approximate",
       title: "Approximate area",
-      description: "Better for privacy",
+      description: "Better for privacy and battery life",
     },
     {
       value: "precise",
       title: "Precise live location",
-      description: "Updates while you move",
+      description: "Updates while you move for your loved ones",
     },
   ];
   return (
@@ -94,13 +135,19 @@ export function LocationTypeSelector({
       {label ? (
         <p className="text-sm font-semibold text-foreground">{label}</p>
       ) : null}
-      <div className="grid gap-2">
+      <div
+        role="radiogroup"
+        aria-label={label || "Location type"}
+        className="grid gap-2"
+      >
         {options.map((option) => {
           const active = option.value === value;
           return (
             <button
               key={option.value}
               type="button"
+              role="radio"
+              aria-checked={active}
               onClick={() => onChange(option.value)}
               className={cn(
                 SUBCARD_SURFACE,
@@ -201,6 +248,7 @@ export function PersonSearchInput({
       <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <input
         type="text"
+        aria-label={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

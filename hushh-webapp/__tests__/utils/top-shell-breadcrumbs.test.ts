@@ -511,7 +511,7 @@ describe("top shell breadcrumbs", () => {
   });
 
   it("returns the single top-bar back button to the Location hub while a focused flow is open", () => {
-    // Location focused screens (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // Location focused screens (Check-In, Alert, Share, Ask, Invite, Settings,
     // Temp link, and share details) are tracked
     // via /one/location?action=<slug>. The one top-left back button must return
     // to the Location hub (strip the action param) rather than leaving to /one —
@@ -524,7 +524,10 @@ describe("top shell breadcrumbs", () => {
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
-      ["privacy", "Privacy"],
+      ["settings", "Settings"],
+      // Legacy bookmarks are labelled correctly while the hub canonicalizes
+      // `action=privacy` to `action=settings`.
+      ["privacy", "Settings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
       ["needs-review", "Needs my review"],

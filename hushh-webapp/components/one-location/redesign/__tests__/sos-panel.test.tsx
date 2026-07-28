@@ -26,6 +26,13 @@ const baseProps = {
   recipientLabel: (value: OneLocationRecipient) => value.displayName,
   isRecipientShareReady: (value: OneLocationRecipient) =>
     value.canReceiveLocation,
+  emergency: {
+    countryCode: "IN",
+    countryName: "India",
+    number: "112",
+  },
+  emergencyStatus: "resolved" as const,
+  onResolveEmergencyNumber: vi.fn(),
 };
 
 beforeEach(() => vi.useFakeTimers());
@@ -36,7 +43,7 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
-  it("renders the Save My Soul UI, selected recipients, and US dialer", () => {
+  it("renders the Save My Soul UI, selected recipients, and local dialer", () => {
     render(<SosPanel {...baseProps} />);
 
     expect(screen.getByText("SMS · Save my soul")).toBeInTheDocument();
@@ -46,16 +53,49 @@ describe("SosPanel", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /call 911/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
       "href",
-      "tel:911",
+      "tel:112",
     );
+    expect(screen.getByText("India")).toBeInTheDocument();
     expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("sms-safety-screen")).toHaveClass(
       "fixed",
       "inset-0",
       "bg-black",
     );
+  });
+
+  it("does not expose a dial link before the local number resolves", () => {
+    render(
+      <SosPanel {...baseProps} emergency={null} emergencyStatus="resolving" />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Finding local emergency number" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("link", { name: /emergency services/i }),
+    ).toBeNull();
+    expect(screen.queryByText("United States")).not.toBeInTheDocument();
+  });
+
+  it("offers a retry without inventing a number when country lookup fails", () => {
+    const onResolveEmergencyNumber = vi.fn();
+    render(
+      <SosPanel
+        {...baseProps}
+        emergency={null}
+        emergencyStatus="unavailable"
+        onResolveEmergencyNumber={onResolveEmergencyNumber}
+      />,
+    );
+
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry local emergency number" }),
+    );
+    expect(onResolveEmergencyNumber).toHaveBeenCalledTimes(1);
   });
 
   it("does not send when the hold is released before two seconds", () => {
@@ -114,6 +154,74 @@ describe("SosPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onEditContacts).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a 140-character short-message composer and fails closed above the limit", () => {
+    render(<SosPanel {...baseProps} />);
+
+    expect(
+      screen.getByRole("button", { name: "Short text message" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Short text message" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Short text message" }),
+    );
+    const composer = screen.getByRole("textbox", {
+      name: "Short text message",
+    });
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+
+    expect(screen.getByText("0/140")).toBeInTheDocument();
+    expect(hold).toBeDisabled();
+
+    fireEvent.change(composer, { target: { value: "a".repeat(140) } });
+    expect(screen.getByText("140/140")).toBeInTheDocument();
+    expect(hold).toBeEnabled();
+    expect(screen.queryByText("character limit exceed")).toBeNull();
+
+    fireEvent.change(composer, { target: { value: "a".repeat(141) } });
+    expect(screen.getByText("141/140")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "character limit exceed",
+    );
+    expect(hold).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    expect(
+      screen.queryByRole("textbox", { name: "Short text message" }),
+    ).toBeNull();
+    expect(hold).toBeEnabled();
+  });
+
+  it("sends a valid custom short message exactly once after the hold", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Short text message" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Short text message" }),
+      { target: { value: "  Meet me by the north entrance.  " } },
+    );
+
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(hold, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    expect(onTrigger).toHaveBeenCalledWith(
+      "Meet me by the north entrance.",
+    );
   });
 
   it("fails closed when no selected recipient is ready", () => {

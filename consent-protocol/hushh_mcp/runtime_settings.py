@@ -81,6 +81,8 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
     "consent_center_summary_v2_enabled": "CONSENT_CENTER_SUMMARY_V2_ENABLED",
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
+    "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
+    "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
 }
 
 
