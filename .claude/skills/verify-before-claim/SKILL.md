@@ -1,0 +1,139 @@
+---
+name: verify-before-claim
+description: The engineering bar for all coding work in this repo — verify against the running artifact before claiming anything, reproduce every gate locally before pushing, make the smallest correct change, and never suppress a control to move faster. Use at the start of any coding task, before reporting work as done, before pushing or deploying, and whenever tempted to say "it works" from memory rather than evidence. Encodes the real failure modes that cost this team two weeks.
+allowed-tools: Read Grep Glob Bash
+---
+
+# Verify before you claim
+
+> Role models: **Jeff Dean** — know the mechanism and the numbers, design for the
+> failure case, make the simplest thing that survives scale. **Andrej Karpathy** —
+> small self-contained pieces, tests and evals as the only ground truth, understand
+> the system end to end before you touch it.
+
+The single rule: **a claim is only as good as the evidence you gathered for it.**
+Everything below is a specific way that rule gets broken.
+
+---
+
+## 1. Verify against the artifact, not your memory
+
+Never report status from what you believe. Fetch it, run it, look at it.
+
+- **Status codes lie.** A page returned `200` and we called production live. Its title
+  said *"Blog not found"* — a soft-404. **Check content, not just the code.**
+- **Screenshots lie without measurement.** A mobile render looked clipped. Measuring
+  `document.documentElement.scrollWidth` vs `clientWidth` proved zero overflow — it
+  was a headless artifact. **Measure the property you actually care about.**
+- **Local runs are not CI.** Tests passed locally for two weeks while CI was red the
+  entire time, because the failing gates were governance lanes that never ran locally.
+
+**Checklist before saying "done":**
+- [ ] Did I run it, or am I remembering?
+- [ ] Did I check the *content* of the response, not just the status?
+- [ ] Did I measure the specific property, or eyeball a proxy for it?
+- [ ] Is CI green **on the exact SHA I pushed**?
+
+## 2. Reproduce the gate locally before you push
+
+Guessing at a gate burns a CI cycle and teaches you nothing.
+
+- Install the **CI-pinned version** of the tool. We installed `gitleaks 8.24.2` — the
+  exact version CI uses — and reproduced the three findings precisely before touching
+  anything. Two minutes of setup replaced an unknown number of red pushes.
+- Run the gate's own script (`scripts/ci/*-check.sh`) rather than an approximation.
+- Re-run it after the fix and confirm the *specific* message is gone.
+
+**Subtlety worth remembering:** history-scanning tools behave differently from
+file-scanning tools. Annotating a source line did **not** clear a gitleaks finding,
+because gitleaks scans historical commit diffs — the finding lived in the commit that
+introduced the line. The mechanism determines the fix.
+
+## 3. Read the real code before you design
+
+Design decisions made from assumption get thrown away.
+
+- Reading the actual consent write path revealed it used the Supabase client while the
+  proven receipt-chain used asyncpg — **they cannot share a transaction.** That single
+  fact changed the whole design from "atomic in-row chain" to "fail-safe mirror," and
+  it was invisible from the outside.
+- Reading `migrate.py` proved it resolves migrations from the manifest, not a directory
+  scan — which made relocating parked migrations provably safe rather than hopeful.
+
+**Before writing code:** find the thing you're extending, read it, and read one
+existing example of the pattern you're about to follow.
+
+## 4. Smallest correct change — and understand the mechanism
+
+- Prefer the change that makes the gate *correct* over the change that makes it *quiet*.
+- When two conventions conflict, say so out loud instead of picking one silently. The
+  parked-migration band and the manifest-head gate were mutually exclusive; that
+  conflict — not any bug — is why the branch was red for two weeks.
+- Reuse a proven primitive rather than inventing a second one. The consent-audit chain
+  is deliberately the same construction as the fabric receipt ledger.
+
+## 5. Never suppress a control to go faster
+
+This is the line that does not move.
+
+- **Annotate false positives with a reason**, using the repo's existing convention, and
+  say why it is not a secret. Never blanket-ignore.
+- **Never fabricate a human attestation.** A DCO `Signed-off-by` is a legal statement
+  that a named human has the right to submit the work. Sign as the authenticated
+  connected identity per the SOP — never invent a name to clear a gate.
+- If a gate blocks you and you believe the gate is wrong, **escalate it as a question**;
+  do not edit the gate to pass.
+- A gate that refuses is often correct. Production refused an artifact that had not
+  been through UAT. Dev refused a deploy into a misconfigured environment. Both were
+  the system working.
+
+## 6. Ship dark
+
+Every meaningful control lands behind a kill-switch that defaults to **off**.
+
+- The flag reads off when **unset**, so a half-configured environment is safe.
+- Test **both** branches — including the guarantee that flag-off behavior is unchanged.
+- Additive controls must be **fail-safe**: the audit mirror can never break the write
+  it mirrors.
+- Write the unfinished edge into the **file**, not the wiki. The limitation you document
+  is a gift; the one you hide is a trap.
+- Dark is a staging state, not a destination — every flag needs a named condition for
+  turning it on.
+
+## 7. Say the true thing, including about yourself
+
+- **Correct your own errors promptly and plainly.** "Production is live" was wrong;
+  saying so immediately mattered more than looking consistent.
+- **Distinguish pre-existing from newly-introduced.** Always check whether a failure is
+  yours — compare against a control (an untouched file, an existing page, `main`).
+- **Flag structural changes before making them**, not after. Merging to `main` to reach
+  production was necessary and instructed, but it broke a stated invariant and should
+  have been surfaced in the moment.
+- **Encode honesty in the code, not the marketing.** `AAL3-candidate` is a technical
+  decision that makes over-claiming a compile-time impossibility.
+- **Withhold what genuinely should be withheld.** Publishing exactly which components
+  are unpatched is a map for an attacker, not transparency.
+
+## 8. Close the loop on process, not just the bug
+
+The most valuable finding of the last two weeks was not any single defect — it was that
+**nobody noticed a branch was red for two weeks.** When you fix something, ask what
+would have caught it earlier, and whether that signal exists.
+
+---
+
+## Fast pre-flight
+
+Run before reporting any coding work complete:
+
+```
+[ ] I read the code I changed, and one example of the pattern I followed
+[ ] The gate I might trip, I reproduced locally at the CI-pinned version
+[ ] Tests pass — and I know which ones actually exercise my change
+[ ] CI is green on the exact pushed SHA (not "should be")
+[ ] Flag-off behavior is unchanged, and I tested that specifically
+[ ] Limitations are written in the file, in plain language
+[ ] Nothing I did suppresses a control or fabricates an attestation
+[ ] Anything structural or invariant-breaking is stated out loud
+[ ] Claims in my report are things I verified, not things I expect
+```
