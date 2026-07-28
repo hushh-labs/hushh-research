@@ -872,11 +872,6 @@ function LocationDetailFlow({
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
                   statusLine={vm.expiresLabel(grant.expiresAt)}
-                  metaLine={
-                    point
-                      ? `Updated ${vm.formatDateTime(point.capturedAt)}`
-                      : undefined
-                  }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
                   onView={() => onExpandGrant(grant)}
@@ -884,7 +879,7 @@ function LocationDetailFlow({
                   viewBusy={vm.busy === "view"}
                   message={grant.shareMessage ?? undefined}
                 >
-                  {expanded && point ? vm.renderMapPreview(point, true) : null}
+                  {expanded && point ? vm.renderMapPreview(point, false) : null}
                 </SharedWithMeCard>
               );
             })}

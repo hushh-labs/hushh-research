@@ -76,6 +76,28 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(screen.queryByText("India")).toBeNull();
   });
 
+  it("keeps dial codes on the same foreground as each option state", async () => {
+    renderPhoneVerificationFlow();
+    const countryInput = screen.getByRole("combobox", {
+      name: "Country code",
+    });
+
+    fireEvent.focus(countryInput);
+
+    const indiaLabel = await screen.findByText("India");
+    const indiaItem = indiaLabel.closest("[data-slot='combobox-item']");
+    expect(indiaItem).not.toBeNull();
+    expect(indiaItem?.className).toContain(
+      "data-highlighted:text-accent-foreground",
+    );
+
+    const dialCode = Array.from(indiaItem?.querySelectorAll("span") ?? []).find(
+      (element) => element.textContent === "+91",
+    );
+    expect(dialCode?.className).toContain("text-current");
+    expect(dialCode?.className).not.toContain("text-muted-foreground");
+  });
+
   it("shows an honest empty state for an unmatched country query", async () => {
     renderPhoneVerificationFlow();
     const countryInput = screen.getByRole("combobox", {

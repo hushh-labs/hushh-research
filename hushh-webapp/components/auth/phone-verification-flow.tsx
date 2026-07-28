@@ -803,7 +803,7 @@ export function PhoneVerificationFlow({
                           >
                             <div className="flex w-full items-center justify-between gap-3">
                               <span className="truncate">{item.label}</span>
-                              <span className="shrink-0 text-muted-foreground">
+                              <span className="shrink-0 text-current">
                                 {item.dialCode}
                               </span>
                             </div>
