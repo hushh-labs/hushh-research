@@ -38,6 +38,11 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 2. Audit records include actor/scope/duration metadata.
 3. Telemetry remains metadata-only.
 4. No raw secrets or sensitive payloads in logs.
+5. Trusted-device authorization is UAT-flagged and allowlisted.
+6. Device codes and challenges are short-lived, single-use, and replay-safe.
+7. Device owner capabilities require Firebase identity plus a fresh P-256 signature.
+8. Device revocation rejects challenges and subsequent owner-capability issuance.
+9. Developer tokens cannot mint `VAULT_OWNER`, unwrap the vault, or write PKM.
 
 ## Ecosystem Checks
 
