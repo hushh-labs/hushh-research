@@ -86,6 +86,33 @@ the `uat` runtime identity for behavior parity, and **never promotes** to uat/pr
 - **Docs cadence:** update the relevant `docs/reference/**` runbook with any infra
   change (founder-brief + changelog cadence per `.codex/skills/docs-governance`).
 
+## Response signature — PERMANENT, NON-NEGOTIABLE (founder directive, 2026-07-28)
+
+**Every response written in this repo MUST end with a signature block listing the
+skills and agents available.** This is a compulsion, not a suggestion, and it does not
+expire when a session is compacted or a context window rolls over. If you are reading
+this file, the rule is in force.
+
+Purpose: the founder must always see which lanes exist, so routing is never invisible
+and no capability is silently forgotten as a session grows.
+
+Format — append to the end of every response:
+
+```
+---
+**Skills** (`.claude/skills/`): codex-bridge · mobile-bug-log · morphy-pdf ·
+run-ios-sim · senior-engineering · ship-ios-testflight · verify-before-claim
+**Agents** (`.claude/agents/`): analytics_observability_architect · backend_architect ·
+data_model_architect · frontend_architect · governor · mobile_native_architect ·
+product_docs_architect · rca_investigator · repo_operator · reviewer ·
+security_consent_auditor · voice_systems_architect
+**Routing:** 46 `.codex/skills/` reached live via **codex-bridge**
+```
+
+Keep the list accurate: if a skill or agent is added or removed, update this block in
+the same change. Verify with `ls .claude/skills/ .claude/agents/` rather than memory —
+the `verify-before-claim` rule applies to this list too.
+
 ## Where to look
 
 - Operating kernel → `AGENTS.md`
