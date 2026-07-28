@@ -1,0 +1,40 @@
+{
+  "user_id": "user-fixture",
+  "domain": "hermes_uat_smoke",
+  "scope_path": "profile",
+  "source_revision": 7,
+  "scope_handle": "s_fixture_handle",
+  "summary": "Update the synthetic profile marker.",
+  "sharing_impact": {
+    "active_recipient_count": 1,
+    "recipient_labels": ["Test recipient"],
+    "enters_next_export_revision": true,
+    "summary": "One active recipient is affected.",
+    "affected_grant_ids": ["grant_fixture"],
+    "affected_export_ids": ["export_fixture"]
+  },
+  "expected": {
+    "version": 2,
+    "operation": "update",
+    "source_scope_handle": "s_fixture_handle",
+    "target_scope_handle": "s_fixture_handle",
+    "proposed_domain": "hermes_uat_smoke",
+    "proposed_scope": "profile",
+    "friendly_domain_name": "Hermes Uat Smoke",
+    "friendly_scope_name": "Profile",
+    "confidence": 1,
+    "explanation": "Update the synthetic profile marker.",
+    "affected_grant_ids": ["grant_fixture"],
+    "affected_export_ids": ["export_fixture"],
+    "sharing_impact": {
+      "active_recipient_count": 1,
+      "recipient_labels": ["Test recipient"],
+      "enters_next_export_revision": true,
+      "summary": "One active recipient is affected."
+    },
+    "semantic_contract_version": "6.0.0",
+    "writer_id": "hussh_one_hermes",
+    "structure_agent_id": "pkm_structure_agent",
+    "source_revision": 7
+  }
+}

@@ -76,6 +76,8 @@ export const ROUTES = {
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
+  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
+  PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
