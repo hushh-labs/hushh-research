@@ -16,6 +16,9 @@ paths = [
   # HCT golden-vector fixture: deterministic test signing key used by
   # apps/one-mac/Sources/OneConsent + consent-protocol/scripts/emit_hct_golden_vectors.py.
   '''^consent-protocol/tests/fixtures/hct_golden_vectors\.json$''',
+  # Deterministic, synthetic Hermes interoperability vector. The encrypted
+  # bytes and hash are fixed test outputs, not deployable credentials.
+  '''^hushh-webapp/__tests__/fixtures/hermes-vault-vector\.json$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',
