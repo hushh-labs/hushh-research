@@ -370,7 +370,12 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let claim = call.getObject("upgradeContext"),
            let claimId = claim["claimId"] as? String,
            !claimId.isEmpty {
-            body["upgrade_claim"] = [
+            // Explicit [String: Any] annotation: this heterogeneous literal made of
+            // `as? T ?? default` coercions otherwise exceeds the Swift type-checker's
+            // time budget ("unable to type-check this expression in reasonable time").
+            // Naming the type removes the combinatorial inference cost; contents and
+            // behaviour are unchanged.
+            let upgradeClaim: [String: Any] = [
                 "schema_version": claim["schemaVersion"] as? String ?? "pkm_upgrade_claim.v1",
                 "claim_id": claimId,
                 "commit_id": claim["commitId"] as? String ?? "",
@@ -386,6 +391,7 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
                 "expires_at": claim["expiresAt"] as? String ?? "",
                 "mode": claim["mode"] as? String ?? "real"
             ]
+            body["upgrade_claim"] = upgradeClaim
         }
         if let receipt = call.getObject("preservationReceipt") {
             body["preservation_receipt"] = [

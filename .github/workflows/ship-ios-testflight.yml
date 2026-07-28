@@ -111,10 +111,13 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          # Swift 6.1.2 (default on macos-15). Firebase/GoogleAppMeasurement 12.11.0
-          # ship Package.swift manifests declaring swift-tools-version:6.1, which
-          # Xcode 16.2 (Swift 6.0) cannot resolve. 16.4 is the terminal 16.x.
-          xcode-version: "16.4"
+          # Xcode 26.3 → iOS 26 SDK + Swift 6.2 (both preinstalled on macos-15).
+          # The app's Sign in with Apple handler switches over iOS-26 additions to
+          # ASAuthorizationError.Code (.preferSignInWithApple,
+          # .deviceNotConfiguredForPasskeyCreation) that Xcode 16.4's iOS 18.5 SDK
+          # does not define. Swift 6.2 (>= 6.1) still resolves the swift-tools:6.1
+          # Package.swift manifests in Firebase/GoogleAppMeasurement 12.11.0.
+          xcode-version: "26.3"
 
       - name: Set up Node
         uses: actions/setup-node@v6
