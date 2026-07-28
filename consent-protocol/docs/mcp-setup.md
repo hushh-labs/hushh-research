@@ -161,6 +161,15 @@ Expected coding-agent lifecycle:
 4. Bounded-poll `check-consent-status(request_ref)` at the returned interval. Stop on a terminal state or timeout.
 5. Call `get-encrypted-scoped-export(grant_ref, expected_scope)` only after approval. Revoked and expired grants fail closed.
 
+The tool metadata intentionally tells the model only the lifecycle and custody
+boundary. The actual envelope-v2 decryption routine belongs to the trusted
+connector process, using the reference implementation in
+[`reference/developer-api.md`](./reference/developer-api.md#decrypt-an-encrypted-export-locally).
+For `continuous_until_expiry`, retain the connector private key in local secure
+storage so later authorized export revisions can be decrypted. Never put that
+key in a prompt, chat message, tool argument or result, MCP configuration, or
+model memory.
+
 Successful results are structured and bounded. Execution errors use `isError: true`
 and one safe JSON text item containing only `error_code`, a safe message,
 recoverability, next action, and a correlation reference; they intentionally

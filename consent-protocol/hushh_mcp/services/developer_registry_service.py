@@ -91,19 +91,19 @@ TOOL_CATALOG = (
         "name": "request_consent",
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
-        "description": "Create a consent request that the user reviews in Kai.",
+        "description": "Create a consent request; retrieval and connector-side decryption remain blocked until the user grants it.",
     },
     {
         "name": "check_consent_status",
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
-        "description": "Check whether a pending scope request was granted or denied.",
+        "description": "Check lifecycle state; decrypt only after granted with a grant reference.",
     },
     {
         "name": "get_encrypted_scoped_export",
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
-        "description": "Fetch the encrypted wrapped-key export for an approved consent token.",
+        "description": "Deliver an approved export for connector-side decryption outside model context using securely retained connector key material.",
     },
     {
         "name": "list_ria_profiles",

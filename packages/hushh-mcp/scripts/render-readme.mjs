@@ -178,6 +178,7 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 - Local stdio (Codex, Cursor, or VS Code through the npm bridge) creates and retains a local X25519 keypair. It validates the MCP-delivered envelope v2 ciphertext, decrypts locally, narrows to \`expected_scope\`, and returns only bounded approved information.
 - For the exact \`attr.financial.documents.*\` scope, that trusted local connector applies the fixed linear-time \`financial_statement_bundle.v1\` projection after decryption. The information contains top-level \`statements\` and \`holdings\` arrays joined by \`statement_ref\`; no LLM or caller-provided schema participates.
 - Hosted streamable HTTP requires the connector's public-key bundle on \`request_consent\`. The private key stays connector-only. The tool returns the encrypted ciphertext envelope directly over MCP; decrypt it in the connector process outside model context.
+- Keep that connector private key in local secure storage for the lifetime of the grant when \`continuous_until_expiry\` is used. Future authorized export revisions are wrapped to the same connector key until explicit rotation or revocation. “Remember the key” always means connector custody—not chat history, prompts, tool results, Hussh storage, or model memory.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 
 ### Upgrade to 0.4.0
