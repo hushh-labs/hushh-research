@@ -17,7 +17,7 @@ on:
           - backend
           - frontend
       run_predeploy_backup_job:
-        description: "Optionally run logical backup job before backend deploy gate"
+        description: "Optionally take an on-demand Cloud SQL backup before the deploy gate"
         required: true
         default: "false"
         type: choice
@@ -48,10 +48,11 @@ env:
   CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
   BACKEND_REVISION_RETENTION: "3"
   FRONTEND_REVISION_RETENTION: "10"
-  BACKUP_BUCKET: hushh-pda-prod-db-backups
-  BACKUP_PREFIX: prod/supabase-logical
+  PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
+  PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
+  PROD_DB_UNIX_SOCKET: /cloudsql/hushh-pda:us-central1:hushh-vault-db
+  PROD_DB_NAME: hushh_vault
   BACKUP_MAX_AGE_HOURS: "30"
-  BACKUP_JOB_NAME: prod-supabase-logical-backup
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
@@ -217,13 +218,15 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment production \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --db-host "aws-1-us-east-1.pooler.supabase.com" \
+            --db-host "cloudsql-socket" \
             --db-port "5432" \
-            --db-name "postgres" \
+            --db-name "${{ env.PROD_DB_NAME }}" \
+            --db-unix-socket "${{ env.PROD_DB_UNIX_SOCKET }}" \
+            --cloudsql-instance-connection-name "${{ env.PROD_CLOUDSQL_INSTANCE }}" \
             --consent-sse-enabled "false" \
             --sync-remote-enabled "false" \
-            --developer-api-enabled "false" \
-            --remote-mcp-enabled "false" \
+            --developer-api-enabled "true" \
+            --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
             --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai" \
@@ -244,28 +247,37 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true' && github.event.inputs.run_predeploy_backup_job == 'true'
         run: |
           set -euo pipefail
-          gcloud run jobs execute "${BACKUP_JOB_NAME}" \
+          gcloud sql backups create \
+            --instance="${PROD_CLOUDSQL_INSTANCE_NAME}" \
             --project="${GCP_PROJECT_ID}" \
-            --region="${GCP_REGION}" \
-            --wait
+            --description="predeploy-${GITHUB_SHA:-manual}"
 
-      - name: Pre-deploy logical backup freshness gate
+      - name: Pre-deploy Cloud SQL backup posture gate
         if: steps.scope.outputs.deploy_backend == 'true'
         id: backup-gate
         shell: bash
         run: |
           set -euo pipefail
-          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/logical_backup_freshness_check.py \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/cloudsql_backup_freshness_check.py \
             --project-id "${GCP_PROJECT_ID}" \
-            --bucket "${BACKUP_BUCKET}" \
-            --prefix "${BACKUP_PREFIX}" \
+            --instance "${PROD_CLOUDSQL_INSTANCE_NAME}" \
             --max-age-hours "${BACKUP_MAX_AGE_HOURS}" \
             --report-path /tmp/backup-posture-report.json
 
-          BACKUP_OBJECT_URI="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('backup_object_uri') or '').strip())")"
-          BACKUP_COMPLETED_AT="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('backup_completed_at') or '').strip())")"
-          echo "backup_object_uri=${BACKUP_OBJECT_URI}" >> "$GITHUB_OUTPUT"
+          BACKUP_ID="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('id') or '').strip())")"
+          BACKUP_COMPLETED_AT="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('completed_at') or '').strip())")"
+          echo "backup_id=${BACKUP_ID}" >> "$GITHUB_OUTPUT"
           echo "backup_completed_at=${BACKUP_COMPLETED_AT}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cloud SQL Auth Proxy
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
 
       - name: Apply production release migrations
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -273,32 +285,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json)"
-
-          # Keep the production DB migration runner aligned with the UAT deploy lane:
-          # apply the canonical release manifest before deploying code that reads it.
-          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value // empty' | tail -n 1)"
-          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value // empty' | tail -n 1)"
-          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value // empty' | tail -n 1)"
-          DB_HOST="${DB_HOST:-aws-1-us-east-1.pooler.supabase.com}"
-
+          # Production is Cloud SQL, reached only through the Auth Proxy from this
+          # runner (there is no plain DB_HOST/DB_PORT env var on the deployed
+          # service to scrape -- that approach never matched how this app actually
+          # resolves its DB connection, see BACKEND_RUNTIME_CONFIG_JSON's
+          # db_unix_socket key and hydrate_runtime_environment()). Mirrors the UAT
+          # deploy lane's proven pattern exactly.
           DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
           DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
-          if [ -z "${DB_HOST}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
-            echo "Failed to resolve DB credentials/host for production release migrations."
-            exit 1
-          fi
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
-          export DB_HOST DB_USER DB_PASSWORD
-          export DB_PORT="${DB_PORT:-5432}"
-          export DB_NAME="${DB_NAME:-postgres}"
-          export DB_SSLMODE=require
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6544 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6544
+          export DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER DB_PASSWORD
 
           (
             cd consent-protocol
@@ -311,35 +334,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json)"
-
-          # DB host/port/name come from the deployed service when present, but newer
-          # revisions no longer expose DB_HOST as a plain env var (it moved into the
-          # runtime config JSON), so the template scrape can return empty. Fall back to
-          # the canonical prod DB host used by the secret-sync step above so the gate
-          # does not break just because a prior failed revision changed the env shape.
-          # `// empty` guards against jq emitting the literal string "null".
-          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value // empty' | tail -n 1)"
-          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value // empty' | tail -n 1)"
-          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value // empty' | tail -n 1)"
-          DB_HOST="${DB_HOST:-aws-1-us-east-1.pooler.supabase.com}"
-
           DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
           DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
-          if [ -z "${DB_HOST}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
-            echo "Failed to resolve DB credentials/host for migration governance gate."
-            exit 1
-          fi
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-drift-gate.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
-          export DB_HOST DB_USER DB_PASSWORD
-          export DB_PORT="${DB_PORT:-5432}"
-          export DB_NAME="${DB_NAME:-postgres}"
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6544 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6544
+          export DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER DB_PASSWORD
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --report-path /tmp/db-migration-guard-report.json
 
@@ -374,7 +399,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=8,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=4,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=8,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=4,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'

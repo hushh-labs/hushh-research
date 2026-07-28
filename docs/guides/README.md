@@ -39,4 +39,4 @@ flowchart TD
 - [native_streaming.md](./native_streaming.md): native streaming workflow details.
 - [plaid-activation-and-testing.md](./plaid-activation-and-testing.md): Plaid activation and sandbox/live testing.
 
-Subtree synchronization is no longer part of the normal contributor guide surface. Maintainer-only sync notes now belong under operations.
+Subtree synchronization is no longer part of the normal contributor guide surface. Maintainer-only sync notes now belong under operations; [subtree-sync.md](./subtree-sync.md) remains only as a pointer to [../reference/operations/subtree-maintainers.md](../reference/operations/subtree-maintainers.md).

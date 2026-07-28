@@ -396,7 +396,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "request_consent",
                 "title": "Request consent",
-                "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before encrypted retrieval is available.",
+                "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before retrieval or decryption. A trusted connector should securely retain its private export key outside model context so authorized realtime export revisions remain decryptable.",
                 "inputSchema": _object(
                     {
                         "user_identifier": _IDENTIFIER_INPUT,
@@ -541,7 +541,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "check_consent_status",
                 "title": "Check consent status",
-                "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
+                "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state. Retrieval and connector-side decryption are allowed only when status is granted and grant_ref is present.",
                 "inputSchema": _object(
                     {
                         "request_ref": _field(
@@ -589,7 +589,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "get_encrypted_scoped_export",
                 "title": "Get encrypted scoped export",
-                "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
+                "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Local stdio decrypts in its trusted process; hosted connectors use the documented envelope-v2 method with their securely retained private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
                 "inputSchema": _object(
                     {
                         "grant_ref": _field(

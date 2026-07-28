@@ -44,14 +44,14 @@ the governed operator service account. Current live facts:
 | Runtime SAs | compute + cloudbuild SAs granted UAT-parity roles |
 | APIs | full UAT parity (92 enabled; doctor-audited) |
 | **Deployed services** | `consent-protocol` + `hushh-webapp` live and healthy (first deploy 2026-07-10, `deploy-env=dev`, public invoker enabled — note: org-fresh projects drop the `--allow-unauthenticated` binding silently; re-add `allUsers` → `roles/run.invoker` if a new service 403s) |
-| Schedulers | full UAT parity: `one-email-kyc-retention-purge-dev` (daily 09:37 PT), `marketplace-investor-replenisher-every-8h`, `obs-supabase-data-health-every-30m` (+ their Cloud Run jobs and invoker SAs) |
+| Schedulers | full UAT parity: `one-email-kyc-retention-purge-dev` (daily 09:37 PT), `marketplace-investor-replenisher-every-8h`, `obs-Cloud SQL-data-health-every-30m` (+ their Cloud Run jobs and invoker SAs) |
 | Database | full UAT data replica (102 tables, parity-verified) |
 | Domain | `dev.one.hushh.ai` mapped to `hushh-webapp` + DNS CNAME live; origin flipped in secrets/workflow; TLS cert provisioning in flight |
 | Doctor status | 0 failures, 1 warning (TLS cert provisioning — self-resolving) |
 
 Known parity notes:
 
-- `obs-supabase-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
+- `obs-Cloud SQL-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
   anomaly its UAT runs currently fail with (data-shape issue inherited via the clone,
   not an environment defect).
 - GitHub environment `dev` Workload Identity Federation variables are still pending,
@@ -292,7 +292,7 @@ Ongoing schedulers to replicate (after first deploy):
   with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN`.
   `deploy/one-location/setup_retention_scheduler.sh` is the operator-run UAT shape;
   use the same bounded endpoint for dev only after the UAT job is explicitly enabled.
-- `marketplace-investor-replenisher-every-8h` and `obs-supabase-data-health-every-30m`
+- `marketplace-investor-replenisher-every-8h` and `obs-Cloud SQL-data-health-every-30m`
   trigger Cloud Run *jobs* that must first be created in dev
   (`deploy/marketplace/setup_investor_replenisher_scheduler.sh`,
   `deploy/observability/`); the doctor reports them as warnings until then.

@@ -98,7 +98,8 @@
     "117_feed_events.sql",
     "118_preference_world_model.sql",
     "119_preference_subscription_fabric.sql",
-    "120_fabric_consent_requests.sql"
+    "120_fabric_consent_requests.sql",
+    "121_trusted_devices.sql"
   ],
   "groups": {
     "iam": [
@@ -153,7 +154,8 @@
       "114_one_action_directive_ledger.sql",
       "115_one_location_map_presence.sql",
       "116_one_location_sms_contacts.sql",
-      "117_feed_events.sql"
+      "117_feed_events.sql",
+      "121_trusted_devices.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

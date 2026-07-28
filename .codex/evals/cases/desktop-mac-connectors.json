@@ -1,0 +1,29 @@
+{
+  "skill_name": "desktop-mac-connectors",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "add an Apple Notes connector that falls back when the AppleScript bridge is TCC denied",
+        "top_k": 3
+      },
+      {
+        "prompt": "Spotlight and FSEvents ingestion keeps re-indexing the same Obsidian folder",
+        "top_k": 3
+      },
+      {
+        "prompt": "OAuth refresh for the Google Drive knowledge source should persist in Keychain not SQLite",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the local MCP host needs a new OpenClaw binding exposed for this data source",
+        "owner": "desktop-mac-mcp-host"
+      },
+      {
+        "prompt": "PKM writeback and vault ciphertext shape need to change in consent-protocol",
+        "owner": "vault-pkm-governance"
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-name: Prod Supabase Backup Posture
+name: Prod Cloud SQL Backup Posture
 
 on:
   schedule:
@@ -11,13 +11,12 @@ permissions:
 
 env:
   GCP_PROJECT_ID: hushh-pda
-  BACKUP_BUCKET: hushh-pda-prod-db-backups
-  BACKUP_PREFIX: prod/supabase-logical
+  PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
   BACKUP_MAX_AGE_HOURS: "30"
 
 jobs:
   backup-posture:
-    name: Daily Logical Backup Posture Check
+    name: Daily Cloud SQL Backup Posture Check
     if: github.repository == 'hushh-labs/hushh-research'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -47,17 +46,13 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install backup posture dependencies
-        run: python3 -m pip install --disable-pip-version-check google-cloud-storage
-
-      - name: Run logical backup posture policy check
+      - name: Run Cloud SQL backup posture policy check
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ops/logical_backup_freshness_check.py \
+          python3 scripts/ops/cloudsql_backup_freshness_check.py \
             --project-id "${GCP_PROJECT_ID}" \
-            --bucket "${BACKUP_BUCKET}" \
-            --prefix "${BACKUP_PREFIX}" \
+            --instance "${PROD_CLOUDSQL_INSTANCE_NAME}" \
             --max-age-hours "${BACKUP_MAX_AGE_HOURS}" \
             --report-path /tmp/prod-backup-posture-report.json
 

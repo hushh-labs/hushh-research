@@ -1,14 +1,37 @@
 #!/usr/bin/env bash
 #
 # Build the hushh One webapp, sync it into the native iOS shell, and launch it on
-# the iPhone 16 simulator against the UAT backend. See SKILL.md for the why.
+# an iPhone simulator against the UAT backend. See SKILL.md for the why.
 #
 # Usage: launch.sh [SIMULATOR_UDID]
 #
 set -euo pipefail
 
 # --- config -----------------------------------------------------------------
-UDID="${1:-B46FD09B-E0BC-400E-821B-5CE3D575ECAB}"   # iPhone 16
+# Resolve the simulator instead of pinning a UDID: Xcode updates retire device
+# types, and a hardcoded UDID silently points at a simulator that no longer
+# exists (the failure surfaces late, after a full web build). Prefer an already
+# booted iPhone, else the newest available one.
+pick_simulator() {
+  xcrun simctl list devices available --json 2>/dev/null | python3 -c '
+import json, sys
+data = json.load(sys.stdin).get("devices", {})
+phones = [d for runtime in data.values() for d in runtime if d.get("name", "").startswith("iPhone")]
+if not phones:
+    sys.exit(1)
+booted = [d for d in phones if d.get("state") == "Booted"]
+print((booted or phones)[-1]["udid"])
+'
+}
+
+UDID="${1:-}"
+if [ -z "$UDID" ]; then
+  UDID="$(pick_simulator || true)"
+fi
+if [ -z "$UDID" ]; then
+  printf '\n\033[1;31m✗ no available iPhone simulator (see: xcrun simctl list devices)\033[0m\n' >&2
+  exit 1
+fi
 BACKEND="https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
 BUNDLE_ID="com.hushh.app"
 SCHEME="App"

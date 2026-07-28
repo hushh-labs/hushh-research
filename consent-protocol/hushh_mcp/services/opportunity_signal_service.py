@@ -83,20 +83,20 @@ class OpportunitySignalService:
     """CRUD + lifecycle for durable opportunity signals (owner-scoped)."""
 
     def __init__(self) -> None:
-        self._supabase = None
+        self._db = None
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     async def _execute_query(self, query):
         return await asyncio.to_thread(query.execute)
 
     async def _find_by_dedupe(self, *, user_id: str, dedupe_key: str) -> dict[str, Any] | None:
         result = await self._execute_query(
-            self.supabase.table("marketplace_opportunity_signals")
+            self.db.table("marketplace_opportunity_signals")
             .select("*")
             .eq("user_id", user_id)
             .eq("dedupe_key", dedupe_key)
@@ -146,7 +146,7 @@ class OpportunitySignalService:
                 "updated_at": _now_iso(),
             }
             result = await self._execute_query(
-                self.supabase.table("marketplace_opportunity_signals")
+                self.db.table("marketplace_opportunity_signals")
                 .update(update)
                 .eq("id", existing["id"])
                 .eq("user_id", user_id)
@@ -171,7 +171,7 @@ class OpportunitySignalService:
             "metadata": metadata or {},
         }
         result = await self._execute_query(
-            self.supabase.table("marketplace_opportunity_signals").insert(payload)
+            self.db.table("marketplace_opportunity_signals").insert(payload)
         )
         rows = getattr(result, "data", None) or []
         return _row_to_signal(rows[0]) if rows else _row_to_signal(payload)
@@ -186,7 +186,7 @@ class OpportunitySignalService:
         await self.expire_past(user_id=user_id, now=now)
 
         result = await self._execute_query(
-            self.supabase.table("marketplace_opportunity_signals")
+            self.db.table("marketplace_opportunity_signals")
             .select("*")
             .eq("user_id", user_id)
             .in_("status", ["active", "snoozed"])
@@ -203,7 +203,7 @@ class OpportunitySignalService:
 
         for r in due:
             await self._execute_query(
-                self.supabase.table("marketplace_opportunity_signals")
+                self.db.table("marketplace_opportunity_signals")
                 .update(
                     {
                         "show_count": int(r.get("show_count") or 0) + 1,
@@ -221,7 +221,7 @@ class OpportunitySignalService:
         """Owner-scoped update; only a signal the owner owns can be mutated."""
         update = {**update, "updated_at": _now_iso()}
         result = await self._execute_query(
-            self.supabase.table("marketplace_opportunity_signals")
+            self.db.table("marketplace_opportunity_signals")
             .update(update)
             .eq("id", signal_id)
             .eq("user_id", user_id)
@@ -266,7 +266,7 @@ class OpportunitySignalService:
         """Flip active/snoozed dated signals whose event_date has passed to expired."""
         today: date = (now or _now()).date()
         result = await self._execute_query(
-            self.supabase.table("marketplace_opportunity_signals")
+            self.db.table("marketplace_opportunity_signals")
             .update({"status": "expired", "updated_at": _now_iso()})
             .eq("user_id", user_id)
             .in_("status", ["active", "snoozed"])

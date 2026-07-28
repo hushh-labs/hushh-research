@@ -1,0 +1,29 @@
+{
+  "skill_name": "vault-pkm-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the PKM manifest and pkm_index disagree after a revision, which one is the authority",
+        "top_k": 3
+      },
+      {
+        "prompt": "vault unlock is leaving the owner key in browser storage instead of memory-only, fix the boundary",
+        "top_k": 3
+      },
+      {
+        "prompt": "add a new PKM domain and decide its stored visibility, private versus consent_required, inside the vault boundary",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "prove a zero-loss PKM upgrade with historical fixtures and a rollback rehearsal",
+        "owner": "pkm-upgrade-rehearsal"
+      },
+      {
+        "prompt": "run the reviewer account browser rehearsal with BYOK unlock and same-session navigation",
+        "owner": "reviewer-app-testing"
+      }
+    ]
+  }
+}

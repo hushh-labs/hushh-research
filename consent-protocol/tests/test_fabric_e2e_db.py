@@ -100,9 +100,13 @@ async def client() -> AsyncIterator[Any]:
     app.include_router(pwm_routes.router)
     app.include_router(fabric_routes.router)
     app.dependency_overrides[require_firebase_auth] = lambda: OWNER_UID
-    app.dependency_overrides[fabric_routes.require_subscriber_principal] = lambda: DeveloperPrincipal(
-        app_id="e2e", agent_id=SUBSCRIBER_AGENT, display_name="E2E Subscriber",
-        allowed_tool_groups=(),
+    app.dependency_overrides[fabric_routes.require_subscriber_principal] = lambda: (
+        DeveloperPrincipal(
+            app_id="e2e",
+            agent_id=SUBSCRIBER_AGENT,
+            display_name="E2E Subscriber",
+            allowed_tool_groups=(),
+        )
     )
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://e2e") as c:
@@ -123,19 +127,35 @@ def _sub() -> dict[str, str]:
 @pytest.mark.asyncio
 async def test_fabric_end_to_end_db(client: Any) -> None:
     # ---- Part A: direct grant ----
-    r = await client.put("/api/pwm", headers=_owner(), json={
-        "connect": {"want": "financial-advisor", "zip": "98033", "updatedAt": 1},
-        "privacy": {"analytics": True, "ads": False, "marketing-email": True,
-                    "personalization": True, "data-sale": False}})
+    r = await client.put(
+        "/api/pwm",
+        headers=_owner(),
+        json={
+            "connect": {"want": "financial-advisor", "zip": "98033", "updatedAt": 1},
+            "privacy": {
+                "analytics": True,
+                "ads": False,
+                "marketing-email": True,
+                "personalization": True,
+                "data-sale": False,
+            },
+        },
+    )
     assert r.status_code == 200
 
     r = await client.get("/api/pwm", headers=_owner())
     assert r.status_code == 200 and r.json()["connect"]["zip"] == "98033"
 
-    r = await client.post("/api/fabric/grants", headers=_owner(), json={
-        "subscriber_id": SUBSCRIBER_AGENT,
-        "scopes": ["wants.money.advisor", "privacy.ads", "privacy.data-sale"],
-        "purpose": "Match me with a local fiduciary advisor", "ttl_ms": 2592000000})
+    r = await client.post(
+        "/api/fabric/grants",
+        headers=_owner(),
+        json={
+            "subscriber_id": SUBSCRIBER_AGENT,
+            "scopes": ["wants.money.advisor", "privacy.ads", "privacy.data-sale"],
+            "purpose": "Match me with a local fiduciary advisor",
+            "ttl_ms": 2592000000,
+        },
+    )
     assert r.status_code == 200
     grant = r.json()
     handle = grant["handle"]
@@ -165,9 +185,15 @@ async def test_fabric_end_to_end_db(client: Any) -> None:
     assert r.json() == {"ok": True, "count": 2, "head_seq": 2, "head_hash": read["receipt"]["hash"]}
 
     # ---- Part B: brand-initiated handshake ----
-    r = await client.post("/api/fabric/requests", headers=_sub(), json={
-        "scopes": ["wants.money.advisor"], "purpose": "Match you with a local advisor",
-        "ttl_ms": 2592000000})
+    r = await client.post(
+        "/api/fabric/requests",
+        headers=_sub(),
+        json={
+            "scopes": ["wants.money.advisor"],
+            "purpose": "Match you with a local advisor",
+            "ttl_ms": 2592000000,
+        },
+    )
     assert r.status_code == 200
     req = r.json()
     assert "user_id" not in req and "uid" not in req  # subscriber never learns the owner
@@ -179,7 +205,9 @@ async def test_fabric_end_to_end_db(client: Any) -> None:
 
     r = await client.post(
         f"/api/fabric/requests/{req['request_id']}/approve",
-        headers=_owner(), json={"pairing_code": code})
+        headers=_owner(),
+        json={"pairing_code": code},
+    )
     assert r.status_code == 200 and "handle" not in r.json()  # owner never gets the handle
     assert r.json()["receipt"]["seq"] == 3
 
@@ -191,7 +219,10 @@ async def test_fabric_end_to_end_db(client: Any) -> None:
     assert r.json()["status"] == "claimed" and "handle" not in r.json()  # single-use
 
     r = await client.post("/api/fabric/read", headers=_sub(), json={"handle": hs_handle})
-    assert r.status_code == 200 and set(r.json()["fields"].keys()) == {"connect.want", "connect.zip"}
+    assert r.status_code == 200 and set(r.json()["fields"].keys()) == {
+        "connect.want",
+        "connect.zip",
+    }
 
     # ---- Part C: revocation, no-oracle, tamper-evidence ----
     r = await client.post(f"/api/fabric/grants/{grant_id}/revoke", headers=_owner())
@@ -199,7 +230,8 @@ async def test_fabric_end_to_end_db(client: Any) -> None:
 
     denied_revoked = await client.post("/api/fabric/read", headers=_sub(), json={"handle": handle})
     denied_forged = await client.post(
-        "/api/fabric/read", headers=_sub(), json={"handle": "HFG:not-a-real-handle.deadbeef"})
+        "/api/fabric/read", headers=_sub(), json={"handle": "HFG:not-a-real-handle.deadbeef"}
+    )
     # Fail-closed AND no oracle: revoked and forged produce the identical denial.
     assert denied_revoked.status_code == 403 and denied_forged.status_code == 403
     assert denied_revoked.json()["detail"]["code"] == "FABRIC_READ_DENIED"
@@ -215,10 +247,17 @@ async def test_fabric_end_to_end_db(client: Any) -> None:
     prev = receipts_mod.GENESIS_HASH
     for row in rows:
         payload = receipts_mod._canonical_payload(
-            user_id=OWNER_UID, seq=row["seq"], event_type=row["event_type"],
-            subscriber_id=row["subscriber_id"], grant_id=row["grant_id"],
-            scopes=row["scopes"], fields=row["fields"], purpose=row["purpose"],
-            created_at_ms=row["created_at_ms"], metadata=row["metadata"])
+            user_id=OWNER_UID,
+            seq=row["seq"],
+            event_type=row["event_type"],
+            subscriber_id=row["subscriber_id"],
+            grant_id=row["grant_id"],
+            scopes=row["scopes"],
+            fields=row["fields"],
+            purpose=row["purpose"],
+            created_at_ms=row["created_at_ms"],
+            metadata=row["metadata"],
+        )
         assert row["prev_hash"] == prev
         assert row["hash"] == receipts_mod._chain_hash(prev, payload)
         assert hmac.compare_digest(row["signature"], receipts_mod._sign(row["hash"]))

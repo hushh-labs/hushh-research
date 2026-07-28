@@ -149,11 +149,8 @@ def _build_database_url_from_env() -> str:
 
 
 def _database_ssl_from_env() -> str | None:
-    if os.getenv("DB_UNIX_SOCKET"):
-        return None
-    db_host = os.getenv("DB_HOST", "")
-    if "supabase.com" in db_host or "pooler.supabase" in db_host:
-        return "require"
+    # Cloud SQL is reached over the Auth Proxy (loopback) or the Unix socket,
+    # both already secured, so no explicit sslmode is required.
     return None
 
 

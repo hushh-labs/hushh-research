@@ -97,7 +97,7 @@ When contributing to Hussh, please follow these security guidelines:
 These environment variables should be kept secret:
 
 - `APP_SIGNING_KEY` - Used for signing consent tokens and state payloads
-- `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` - Database (Supabase session pooler)
+- `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` - Database (Cloud SQL)
 - `FIREBASE_*` - Firebase configuration
 - `GOOGLE_*` - Google Cloud credentials
 

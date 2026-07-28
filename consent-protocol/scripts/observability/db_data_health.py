@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scheduled Supabase data-health checks for observability dashboards/alerts.
+"""Scheduled Cloud SQL data-health checks for observability dashboards/alerts.
 
 This script is designed for Cloud Scheduler + Cloud Run Jobs. It emits one
 JSON log line containing aggregate metrics only (no raw identifiers/PII).

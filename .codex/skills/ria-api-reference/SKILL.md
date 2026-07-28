@@ -43,18 +43,15 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/README.md`
-2. `/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/ENDPOINTS.md`
-3. `/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/CRD_SCRAPING_API.md`
-4. `/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/FINANCIAL_VERIFICATION_API.md`
-5. `/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/FINANCIAL_VERIFICATION_DEPLOYMENT_PROOF.md`
-6. `docs/reference/architecture/crd-scraping-api.md`
-7. `docs/reference/architecture/api-contracts.md`
+1. `docs/reference/architecture/crd-scraping-api.md`
+2. `docs/reference/architecture/api-contracts.md`
+3. `consent-protocol/api/routes/crd_scraper.py`
+4. `consent-protocol/hushh_mcp/services/crd_scrape_proxy_service.py`
 
 ## Workflow
 
 1. Classify the user's RIA/API claim before changing code: `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification`.
-2. Read the standalone provider docs first and treat them as the canonical contract for `/v1/crd-scrape-jobs` and `/v1/financial-verification-jobs`.
+2. Treat the standalone `hushh-ria-intelligence-api` repository as the canonical contract for `/v1/crd-scrape-jobs` and `/v1/financial-verification-jobs`. Its docs are not vendored here, so confirm the provider contract against that repository (or a maintainer) rather than inferring it from this facade; never guess a provider payload.
 3. Then inspect the hussh Research facade docs, route, proxy service, and tests listed in owned surfaces.
 4. Keep hussh Research simple: forward to the provider, preserve payloads, record provider errors clearly, and avoid adding scraper logic here.
 5. Keep official regulatory sources labeled as regulatory truth and open-web enrichment labeled separately, matching the provider docs.

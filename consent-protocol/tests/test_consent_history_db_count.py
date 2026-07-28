@@ -69,7 +69,7 @@ class _FakeTable:
         return _FakeResponse(rows)
 
 
-class _FakeSupabase:
+class _FakeDb:
     def __init__(self, rows: list[dict], calls: list[tuple]):
         self._rows = rows
         self._calls = calls
@@ -83,7 +83,7 @@ class _FakeSupabase:
 
 def _service(rows: list[dict], calls: list[tuple], monkeypatch) -> ConsentDBService:
     service = ConsentDBService()
-    monkeypatch.setattr(service, "_get_supabase", lambda: _FakeSupabase(rows, calls))
+    monkeypatch.setattr(service, "_get_db", lambda: _FakeDb(rows, calls))
     return service
 
 

@@ -39,12 +39,54 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ## Visual Map
 
-```text
-Client surfaces
-  -> Next.js API proxies / native plugins
-    -> FastAPI route families
-      -> consent, PKM, IAM, Kai, RIA, marketplace, notifications
-        -> encrypted storage, scoped sharing, and public lookup contracts
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+  end
+
+  fb --> vo
+  fb --> dev
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
 ```
 
 ---
@@ -102,6 +144,12 @@ Client surfaces
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/consent/vault-owner-token` | Issue VAULT_OWNER token |
+| POST | `/api/consent/vault-owner-token/device` | Issue a 15-minute device-bound VAULT_OWNER token after Firebase auth and a signed one-time device challenge |
+| POST | `/api/account/trusted-device-authorizations` | Approve a UAT-flagged PKCE-bound Hermes installation for the signed-in account |
+| POST | `/api/account/trusted-device-authorizations/exchange` | Consume a one-time PKCE code and return a Firebase custom token plus registered device identity |
+| GET | `/api/account/trusted-devices` | List signed-in account device metadata and revocation status |
+| POST | `/api/account/trusted-devices/{device_id}/challenge` | Create a short-lived device proof-of-possession challenge |
+| DELETE | `/api/account/trusted-devices/{device_id}` | Revoke the device and its device-bound owner capabilities |
 | POST | `/api/notifications/register` | Register FCM push token |
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
@@ -372,17 +420,17 @@ delete/absent lifecycle with cleanup.
 
 #### One Voice
 
-One Voice is the product-facing voice wrapper over the current Kai-era compatibility runtime.
-These routes preserve the same VAULT_OWNER, request user match, rollout,
-canary, kill-switch, planner, composer, and settlement behavior while the
-frontend migrates to the provider-neutral One Voice transport contract.
+There is no `/api/one/voice/*` router. The product-facing voice wrapper described
+in earlier plans was never registered: `consent-protocol/api/routes/one/` has no
+`voice.py`, and no `/api/one/voice/...` path exists in the codebase.
+
+The real full-duplex voice transport is the ADK live pair in
+`consent-protocol/api/routes/one/adk_live.py`, listed under Kai Chat below:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/one/voice/session` | Product-facing wrapper for realtime voice session creation |
-| POST | `/api/one/voice/plan` | Product-facing wrapper for voice planning; accepts the shared One Voice context snapshot alongside existing structured screen context |
-| POST | `/api/one/voice/compose` | Product-facing wrapper for post-action spoken response composition |
-| POST | `/api/one/voice/benchmark` | Disabled status route until live provider benchmark adapters and versioned artifacts exist |
+| POST | `/api/one/adk/relay-session` | Mints a single-use relay ticket over HTTPS |
+| WS | `/api/one/adk/live` | Consumes that ticket once and carries the live session |
 
 #### Kai Portfolio
 
@@ -698,9 +746,9 @@ Coverage rules:
 - partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 
 Production policy:
-- All `/api/v1/*` endpoints return `410` with:
-- `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}`
-- Non-production can enable `/api/v1/*` via `DEVELOPER_API_ENABLED=true` with runtime registry `DEVELOPER_REGISTRY_JSON`.
+- `/api/v1/*` is enabled in production, matching UAT (`DEVELOPER_API_ENABLED=true`, sourced from `BACKEND_RUNTIME_CONFIG_JSON`; see [env-and-secrets.md](../operations/env-and-secrets.md)).
+- When the developer API is off in a given environment, every `/api/v1/*` route returns `410` with `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}` (or the non-production variant of that error code).
+- Developer principals are DB-backed records issued via the registry service (`hushh_mcp/services/developer_registry_service.py`), not a static `DEVELOPER_REGISTRY_JSON` env var.
 
 ### Available Scopes
 

@@ -8,7 +8,7 @@ This is a **truly air-gapped** offline development mode for the Hussh platform. 
 
 | Service | Status | Fallback |
 |---------|--------|----------|
-| PostgreSQL (Cloud SQL/Supabase) | ❌ Disabled | SQLite (local file) |
+| PostgreSQL (Cloud SQL) | ❌ Disabled | SQLite (local file) |
 | Firebase Auth | ❌ Disabled | Local token (`?local=1`) |
 | Gemini AI (Vertex AI) | ❌ Disabled | Mock responses |
 | Gmail API | ❌ Disabled | Mock responses |
@@ -70,7 +70,7 @@ up both:
 1. **`db/db_client.py` (SQLAlchemy)** — the primary path used by the consent
    connector, PKM, vault, and developer-registry services (`get_db()`).
    In offline mode `get_db_engine()` builds a **SQLite SQLAlchemy engine** and
-   auto-applies `offline_schema.sql` on first use. The Supabase-compatible
+   auto-applies `offline_schema.sql` on first use. The Cloud SQL-compatible
    `TableQuery` builder already emits portable SQL (`:param` placeholders,
    `ON CONFLICT … DO UPDATE … RETURNING`), all of which SQLite ≥ 3.35 supports.
    JSON columns are stored as TEXT (`_adapt_db_params` json-encodes dict values

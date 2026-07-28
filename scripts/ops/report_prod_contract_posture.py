@@ -27,7 +27,7 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
     prod_functions = set(prod.get("required_functions", []))
     integrated_functions = set(integrated.get("required_functions", []))
 
-    frozen_tables = sorted(name for name in integrated_tables if name not in prod_tables)
+    missing_tables = sorted(name for name in integrated_tables if name not in prod_tables)
     shared_table_column_gaps = {}
     for table_name, integrated_columns in integrated_tables.items():
         prod_columns = set(prod_tables.get(table_name, []))
@@ -37,9 +37,14 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
         if missing_columns:
             shared_table_column_gaps[table_name] = missing_columns
 
+    missing_functions = sorted(integrated_functions - prod_functions)
+    at_parity = not (missing_tables or shared_table_column_gaps or missing_functions)
+
     return {
-        "status": "ok",
-        "policy": "production_frozen_by_contract",
+        # Production and UAT run the same Cloud SQL schema, so any delta here is
+        # drift to close, not a policy gap to accept.
+        "status": "ok" if at_parity else "error",
+        "policy": "production_matches_integrated_contract",
         "prod_contract": {
             "path": str(prod_contract_path.relative_to(REPO_ROOT)),
             "expected_migration_version": prod.get("expected_migration_version"),
@@ -50,27 +55,31 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
             "expected_migration_version": integrated.get("expected_migration_version"),
             "migration_version_policy": integrated.get("migration_version_policy"),
         },
-        "intentional_gaps": {
-            "tables_not_in_prod_contract": frozen_tables,
+        "parity_gaps": {
+            "tables_not_in_prod_contract": missing_tables,
             "shared_table_missing_columns": shared_table_column_gaps,
-            "functions_not_in_prod_contract": sorted(integrated_functions - prod_functions),
+            "functions_not_in_prod_contract": missing_functions,
         },
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Report the intentional delta between prod core and integrated UAT DB contracts.")
+    parser = argparse.ArgumentParser(description="Report any delta between the prod and integrated DB contracts (expected: none).")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
-    parser.add_argument("--prod-contract", default=str(PROD_CONTRACT_PATH), help="Production frozen contract file.")
+    parser.add_argument("--prod-contract", default=str(PROD_CONTRACT_PATH), help="Production contract file.")
     parser.add_argument("--integrated-contract", default=str(INTEGRATED_CONTRACT_PATH), help="Integrated reference contract file.")
     args = parser.parse_args()
 
     report = build_report(Path(args.prod_contract), Path(args.integrated_contract))
+    exit_code = 0 if report["status"] == "ok" else 1
     if args.json:
         print(json.dumps(report, indent=2))
-        return 0
+        return exit_code
 
-    print("Production posture: frozen by policy")
+    print(
+        "Production posture: "
+        + ("parity with the integrated contract" if exit_code == 0 else "DRIFT from the integrated contract")
+    )
     print(
         f"Prod contract: v{report['prod_contract']['expected_migration_version']} "
         f"({report['prod_contract']['migration_version_policy']})"
@@ -80,21 +89,21 @@ def main() -> int:
         f"({report['integrated_reference']['migration_version_policy']})"
     )
     print("")
-    print("Tables intentionally absent from prod contract:")
-    for table_name in report["intentional_gaps"]["tables_not_in_prod_contract"] or ["(none)"]:
+    print("Tables absent from prod contract (expected none):")
+    for table_name in report["parity_gaps"]["tables_not_in_prod_contract"] or ["(none)"]:
         print(f"- {table_name}")
     print("")
     print("Shared tables with integrated-only columns:")
-    if report["intentional_gaps"]["shared_table_missing_columns"]:
-        for table_name, columns in report["intentional_gaps"]["shared_table_missing_columns"].items():
+    if report["parity_gaps"]["shared_table_missing_columns"]:
+        for table_name, columns in report["parity_gaps"]["shared_table_missing_columns"].items():
             print(f"- {table_name}: {', '.join(columns)}")
     else:
         print("- (none)")
     print("")
-    print("Functions intentionally absent from prod contract:")
-    for function_name in report["intentional_gaps"]["functions_not_in_prod_contract"] or ["(none)"]:
+    print("Functions absent from prod contract (expected none):")
+    for function_name in report["parity_gaps"]["functions_not_in_prod_contract"] or ["(none)"]:
         print(f"- {function_name}")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

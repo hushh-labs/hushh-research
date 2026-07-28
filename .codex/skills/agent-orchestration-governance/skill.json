@@ -6,6 +6,7 @@
   "description": "Use when changing repo-scoped Codex custom agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.",
   "owned_paths": [
     ".codex/agents",
+    ".claude/agents",
     ".codex/config.toml",
     ".codex/skills/agent-orchestration-governance",
     ".codex/workflows/agent-orchestration-governance",
@@ -34,7 +35,7 @@
   "required_commands": [
     "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
     "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-    "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py",
+    "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py",
     "python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text",
     "python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
     "./scripts/ci/repo-governance-check.sh",
@@ -47,7 +48,7 @@
       "commands": [
         "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
         "./scripts/ci/repo-governance-check.sh",
@@ -58,7 +59,7 @@
       "tests": [
         "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
         "./scripts/ci/repo-governance-check.sh",

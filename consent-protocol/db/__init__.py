@@ -8,7 +8,7 @@ Provides modular access to:
 - queries: Pending requests, active tokens, audit log
 
 Connection Method:
-    Uses Supabase session pooler with individual environment variables:
+    Uses Cloud SQL session pooler with individual environment variables:
     - DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME
 """
 

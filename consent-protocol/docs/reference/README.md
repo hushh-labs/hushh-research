@@ -30,6 +30,8 @@ This backend docs home uses the same founder-language matrix as root `docs/`, wh
 - [backend-semantic-boundary.md](./backend-semantic-boundary.md): backend semantic boundary contract
 - [consent-protocol.md](./consent-protocol.md): consent-token lifecycle and trust model
 - [developer-api.md](./developer-api.md): developer API and MCP-facing contract
+- [dev-environment-setup.md](./dev-environment-setup.md): hosted dev environment runbook
+- [mulesoft-agentforce-secure-relay.md](./mulesoft-agentforce-secure-relay.md): MuleSoft/Agentforce secure relay contract
 - [env-vars.md](./env-vars.md): backend environment reference
 - [fcm-notifications.md](./fcm-notifications.md): push notification delivery model
 - [kai-agents.md](./kai-agents.md): Kai backend and agent system reference

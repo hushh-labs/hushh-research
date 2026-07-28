@@ -36,7 +36,7 @@ class _FakePkmService:
             },
         )()
         self.upserted_indexes: list[object] = []
-        self.supabase = self
+        self.db = self
 
     async def get_index_v2(self, user_id: str):
         return self._index

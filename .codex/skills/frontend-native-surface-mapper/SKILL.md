@@ -1,6 +1,6 @@
 ---
 name: frontend-native-surface-mapper
-description: Use when changing or auditing the generated mapping between app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.
+description: Use when regenerating or auditing the frontend surface map that joins app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.
 ---
 
 # Hussh Frontend Native Surface Mapper Skill

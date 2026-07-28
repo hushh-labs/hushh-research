@@ -37,12 +37,12 @@ _SOURCE_DOMAINS = frozenset(
 
 class FeedService:
     def __init__(self):
-        self._supabase = None
+        self._db = None
 
-    def _get_supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def _get_db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def record_event(
         self,
@@ -64,7 +64,7 @@ class FeedService:
             logger.warning("feed.record_event_unknown_domain domain=%s", source_domain)
             return
         try:
-            self._get_supabase().table("feed_events").insert(
+            self._get_db().table("feed_events").insert(
                 {
                     "user_id": user_id,
                     "source_domain": source_domain,
@@ -92,8 +92,8 @@ class FeedService:
         pagination, so this always walks strictly backwards by id.
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
-        supabase = self._get_supabase()
-        query = supabase.table("feed_events").select("*").eq("user_id", user_id)
+        db = self._get_db()
+        query = db.table("feed_events").select("*").eq("user_id", user_id)
         if cursor:
             try:
                 query = query.lt("id", int(cursor))
@@ -110,9 +110,9 @@ class FeedService:
         }
 
     def unread_count(self, user_id: str) -> int:
-        supabase = self._get_supabase()
+        db = self._get_db()
         response = (
-            supabase.table("feed_events")
+            db.table("feed_events")
             .select("id")
             .eq("user_id", user_id)
             .is_("read_at", None)
@@ -126,10 +126,10 @@ class FeedService:
         Fired once when the Feed page opens (mirrors Instagram/Twitter's
         "opening the tab clears the badge" convention), not per-item.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_iso = datetime.now(tz=timezone.utc).isoformat()
         query = (
-            supabase.table("feed_events")
+            db.table("feed_events")
             .update({"read_at": now_iso})
             .eq("user_id", user_id)
             .is_("read_at", None)

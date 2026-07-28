@@ -75,6 +75,11 @@ Promotion targets:
 - [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current One Voice/Kai compatibility runtime to the One/Kai/Nav/KYC ontology
 - [pkm-slice-marketplace-plan.md](./pkm-slice-marketplace-plan.md): planning-only phased plan for a PKM data-slice subscription marketplace under One (backend-led, user-set price per slice, reuses default_available/consent/export)
 - [information-marketplace-agent-plan.md](./information-marketplace-agent-plan.md): Information Marketplace conversational agent — what's built on `feat/personal-information-agent` plus the product-grade forward path (persist requests end-to-end, approve/deny over One A2A, inline publish-for-offers nudge)
+- [email-agent-nudges-plan.md](./email-agent-nudges-plan.md): planning-only email nudge model for One
+- [one-location-consent-center-integration-plan.md](./one-location-consent-center-integration-plan.md): planning-only path for folding One Location grants into the consent center
+- [one-mac-knowledge-base-app.md](./one-mac-knowledge-base-app.md): planning-only Mac on-device knowledge-base concept
+- [one-meta-glasses-ambient-agent-plan.md](./one-meta-glasses-ambient-agent-plan.md): planning-only ambient wearable agent concept
+- [one-meta-glasses-dat-execution-plan.md](./one-meta-glasses-dat-execution-plan.md): planning-only DAT execution path for the wearable concept
 - [one-docusign-fund-setup-plan.md](./one-docusign-fund-setup-plan.md): planning-only vendor-neutral agreement execution and fund-setup workflow under One, with Nav/Connections authorization, trusted action confirmation, and MuleSoft/DocuSign provider options
 
 ## References

@@ -24,9 +24,9 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 |----------|------------|----------|-------|
 | `APP_SIGNING_KEY` | `hushh_mcp/config.py` | Yes | Min 32 chars (64-char hex recommended). HMAC signing and state integrity only. |
 | `VAULT_DATA_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. Vault/PKM data encryption only. |
-| `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Supabase pooler username. |
+| `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Cloud SQL pooler username. |
 | `DB_PASSWORD` | same | Yes | Database password. |
-| `DB_HOST` | same | Yes | Supabase session pooler host. |
+| `DB_HOST` | same | Yes | Cloud SQL host. |
 | `DB_PORT` | same | No | Default: 5432. |
 | `DB_NAME` | same | No | Default: postgres. |
 | `REQUIRE_DATABASE_ON_STARTUP` | `server.py` | No | Optional startup strictness override. Defaults to `true` in production and `false` in development; when `false`, local startup warns instead of failing if the DB is offline, but schema mismatches still fail. |
@@ -69,10 +69,13 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_HACKATHON` | `hushh_mcp/config.py` | No | Feature flag (default: disabled). |
 | `CONSENT_TIMEOUT_SECONDS` | `api/routes/sse.py`, `developer.py` | No | Consent wait timeout. |
 | `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Defaults off in production. |
-| `DEVELOPER_API_ENABLED` | `api/routes/developer.py`, `server.py` | No | Enables `/api/v1/*`; defaults false in production unless explicitly enabled. |
-| `REMOTE_MCP_ENABLED` | `api/developer_auth.py`, `mcp_remote.py` | No | Enables hosted remote MCP transport at `/mcp`. |
+| `DEVELOPER_API_ENABLED` | `api/routes/developer.py`, `server.py`, `api/developer_auth.py` | No | Enables `/api/v1/*`. Enabled in both UAT and production. |
+| `REMOTE_MCP_ENABLED` | `api/developer_auth.py`, `mcp_remote.py` | No | Enables hosted remote MCP transport at `/mcp`. Requires `DEVELOPER_API_ENABLED` too (`remote_mcp_enabled()` checks both). Enabled in both UAT and production. |
 | `SYNC_REMOTE_ENABLED` | deploy/runtime env contract | No | Legacy deploy flag; keep false unless the runtime reintroduces an active reader. |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
+| `HUSSH_TRUSTED_DEVICE_ENABLED` | `hushh_mcp/services/trusted_device_service.py` | UAT only | Additive Hermes trusted-device kill switch. Defaults disabled. |
+| `HUSHH_TRUSTED_DEVICE_UAT_ALLOWLIST` | `api/routes/account.py` | UAT rollout | Comma-separated Firebase UIDs or verified account emails allowed to enroll Hermes. |
+| `TRUSTED_DEVICE_PEPPER` | `hushh_mcp/services/trusted_device_service.py` | Optional secret | HMAC pepper for one-time authorization codes and nonces. Falls back to `APP_SIGNING_KEY`; a dedicated UAT secret is preferred. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | `api/routes/account.py` | UAT test only | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. Store in UAT Secret Manager. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | `api/routes/account.py` | UAT test only | Fixed OTP for the UAT phone allowlist. Store in UAT Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
