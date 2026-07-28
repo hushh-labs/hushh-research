@@ -1,13 +1,21 @@
 # App Store & Play Store Deployment Guide for Hushh
 
-> **For TestFlight, use the one-click pipeline instead of this manual guide.**
-> `.github/workflows/ship-ios-testflight.yml` (say `ship ios`) cuts the current UAT build and
-> uploads it to TestFlight automatically — runbook:
-> [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
-> The steps below remain the reference for a **public App Store / Play Store submission**, which
-> is a separate milestone (see `KT/hushh-one-publish-safety-audit.md`).
+> **iOS is automated in two tiers — use these instead of the manual iOS steps below.**
+> - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` (say `ship ios`) cuts the
+>   current UAT build and uploads it to TestFlight — runbook:
+>   [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+> - **Production App Store:** `make ios-prod-release` (or
+>   `.github/workflows/release-ios-appstore.yml`) builds against production, signs with the
+>   production entitlement, uploads to App Store Connect, and prepares the App Store version up to
+>   Apple's final review — runbook:
+>   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+>
+> The manual iOS steps below remain a reference. The human App Store Connect steps that no pipeline
+> can automate (metadata, screenshots, privacy nutrition labels, age rating, pricing, final review)
+> are documented in the production runbook. **Play Store remains fully manual.** Publish-safety
+> preconditions: `KT/hushh-one-publish-safety-audit.md`.
 
-**Status**: Reference for public store submission (TestFlight is automated — see banner above)  
+**Status**: Reference for public store submission (iOS TestFlight + App Store upload/prepare are automated — see banner above)  
 **App Name**: Hussh One (display name; historically "Kai")  
 **Bundle ID**: com.hushh.app  
 **Current version**: 1.3.5 (marketing) — see `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`  
