@@ -162,7 +162,7 @@ async def create_trusted_device_authorization(
     if browser_uid != firebase_uid:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
     try:
-        authorization = await run_in_threadpool(
+        device_authorization = await run_in_threadpool(
             TrustedDeviceService().create_authorization,
             user_id=firebase_uid,
             redirect_uri=payload.redirect_uri,
@@ -175,11 +175,11 @@ async def create_trusted_device_authorization(
     except TrustedDeviceError as exc:
         _raise_trusted_device_error(exc)
     return {
-        "authorization_id": authorization.authorization_id,
-        "device_id": authorization.device_id,
-        "redirect_uri": authorization.redirect_uri,
-        "redirect_url": authorization.redirect_url,
-        "expires_at": authorization.expires_at,
+        "authorization_id": device_authorization.authorization_id,
+        "device_id": device_authorization.device_id,
+        "redirect_uri": device_authorization.redirect_uri,
+        "redirect_url": device_authorization.redirect_url,
+        "expires_at": device_authorization.expires_at,
     }
 
 
