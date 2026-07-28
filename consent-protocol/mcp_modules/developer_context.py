@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextvars import ContextVar, Token
+from urllib.parse import urlparse
 
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
@@ -28,6 +29,23 @@ def _configured_token() -> str:
     return str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
 
 
+def _delegates_auth_to_remote_api() -> bool:
+    """Whether this stdio process uses a non-loopback consent API.
+
+    A remote-backed stdio bridge has no local copy of the developer registry.
+    Trying to authenticate its UAT/production token through
+    ``DeveloperRegistryService`` incorrectly opens the contributor-local
+    database before the request can reach the authoritative backend. In this
+    mode the bridge exposes only the public tool groups and the remote API
+    authenticates and authorizes every operation.
+    """
+    raw_url = str(os.getenv("CONSENT_API_URL", "")).strip()
+    if not raw_url:
+        return False
+    hostname = (urlparse(raw_url).hostname or "").strip().lower()
+    return bool(hostname) and hostname not in {"localhost", "127.0.0.1", "::1"}
+
+
 def set_current_developer_principal(
     principal: DeveloperPrincipal | None,
     *,
@@ -51,6 +69,8 @@ def get_current_developer_principal() -> DeveloperPrincipal | None:
 
     raw_token = _configured_token()
     if not raw_token:
+        return None
+    if _delegates_auth_to_remote_api():
         return None
     principal = DeveloperRegistryService().authenticate_token(raw_token)
     if principal is not None:

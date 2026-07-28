@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import Mock
 
 import jsonschema
 import pytest
@@ -271,6 +272,28 @@ def test_local_developer_context_resolves_oauth_access_token(monkeypatch) -> Non
     )
 
     assert developer_context.get_current_developer_principal() == principal
+
+
+def test_remote_stdio_delegates_auth_without_opening_local_registry(monkeypatch) -> None:
+    from mcp_modules import developer_context
+
+    monkeypatch.setenv("CONSENT_API_URL", "https://api.uat.hushh.ai")
+    monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "hdt_remote_test")
+    authenticate = Mock(side_effect=AssertionError("local registry must not be opened"))
+    monkeypatch.setattr(
+        developer_context.DeveloperRegistryService,
+        "authenticate_token",
+        authenticate,
+    )
+
+    assert developer_context.get_current_developer_principal() is None
+    assert (
+        developer_context.get_current_visible_tool_names()
+        == developer_context.visible_tool_names_for_groups(
+            developer_context.DEFAULT_PUBLIC_TOOL_GROUPS
+        )
+    )
+    authenticate.assert_not_called()
 
 
 @pytest.mark.asyncio
