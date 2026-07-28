@@ -101,6 +101,20 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("oauth callback")).toBeTruthy();
   });
 
+  it("lets a signed-in user approve a trusted device without unlocking the browser vault", () => {
+    mocks.pathname = "/one/profile/security/devices/authorize";
+
+    render(
+      <OneAuthGate>
+        <div>trusted device approval</div>
+      </OneAuthGate>,
+    );
+
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.getByText("trusted device approval")).toBeTruthy();
+  });
+
   it.each([
     "/one/setup",
     "/one/setup/connections",
