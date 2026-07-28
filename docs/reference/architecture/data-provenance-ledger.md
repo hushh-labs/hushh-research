@@ -18,7 +18,7 @@ Mapping of user-visible KPI surfaces to source systems and freshness rules.
 | Realtime quote | `fetch_market_data` | ~60s target (`ttl_seconds`) | Fail closed (`REALTIME_DATA_UNAVAILABLE`) |
 | Sentiment/news context | `fetch_market_news` | provider-dependent (~minutes-hours) | Fail closed for decision-critical routes |
 | SEC fundamentals | `fetch_sec_filings` / offline SEC features | Filing cadence (10-K/10-Q) | Continue only with explicit missing-data annotation |
-| Renaissance tier/avoid context | Supabase `renaissance` dataset | managed update process | Fail closed for optimize decision if unavailable |
+| Renaissance tier/avoid context | Cloud SQL `renaissance` dataset | managed update process | Fail closed for optimize decision if unavailable |
 | Market home cards (`/kai`) | `/api/kai/market/insights/{user_id}` v2 (`hero/watchlist/movers/news/signals`) | fresh 3 min, stale fallback | Partial/degraded badges must be explicit (`meta.provider_status`, `meta.symbol_quality`) |
 | Debate final recommendation | `/api/kai/analyze/stream` terminal `decision` payload | per analysis stream | Must include degraded transparency (`analysis_degraded`, `degraded_agents`) and short recommendation |
 

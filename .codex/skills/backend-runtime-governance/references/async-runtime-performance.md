@@ -28,7 +28,7 @@ Two blocking classes seen in this repo:
 
 The async asyncpg pool in `db/connection.py` (`get_pool`) is non-blocking and
 safe; the synchronous `db_client` is the landmine. Both reach Cloud SQL through
-the same proxy. Supabase is removed; Cloud SQL is the only datastore.
+the same proxy. Cloud SQL is removed; Cloud SQL is the only datastore.
 
 ## Diagnosis: Confirm It Is The Loop, Not The DB
 

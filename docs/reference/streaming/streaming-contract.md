@@ -17,6 +17,49 @@ This contract is mandatory for:
 
 No legacy stream payload shape is supported.
 
+The resumable run-manager streams emit the same envelope and are consumed by the
+same client, so they are in scope too: `GET /api/kai/portfolio/import/run/{run_id}/stream`
+and `GET /api/kai/analyze/run/{run_id}/stream`.
+
+## Visual Map
+
+One canonical envelope path: three Kai producers emit through a single builder,
+and every consumer validates the envelope before routing.
+
+```mermaid
+flowchart LR
+  subgraph producers["Producers in consent-protocol/api/routes/kai"]
+    imp["portfolio.py<br/>POST /api/kai/portfolio/import/stream"]
+    opt["losers.py<br/>POST /api/kai/portfolio/analyze-losers/stream"]
+    ana["stream.py<br/>GET and POST /api/kai/analyze/stream"]
+  end
+
+  env["_streaming.py<br/>canonical envelope builder<br/>schema_version 1.0, seq, terminal"]
+
+  subgraph transport["Transport"]
+    web["Web path<br/>hushh-webapp/app/api/kai catch-all route.ts"]
+    nat["Native path<br/>Capacitor Kai plugin stream methods"]
+  end
+
+  subgraph consumers["Consumers in hushh-webapp"]
+    parse["lib/streaming/sse-parser.ts<br/>parseSSEBlocks"]
+    guard["lib/streaming/kai-stream-types.ts<br/>isKaiStreamEnvelope"]
+    cli["lib/streaming/kai-stream-client.ts<br/>consumeCanonicalKaiStream"]
+    ui["components/kai/kai-flow.tsx<br/>lib/services/debate-run-manager.ts"]
+  end
+
+  imp --> env
+  opt --> env
+  ana --> env
+  env --> web
+  env --> nat
+  web --> parse
+  nat --> parse
+  parse --> guard
+  guard --> cli
+  cli --> ui
+```
+
 ## Runtime Guardrails
 
 - `portfolio_import` timeout is `360s`.

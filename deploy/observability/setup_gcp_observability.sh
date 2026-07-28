@@ -11,10 +11,10 @@ REGION="${REGION:-us-central1}"
 BQ_LOCATION="${BQ_LOCATION:-US}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-consent-protocol}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-hushh-webapp}"
-DATA_HEALTH_JOB_NAME="${DATA_HEALTH_JOB_NAME:-obs-supabase-data-health}"
+DATA_HEALTH_JOB_NAME="${DATA_HEALTH_JOB_NAME:-obs-db-data-health}"
 DATA_HEALTH_JOB_IMAGE="${DATA_HEALTH_JOB_IMAGE:-}"
 DATA_HEALTH_ENVIRONMENT="${DATA_HEALTH_ENVIRONMENT:-production}"
-SCHEDULER_JOB_NAME="${SCHEDULER_JOB_NAME:-obs-supabase-data-health-every-30m}"
+SCHEDULER_JOB_NAME="${SCHEDULER_JOB_NAME:-obs-db-data-health-every-30m}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${REGION}}"
 SCHEDULER_CRON="${SCHEDULER_CRON:-*/30 * * * *}"
 SCHEDULER_TIMEZONE="${SCHEDULER_TIMEZONE:-Etc/UTC}"
@@ -284,7 +284,7 @@ set_data_health_job() {
       --set-secrets "${secret_vars}" \
       "${cloudsql_args[@]}" \
       --command python \
-      --args scripts/observability/supabase_data_health.py >/dev/null
+      --args scripts/observability/db_data_health.py >/dev/null
   else
     log "Creating Cloud Run Job: ${DATA_HEALTH_JOB_NAME}"
     gcloud run jobs create "${DATA_HEALTH_JOB_NAME}" \
@@ -299,7 +299,7 @@ set_data_health_job() {
       --set-secrets "${secret_vars}" \
       "${cloudsql_args[@]}" \
       --command python \
-      --args scripts/observability/supabase_data_health.py >/dev/null
+      --args scripts/observability/db_data_health.py >/dev/null
   fi
 }
 

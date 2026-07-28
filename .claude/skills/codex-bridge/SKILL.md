@@ -16,7 +16,7 @@ Reads `.codex/` at invocation time and composes a briefing the way `./bin/hushh 
 
 ## Response rules
 
-Codex is the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing whenever the query looks like Q&A (see `scripts/route.py`). Follow that file literally. If it conflicts with anything written here, it wins.
+Codex is the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing when the turn is a **community reply** — the route lands on `comms-community` / `community-response`, or the prompt names the channel outright (see `scripts/route.py`). They are deliberately *not* injected into engineering questions: they are a 180-line Discord tone contract, and a question mark in a bug report is not a request for Discord voice. Follow that file literally when it does load. If it conflicts with anything written here, it wins.
 
 Baseline that the bridge adds on top of codex's reply rules (because codex runs in a different harness):
 
@@ -41,6 +41,14 @@ Treat it as the instruction set:
 3. **Follow the Workflow / Playbook section verbatim.** That's what codex has already decided works.
 4. **Run the composed Required Checks** before declaring done. The `Bash(python3 *)` grant covers Python-based checks; other bash tools will prompt once.
 5. **Hand off on drift.** If work expands, stop and `/codex-bridge <next>` — usually the next entry in `handoff_chain`.
+
+### A compact pointer (`Routed lane (compact)`)
+
+The match was plausible but not confident, so the bridge sent the pointer instead
+of the full playbook: lane name, owner/spoke, read-first paths, required checks,
+and the runner-up candidates. Treat it as a suggestion. If it is the right lane,
+run `/codex-bridge <name>` to load the full briefing; if it is not, ignore it and
+proceed with the user's request as stated.
 
 ### An ambiguity / disambiguation table
 
@@ -78,5 +86,6 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 - **Source of truth:** `.codex/skills/*`, `.codex/workflows/*`, and `.codex/agents/*`. Edit there; the bridge re-reads every invocation.
 - **Composition mirrors codex.** Routing emits the same union of fields that `repo_scan.py::build_route_task` produces, so Claude makes the same scope decisions codex would.
 - **Agents are advisory lanes, not winners.** Exact agent name routes to an agent briefing. Free-text never elevates an agent above a matching skill or workflow. On explicit skill or workflow invocations, matching agents appear as a compact `Suggested delegation lanes` footer (suppressed on Q&A turns and on close-scoring ties).
-- **Progressive disclosure.** Only the routed briefing enters context, not the full corpus.
+- **Progressive disclosure.** Only the routed briefing enters context, not the full corpus. The `--hook` path adds a second axis: silence below the gate, a compact pointer at medium confidence or when a rival lane scores within 2 points, and the full composed briefing only when the match is both strong and unambiguous.
+- **Rarity-weighted matching.** Token overlap is weighted by how rare the token is in the corpus, so shared words (`audit`, `review`, `contract`) stop deciding the route and a path the user actually typed outranks any amount of prose overlap. Fixtures in [fixtures/routing_cases.json](fixtures/routing_cases.json) pin the expected lane for representative prompts and cap total injected size; `scripts/test_route_hook.py` enforces both in CI.
 - **Path-aware auto-trigger.** `paths: .codex/**, consent-protocol/**, hushh-webapp/**, docs/**` covers the repo surfaces where a specialist applies.

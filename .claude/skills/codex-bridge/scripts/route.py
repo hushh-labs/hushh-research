@@ -20,14 +20,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
 import tomllib
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
@@ -163,7 +164,94 @@ def discover(repo_root: Path) -> tuple[list[Entry], list[Entry], list[Entry]]:
 
 
 def _tokens(text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9][a-z0-9\-_]*", text.lower()) if t and t not in STOPWORDS and len(t) > 1}
+    """Tokenize, emitting both the whole hyphenated term and its parts.
+
+    Skill and workflow ids are kebab-case (`ci-watch-and-heal`), so matching on
+    the joined form alone means a prompt saying "CI" can never reach the CI
+    workflow by name. Emitting both forms lets the exact id keep its weight
+    while the parts still participate.
+    """
+    out: set[str] = set()
+    for raw in re.findall(r"[a-z0-9][a-z0-9\-_]*", text.lower()):
+        for part in {raw, *re.split(r"[-_]+", raw)}:
+            if len(part) > 1 and part not in STOPWORDS:
+                out.add(part)
+    return out
+
+
+def _path_segments(paths: Iterable[Any]) -> set[str]:
+    """Split repo paths into whole segments so `app` cannot match `hushh-webapp`."""
+    out: set[str] = set()
+    for p in paths:
+        for seg in re.split(r"[/\-_.]+", str(p).lower()):
+            if len(seg) > 1 and seg not in STOPWORDS:
+                out.add(seg)
+    return out
+
+
+class Rarity:
+    """Per-corpus token rarity, so generic words stop deciding the route.
+
+    `audit`, `review`, `check` and `contract` appear in most manifests; a token
+    that shows up almost everywhere carries almost no routing signal, while a
+    token unique to one entry carries all of it. Weighting the match by rarity
+    (plain IDF, normalized to the corpus size) is what keeps "audit the
+    documentation structure" off `security-*` and on `docs-sync`.
+    """
+
+    FLOOR = 0.12
+
+    def __init__(self, entries: list[Entry], token_fn: Callable[[Entry], set[str]]) -> None:
+        self.size = max(1, len(entries))
+        df: Counter[str] = Counter()
+        for entry in entries:
+            df.update(token_fn(entry))
+        self._df = df
+        self._scale = math.log(self.size) if self.size > 1 else 1.0
+
+    def weight(self, token: str) -> float:
+        seen = self._df.get(token, 0)
+        if seen <= 0:
+            return 1.0
+        return max(self.FLOOR, min(1.0, math.log(self.size / seen) / self._scale))
+
+    def mass(self, tokens: set[str]) -> float:
+        return sum(self.weight(t) for t in tokens)
+
+
+def _skill_corpus_tokens(entry: Entry) -> set[str]:
+    m = entry.manifest
+    return (
+        _tokens(entry.name)
+        | _tokens(entry.description)
+        | _tokens(" ".join(str(x) for x in (m.get("task_types") or [])))
+        | _tokens(str(m.get("primary_scope") or ""))
+        | _tokens(str(m.get("owner_family") or ""))
+        | _path_segments(m.get("owned_paths") or [])
+    )
+
+
+def _workflow_corpus_tokens(entry: Entry) -> set[str]:
+    m = entry.manifest
+    return (
+        _tokens(entry.name)
+        | _tokens(entry.description)
+        | _tokens(str(m.get("task_type") or ""))
+        | _tokens(str(m.get("goal") or ""))
+        | _tokens(str(m.get("title") or ""))
+        | _tokens(" ".join(str(x) for x in (m.get("deliverables") or [])))
+        | _path_segments(m.get("affected_surfaces") or [])
+    )
+
+
+def _agent_corpus_tokens(entry: Entry) -> set[str]:
+    return (
+        _tokens(entry.name)
+        | _agent_nickname_tokens(entry)
+        | _tokens(entry.description)
+        | _tokens(" ".join(_agent_skill_refs(entry)))
+        | _agent_priority_tokens(entry)
+    )
 
 
 def _skill_body_section(path: Path, heading: str) -> str | None:
@@ -189,54 +277,93 @@ def _mentioned_paths(query: str, repo_root: Path) -> list[str]:
     return out
 
 
-def score_skill(entry: Entry, query_tokens: set[str]) -> int:
+def _path_ownership_score(declared: Iterable[Any], mentioned: Iterable[str]) -> float:
+    """How specifically a declared surface covers a path the user actually typed.
+
+    Matching is one-directional on purpose. An earlier version also matched when
+    the declared surface sat *below* the typed path, which meant typing a parent
+    directory handed the full bonus to every entry underneath it and
+    manufactured ties instead of breaking them.
+
+    The score scales with how deep the owning surface is, so
+    `hushh-webapp/lib/cache` outranks a bare `hushh-webapp` for the same path.
+    """
+    owned = [str(d).strip("/") for d in declared if str(d).strip()]
+    best = 0.0
+    for path in mentioned:
+        p = path.strip("/")
+        for d in owned:
+            if p == d:
+                best = max(best, 1.0)
+            elif p.startswith(d + "/"):
+                depth = d.count("/") + 1
+                best = max(best, min(0.9, 0.4 + 0.2 * depth))
+    return best
+
+
+# A path the user actually typed is the strongest routing evidence available:
+# it beats any amount of prose overlap, so it is scored as a decisive bonus.
+PATH_OWNERSHIP_BONUS = 12
+# "run the security consent audit" covers every word of `security-consent-audit`.
+# Without this, a verbose manifest that repeats one shared word across goal,
+# title and deliverables outscores the entry the user actually described.
+NAME_COVERAGE_BONUS = 8
+
+
+def _covers_name(entry: Entry, query_tokens: set[str]) -> bool:
+    parts = {p for p in re.split(r"[-_]+", entry.name.lower()) if len(p) > 1 and p not in STOPWORDS}
+    return len(parts) >= 2 and parts <= query_tokens
+
+
+def score_skill(
+    entry: Entry,
+    query_tokens: set[str],
+    rarity: Rarity,
+    mentioned_paths: Iterable[str] = (),
+) -> int:
     if not query_tokens:
         return 0
-    s = 0
+    s = 0.0
     m = entry.manifest
-    name_tokens = _tokens(entry.name)
-    desc_tokens = _tokens(entry.description)
-    task_types = m.get("task_types") or []
-    scope = str(m.get("primary_scope") or "")
-    owner_family = str(m.get("owner_family") or "")
-    owned = [str(x) for x in (m.get("owned_paths") or [])]
+    owned = m.get("owned_paths") or []
     adjacent = [str(x) for x in (m.get("adjacent_skills") or [])]
 
-    s += 6 * len(query_tokens & name_tokens)
-    s += 4 * len(query_tokens & desc_tokens)
-    s += 5 * len(query_tokens & _tokens(" ".join(task_types)))
-    s += 4 * len(query_tokens & _tokens(scope))
-    s += 2 * len(query_tokens & _tokens(owner_family))
-    s += 1 * len(query_tokens & _tokens(" ".join(adjacent)))
-    for op in owned:
-        if any(tok in op.lower() for tok in query_tokens):
-            s += 2
-    return s
+    s += 6 * rarity.mass(query_tokens & _tokens(entry.name))
+    s += 4 * rarity.mass(query_tokens & _tokens(entry.description))
+    s += 5 * rarity.mass(query_tokens & _tokens(" ".join(str(x) for x in (m.get("task_types") or []))))
+    s += 4 * rarity.mass(query_tokens & _tokens(str(m.get("primary_scope") or "")))
+    s += 2 * rarity.mass(query_tokens & _tokens(str(m.get("owner_family") or "")))
+    s += 1 * rarity.mass(query_tokens & _tokens(" ".join(adjacent)))
+    s += 3 * rarity.mass(query_tokens & _path_segments(owned))
+    s += PATH_OWNERSHIP_BONUS * _path_ownership_score(owned, mentioned_paths)
+    if _covers_name(entry, query_tokens):
+        s += NAME_COVERAGE_BONUS
+    return round(s)
 
 
-def score_workflow(entry: Entry, query_tokens: set[str]) -> int:
+def score_workflow(
+    entry: Entry,
+    query_tokens: set[str],
+    rarity: Rarity,
+    mentioned_paths: Iterable[str] = (),
+) -> int:
     if not query_tokens:
         return 0
-    s = 0
+    s = 0.0
     m = entry.manifest
-    name_tokens = _tokens(entry.name)
-    desc_tokens = _tokens(entry.description)
-    task_type = str(m.get("task_type") or "")
-    goal = str(m.get("goal") or "")
-    title = str(m.get("title") or "")
-    surfaces = [str(x) for x in (m.get("affected_surfaces") or [])]
-    deliverables = [str(x) for x in (m.get("deliverables") or [])]
+    surfaces = m.get("affected_surfaces") or []
 
-    s += 6 * len(query_tokens & name_tokens)
-    s += 4 * len(query_tokens & desc_tokens)
-    s += 5 * len(query_tokens & _tokens(task_type))
-    s += 3 * len(query_tokens & _tokens(goal))
-    s += 3 * len(query_tokens & _tokens(title))
-    s += 2 * len(query_tokens & _tokens(" ".join(deliverables)))
-    for sf in surfaces:
-        if any(tok in sf.lower() for tok in query_tokens):
-            s += 1
-    return s
+    s += 6 * rarity.mass(query_tokens & _tokens(entry.name))
+    s += 4 * rarity.mass(query_tokens & _tokens(entry.description))
+    s += 5 * rarity.mass(query_tokens & _tokens(str(m.get("task_type") or "")))
+    s += 3 * rarity.mass(query_tokens & _tokens(str(m.get("goal") or "")))
+    s += 3 * rarity.mass(query_tokens & _tokens(str(m.get("title") or "")))
+    s += 2 * rarity.mass(query_tokens & _tokens(" ".join(str(x) for x in (m.get("deliverables") or []))))
+    s += 3 * rarity.mass(query_tokens & _path_segments(surfaces))
+    s += PATH_OWNERSHIP_BONUS * _path_ownership_score(surfaces, mentioned_paths)
+    if _covers_name(entry, query_tokens):
+        s += NAME_COVERAGE_BONUS
+    return round(s)
 
 
 _AGENT_SKILL_BLOCK_RE = re.compile(
@@ -299,22 +426,49 @@ def _agent_authority_kind(entry: Entry) -> str:
     return "advisory-only"
 
 
-def score_agent(entry: Entry, query_tokens: set[str]) -> int:
+def score_agent(entry: Entry, query_tokens: set[str], rarity: Rarity) -> int:
     if not query_tokens:
         return 0
-    s = 0
-    name_tokens = _tokens(entry.name)
-    desc_tokens = _tokens(entry.description)
-    nick_tokens = _agent_nickname_tokens(entry)
-    skill_ref_tokens = _tokens(" ".join(_agent_skill_refs(entry)))
-    prio_tokens = _agent_priority_tokens(entry)
+    s = 0.0
+    s += 6 * rarity.mass(query_tokens & _tokens(entry.name))
+    s += 4 * rarity.mass(query_tokens & _agent_nickname_tokens(entry))
+    s += 4 * rarity.mass(query_tokens & _tokens(entry.description))
+    s += 2 * rarity.mass(query_tokens & _tokens(" ".join(_agent_skill_refs(entry))))
+    s += 1 * rarity.mass(query_tokens & _agent_priority_tokens(entry))
+    return round(s)
 
-    s += 6 * len(query_tokens & name_tokens)
-    s += 4 * len(query_tokens & nick_tokens)
-    s += 4 * len(query_tokens & desc_tokens)
-    s += 2 * len(query_tokens & skill_ref_tokens)
-    s += 1 * len(query_tokens & prio_tokens)
-    return s
+
+@dataclass
+class Ranker:
+    """Bundles the three corpora so every call site scores identically."""
+
+    skills: list[Entry]
+    workflows: list[Entry]
+    agents: list[Entry]
+
+    def __post_init__(self) -> None:
+        self._skill_rarity = Rarity(self.skills, _skill_corpus_tokens)
+        self._workflow_rarity = Rarity(self.workflows, _workflow_corpus_tokens)
+        self._agent_rarity = Rarity(self.agents, _agent_corpus_tokens)
+
+    def rank(self, query: str, repo_root: Path) -> tuple[
+        list[tuple[int, Entry]], list[tuple[int, Entry]], list[tuple[int, Entry]]
+    ]:
+        tokens = _tokens(query)
+        paths = _mentioned_paths(query, repo_root)
+        ranked_skills = sorted(
+            ((score_skill(e, tokens, self._skill_rarity, paths), e) for e in self.skills),
+            key=lambda x: -x[0],
+        )
+        ranked_workflows = sorted(
+            ((score_workflow(e, tokens, self._workflow_rarity, paths), e) for e in self.workflows),
+            key=lambda x: -x[0],
+        )
+        ranked_agents = sorted(
+            ((score_agent(e, tokens, self._agent_rarity), e) for e in self.agents),
+            key=lambda x: -x[0],
+        )
+        return ranked_skills, ranked_workflows, ranked_agents
 
 
 def exact_match(query: str, entries: list[Entry]) -> Entry | None:
@@ -327,6 +481,27 @@ def exact_match(query: str, entries: list[Entry]) -> Entry | None:
     prefixes = [e for e in entries if e.name.lower().startswith(q)]
     if len(prefixes) == 1:
         return prefixes[0]
+    return None
+
+
+def named_match(query: str, ordered_kinds: list[tuple[list[Entry], str]]) -> tuple[Entry, str] | None:
+    """Resolve a typed name across kinds, exact before prefix.
+
+    Kind order breaks ties (workflow is the actionable unit), but an *exact*
+    name in a later kind must still beat a *prefix* hit in an earlier one:
+    typing `reviewer` means the reviewer agent, not `reviewer-app-rehearsal`.
+    """
+    q = query.strip().lower()
+    if not q:
+        return None
+    for entries, kind in ordered_kinds:
+        for e in entries:
+            if e.name.lower() == q:
+                return e, kind
+    for entries, kind in ordered_kinds:
+        prefixes = [e for e in entries if e.name.lower().startswith(q)]
+        if len(prefixes) == 1:
+            return prefixes[0], kind
     return None
 
 
@@ -437,6 +612,94 @@ def compose_workflow_briefing(
     return "\n".join(out) + "\n"
 
 
+def _short_paths(paths: Iterable[Any], limit: int = 6) -> str:
+    items = [f"`{p}`" for p in list(paths)[:limit]]
+    extra = max(0, len(list(paths)) - limit)
+    return ", ".join(items) + (f" (+{extra} more)" if extra else "")
+
+
+def compose_compact_briefing(
+    entry: Entry,
+    kind: str,
+    skills_by_id: dict[str, Entry],
+    rivals: list[Entry] | None = None,
+) -> str:
+    """Pointer-sized briefing for a plausible-but-not-certain match.
+
+    The full briefing inlines an entire PLAYBOOK or SKILL.md body, which is the
+    right trade only when the route is confident. At medium confidence the
+    useful payload is just: which lane, what to read, what to run, and how to
+    load the rest. That is roughly a tenth of the tokens.
+    """
+    m = entry.manifest
+    out: list[str] = [f"**Routed lane (compact):** {kind} `{entry.name}`"]
+
+    if kind == "workflow":
+        owner_id = m.get("owner_skill")
+        spoke_id = m.get("default_spoke")
+        owner = skills_by_id.get(owner_id) if owner_id else None
+        spoke = skills_by_id.get(spoke_id) if spoke_id else None
+        if m.get("goal"):
+            out.append(f"**Goal:** {m['goal']}")
+        out.append(
+            f"**Owner skill:** `{owner_id or 'unspecified'}`"
+            + (f" | **Default spoke:** `{spoke_id}`" if spoke_id else "")
+        )
+        reads = _uniq(
+            (m.get("required_reads") or [])
+            + ((owner.manifest.get("required_reads") if owner else []) or [])
+            + ((spoke.manifest.get("required_reads") if spoke else []) or [])
+        )
+        commands = _uniq(
+            (m.get("required_commands") or [])
+            + ((m.get("verification_bundle") or {}).get("commands") or [])
+        )
+    elif kind == "skill":
+        out.append(f"**Role:** {m.get('role') or 'unspecified'} | **Owner family:** `{m.get('owner_family') or 'n/a'}`")
+        if entry.description:
+            out.append(f"**Scope:** {entry.description}")
+        if m.get("owned_paths"):
+            out.append(f"**Owns:** {_short_paths(m['owned_paths'])}")
+        reads = _uniq(m.get("required_reads") or [])
+        commands = _uniq(m.get("required_commands") or [])
+    else:
+        out.append(f"**Authority:** {_agent_authority_kind(entry)} | **Sandbox:** {m.get('sandbox_mode') or 'unspecified'}")
+        if entry.description:
+            out.append(f"**Lane:** {entry.description}")
+        refs = _agent_skill_refs(entry)
+        if refs:
+            out.append(f"**Routes through:** {', '.join(f'`{r}`' for r in refs)}")
+        reads, commands = [], []
+
+    if reads:
+        out.append(f"**Read first:** {_short_paths(reads)}")
+    if commands:
+        out.append("**Required checks:**")
+        out.append("```bash")
+        out.extend(commands[:5])
+        out.append("```")
+    if rivals:
+        out.append(f"**Other candidates:** {', '.join(f'`{r.name}`' for r in rivals[:3])}")
+    out.append(f"\n_Load the full briefing with `/codex-bridge {entry.name}` if this is the right lane._")
+    return "\n".join(out) + "\n"
+
+
+# `## Read First` and `## Required Checks` are recomposed (and linkified) below
+# the body, so leaving them in the inlined body prints each one twice.
+_SKILL_BODY_DROP_SECTIONS = ("Read First", "Required Checks")
+
+
+def _strip_skill_sections(body: str, headings: Iterable[str]) -> str:
+    out = body
+    for heading in headings:
+        pattern = re.compile(
+            rf"^##\s+{re.escape(heading)}\s*\n.*?(?=^##\s|\Z)",
+            re.DOTALL | re.MULTILINE | re.IGNORECASE,
+        )
+        out = pattern.sub("", out)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
 def compose_skill_briefing(
     skill: Entry,
     workflows: list[Entry],
@@ -470,13 +733,18 @@ def compose_skill_briefing(
     skill_md = skill.path / "SKILL.md"
     _fm, body = parse_frontmatter(skill_md.read_text())
     out.append("\n## SKILL.md (body)\n")
-    out.append(body.strip())
+    out.append(_strip_skill_sections(body, _SKILL_BODY_DROP_SECTIONS))
 
     if m.get("required_reads"):
-        docs = [r for r in m["required_reads"] if _doc_like(r)]
-        if docs:
-            out.append("\n## Read First\n")
-            out.extend(f"- [{d}]({d})" for d in docs)
+        # Every entry must survive, not just the linkifiable ones: the body's own
+        # Read First section was stripped above, so anything dropped here is
+        # dropped from the briefing entirely. Markdown becomes a link; source
+        # files and config stay as plain paths.
+        out.append("\n## Read First\n")
+        out.extend(
+            f"- [{r}]({r})" if _doc_like(r) else f"- `{r}`"
+            for r in m["required_reads"]
+        )
 
     if related_workflows:
         out.append("\n## Workflows that reach this skill\n")
@@ -655,6 +923,11 @@ def _is_unroutable(entry: Entry) -> bool:
 _AGENT_REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 
 
+def _is_external_read(read: Any) -> bool:
+    """A `required_read` that is a URL is an external reference, not a repo path."""
+    return str(read).startswith(("http://", "https://"))
+
+
 def render_check(
     repo_root: Path,
     skills: list[Entry],
@@ -679,6 +952,8 @@ def render_check(
             if ht not in ids:
                 issues.append(f"skill `{s.name}`: handoff_target `{ht}` is not a known skill")
         for rp in s.manifest.get("required_reads") or []:
+            if _is_external_read(rp):
+                continue
             if not (repo_root / str(rp)).exists():
                 issues.append(f"skill `{s.name}`: required_read not found: {rp}")
     for wf in workflows:
@@ -694,6 +969,8 @@ def render_check(
         if _is_unroutable(wf):
             issues.append(f"workflow `{wf.name}`: unroutable (no description tokens or affected_surfaces)")
         for rp in wf.manifest.get("required_reads") or []:
+            if _is_external_read(rp):
+                continue
             if not (repo_root / str(rp)).exists():
                 issues.append(f"workflow `{wf.name}`: required_read not found: {rp}")
     owner_ids = {s.name for s in skills if s.manifest.get("role") == "owner"}
@@ -802,6 +1079,22 @@ def render_coverage(skills: list[Entry], workflows: list[Entry], agents: list[En
 
 QA_MARKERS = re.compile(r"\?|@\w|\bhow\s+(?:does|do|is|are|can)\b|\bis\s+there\b|\bwould\s+(?:it|we)\b|\bwhy\s+", re.IGNORECASE)
 
+# `reply-rules.md` is a 180-line Discord tone contract. It used to be prepended
+# whenever the prompt contained a question mark, which meant most engineering
+# questions paid ~3.3k tokens for community-reply style guidance they never
+# used. It now loads only for the lane that owns it, or when the prompt names
+# the channel outright.
+RESPONSE_RULES_ROUTES = {"comms-community", "community-response"}
+# Deliberately narrow. An earlier version matched bare `community` and
+# `respond to`, which fired on "should I respond to this review comment on the
+# PR?" and "why is the community edition build failing?" -- both engineering
+# turns paying 3.3k tokens for Discord tone rules. Only an explicit channel word
+# counts as intent; everything else must come from the routed lane.
+COMMUNITY_INTENT = re.compile(
+    r"\bdiscord\b|\bcontributors?\s+question\b|\bdraft\s+(?:a\s+)?(?:reply|response)\b",
+    re.IGNORECASE,
+)
+
 
 def _reply_rules(repo_root: Path) -> str | None:
     path = repo_root / ".codex" / "skills" / "comms-community" / "references" / "reply-rules.md"
@@ -810,16 +1103,33 @@ def _reply_rules(repo_root: Path) -> str | None:
     return path.read_text().strip()
 
 
-def _prepend_response_rules(briefing: str, repo_root: Path, query: str) -> str:
-    """When the query reads like Q&A, prepend codex's reply rules so Claude uses them."""
-    if not QA_MARKERS.search(query):
+def _wants_reply_rules(query: str, route_id: str | None) -> bool:
+    """The routed lane decides; naming the channel is the only escape hatch.
+
+    A question mark is neither necessary nor sufficient: "draft the discord
+    announcement" needs the rules and has none, while a PR question has one and
+    does not.
+    """
+    if route_id in RESPONSE_RULES_ROUTES:
+        return True
+    return bool(COMMUNITY_INTENT.search(query))
+
+
+def _prepend_response_rules(
+    briefing: str,
+    repo_root: Path,
+    query: str,
+    route_id: str | None = None,
+) -> str:
+    """Prepend codex's Discord reply rules, but only for community-reply work."""
+    if not _wants_reply_rules(query, route_id):
         return briefing
     rules = _reply_rules(repo_root)
     if not rules:
         return briefing
     header = [
         "# Response format (codex Q&A rules)\n",
-        "_Detected Q&A intent. The routed briefing follows; respond using the rules below, not in a long expository form._\n",
+        "_Detected a community-reply task. The routed briefing follows; respond using the rules below, not in a long expository form._\n",
         rules,
         "\n---\n",
     ]
@@ -827,9 +1137,17 @@ def _prepend_response_rules(briefing: str, repo_root: Path, query: str) -> str:
 
 
 HOOK_MIN_PROMPT_LEN = 12
+# Two gates per kind: the lower one is "say something", the upper one is "this
+# is confident enough to be worth the full playbook". Between them the hook
+# emits the compact pointer instead of nothing (useful) or everything (costly).
 HOOK_WORKFLOW_SCORE = 8
+HOOK_WORKFLOW_FULL = 20
 HOOK_SKILL_SCORE = 10
+HOOK_SKILL_FULL = 22
 HOOK_AGENT_SCORE = 14  # Strict: agents are execution layer, not a second skill system.
+HOOK_AGENT_FULL = 22
+# Two entries within this many points of each other is a coin flip, not a match.
+HOOK_AMBIGUITY_MARGIN = 2
 
 
 def _read_hook_stdin() -> str:
@@ -852,6 +1170,13 @@ def _read_hook_stdin() -> str:
     if not isinstance(data, dict):
         return ""
     return str(data.get("prompt") or "").strip()
+
+
+def _hook_wrap_compact(briefing: str, match_id: str, kind: str) -> str:
+    return (
+        f"_codex-bridge: possible match for **{kind} `{match_id}`**. "
+        "Use it if it fits; ignore it if it does not._\n\n"
+    ) + briefing
 
 
 def _hook_wrap(briefing: str, match_id: str, kind: str) -> str:
@@ -878,6 +1203,42 @@ def _hook_wrap(briefing: str, match_id: str, kind: str) -> str:
     return header + briefing
 
 
+def _rivals_within(ranked: list[tuple[int, Entry]], winner: Entry, margin: int) -> list[Entry]:
+    if not ranked:
+        return []
+    top = ranked[0][0]
+    return [e for s, e in ranked if e is not winner and s >= top - margin]
+
+
+def _emit(
+    entry: Entry,
+    kind: str,
+    *,
+    score: int,
+    full_gate: int,
+    rivals: list[Entry],
+    repo_root: Path,
+    query: str,
+    skills_by_id: dict[str, Entry],
+    workflows: list[Entry],
+    footer: str,
+) -> tuple[str, int]:
+    """Full briefing on a confident, unambiguous match; compact pointer otherwise."""
+    if score >= full_gate and not rivals:
+        if kind == "workflow":
+            briefing = compose_workflow_briefing(entry, skills_by_id) + footer
+        elif kind == "skill":
+            briefing = compose_skill_briefing(entry, workflows, skills_by_id) + footer
+        else:
+            briefing = compose_agent_briefing(entry, skills_by_id)
+        wrapped = _hook_wrap(briefing, entry.name, kind)
+    else:
+        wrapped = _hook_wrap_compact(
+            compose_compact_briefing(entry, kind, skills_by_id, rivals), entry.name, kind
+        )
+    return _prepend_response_rules(wrapped, repo_root, query, entry.name), 0
+
+
 def _route_hook(
     repo_root: Path,
     skills: list[Entry],
@@ -887,12 +1248,13 @@ def _route_hook(
 ) -> tuple[str, int]:
     """Silent-fallback mode for the UserPromptSubmit hook.
 
-    Emits a wrapped briefing only on a confident match. Conversational or
-    off-topic prompts produce empty stdout so the hook does not bury the
-    turn in catalog dumps. Agents never outrank a matching skill or
-    workflow; they surface either on exact-name match, as a suggested
-    delegation lanes footer (non-Q&A only), or as a strict agent-primary
-    fallback when no skill/workflow clears its gate.
+    Three outcomes, by confidence: silent below the lower gate, a compact
+    pointer between the gates (or whenever a rival is within the ambiguity
+    margin), and the full composed briefing only when the match is both strong
+    and unambiguous. Agents never outrank a matching skill or workflow; they
+    surface either on exact-name match, as a suggested delegation lanes footer
+    (non-Q&A only), or as a strict agent-primary fallback when no skill or
+    workflow clears its gate.
     """
     if os.environ.get("CODEX_BRIDGE_DISABLE") == "1":
         return ("", 0)
@@ -902,71 +1264,66 @@ def _route_hook(
     skills_by_id = {s.name: s for s in skills}
     is_qa = bool(QA_MARKERS.search(query))
 
-    # Exact-name matches bypass the length floor: the user deliberately typed the
-    # name, so even short payloads like "governor" should route cleanly.
-    direct_workflow = exact_match(query, workflows)
-    if direct_workflow:
-        briefing = compose_workflow_briefing(direct_workflow, skills_by_id)
+    # Named matches bypass the length floor and the confidence tiers: the user
+    # deliberately typed the name, so "governor" should route in full.
+    named = named_match(query, [(workflows, "workflow"), (skills, "skill"), (agents, "agent")])
+    if named:
+        direct, kind = named
+        if kind == "workflow":
+            briefing = compose_workflow_briefing(direct, skills_by_id)
+        elif kind == "skill":
+            briefing = compose_skill_briefing(direct, workflows, skills_by_id)
+        else:
+            briefing = compose_agent_briefing(direct, skills_by_id)
         return _prepend_response_rules(
-            _hook_wrap(briefing, direct_workflow.name, "workflow"), repo_root, query
-        ), 0
-
-    direct_skill = exact_match(query, skills)
-    if direct_skill:
-        briefing = compose_skill_briefing(direct_skill, workflows, skills_by_id)
-        return _prepend_response_rules(
-            _hook_wrap(briefing, direct_skill.name, "skill"), repo_root, query
-        ), 0
-
-    direct_agent = exact_match(query, agents)
-    if direct_agent:
-        briefing = compose_agent_briefing(direct_agent, skills_by_id)
-        return _prepend_response_rules(
-            _hook_wrap(briefing, direct_agent.name, "agent"), repo_root, query
+            _hook_wrap(briefing, direct.name, kind), repo_root, query, direct.name
         ), 0
 
     # Length floor only applies to the free-text scoring path so conversational
     # prompts and single-word chitchat stay silent.
     if len(query) < HOOK_MIN_PROMPT_LEN:
         return ("", 0)
-
-    tokens = _tokens(query)
-    if not tokens:
+    if not _tokens(query):
         return ("", 0)
 
-    ranked_skills = sorted(((score_skill(e, tokens), e) for e in skills), key=lambda x: -x[0])
-    ranked_workflows = sorted(((score_workflow(e, tokens), e) for e in workflows), key=lambda x: -x[0])
-    ranked_agents = sorted(((score_agent(e, tokens), e) for e in agents), key=lambda x: -x[0])
-
+    ranked_skills, ranked_workflows, ranked_agents = Ranker(skills, workflows, agents).rank(
+        query, repo_root
+    )
     best_skill_score, best_skill = (ranked_skills[0] if ranked_skills else (0, None))
     best_wf_score, best_wf = (ranked_workflows[0] if ranked_workflows else (0, None))
     best_agent_score, best_agent = (ranked_agents[0] if ranked_agents else (0, None))
 
     agent_footer = "" if is_qa else _compose_agent_lanes_footer(ranked_agents)
+    emit = lambda entry, kind, score, gate, ranked: _emit(  # noqa: E731
+        entry,
+        kind,
+        score=score,
+        full_gate=gate,
+        rivals=_rivals_within(ranked, entry, HOOK_AMBIGUITY_MARGIN),
+        repo_root=repo_root,
+        query=query,
+        skills_by_id=skills_by_id,
+        workflows=workflows,
+        footer=agent_footer,
+    )
 
-    if best_wf is not None and best_wf_score >= HOOK_WORKFLOW_SCORE and best_wf_score >= best_skill_score:
-        briefing = compose_workflow_briefing(best_wf, skills_by_id) + agent_footer
-        return _prepend_response_rules(
-            _hook_wrap(briefing, best_wf.name, "workflow"), repo_root, query
-        ), 0
+    # A workflow and a skill can share an id (`pr-governance-review`). The
+    # workflow is the actionable unit — it composes owner + spoke — so it wins
+    # the tie even when the skill's prose scores a little higher.
+    same_lane = best_wf is not None and best_skill is not None and best_wf.name == best_skill.name
+    if best_wf is not None and best_wf_score >= HOOK_WORKFLOW_SCORE and (
+        best_wf_score >= best_skill_score or same_lane
+    ):
+        # Score the workflow on its own corpus. Skill and workflow scores come
+        # from different field weights and a different IDF denominator, so
+        # substituting one for the other would not be a comparison.
+        return emit(best_wf, "workflow", best_wf_score, HOOK_WORKFLOW_FULL, ranked_workflows)
 
     if best_skill is not None and best_skill_score >= HOOK_SKILL_SCORE:
-        close = [e for s, e in ranked_skills if s >= best_skill_score - 2 and e is not best_skill]
-        if close:
-            return ("", 0)
-        briefing = compose_skill_briefing(best_skill, workflows, skills_by_id) + agent_footer
-        return _prepend_response_rules(
-            _hook_wrap(briefing, best_skill.name, "skill"), repo_root, query
-        ), 0
+        return emit(best_skill, "skill", best_skill_score, HOOK_SKILL_FULL, ranked_skills)
 
     if best_agent is not None and best_agent_score >= HOOK_AGENT_SCORE:
-        close = [e for s, e in ranked_agents if s >= best_agent_score - 2 and e is not best_agent]
-        if close:
-            return ("", 0)
-        briefing = compose_agent_briefing(best_agent, skills_by_id)
-        return _prepend_response_rules(
-            _hook_wrap(briefing, best_agent.name, "agent"), repo_root, query
-        ), 0
+        return emit(best_agent, "agent", best_agent_score, HOOK_AGENT_FULL, ranked_agents)
 
     return ("", 0)
 
@@ -1007,20 +1364,23 @@ def route(argv: list[str]) -> tuple[str, int]:
 
     skills_by_id = {s.name: s for s in skills}
 
-    direct_workflow = exact_match(query, workflows)
-    if direct_workflow:
-        return _prepend_response_rules(compose_workflow_briefing(direct_workflow, skills_by_id), repo_root, query), 0
-    direct_skill = exact_match(query, skills)
-    if direct_skill:
-        return _prepend_response_rules(compose_skill_briefing(direct_skill, workflows, skills_by_id), repo_root, query), 0
-    direct_agent = exact_match(query, agents)
-    if direct_agent:
-        return _prepend_response_rules(compose_agent_briefing(direct_agent, skills_by_id), repo_root, query), 0
+    # Same resolution as the hook. The compact briefing's footer tells the user
+    # to run `/codex-bridge <name>`, so a name must not land on a different lane
+    # depending on which entry point resolved it.
+    named = named_match(query, [(workflows, "workflow"), (skills, "skill"), (agents, "agent")])
+    if named:
+        direct, kind = named
+        if kind == "workflow":
+            briefing = compose_workflow_briefing(direct, skills_by_id)
+        elif kind == "skill":
+            briefing = compose_skill_briefing(direct, workflows, skills_by_id)
+        else:
+            briefing = compose_agent_briefing(direct, skills_by_id)
+        return _prepend_response_rules(briefing, repo_root, query, direct.name), 0
 
-    tokens = _tokens(query)
-    ranked_skills = sorted(((score_skill(e, tokens), e) for e in skills), key=lambda x: -x[0])
-    ranked_workflows = sorted(((score_workflow(e, tokens), e) for e in workflows), key=lambda x: -x[0])
-    ranked_agents = sorted(((score_agent(e, tokens), e) for e in agents), key=lambda x: -x[0])
+    ranked_skills, ranked_workflows, ranked_agents = Ranker(skills, workflows, agents).rank(
+        query, repo_root
+    )
     top_s = [(s, e) for s, e in ranked_skills if s > 0]
     top_w = [(s, e) for s, e in ranked_workflows if s > 0]
     top_a = [(s, e) for s, e in ranked_agents if s > 0]
@@ -1037,7 +1397,7 @@ def route(argv: list[str]) -> tuple[str, int]:
 
     if best_workflow[0] >= best_skill[0] and best_workflow[1] is not None and best_workflow[0] >= 5:
         briefing = compose_workflow_briefing(best_workflow[1], skills_by_id) + agent_footer
-        return _prepend_response_rules(briefing, repo_root, query), 0
+        return _prepend_response_rules(briefing, repo_root, query, best_workflow[1].name), 0
     if best_skill[1] is not None:
         close = [e for s, e in top_s if s >= best_skill[0] - 2]
         if len(close) > 1:
@@ -1053,16 +1413,16 @@ def route(argv: list[str]) -> tuple[str, int]:
                     header.append(f"- `{e.name}` (score {s_}) — {e.description[:120]}")
             header.append("\n**Default:** showing briefing for the top skill below.\n---\n")
             briefing = "\n".join(header) + compose_skill_briefing(best_skill[1], workflows, skills_by_id) + agent_footer
-            return _prepend_response_rules(briefing, repo_root, query), 0
+            return _prepend_response_rules(briefing, repo_root, query, best_skill[1].name), 0
         briefing = compose_skill_briefing(best_skill[1], workflows, skills_by_id) + agent_footer
-        return _prepend_response_rules(briefing, repo_root, query), 0
+        return _prepend_response_rules(briefing, repo_root, query, best_skill[1].name), 0
 
     # Agent-primary fallback: only reached if no skill or workflow scored.
     if best_agent[1] is not None and best_agent[0] >= HOOK_AGENT_SCORE:
         close = [e for s_, e in top_a if s_ >= best_agent[0] - 2 and e is not best_agent[1]]
         if not close:
             briefing = compose_agent_briefing(best_agent[1], skills_by_id)
-            return _prepend_response_rules(briefing, repo_root, query), 0
+            return _prepend_response_rules(briefing, repo_root, query, best_agent[1].name), 0
 
     return render_catalog(skills, workflows, agents, note=f"Weak match for '{query}'. Pick manually."), 0
 

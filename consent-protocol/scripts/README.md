@@ -50,7 +50,7 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `import_tickers.py`: ticker reference import.
 - `normalize_user_data_format.py`: normalize legacy user payloads.
 - `migrate_financial_v2.py`: deterministic financial model migration support.
-- `../db/legacy/init_supabase_schema.sql`: schema bootstrap for controlled maintenance scenarios only; not release authority.
+- `../db/legacy/init_legacy_schema.sql`: schema bootstrap for controlled maintenance scenarios only; not release authority.
 
 ### Reset, Seed, and Repair
 

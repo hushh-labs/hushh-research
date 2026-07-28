@@ -114,7 +114,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
-- [migration-governance.md](./migration-governance.md): canonical migration authority, frozen-vs-integrated DB contracts, and allowed SQL surfaces.
+- [migration-governance.md](./migration-governance.md): canonical migration authority, the exact UAT/production DB contracts, and allowed SQL surfaces.
 - [mulesoft-managed-omni-gateway-private-space.md](./mulesoft-managed-omni-gateway-private-space.md): current CRM transport, credential boundary, and UAT handshake proof.
 - [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
 - [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
@@ -126,4 +126,9 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.
+- [dev-fast-lane.md](./dev-fast-lane.md): the hosted dev environment agentic lane.
+- [crm-registry-operations.md](./crm-registry-operations.md): CRM registry check, probe, apply, and deactivate operations.
+- [hussh-mcp-partner-integration-guide.md](./hussh-mcp-partner-integration-guide.md): partner-facing MCP integration guide.
+- [hussh-rebrand-classification.md](./hussh-rebrand-classification.md): non-breaking rebrand bucket model.
+- [mulesoft-crm-schema-contract-v1.json](./mulesoft-crm-schema-contract-v1.json): machine-readable CRM field-role contract.
 - [`../../../consent-protocol/scripts/README.md`](../../../consent-protocol/scripts/README.md): maintainer-only backend script map and when to use it.

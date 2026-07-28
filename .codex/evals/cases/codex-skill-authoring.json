@@ -1,0 +1,29 @@
+{
+  "skill_name": "codex-skill-authoring",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "scaffold a new spoke under .codex/skills with its manifest and workflow pack",
+        "top_k": 3
+      },
+      {
+        "prompt": "run the fleet lint and tell me which skills have drifted owned paths",
+        "top_k": 3
+      },
+      {
+        "prompt": "rename this owner skill and update the owner spoke taxonomy everywhere it is referenced",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "map the repo first and tell me which owner family should take the next step",
+        "owner": "repo-context"
+      },
+      {
+        "prompt": "decide the documentation home for these reference pages and update the docs map",
+        "owner": "docs-governance"
+      }
+    ]
+  }
+}

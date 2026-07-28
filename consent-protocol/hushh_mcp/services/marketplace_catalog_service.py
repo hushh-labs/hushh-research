@@ -201,13 +201,13 @@ class MarketplaceCatalogService:
     ) -> None:
         self._pkm = pkm_service or PersonalKnowledgeModelService()
         self._identity = ActorIdentityService()
-        self._supabase = None
+        self._db = None
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     async def _execute_query(self, query):
         return await asyncio.to_thread(query.execute)
@@ -293,7 +293,7 @@ class MarketplaceCatalogService:
         """Every active published slice from OTHER users, anonymized. The viewer's
         own listings are excluded (you don't buy your own data)."""
         query = (
-            self.supabase.table("pkm_default_available_projections")
+            self.db.table("pkm_default_available_projections")
             .select(_PROJECTION_COLUMNS)
             .neq("publication_provenance", "")
             .is_("revoked_at", None)
@@ -359,7 +359,7 @@ class MarketplaceCatalogService:
         except (TypeError, ValueError):
             return None
         query = (
-            self.supabase.table("pkm_default_available_projections")
+            self.db.table("pkm_default_available_projections")
             .select(_PROJECTION_COLUMNS)
             .eq("id", numeric_id)
             .neq("publication_provenance", "")

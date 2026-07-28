@@ -1,0 +1,29 @@
+{
+  "skill_name": "comms-community",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "someone in Discord asked how BYOK keeps us from reading their vault, draft a short reply",
+        "top_k": 3
+      },
+      {
+        "prompt": "draft a WhatsApp ready message explaining what shipped versus what is still roadmap",
+        "top_k": 3
+      },
+      {
+        "prompt": "write a public chat answer about Kai privacy boundaries and keep it under the message limit",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "restructure the internal docs tree and pick canonical homes for these pages",
+        "owner": "docs-governance"
+      },
+      {
+        "prompt": "before drafting anything, scan the repo and tell me which owner family this belongs to",
+        "owner": "repo-context"
+      }
+    ]
+  }
+}

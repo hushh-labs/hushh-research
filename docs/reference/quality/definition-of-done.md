@@ -33,6 +33,7 @@ This document is the floor. Workflow verification bundles, the premise gate, and
 
 - [ ] Code reveals intent through naming and structure; comments explain why, not what
 - [ ] No duplicated business logic; the existing canonical helper was extended, not near-duplicated
+- [ ] New leaf logic follows the gene/operon/organ contract: explicit inputs and outputs, bounded dependencies and side effects, and focused independent tests
 - [ ] No dead code, debug output, or commented-out blocks left behind
 - [ ] Changes scoped to the task; no unrelated refactors mixed in
 - [ ] Lint and formatting pass
@@ -42,6 +43,7 @@ This document is the floor. Workflow verification bundles, the premise gate, and
 - [ ] Change works with the rest of the system, not just in isolation (cross-surface callers checked when a contract moved)
 - [ ] Database migrations, config changes, and feature flags accounted for; migrations follow the expand/contract discipline (`docs/reference/architecture/schema-migration-discipline.md`)
 - [ ] Backward compatibility considered for any public or generated contract change
+- [ ] Structural extractions preserve existing entrypoints and observable behavior through characterization tests and a reversible compatibility facade
 - [ ] Generated contracts regenerated and committed when their source changed (AgentManifestV2 rule: no parallel hand-edited copies)
 
 ### Documentation

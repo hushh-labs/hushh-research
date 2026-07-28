@@ -8,6 +8,70 @@ This document is the canonical contract for app-facing surfaces across Kai, RIA,
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
 
+## Visual Map
+
+Tokens in `globals.css` feed one shell composition, which feeds shared
+primitives. Route surfaces consume primitives and never re-derive the recipe.
+
+```mermaid
+flowchart TB
+  subgraph tokens["Token layer: hushh-webapp/app/globals.css"]
+    accent["--app-accent family<br/>iOS Blue default, Molten Gold opt-in<br/>lib/theme/accent.ts"]
+    metrics["--app-shell-reading, -standard, -expanded<br/>--top-shell-reserved-height, --page-top-start"]
+    surfacetok["--app-card-surface, -shadow, -radius, -border<br/>--ambient-chrome top and bottom"]
+  end
+
+  subgraph shell["Shell layer"]
+    frame["AppShellFrame + AmbientChromeController<br/>app/providers.tsx"]
+    top["AppTopShell: hidden, bar, bar-with-tabs<br/>components/app-ui/top-app-bar.tsx"]
+    page["AppPageShell and FullscreenFlowShell<br/>components/app-ui/app-page-shell.tsx"]
+    bottom["AppBottomShell: bottom nav plus Agent Bar<br/>components/app-ui/app-bottom-shell.tsx"]
+  end
+
+  subgraph primitives["Shared primitives"]
+    surfaces["SurfaceCard, SurfaceStack, SurfaceInset<br/>lib/morphy-ux/surfaces.tsx"]
+    control["ShellActionSurface + MaterialRipple<br/>components/app-ui/shell-action-surface.tsx"]
+    headers["PageHeader, SectionHeader<br/>components/app-ui/page-sections.tsx"]
+    settings["SettingsGroup, SettingsRow, AdaptiveDetailSurface<br/>components/app-ui/settings-ui.tsx"]
+    feedback["morphyToast, DialogOverlay scrim<br/>AppStreamPanel"]
+  end
+
+  subgraph nav["Navigation contract: hushh-webapp/lib/navigation"]
+    bottomnav["app-bottom-nav.ts, top-shell-back.ts"]
+    routecontract["app-route-layout.contract.json"]
+  end
+
+  routes["Route surfaces<br/>/one/kai, /one/consent, /one/feed, RIA, Profile, Marketplace"]
+
+  subgraph gates["Enforcement"]
+    gaccent["npm run verify:accent-tokens"]
+    groutes["npm run verify:routes"]
+    gcache["npm run audit:cache-coherence"]
+  end
+
+  accent --> frame
+  metrics --> frame
+  surfacetok --> frame
+  frame --> top
+  frame --> page
+  frame --> bottom
+  top --> control
+  bottom --> control
+  page --> surfaces
+  bottomnav --> bottom
+  routecontract --> page
+  surfaces --> headers
+  surfaces --> settings
+  surfaces --> feedback
+  control --> routes
+  headers --> routes
+  settings --> routes
+  feedback --> routes
+  routes --> gaccent
+  routes --> groutes
+  routes --> gcache
+```
+
 ## Agent Copy Ownership
 
 The app uses the Hussh / One / Kai / Nav / KYC ontology from [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
@@ -438,37 +502,40 @@ Rules:
    dropdown and its mobile view remains the shared Sheet, while both retain the
    same surface tokens and compact header/body anatomy.
 
-## Consent Inbox And Notification Contract
+## Activity And Notification Contract
+
+The dropdown-based `ActivityInbox` this section used to specify no longer exists.
+It was replaced by a dedicated route, and `__tests__/components/top-app-bar.contract.test.ts`
+actively asserts that `top-app-bar.tsx` contains no `<ActivityInbox`,
+`<ConsentInboxDropdown`, or `<DebateTaskCenter`.
 
 Rules:
 
-1. `ActivityInbox` is the one signed-in shell entry point for consent review and background activity. It owns the trigger, one badge, one menu, and responsive presentation only; it does not own either domain's data or actions.
-2. The consent adapter remains the authority for active-persona summary data, cached `pending page 1` previews, consent-change events, and manager routing. Its pending count must never be derived from notification-local counters.
-3. The task adapter remains the authority for background-task subscriptions, navigation, cancellation, retry, dismissal, and vault checks. Do not turn task activity into consent state or invent an acknowledgement model for it.
-4. The activity trigger uses a familiar minimal activity icon. On compact viewports it uses a heart; its consent-priority count badge sits in a reserved outer-edge gutter so it never cuts into the bell/heart or adjacent Profile action. This preserves consent priority without adding a second top-bar control.
-5. The activity menu is a compact ordered feed, not a tabbed mini-app: consent requests that need review appear first, followed by task activity. Each section retains its own actions and empty/loading behavior.
-6. On desktop, Activity uses the shared top-shell dropdown. On mobile, it uses
-   the shared Sheet bottom-sheet mechanics. Its scrim preserves the canonical
-   Foundation route canvas in light and dark mode rather than applying a hard
-   black wash. The trigger and domain adapters remain the same across both forms.
-7. The activity surface must stay compact:
-   - fixed width
-   - bounded height
-   - internal scroll only
-   - no pagination chrome inside the dropdown
-8. The desktop activity dropdown uses the shared top-shell dropdown chrome:
-   - same radius
-   - same border/backdrop treatment
-   - same header/body/footer spacing
-   - same device-width scaling rules
-9. Consent, Profile, and compatibility aliases must converge on the same `/one/consent` manager when the user chooses to open the full workspace.
-10. Delivery diagnostics do not belong in the activity inbox. Task notifications remain visible until dismissed and should be ordered newest-first.
-11. Consent-review actions triggered from toasts or push taps must use in-app router navigation for internal app routes so vault-backed sessions are not cold-restarted.
-12. The task section is a two-level async surface:
-    - primary work for long-running/recoverable tasks such as PKM upgrade, portfolio import, Plaid refresh, consent export refresh
-    - passive work for cache warm, silent refresh, and reconciliation
-13. Passive work should only surface after a short threshold, stay grouped under `Background activity`, and autoclear after success.
-14. Failed passive work must promote into the primary task list and remain visible until dismissed.
+1. `/one/feed` is the one signed-in activity surface. It owns presentation only:
+   a fixed header, a scrolling list, sticky day dividers, and inline actions. It
+   does not own either domain's data or actions.
+2. The consent adapter remains the authority for active-persona summary data,
+   cached pending previews, consent-change events, and manager routing. Its
+   pending count must never be derived from feed-local counters.
+3. The task adapter remains the authority for background-task subscriptions,
+   navigation, cancellation, retry, dismissal, and vault checks. Do not turn task
+   activity into consent state or invent an acknowledgement model for it.
+4. The feed uses the canonical list system (`SettingsGroup` / `SettingsRow`), not
+   a card stack, so it reads as one continuous descending stream.
+5. Rows are ordered newest-first by wall-clock time and grouped into day
+   sections. Items that need the user appear above history.
+6. Irreversible inline actions (deny, decline, cancel) require a confirming
+   second tap and auto-disarm; a stray tap must not reject a request.
+7. Consent, Profile, and compatibility aliases must converge on the same
+   `/one/consent` manager when the user opens the full workspace.
+8. Delivery diagnostics do not belong in the feed. Task notifications remain
+   visible until dismissed.
+9. Consent-review actions triggered from toasts or push taps must use in-app
+   router navigation for internal app routes so vault-backed sessions are not
+   cold-restarted.
+10. Passive background work should only surface after a short threshold and
+    autoclear after success. Failed passive work must promote into the primary
+    list and remain visible until dismissed.
 
 ## Scroll Stability Contract
 

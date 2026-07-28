@@ -40,6 +40,60 @@ Founder-language framing:
 - `Capability Tokens` remain explicit in this doc as `developer token` and `consent_token` because the wire contract requires those exact labels
 - `Cryptographic Primitives` show up here as connector-held private keys, wrapped export keys, and ciphertext-only responses
 
+## Visual Map
+
+Every developer credential, bearer or PKCE or client credentials, collapses into
+one `DeveloperPrincipal` before any `/api/v1` route runs. The approval half of the
+lifecycle sits outside developer control entirely.
+
+```mermaid
+flowchart TB
+  subgraph portal["Self-serve portal, Firebase bearer only"]
+    access["GET/POST/PATCH /api/developer/access<br/>enable, profile, rotate-key"]
+    oauthclient["/api/developer/access/oauth-client<br/>plus redirect-uris"]
+  end
+
+  subgraph authn["Transport auth, api/developer_auth.py"]
+    bearer["Authorization Bearer developer token"]
+    oauth["/oauth/authorize, /oauth/token, /oauth/revoke<br/>PKCE S256, refresh_token, client_credentials"]
+    principal["authenticate_developer_principal<br/>OAuth service then registry service<br/>query-string token rejected with 403"]
+  end
+
+  subgraph v1["developer_api_router, prefix /api/v1"]
+    disc["GET /api/v1, /list-scopes,<br/>/tool-catalog, /user-scopes/USER_ID"]
+    reqc["POST /api/v1/request-consent<br/>rate limited"]
+    stat["GET /api/v1/consent-status<br/>GET /api/v1/consent-events, SSE"]
+    exp["POST /api/v1/scoped-export<br/>encrypted_data + wrapped_key_bundle<br/>+ export_envelope"]
+    mcpproj["/api/v1/mcp/* identifier-free projection"]
+  end
+
+  subgraph firstparty["First-party approval, outside developer control"]
+    audit["consent_audit<br/>REQUESTED then GRANTED or DENIED"]
+    approve["POST /api/consent/pending/approve<br/>VAULT_OWNER token"]
+    exports["consent_exports<br/>ciphertext, iv, tag, wrapped_key_bundle"]
+  end
+
+  readevt["_record_scoped_export_read<br/>metadata-only READ event before ciphertext<br/>fails closed"]
+
+  access --> bearer
+  oauthclient --> oauth
+  bearer --> principal
+  oauth --> principal
+  principal --> disc
+  principal --> reqc
+  principal --> stat
+  principal --> exp
+  principal --> mcpproj
+  mcpproj --> reqc
+  reqc --> audit
+  audit --> approve
+  approve --> audit
+  approve --> exports
+  stat --> audit
+  exp --> readevt
+  readevt --> exports
+```
+
 ---
 
 ## Self-Serve Developer Access

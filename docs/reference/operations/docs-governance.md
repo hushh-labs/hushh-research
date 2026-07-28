@@ -25,6 +25,54 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 - the public naming and compatibility rule lives in [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md)
 - the non-breaking rebrand bucket model lives in [hussh-rebrand-classification.md](./hussh-rebrand-classification.md)
 
+## Visual Map
+
+Placement decides which home a doc lives in; one runner fans out to five gates,
+and the blocking governance job carries their result into the CI status gate.
+
+```mermaid
+flowchart LR
+  subgraph homes["Doc homes, placement rules"]
+    root["Root markdown<br/>README, getting_started, TESTING, contributing"]
+    cross["docs/<br/>cross-cutting contracts"]
+    ref["docs/reference/<br/>current execution contracts"]
+    plan["docs/future/ and docs/superpowers/<br/>roadmap and agentic plans"]
+    backend["consent-protocol/docs/"]
+    frontend["hushh-webapp/docs/"]
+  end
+
+  subgraph runner["Runner"]
+    lane["ci.yml governance job<br/>orchestrate.sh, repo-governance-check.sh"]
+    cli["bin/hushh docs verify<br/>scripts/ci/docs-parity-check.sh"]
+    webdocs["ci.yml web core job<br/>npm run verify:docs"]
+  end
+
+  subgraph checks["Doc gates"]
+    parity["verify-doc-runtime-parity.cjs<br/>local paths, legacy route tokens, visual coverage"]
+    links["verify-doc-links.cjs<br/>broken links and dead paths"]
+    gov["verify-doc-governance.cjs<br/>required indexes, thin roots, tier-A visual section"]
+    brand["verify-doc-brand.cjs<br/>stray standalone Hushh branding"]
+    share["verify-shareable-links.cjs<br/>no local filesystem links"]
+  end
+
+  status["ci.yml CI status gate<br/>governance and web core must pass to merge"]
+
+  homes --> cli
+  homes --> webdocs
+  lane --> cli
+  cli --> parity
+  cli --> links
+  cli --> gov
+  cli --> brand
+  cli --> share
+  parity --> status
+  links --> status
+  gov --> status
+  brand --> status
+  share --> status
+  webdocs --> status
+```
+
 ## Naming Rules
 
 1. Index files must be named `README.md`.
@@ -170,7 +218,10 @@ All applicable docs gates must pass in CI before merge.
 CI gate policy:
 
 1. Keep a minimal blocking set (secret scan, web, protocol, integration).
-2. Treat docs parity and subtree drift as advisory unless explicitly promoted.
+2. Docs parity is blocking, not advisory: `scripts/ci/repo-governance-check.sh` runs
+   `./bin/hushh docs verify`, and the `repo-governance` job is a required input to the
+   CI status gate in `.github/workflows/ci.yml`. Subtree drift remains advisory unless
+   explicitly promoted.
 3. Do not add a new CI/parity script unless it replaces or consolidates an existing script in the same PR.
 4. Every new CI/helper script must declare owner team (`frontend`, `backend`, or `platform`) and get owner approval.
 

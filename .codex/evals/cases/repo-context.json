@@ -1,0 +1,29 @@
+{
+  "skill_name": "repo-context",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "I am new here, scan the repository and tell me which owner skill should take the next step",
+        "top_k": 3
+      },
+      {
+        "prompt": "before I touch anything, map which repo surfaces and owner skills this cross-domain change hits",
+        "top_k": 3
+      },
+      {
+        "prompt": "scan the repo and give me the owner and spoke surface coverage map with uncovered surfaces flagged",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "our Cloud Run UAT deploy failed, check the Cloud Build timing and env parity",
+        "owner": "uat-scoped-deploy"
+      },
+      {
+        "prompt": "reorganize these duplicate runbooks and update the doc map diagram",
+        "owner": "docs-governance"
+      }
+    ]
+  }
+}

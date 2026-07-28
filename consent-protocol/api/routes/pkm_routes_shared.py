@@ -1411,7 +1411,7 @@ async def get_metadata(
         if resolved_index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
             domain_rows = (
-                pkm_service.supabase.table("pkm_blobs")
+                pkm_service.db.table("pkm_blobs")
                 .select("domain,content_revision,updated_at")
                 .eq("user_id", user_id)
                 .execute()

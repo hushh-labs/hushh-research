@@ -1,0 +1,29 @@
+{
+  "skill_name": "desktop-mac",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the SwiftUI shell in apps/one-mac needs Nav parity with the web app",
+        "top_k": 3
+      },
+      {
+        "prompt": "I want to add a BYOA agent pane to the macOS One app but I am not sure which Mac target it belongs in",
+        "top_k": 3
+      },
+      {
+        "prompt": "the LaunchAgent daemon is not keeping the on-device knowledge index warm after login",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the iOS Capacitor build is broken on the mobile branch",
+        "owner": "mobile-native"
+      },
+      {
+        "prompt": "PKM writeback and vault ciphertext shape need to change in consent-protocol",
+        "owner": "vault-pkm-governance"
+      }
+    ]
+  }
+}

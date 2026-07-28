@@ -3553,6 +3553,92 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/security/devices",
+      "page_file": "app/one/profile/security/devices/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.security.devices",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.security.devices",
+        "purpose": "Help the person review and revoke computers connected to their private agent.",
+        "screen": "profile_security_devices",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Revocation completes only after the backend confirms the device is revoked and the list refreshes.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_security_devices",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/security/devices/authorize",
+      "page_file": "app/one/profile/security/devices/authorize/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.security.devices.authorize",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.profile.security.devices.authorize",
+        "purpose": "Help the person review and approve a verified Hermes device authorization request.",
+        "screen": "app",
+        "entry_cue": "Review the device request, then approve it or leave without granting access.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Authorization completes only after the verified loopback redirect receives the backend-issued one-time code.",
+        "next_route": null,
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
       "route_pattern": "/one/profile/security/session",
       "page_file": "app/one/profile/security/session/page.tsx",
       "route_mode": "standard",

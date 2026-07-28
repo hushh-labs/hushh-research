@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend-surface-placement",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "does this new card component belong in Morphy UX, app-ui, or the feature folder",
+        "top_k": 3
+      },
+      {
+        "prompt": "should we promote this feature-local surface into shared UI or leave it where it lives",
+        "top_k": 3
+      },
+      {
+        "prompt": "protect the single card and route-container system, a duplicate implementation crept into a feature folder",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "change the styling rules and shell chrome, we already know the design system owns it",
+        "owner": "frontend-design-system"
+      },
+      {
+        "prompt": "who owns frontend route contracts and verification, and which package scripts run them",
+        "owner": "frontend-architecture"
+      }
+    ]
+  }
+}

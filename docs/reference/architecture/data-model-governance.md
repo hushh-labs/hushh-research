@@ -21,7 +21,7 @@ Use these in order:
 
 1. [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json): table-family ownership, data class, retention, deletion, access path, and trust boundary.
 2. [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md): sanitized runtime DB shape and current table-family summary.
-3. [migration-governance.md](../operations/migration-governance.md): release migration authority, UAT exact contract, and production frozen contract rules.
+3. [migration-governance.md](../operations/migration-governance.md): release migration authority and the exact UAT/production contract rules.
 4. [personal-knowledge-model.md](../../../consent-protocol/docs/reference/personal-knowledge-model.md): encrypted PKM storage rules.
 5. [cache-coherence.md](./cache-coherence.md): frontend and backend cache boundaries.
 

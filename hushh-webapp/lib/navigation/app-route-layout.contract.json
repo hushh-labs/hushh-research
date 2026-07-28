@@ -2677,6 +2677,68 @@
     }
   },
   {
+    "route": "/one/profile/security/devices",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/security/devices/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.security.devices",
+      "purpose": "Help the person review and revoke computers connected to their private agent.",
+      "screen": "profile_security_devices",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Revocation completes only after the backend confirms the device is revoked and the list refreshes.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/security/devices/authorize",
+    "mode": "hidden",
+    "exemptionReason": "Trusted-device authorization is a short-lived browser-to-Hermes handoff and intentionally bypasses the signed-in app chrome.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.security.devices.authorize",
+      "purpose": "Help the person review and approve a verified Hermes device authorization request.",
+      "screen": "app",
+      "entryCue": "Review the device request, then approve it or leave without granting access.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Authorization completes only after the verified loopback redirect receives the backend-issued one-time code.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/profile/my-data",
     "mode": "standard",
     "shellVerification": {

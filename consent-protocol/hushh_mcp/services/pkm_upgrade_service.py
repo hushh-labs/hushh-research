@@ -51,8 +51,8 @@ class PkmUpgradeService:
         return self._pkm_service
 
     @property
-    def supabase(self):
-        return self.pkm_service.supabase
+    def db(self):
+        return self.pkm_service.db
 
     @staticmethod
     def _clean_text(value: Any) -> str | None:
@@ -333,9 +333,7 @@ class PkmUpgradeService:
 
     async def _list_runs(self, user_id: str) -> list[dict[str, Any]]:
         try:
-            result = (
-                self.supabase.table("pkm_upgrade_runs").select("*").eq("user_id", user_id).execute()
-            )
+            result = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id).execute()
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to list PKM upgrade runs for %s: %s", user_id, exc)
@@ -343,9 +341,7 @@ class PkmUpgradeService:
 
     async def _list_steps(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = (
-                self.supabase.table("pkm_upgrade_steps").select("*").eq("run_id", run_id).execute()
-            )
+            result = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id).execute()
             rows = [
                 step for step in (self._normalize_step(row) for row in (result.data or [])) if step
             ]
@@ -371,7 +367,7 @@ class PkmUpgradeService:
         if not available_domains:
             try:
                 rows = (
-                    self.supabase.table("pkm_manifests")
+                    self.db.table("pkm_manifests")
                     .select("domain")
                     .eq("user_id", user_id)
                     .execute()
@@ -773,9 +769,7 @@ class PkmUpgradeService:
 
     async def _list_runs_for_run_id(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = (
-                self.supabase.table("pkm_upgrade_runs").select("*").eq("run_id", run_id).execute()
-            )
+            result = self.db.table("pkm_upgrade_runs").select("*").eq("run_id", run_id).execute()
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to fetch PKM upgrade run %s: %s", run_id, exc)
