@@ -1209,11 +1209,6 @@ function PeopleHub({
             </div>
           </div>
         </SectionCard>
-
-        <TrustNoteCard
-          title="Private sharing starts after approval"
-          description="They must sign in, verify phone and accept first."
-        />
       </div>
     );
   }

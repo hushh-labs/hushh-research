@@ -2345,8 +2345,9 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Trusted Circle");
-    // Empty state keeps connection management, invite/sync/share actions, and
-    // the trust note visible. "Ask someone to share" is populated-state-only.
+    // Empty state keeps connection management and invite/sync/share actions.
+    // "Ask someone to share" is populated-state-only, and the redundant
+    // approval explainer must not add another card below these actions.
     expect(
       screen.getByRole("button", { name: /Add Connections/i }),
     ).toBeTruthy();
@@ -2358,6 +2359,9 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: /Share to contacts/i }),
     ).toBeTruthy();
     expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(
+      screen.queryByText(/Private sharing starts after approval/i),
+    ).toBeNull();
 
     mockRouterPush.mockClear();
     fireEvent.click(
