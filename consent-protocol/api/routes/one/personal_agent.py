@@ -34,7 +34,7 @@ class ProvisionRequest(BaseModel):
     pod_public_key: str = Field(..., alias="podPublicKey", min_length=1, max_length=256)
     pod_key_id: str = Field(..., alias="podKeyId", min_length=1, max_length=128)
     pod_key_wrapping_alg: str = Field(
-        default=WRAPPING_ALG, alias="podKeyWrappingAlg", max_length=64
+        default=WRAPPING_ALG, alias="podKeyWrappingAlg", max_length=64  # gitleaks:allow -- algorithm label, not key material
     )
 
     model_config = ConfigDict(populate_by_name=True)
