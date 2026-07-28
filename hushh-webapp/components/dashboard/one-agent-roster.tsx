@@ -52,6 +52,26 @@ type AgentRosterView = "grid" | "list";
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
+/**
+ * The roster only ever mounts client-side (its `/one` route renders a loader
+ * until auth resolves, so it never server-renders with content). Reading the
+ * persisted preference synchronously in the state initializer therefore has
+ * no hydration-mismatch risk and lets the very first paint already be the
+ * remembered view - eliminating the brief grid→list flip on every return to
+ * `/one`.
+ */
+function readPersistedRosterView(): AgentRosterView {
+  if (typeof window === "undefined") return "grid";
+  try {
+    const persisted = window.localStorage.getItem(
+      AGENT_ROSTER_VIEW_STORAGE_KEY,
+    );
+    return persisted === "list" ? "list" : "grid";
+  } catch {
+    return "grid";
+  }
+}
+
 function positiveNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
@@ -517,7 +537,7 @@ export function OneAgentRoster({
           ?.setupCompleted === true),
   );
   const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
-  const [view, setView] = useState<AgentRosterView>("grid");
+  const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
   const visibleModes = useMemo(() => {
@@ -535,23 +555,6 @@ export function OneAgentRoster({
         .includes(normalized),
     );
   }, [modes, query]);
-
-  useEffect(() => {
-    try {
-      const persisted = window.localStorage.getItem(
-        AGENT_ROSTER_VIEW_STORAGE_KEY,
-      );
-      if (persisted === "grid" || persisted === "list") {
-        // Restoring a preference is hydration, not an interaction. Keeping
-        // this transition disabled prevents the grid→list animation from
-        // replaying every time `/one` mounts.
-        setAnimateViewChange(false);
-        setView(persisted);
-      }
-    } catch {
-      // A display preference is optional and does not affect roster access.
-    }
-  }, []);
 
   const selectView = (next: AgentRosterView) => {
     if (next === view) return;

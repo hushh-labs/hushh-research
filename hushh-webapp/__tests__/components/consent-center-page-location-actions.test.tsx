@@ -190,6 +190,21 @@ function activeLocationGrantList() {
   };
 }
 
+function receivedLocationGrantList() {
+  const response = activeLocationGrantList();
+  return {
+    ...response,
+    items: response.items.map((entry) => ({
+      ...entry,
+      counterpart_label: "Aarav's location",
+      metadata: {
+        ...entry.metadata,
+        section: "shared",
+      },
+    })),
+  };
+}
+
 function pendingLocationRequestList() {
   return {
     user_id: "user-1",
@@ -272,7 +287,7 @@ describe("ConsentCenterPage One Location action routing", () => {
     render(<ConsentCenterPage />);
 
     const revokeButton = (await screen.findByRole("button", {
-      name: "Revoke",
+      name: "Stop sharing",
     })) as HTMLButtonElement;
     fireEvent.click(revokeButton);
 
@@ -294,6 +309,10 @@ describe("ConsentCenterPage One Location action routing", () => {
 
     render(<ConsentCenterPage />);
 
+    const duration = await screen.findByRole("combobox", {
+      name: "Access duration",
+    });
+    expect(duration.textContent).toContain("1 hour");
     const allowButton = (await screen.findByRole("button", {
       name: "Allow",
     })) as HTMLButtonElement;
@@ -303,9 +322,32 @@ describe("ConsentCenterPage One Location action routing", () => {
     });
     expect(mocks.handleLocationApprove).toHaveBeenCalledWith(
       expect.objectContaining({ id: "one_location_request:req-1" }),
-      expect.anything(),
+      1,
     );
     expect(mocks.handleApprove).not.toHaveBeenCalled();
+  });
+
+  it("offers only the canonical Location duration policy", async () => {
+    mocks.search = "tab=pending&requestId=one_location_request:req-1";
+    mocks.getSummary.mockResolvedValue(
+      summaryResponse({ pending: 1, active: 0, previous: 0 }),
+    );
+    mocks.listEntries.mockResolvedValue(pendingLocationRequestList());
+
+    render(<ConsentCenterPage />);
+
+    fireEvent.click(
+      await screen.findByRole("combobox", { name: "Access duration" }),
+    );
+    const options = await screen.findAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual([
+      "15 min",
+      "30 min",
+      "1 hour",
+      "4 hours",
+      "24 hours",
+    ]);
+    expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
   });
 
   it("denies a pending location request through the One Location hook", async () => {
@@ -341,7 +383,7 @@ describe("ConsentCenterPage One Location action routing", () => {
     render(<ConsentCenterPage />);
 
     const revokeButton = (await screen.findByRole("button", {
-      name: "Revoke",
+      name: "Stop sharing",
     })) as HTMLButtonElement;
     fireEvent.click(revokeButton);
 
@@ -349,5 +391,23 @@ describe("ConsentCenterPage One Location action routing", () => {
       expect(mocks.handleRevoke).toHaveBeenCalledWith("attr.shopping.receipts.*");
     });
     expect(mocks.handleLocationRevoke).not.toHaveBeenCalled();
+  });
+
+  it("does not offer revoke for a received Location grant", async () => {
+    mocks.search = "tab=active&requestId=one_location_grant:grant-1";
+    mocks.getSummary.mockResolvedValue(
+      summaryResponse({ pending: 0, active: 1, previous: 0 }),
+    );
+    mocks.listEntries.mockResolvedValue(receivedLocationGrantList());
+
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findByRole("dialog", { name: "Aarav's location" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Stop sharing" }),
+    ).toBeNull();
+    expect(screen.queryByText("Manage access")).toBeNull();
   });
 });

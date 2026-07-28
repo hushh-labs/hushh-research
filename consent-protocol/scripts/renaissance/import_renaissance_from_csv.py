@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Seed Renaissance data into Supabase from canonical CSV sources.
+Seed Renaissance data into Cloud SQL from canonical CSV sources.
 
 Sources (single source of truth):
   - consent-protocol/data/renaissance/Renaissance Investable vs Avoid(INVESTABLE).csv

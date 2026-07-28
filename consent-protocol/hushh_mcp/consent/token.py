@@ -374,6 +374,16 @@ async def validate_token_with_db(
     if not valid:
         return valid, reason, token_obj
 
+    agent_id = str(token_obj.agent_id) if token_obj is not None else ""
+    is_device_bound_owner = (
+        token_obj is not None
+        and agent_id.startswith("device:")
+        and (
+            token_obj.scope_str == ConsentScope.VAULT_OWNER.value
+            or token_obj.scope == ConsentScope.VAULT_OWNER
+        )
+    )
+
     # Additional DB check for revocation status
     # This catches tokens revoked on other Cloud Run instances
     try:
@@ -397,6 +407,18 @@ async def validate_token_with_db(
                     _token_fingerprint(token_str),
                 )
                 return False, "Token has been revoked (DB check)", None
+            if is_device_bound_owner:
+                device_id = agent_id.removeprefix("device:")
+                if not device_id or not await service.is_trusted_device_active(
+                    str(token_obj.user_id), device_id
+                ):
+                    _revoked_tokens.add(token_str)
+                    logger.warning(
+                        "Device-bound owner token rejected because device is inactive "
+                        "(fingerprint=%s)",
+                        _token_fingerprint(token_str),
+                    )
+                    return False, "Trusted device is not active", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
         # VAULT_OWNER tokens get a short grace period to avoid locking users
@@ -406,6 +428,16 @@ async def validate_token_with_db(
         is_vault_owner = token_obj is not None and (
             token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
         )
+        if is_device_bound_owner:
+            logger.error(
+                "Device-bound owner revocation status could not be confirmed; failing closed: %s",
+                e,
+            )
+            return (
+                False,
+                "Trusted device revocation status could not be confirmed (DB unavailable)",
+                None,
+            )
         if is_vault_owner:
             logger.warning(
                 "DB revocation check failed for VAULT_OWNER token, "

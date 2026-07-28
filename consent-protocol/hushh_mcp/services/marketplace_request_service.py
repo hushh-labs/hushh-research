@@ -97,13 +97,13 @@ class MarketplaceRequestService:
     """CRUD for durable marketplace access requests (owner-scoped)."""
 
     def __init__(self) -> None:
-        self._supabase = None
+        self._db = None
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     async def _execute_query(self, query):
         return await asyncio.to_thread(query.execute)
@@ -137,7 +137,7 @@ class MarketplaceRequestService:
             "status": "pending",
         }
         result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests").insert(payload)
+            self.db.table("marketplace_access_requests").insert(payload)
         )
         rows = getattr(result, "data", None) or []
         return _row_to_request(rows[0]) if rows else _row_to_request(payload)
@@ -147,7 +147,7 @@ class MarketplaceRequestService:
     ) -> list[dict[str, Any]]:
         """List the owner's requests (optionally filtered by status), newest first."""
         query = (
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .select("*")
             .eq("owner_user_id", owner_user_id)
         )
@@ -166,7 +166,7 @@ class MarketplaceRequestService:
             raise ValueError("next_status must be 'approved' or 'denied'")
         update = {"status": next_status, "resolved_at": _now_iso()}
         result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .update(update)
             .eq("id", request_id)
             .eq("owner_user_id", owner_user_id)
@@ -232,7 +232,7 @@ class MarketplaceRequestService:
         """
         self._validate_envelope(envelope)
         result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .select("*")
             .eq("id", request_id)
             .eq("owner_user_id", owner_user_id)
@@ -296,14 +296,14 @@ class MarketplaceRequestService:
             "metadata": envelope.get("metadata") or {},
         }
         result = await self._execute_query(
-            self.supabase.table("marketplace_delivery_envelopes").insert(payload)
+            self.db.table("marketplace_delivery_envelopes").insert(payload)
         )
         rows = getattr(result, "data", None) or []
         stored = _envelope_row(rows[0]) if rows else _envelope_row(payload)
         envelope_id = stored.get("id")
         if envelope_id:
             await self._execute_query(
-                self.supabase.table("marketplace_access_requests")
+                self.db.table("marketplace_access_requests")
                 .update({"latest_envelope_id": envelope_id})
                 .eq("id", request["id"])
                 .eq("owner_user_id", owner_user_id)
@@ -316,7 +316,7 @@ class MarketplaceRequestService:
         """List the buyer's own outgoing requests (their "Received data" tab),
         newest first. Buyer-scoped mirror of list_requests."""
         query = (
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .select("*")
             .eq("buyer_user_id", buyer_user_id)
         )
@@ -333,7 +333,7 @@ class MarketplaceRequestService:
         requests. Returns None if the request is not theirs; returns the request
         with envelope=None if nothing has been delivered yet."""
         req_result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .select("*")
             .eq("id", request_id)
             .eq("buyer_user_id", buyer_user_id)
@@ -344,7 +344,7 @@ class MarketplaceRequestService:
             return None
         request = _row_to_request(req_rows[0])
         env_result = await self._execute_query(
-            self.supabase.table("marketplace_delivery_envelopes")
+            self.db.table("marketplace_delivery_envelopes")
             .select("*")
             .eq("request_id", request_id)
             .eq("buyer_user_id", buyer_user_id)
@@ -363,7 +363,7 @@ class MarketplaceRequestService:
         for them at approve time. Returns None if the request is not the owner's;
         recipientKey is None if the buyer has not published a key yet."""
         result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .select("*")
             .eq("id", request_id)
             .eq("owner_user_id", owner_user_id)
@@ -390,7 +390,7 @@ class MarketplaceRequestService:
         deletes any delivered ciphertext so the buyer can no longer fetch the
         slice. Only an ``approved`` request the owner owns can be revoked."""
         result = await self._execute_query(
-            self.supabase.table("marketplace_access_requests")
+            self.db.table("marketplace_access_requests")
             .update({"status": "revoked", "resolved_at": _now_iso(), "latest_envelope_id": None})
             .eq("id", request_id)
             .eq("owner_user_id", owner_user_id)
@@ -403,7 +403,7 @@ class MarketplaceRequestService:
         # truth for access, this just stops the server relaying a stale envelope).
         try:
             await self._execute_query(
-                self.supabase.table("marketplace_delivery_envelopes")
+                self.db.table("marketplace_delivery_envelopes")
                 .delete()
                 .eq("request_id", request_id)
                 .eq("owner_user_id", owner_user_id)
@@ -435,7 +435,7 @@ class MarketplaceRequestService:
 
         # Retire any other active key so a device rotation leaves exactly one.
         await self._execute_query(
-            self.supabase.table("marketplace_recipient_keys")
+            self.db.table("marketplace_recipient_keys")
             .update({"status": "rotated", "updated_at": _now_iso()})
             .eq("user_id", user_id)
             .eq("status", "active")
@@ -453,7 +453,7 @@ class MarketplaceRequestService:
             "updated_at": _now_iso(),
         }
         result = await self._execute_query(
-            self.supabase.table("marketplace_recipient_keys").upsert(
+            self.db.table("marketplace_recipient_keys").upsert(
                 payload, on_conflict="user_id,key_id"
             )
         )
@@ -463,7 +463,7 @@ class MarketplaceRequestService:
     async def get_recipient_key(self, *, user_id: str) -> dict[str, Any] | None:
         """Fetch a buyer's current active recipient key (newest first), or None."""
         query = (
-            self.supabase.table("marketplace_recipient_keys")
+            self.db.table("marketplace_recipient_keys")
             .select("*")
             .eq("user_id", user_id)
             .eq("status", "active")

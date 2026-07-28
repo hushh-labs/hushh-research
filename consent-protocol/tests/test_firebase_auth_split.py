@@ -25,14 +25,109 @@ def test_verify_firebase_bearer_uses_auth_admin_app(monkeypatch):
     )
     monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: fake_app)
 
-    def fake_verify(token: str, app=None):
+    def fake_verify(token: str, app=None, check_revoked: bool = False):
         assert token == bearer_value
         assert app is fake_app
+        assert check_revoked is True
         return {"uid": "user_123"}
 
     monkeypatch.setattr(firebase_auth, "verify_id_token", fake_verify)
 
     assert verify_firebase_bearer(f"Bearer {bearer_value}") == "user_123"
+
+
+def test_verify_firebase_bearer_accepts_active_trusted_device(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    class _TrustedDevices:
+        def is_active_device(self, *, user_id: str, device_id: str) -> bool:
+            assert user_id == "user_123"
+            assert device_id == "tdv_active"
+            return True
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "trusted_device_id": "tdv_active",
+        },
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.trusted_device_service.TrustedDeviceService",
+        _TrustedDevices,
+    )
+
+    assert verify_firebase_bearer("Bearer device-token") == "user_123"
+
+
+def test_verify_firebase_bearer_rejects_inactive_trusted_device(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    class _TrustedDevices:
+        def is_active_device(self, **_kwargs) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "trusted_device_id": "tdv_revoked",
+        },
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.trusted_device_service.TrustedDeviceService",
+        _TrustedDevices,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer device-token")
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Trusted-device session is no longer active"
+
+
+def test_verify_firebase_bearer_fails_closed_when_device_status_unavailable(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    class _TrustedDevices:
+        def is_active_device(self, **_kwargs) -> bool:
+            raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "trusted_device_id": "tdv_active",
+        },
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.trusted_device_service.TrustedDeviceService",
+        _TrustedDevices,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer device-token")
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Trusted-device status temporarily unavailable"
 
 
 def test_verify_firebase_bearer_returns_500_when_auth_admin_missing(monkeypatch):

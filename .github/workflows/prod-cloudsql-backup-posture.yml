@@ -1,0 +1,65 @@
+name: Prod Cloud SQL Backup Posture
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: hushh-pda
+  PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
+  BACKUP_MAX_AGE_HOURS: "30"
+
+jobs:
+  backup-posture:
+    name: Daily Cloud SQL Backup Posture Check
+    if: github.repository == 'hushh-labs/hushh-research'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing repository variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Run Cloud SQL backup posture policy check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/cloudsql_backup_freshness_check.py \
+            --project-id "${GCP_PROJECT_ID}" \
+            --instance "${PROD_CLOUDSQL_INSTANCE_NAME}" \
+            --max-age-hours "${BACKUP_MAX_AGE_HOURS}" \
+            --report-path /tmp/prod-backup-posture-report.json
+
+      - name: Upload backup posture artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-backup-posture-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: /tmp/prod-backup-posture-report.json

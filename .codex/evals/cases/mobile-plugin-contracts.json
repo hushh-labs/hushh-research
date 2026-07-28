@@ -1,0 +1,29 @@
+{
+  "skill_name": "mobile-plugin-contracts",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "add a Capacitor plugin for biometric unlock and register it on both iOS and Android",
+        "top_k": 3
+      },
+      {
+        "prompt": "the plugin registration in AndroidManifest does not match the iOS bridge contract",
+        "top_k": 3
+      },
+      {
+        "prompt": "register the new Swift plugin and align its method names with the TypeScript bridge",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "audit web, iOS and Android parity and tell me whether we are release ready",
+        "owner": "mobile-parity-audit"
+      },
+      {
+        "prompt": "iOS and Android both feel wrong and I cannot tell yet which native specialist should own it",
+        "owner": "mobile-native"
+      }
+    ]
+  }
+}

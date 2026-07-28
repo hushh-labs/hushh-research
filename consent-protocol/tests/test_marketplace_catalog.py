@@ -1,6 +1,6 @@
 """Tests for the anonymized cross-user Buyer directory + cross-account requests.
 
-Injects a fake Supabase client (chainable query stub) and a stub PKM service so
+Injects a fake Cloud SQL client (chainable query stub) and a stub PKM service so
 the anonymization, viewer-exclusion, listing resolution, and cross-account
 request wiring are covered without a real database.
 """
@@ -95,7 +95,7 @@ def _service_with(
     svc = MarketplaceCatalogService(pkm_service=_StubPkm())
     svc._identity = _StubIdentity(identities)
     fake = _FakeDB(_FakeResult(rows))
-    svc._supabase = fake
+    svc._db = fake
     return svc, fake
 
 

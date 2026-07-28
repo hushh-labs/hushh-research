@@ -144,7 +144,15 @@ async def test_reverse_geocode_parses_name_and_address(monkeypatch):
                         "formatted_address": "476 5th Ave, New York, NY 10018, USA",
                         "types": ["point_of_interest", "establishment"],
                         "address_components": [
-                            {"long_name": "Central Library", "types": ["point_of_interest"]}
+                            {
+                                "long_name": "Central Library",
+                                "types": ["point_of_interest"],
+                            },
+                            {
+                                "long_name": "United States",
+                                "short_name": "US",
+                                "types": ["country", "political"],
+                            },
                         ],
                     }
                 ]
@@ -158,16 +166,66 @@ async def test_reverse_geocode_parses_name_and_address(monkeypatch):
     assert out == {
         "name": "Central Library",
         "formattedAddress": "476 5th Ave, New York, NY 10018, USA",
+        "countryCode": "US",
     }
 
 
 @pytest.mark.asyncio
 async def test_reverse_geocode_empty_results_returns_nulls(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"results": []})
+        assert request.url.path.endswith("/geocode/json")
+        return httpx.Response(200, json={"status": "ZERO_RESULTS", "results": []})
 
     monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
     monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
     svc = gms.GoogleMapsService()
     out = await svc.reverse_geocode(lat=1.0, lng=2.0)
-    assert out == {"name": None, "formattedAddress": None}
+    assert out == {
+        "name": None,
+        "formattedAddress": None,
+        "countryCode": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_falls_back_to_nearest_place_address(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/geocode/json"):
+            return httpx.Response(
+                200,
+                json={"status": "REQUEST_DENIED", "results": []},
+            )
+        assert request.method == "POST"
+        assert request.url.path.endswith("/v1/places:searchNearby")
+        assert request.headers["X-Goog-FieldMask"] == (
+            "places.displayName,places.formattedAddress,places.addressComponents"
+        )
+        assert json.loads(request.content)["locationRestriction"]["circle"]["radius"] == 100.0
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "displayName": {"text": "Cubbon Park"},
+                        "formattedAddress": ("Kasturba Road, Bengaluru, Karnataka 560001, India"),
+                        "addressComponents": [
+                            {
+                                "longText": "India",
+                                "shortText": "IN",
+                                "types": ["country", "political"],
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    svc = gms.GoogleMapsService()
+    out = await svc.reverse_geocode(lat=12.9763, lng=77.5929)
+    assert out == {
+        "name": "Cubbon Park",
+        "formattedAddress": "Kasturba Road, Bengaluru, Karnataka 560001, India",
+        "countryCode": "IN",
+    }

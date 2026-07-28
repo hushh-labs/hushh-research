@@ -32,6 +32,26 @@ describe("OneLocationService maps methods", () => {
     expect(out).toEqual({ placeId: "p1", label: "SB", latitude: 1, longitude: 2 });
   });
 
+  it("reverseGeocode returns the friendly address", async () => {
+    vi.spyOn(apiClient, "apiJson").mockResolvedValue({
+      place: {
+        name: "Cubbon Park",
+        formattedAddress: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+        countryCode: "IN",
+      },
+    } as never);
+    const out = await OneLocationService.reverseGeocode({
+      vaultOwnerToken: "t",
+      lat: 12.9763,
+      lng: 77.5929,
+    });
+    expect(out).toEqual({
+      name: "Cubbon Park",
+      formattedAddress: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+      countryCode: "IN",
+    });
+  });
+
   it("routeEta returns eta seconds + distance", async () => {
     vi.spyOn(apiClient, "apiJson").mockResolvedValue({
       eta: { etaSeconds: 600, distanceMeters: 5000 },

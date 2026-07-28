@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-06-18
+Last updated: 2026-07-27
 
 ## Visual Map
 
@@ -33,6 +33,9 @@ Plain coordinates are allowed only on:
 
 - the owner's device while capturing foreground location
 - the approved recipient's device after local decryption
+- the authenticated Maps proxy in request memory while forwarding an explicit
+  owner-initiated reverse-geocode lookup; neither coordinates nor results are
+  persisted or logged
 - `one_location_public_invites.metadata.publicLocation` when the owner
   explicitly creates a snapshot-backed public location link
 - public invite resolve responses when the owner explicitly attached a captured
@@ -73,6 +76,29 @@ The web/native client creates one envelope per grant update:
 
 The backend stores the envelope and grant metadata only. It does not parse,
 reverse geocode, map, notify, or inspect latitude/longitude.
+
+## Saved Places Contract
+
+Saved Home, Work, and owner-labelled places are private PKM information, not
+live-location grants:
+
+- the owner confirms each save from onboarding or Location → Settings
+- exact coordinates and the friendly address live under `location.saved_places`
+  inside the encrypted Location PKM domain
+- the backend stores only the normal encrypted PKM blob, manifest, revision,
+  and non-sensitive summary count; there is no plaintext saved-place table or
+  One Location saved-place API
+- Location → Settings reads and mutates saved places only while the vault is
+  unlocked; decrypted values remain in memory or the encrypted device cache
+- reverse geocoding may send the captured point through the authenticated Maps
+  proxy to obtain display copy and an ISO country code, but the Maps service
+  does not persist the point or result
+- a device-local prompt marker may record that the optional onboarding question
+  was answered; it never contains coordinates, an address, or a place label
+
+Saved places do not create sharing authority. They enter a consented PKM export
+only when the owner separately approves the applicable Location information
+scope.
 
 ## Key Contract
 
@@ -241,5 +267,7 @@ The implementation must prove:
 - public links store token hashes only; snapshot-backed links reveal only the
   explicit public snapshot, while request-only links never reveal location
 - web, iOS, and Android have foreground permission parity
+- saved places round-trip through encrypted Location PKM without plaintext
+  local storage or a plaintext backend table
 - A/B/C/D flow is covered at service, authenticated API route, and browser
   crypto levels

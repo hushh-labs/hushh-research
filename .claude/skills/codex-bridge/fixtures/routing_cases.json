@@ -1,0 +1,129 @@
+{
+  "_doc": "Routing-accuracy fixtures for route.py --hook. Each case asserts what the bridge must do with a representative prompt. `expect_id` pins the winning lane, `expect_silent` requires empty output, `max_tier` forbids a full briefing (the expensive path), `forbid_id` names a lane that must never win, and `forbid_reply_rules` guards the Discord tone contract against leaking into engineering turns. `total_char_budget` caps the whole set so a token regression fails CI.",
+  "_budget_note": "Sized for the current case count with ~10 percent headroom. Raise it only when cases are added, and record the split between new cases and real growth; a budget raised to make a regression pass defeats the check.",
+  "total_char_budget": 115000,
+  "cases": [
+    {
+      "prompt": "run the security consent audit",
+      "expect_id": "security-consent-audit",
+      "forbid_id": "security-posture-maintenance",
+      "why": "The prompt names every word of the workflow id; a sibling that merely repeats 'security' must not win."
+    },
+    {
+      "prompt": "the CI is red on main, what happened",
+      "expect_id": "ci-watch-and-heal",
+      "forbid_id": "pr-governance-review",
+      "why": "Kebab-case ids must tokenize so 'CI' can reach the CI lane instead of the far more expensive PR-review briefing."
+    },
+    {
+      "prompt": "update the docs for the MCP surface",
+      "expect_id": "mcp-surface-change",
+      "why": "Owner/spoke MCP lane, not a generic docs lane."
+    },
+    {
+      "prompt": "review this PR for regressions before merging",
+      "expect_id": "pr-governance-review",
+      "expect_kind": "workflow",
+      "why": "A workflow and skill share this id; the workflow is the actionable unit that composes owner + spoke."
+    },
+    {
+      "prompt": "verify android and ios parity for the location plugin",
+      "expect_id": "mobile-parity-check",
+      "why": "Tri-flow parity work belongs to the mobile lane."
+    },
+    {
+      "prompt": "deploy the frontend to UAT",
+      "expect_id": "uat-scoped-deploy",
+      "why": "Scoped deploy lane."
+    },
+    {
+      "prompt": "check cache coherence on the consent center route",
+      "expect_id": "frontend-cache-coherence",
+      "why": "Named spoke concern, not generic frontend work."
+    },
+    {
+      "prompt": "draft a reply for the discord community question about BYOK",
+      "expect_id": "community-response",
+      "expect_reply_rules": true,
+      "why": "This is the one lane that genuinely needs the Discord tone contract."
+    },
+    {
+      "prompt": "why is the vault not decrypting PKM entries on iOS?",
+      "expect_id": "vault-pkm-governance",
+      "forbid_reply_rules": true,
+      "why": "A question mark in an engineering prompt must not pull in 180 lines of community reply rules."
+    },
+    {
+      "prompt": "who owns the analytics event taxonomy?",
+      "forbid_reply_rules": true,
+      "why": "Same guard, on the skill path."
+    },
+    {
+      "prompt": "how does repo-operations manage branch protection and merge queue settings?",
+      "forbid_reply_rules": true,
+      "why": "Same guard, on the exact-name path."
+    },
+    {
+      "prompt": "hey, what's up",
+      "expect_silent": true,
+      "why": "Chitchat must never cost tokens."
+    },
+    {
+      "prompt": "make the chart colors nicer",
+      "expect_silent": true,
+      "why": "No lane owns this; silence beats a confident wrong answer."
+    },
+    {
+      "prompt": "refactor this function to be cleaner",
+      "expect_silent": true,
+      "why": "Generic engineering verbs must not route anywhere."
+    },
+    {
+      "prompt": "audit the documentation structure of the repo",
+      "max_tier": "compact",
+      "forbid_id": "security-posture-maintenance",
+      "why": "'audit' is a near-universal word; a low-confidence match must stay a pointer, and must not land on the security lane."
+    },
+    {
+      "prompt": "fix the feed page styling on mobile",
+      "max_tier": "compact",
+      "why": "Ambiguous between the frontend and mobile lanes; a pointer is honest, a full playbook is not."
+    },
+    {
+      "prompt": "the top app bar is not visible on the feed route",
+      "max_tier": "compact",
+      "why": "Weak signal; must not spend a full briefing on a guess."
+    },
+    {
+      "prompt": "let's think about the roadmap for next quarter",
+      "max_tier": "compact",
+      "why": "Planning intent is real but imprecise."
+    },
+    {
+      "prompt": "governor",
+      "expect_id": "governor",
+      "expect_kind": "agent",
+      "why": "Exact agent name bypasses the length floor and the confidence tiers."
+    },
+    {
+      "prompt": "add a new backend route for consent scopes",
+      "expect_id": "new-feature-tri-flow",
+      "why": "New surface work routes to the tri-flow feature lane."
+    },
+    {
+      "prompt": "should I respond to this review comment on the PR?",
+      "forbid_reply_rules": true,
+      "why": "'respond to' plus a question mark is a routine PR turn, not a Discord reply."
+    },
+    {
+      "prompt": "attribution author green hussh land github email commit contributions",
+      "max_tier": "compact",
+      "why": "A workflow scoring below its full gate must stay a pointer even when a same-named skill scores higher; the two scores come from different corpora."
+    },
+    {
+      "prompt": "the Kai chat panel does not stream tokens",
+      "why": "KNOWN GAP, pinned deliberately. This used to reach one-voice-governance and is now silent: the workflow lands exactly on the lower gate, then loses a same-score tie on alphabetical order and is vetoed by an unrelated skill scoring one point higher across a different corpus. Silence is wrong here. This case exists so a calibration change that fixes it FAILS and has to be acknowledged, rather than passing unnoticed.",
+      "expect_silent": true
+    }
+  ]
+}

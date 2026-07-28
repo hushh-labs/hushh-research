@@ -21,7 +21,7 @@ describe("Morphy expressive content-enter contract", () => {
   });
 
   it("keeps controlled pager panels free of content-enter motion", () => {
-    const swipeViews = read("components/app-ui/swipe-views.tsx");
+    const swipeViews = read("lib/morphy-ux/ui/swipe-views.tsx");
 
     expect(swipeViews).toContain('data-no-auto-fade="true"');
     expect(swipeViews).not.toContain('data-morphy-enter="true"');

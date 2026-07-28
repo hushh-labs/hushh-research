@@ -84,6 +84,10 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM connected_system_audit_events",
         "DELETE FROM connected_system_record_bindings",
         "DELETE FROM connected_system_intents",
+        "DELETE FROM trusted_device_challenges",
+        "DELETE FROM trusted_device_authorizations",
+        "DELETE FROM trusted_device_audit_events",
+        "DELETE FROM trusted_devices",
         "DELETE FROM pkm_default_available_projections",
         "DELETE FROM pkm_upgrade_steps",
         "DELETE FROM pkm_upgrade_runs",
@@ -134,6 +138,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM connected_system_record_bindings") < executed_sql.index(
         "DELETE FROM connected_system_intents"
+    )
+    assert executed_sql.index("DELETE FROM trusted_device_challenges") < executed_sql.index(
+        "DELETE FROM trusted_devices"
     )
     assert executed_sql.index("DELETE FROM relationship_share_events") < executed_sql.index(
         "DELETE FROM relationship_share_grants"
@@ -207,6 +214,10 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",
         "DELETE FROM connected_system_intents",
+        "DELETE FROM trusted_device_challenges",
+        "DELETE FROM trusted_device_authorizations",
+        "DELETE FROM trusted_device_audit_events",
+        "DELETE FROM trusted_devices",
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",

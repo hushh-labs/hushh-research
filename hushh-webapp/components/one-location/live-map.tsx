@@ -68,6 +68,9 @@ export function LiveMap({ point, className }: LiveMapProps) {
       center: target,
       zoom: 16,
       disableDefaultUI: true,
+      keyboardShortcuts: false,
+      // Google Maps attribution, map-data credits, and Terms are provider-owned
+      // legal UI. They must remain visible and must never be hidden or cropped.
       clickableIcons: false,
       colorScheme,
     });

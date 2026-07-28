@@ -34,7 +34,7 @@ These are the non-negotiable reporting rules for the current system:
   - backend request correlation with `x-request-id`
   - structured backend request summaries
 - Data observability:
-  - Supabase health checks and structured aggregate-only summaries
+  - Cloud SQL health checks and structured aggregate-only summaries
 
 ## Environment and Property Topology
 
@@ -280,7 +280,7 @@ Operational emitters:
   - `consent-protocol/api/routes/kai/stream.py`
   - `consent-protocol/api/routes/kai/portfolio.py`
 - data health checks:
-  - `consent-protocol/scripts/observability/supabase_data_health.py`
+  - `consent-protocol/scripts/observability/db_data_health.py`
 
 ## Reporting Policy
 

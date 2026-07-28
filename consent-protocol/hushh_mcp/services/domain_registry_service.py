@@ -59,17 +59,17 @@ class DomainRegistryService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._cache: dict[str, DomainInfo] = {}
         self._cache_ttl = 300  # 5 minutes
         self._cache_time: Optional[datetime] = None
         self._canonical_seeded = False
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -99,10 +99,7 @@ class DomainRegistryService:
         """Ensure dotted domains consistently link to their top-level parent."""
         try:
             rows = (
-                self.supabase.table("domain_registry")
-                .select("domain_key,parent_domain")
-                .execute()
-                .data
+                self.db.table("domain_registry").select("domain_key,parent_domain").execute().data
                 or []
             )
         except Exception as read_error:
@@ -120,9 +117,9 @@ class DomainRegistryService:
             if current_parent == expected_parent:
                 continue
             try:
-                self.supabase.table("domain_registry").update(
-                    {"parent_domain": expected_parent}
-                ).eq("domain_key", domain_key).execute()
+                self.db.table("domain_registry").update({"parent_domain": expected_parent}).eq(
+                    "domain_key", domain_key
+                ).execute()
             except Exception as update_error:
                 logger.warning(
                     "Failed to update parent_domain for %s -> %s: %s",
@@ -136,7 +133,7 @@ class DomainRegistryService:
         referenced: set[str] = set()
         try:
             rows = (
-                self.supabase.table("pkm_index")
+                self.db.table("pkm_index")
                 .select("available_domains,domain_summaries")
                 .execute()
                 .data
@@ -172,7 +169,7 @@ class DomainRegistryService:
                 )
                 continue
             try:
-                self.supabase.table("domain_registry").delete().eq(
+                self.db.table("domain_registry").delete().eq(
                     "domain_key", normalized_retired
                 ).execute()
             except Exception as delete_error:
@@ -292,7 +289,7 @@ class DomainRegistryService:
 
         try:
             # Use RPC function for atomic upsert when supported by the client.
-            rpc_call = self.supabase.rpc(
+            rpc_call = self.db.rpc(
                 "auto_register_domain",
                 {
                     "p_domain_key": domain_key,
@@ -325,7 +322,7 @@ class DomainRegistryService:
                         if final_description is not None:
                             patch_data["description"] = final_description
                         if patch_data:
-                            self.supabase.table("domain_registry").update(patch_data).eq(
+                            self.db.table("domain_registry").update(patch_data).eq(
                                 "domain_key", domain_key
                             ).execute()
                     except Exception as patch_error:
@@ -367,14 +364,11 @@ class DomainRegistryService:
                 "parent_domain": final_parent_domain,
             }
 
-            self.supabase.table("domain_registry").upsert(data, on_conflict="domain_key").execute()
+            self.db.table("domain_registry").upsert(data, on_conflict="domain_key").execute()
 
             # Fetch the result
             result = (
-                self.supabase.table("domain_registry")
-                .select("*")
-                .eq("domain_key", domain_key)
-                .execute()
+                self.db.table("domain_registry").select("*").eq("domain_key", domain_key).execute()
             )
 
             if result.data:
@@ -404,10 +398,7 @@ class DomainRegistryService:
 
         try:
             result = (
-                self.supabase.table("domain_registry")
-                .select("*")
-                .eq("domain_key", domain_key)
-                .execute()
+                self.db.table("domain_registry").select("*").eq("domain_key", domain_key).execute()
             )
 
             if not result.data:
@@ -428,7 +419,7 @@ class DomainRegistryService:
             include_empty: If True, include domains with no attributes
         """
         try:
-            query = self.supabase.table("domain_registry").select("*").order("display_name")
+            query = self.db.table("domain_registry").select("*").order("display_name")
 
             if not include_empty:
                 query = query.gt("attribute_count", 0)
@@ -451,7 +442,7 @@ class DomainRegistryService:
         """Get domains that have data for a specific user from pkm_index."""
         try:
             result = (
-                self.supabase.table("pkm_index")
+                self.db.table("pkm_index")
                 .select("available_domains", "domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)
@@ -507,9 +498,7 @@ class DomainRegistryService:
             if not data:
                 return True
 
-            self.supabase.table("domain_registry").update(data).eq(
-                "domain_key", domain_key
-            ).execute()
+            self.db.table("domain_registry").update(data).eq("domain_key", domain_key).execute()
 
             # Invalidate cache
             self._invalidate_cache()
@@ -525,7 +514,7 @@ class DomainRegistryService:
         Note: This does NOT delete associated attributes.
         """
         try:
-            self.supabase.table("domain_registry").delete().eq("domain_key", domain_key).execute()
+            self.db.table("domain_registry").delete().eq("domain_key", domain_key).execute()
 
             # Invalidate cache
             self._invalidate_cache()

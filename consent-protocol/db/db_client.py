@@ -3,10 +3,9 @@
 Database Client - SQLAlchemy (synchronous)
 
 This module provides a unified, SYNCHRONOUS database access layer using
-SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Supabase has been
-removed; Cloud SQL is the only datastore. Connectivity matches db.connection:
-the Cloud SQL Auth Proxy locally (127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud
-SQL Unix socket on Cloud Run.
+SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Cloud SQL is the only
+datastore. Connectivity matches db.connection: the Cloud SQL Auth Proxy locally
+(127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud SQL Unix socket on Cloud Run.
 
 Architecture:
   API Route → Service Layer (validates consent) → DB Client → Cloud SQL
@@ -332,12 +331,12 @@ def get_db_engine() -> Engine:
             )
             target = db_unix_socket
         else:
-            ssl_suffix = (
-                "?sslmode=require"
-                if ("supabase.com" in str(db_host) or "pooler.supabase" in str(db_host))
-                else ""
+            # Cloud SQL is reached through the Auth Proxy (local loopback) or the
+            # Unix socket on Cloud Run; both already provide transport security,
+            # so no sslmode override is appended here.
+            database_url = (
+                f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
             )
-            database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
         connect_args: dict[str, Any] = {
@@ -414,7 +413,7 @@ def get_db_connection():
 
 @dataclass
 class QueryResult:
-    """Result from a database query, compatible with Supabase response format."""
+    """Result from a database query."""
 
     data: list[dict]
     count: Optional[int] = None
@@ -423,14 +422,10 @@ class QueryResult:
 
 class TableQuery:
     """
-    Supabase-compatible query builder for SQLAlchemy.
+    Fluent query builder for SQLAlchemy.
 
-    Provides a fluent API similar to supabase-py for easy migration:
+    Usage:
 
-        # Old (Supabase REST):
-        supabase.table("users").select("*").eq("id", user_id).execute()
-
-        # New (SQLAlchemy):
         db.table("users").select("*").eq("id", user_id).execute()
     """
 
@@ -824,7 +819,7 @@ class TableQuery:
 
 class DatabaseClient:
     """
-    Main database client with Supabase-compatible API.
+    Main database client.
 
     Usage:
         from db.db_client import get_db
@@ -971,14 +966,3 @@ def get_db() -> DatabaseClient:
     if _db_client is None:
         _db_client = DatabaseClient()
     return _db_client
-
-
-# Backward compatibility alias
-def get_supabase() -> DatabaseClient:
-    """
-    Backward compatibility alias for get_db().
-
-    DEPRECATED: Use get_db() instead.
-    """
-    logger.warning("get_supabase() is deprecated, use get_db() instead")
-    return get_db()

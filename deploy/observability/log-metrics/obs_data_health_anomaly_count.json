@@ -1,5 +1,5 @@
 {
   "name": "obs_data_health_anomaly_count",
-  "description": "Count of data-health anomaly summary logs emitted by scheduled Supabase checks",
+  "description": "Count of data-health anomaly summary logs emitted by scheduled Cloud SQL checks",
   "filter": "(resource.type=\"cloud_run_job\" OR resource.type=\"cloud_run_revision\") AND jsonPayload.message=\"data_health.summary\" AND jsonPayload.status=\"error\""
 }

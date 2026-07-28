@@ -83,4 +83,5 @@ Non-owned surfaces:
 ./bin/hushh codex data-model-audit
 ./bin/hushh codex audit
 python3 .codex/skills/repo-context/scripts/repo_scan.py validate
+python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test && python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
 ```

@@ -13,6 +13,13 @@ from dotenv import load_dotenv
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOTENV_PATH = _REPO_ROOT / ".env"
 load_dotenv(_DOTENV_PATH, override=False)
+# Local-only maintainer overlay. Developers keep the reviewer fixture
+# (REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE, hydrated from Secret Manager by
+# bootstrap) and local toggles like APP_REVIEW_MODE in .env.local so agents can
+# review app changes on localhost. This file is absent in deployed environments,
+# so this is a no-op there; override=False keeps the canonical .env authoritative
+# for any shared key.
+load_dotenv(_REPO_ROOT / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
@@ -69,6 +76,8 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
     "consent_center_summary_v2_enabled": "CONSENT_CENTER_SUMMARY_V2_ENABLED",
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
+    "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
+    "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
 }
 
 
@@ -269,6 +278,13 @@ def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
     if client_secret:
         headers.append(("client_secret", client_secret))
     return tuple(headers)
+
+
+def crm_registry_db_enabled() -> bool:
+    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
+    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
+    hardcoded in-code definition. Defaults off until cutover."""
+    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
 
 
 @lru_cache(maxsize=1)

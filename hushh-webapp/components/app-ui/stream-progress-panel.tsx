@@ -227,10 +227,13 @@ export function AppStreamPanel({
 
         {thinkingItems.length > 0 ? (
           <AppStreamSection
+            // Auto-open while reasoning streams and no answer has begun; remount
+            // collapsed once the answer arrives so it never covers the response.
+            key={hasResponse ? "thinking-collapsed" : "thinking-open"}
             title="Thinking"
             items={thinkingItems}
             count={thinkingItems.length}
-            defaultOpen={false}
+            defaultOpen={isStreaming && !hasResponse}
           />
         ) : null}
 

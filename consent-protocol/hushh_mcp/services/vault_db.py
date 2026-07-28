@@ -74,15 +74,15 @@ class VaultDBService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
 
-    def _get_supabase(self):
+    def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
-        if self._supabase is None:
+        if self._db is None:
             from db.db_client import get_db
 
-            self._supabase = get_db()
-        return self._supabase
+            self._db = get_db()
+        return self._db
 
     async def _validate_consent(
         self,
@@ -142,8 +142,8 @@ class VaultDBService:
     ) -> None:
         """Log operation to audit trail."""
         try:
-            supabase = self._get_supabase()
-            supabase.table("consent_audit").insert(
+            db = self._get_db()
+            db.table("consent_audit").insert(
                 {
                     "user_id": user_id,
                     "action": action,
@@ -195,17 +195,15 @@ class VaultDBService:
         if not table:
             raise ValueError(f"Unknown domain: {domain}")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        # Build Supabase query
+        # Build Cloud SQL query
         query = (
-            supabase.table(table)
-            .select("field_name,ciphertext,iv,tag,algorithm")
-            .eq("user_id", user_id)
+            db.table(table).select("field_name,ciphertext,iv,tag,algorithm").eq("user_id", user_id)
         )
 
         if field_names:
-            # Supabase doesn't support ANY() directly, so we use .in_() for array matching
+            # Cloud SQL doesn't support ANY() directly, so we use .in_() for array matching
             # Or filter in Python if needed
             response = query.execute()
             rows = [row for row in response.data if row.get("field_name") in field_names]
@@ -273,9 +271,9 @@ class VaultDBService:
         if not table:
             raise ValueError(f"Unknown domain: {domain}")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        # Upsert using Supabase (handles ON CONFLICT automatically)
+        # Upsert using Cloud SQL (handles ON CONFLICT automatically)
         timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = {
             "user_id": user_id,
@@ -288,7 +286,7 @@ class VaultDBService:
             "updated_at": timestamp,
         }
 
-        supabase.table(table).upsert(data, on_conflict="user_id,field_name").execute()
+        db.table(table).upsert(data, on_conflict="user_id,field_name").execute()
 
         logger.info("vault.write.ok domain=%s field=%s", domain, field_name)
 
@@ -333,9 +331,9 @@ class VaultDBService:
         if not table:
             raise ValueError(f"Unknown domain: {domain}")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        # Batch upsert using Supabase (no transactions, but atomic per batch)
+        # Batch upsert using Cloud SQL (no transactions, but atomic per batch)
         timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = [
             {
@@ -351,8 +349,8 @@ class VaultDBService:
             for field_name, payload in fields.items()
         ]
 
-        # Supabase handles batch upsert
-        supabase.table(table).upsert(data, on_conflict="user_id,field_name").execute()
+        # Cloud SQL handles batch upsert
+        db.table(table).upsert(data, on_conflict="user_id,field_name").execute()
 
         stored_count = len(data)
 
@@ -406,14 +404,14 @@ class VaultDBService:
         if not table:
             raise ValueError(f"Unknown domain: {domain}")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         if field_names:
             # Delete specific fields - need to delete each one
             deleted_count = 0
             for field_name in field_names:
                 response = (
-                    supabase.table(table)
+                    db.table(table)
                     .delete()
                     .eq("user_id", user_id)
                     .eq("field_name", field_name)
@@ -427,8 +425,8 @@ class VaultDBService:
                     deleted_count += 1
         else:
             # Delete all fields for user
-            response = supabase.table(table).delete().eq("user_id", user_id).execute()
-            # Supabase returns deleted data, count it
+            response = db.table(table).delete().eq("user_id", user_id).execute()
+            # Cloud SQL returns deleted data, count it
             deleted_count = len(response.data) if response.data else 0
 
         logger.info("vault.delete.ok domain=%s field_count=%d", domain, deleted_count)
@@ -476,11 +474,11 @@ class VaultDBService:
                 f"Unknown domain: {domain}. Valid domains: {list(DOMAIN_TABLES.keys())}"
             )
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         # Check if any rows exist
         response = (
-            supabase.table(table)
+            db.table(table)
             .select("user_id", count="exact")
             .eq("user_id", user_id)
             .limit(1)
@@ -516,9 +514,9 @@ class VaultDBService:
         if not table:
             raise ValueError(f"Unknown domain: {domain}")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        response = supabase.table(table).select("field_name").eq("user_id", user_id).execute()
+        response = db.table(table).select("field_name").eq("user_id", user_id).execute()
 
         return [row["field_name"] for row in response.data]
 
@@ -551,10 +549,10 @@ class VaultDBService:
         if not table:
             return {}
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         response = (
-            supabase.table(table)
+            db.table(table)
             .select("field_name,ciphertext,iv,tag,algorithm")
             .eq("user_id", user_id)
             .execute()

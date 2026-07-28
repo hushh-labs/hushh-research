@@ -9,7 +9,7 @@ description: Use when changing Morphy AX shared agent-experience state, semantic
 
 - Primary scope: `morphy-agent-experience`
 - Trigger on Morphy AX snapshots, active interaction layers, presentation derivation, semantic-assessment validation, compatibility projections, or AX performance budgets.
-- Avoid overlap with `frontend-design-system`, `kai-voice-governance`, and `backend-agents-operons`.
+- Avoid overlap with `frontend-design-system`, `one-voice-governance`, and `backend-agents-operons`.
 
 ## Coverage and Ownership
 
@@ -62,7 +62,7 @@ Non-owned surfaces:
 ## Handoff Rules
 
 1. Broad frontend work routes to `frontend`.
-2. Voice/action contracts route to `kai-voice-governance`.
+2. Voice/action contracts route to `one-voice-governance`.
 3. ADK or product-agent changes route to `backend-agents-operons`.
 4. Visual primitives route to `frontend-design-system`; verification policy routes to `quality-contracts`.
 

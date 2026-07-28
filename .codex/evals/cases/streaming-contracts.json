@@ -1,0 +1,29 @@
+{
+  "skill_name": "streaming-contracts",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the SSE parser drops the final token frame when the backend closes the stream early",
+        "top_k": 3
+      },
+      {
+        "prompt": "add a degraded-state event to the Kai stream and keep the frontend parser in sync",
+        "top_k": 3
+      },
+      {
+        "prompt": "agent chat progress rows are being rendered as assistant tokens, fix the stream event mapping",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "decide which tests gate this cross-surface change and where contract tests belong",
+        "owner": "quality-contracts"
+      },
+      {
+        "prompt": "define the request and response envelope for the new Next.js proxy-to-backend endpoint",
+        "owner": "backend-api-contracts"
+      }
+    ]
+  }
+}

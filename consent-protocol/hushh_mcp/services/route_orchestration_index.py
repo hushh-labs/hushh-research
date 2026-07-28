@@ -74,17 +74,30 @@ def resolve_route_orchestration_entry(route_family: str | None) -> dict[str, Any
 def is_one_delegate_admitted(route_family: str | None, agent_id: str) -> bool | None:
     """Return route admission; None preserves non-live compatibility.
 
-    A route with an index entry fails closed for a specialist it did not
-    declare. This gate is before A2A dispatch, not an alternative authority.
+    One is the single routing authority. Admission is descriptive scoping, not
+    a trust boundary: the specialist's own consent + TrustLink checks remain the
+    real gate, so One may reach a wired, authenticated, consent-bearing
+    specialist by intent from any screen. Absence of an explicit block admits.
+
+    A route suppresses delegation only when it explicitly opts out:
+    ``delegation_policy.mode == "block_delegation"`` (redirect, OAuth-return, and
+    callback surfaces where mid-flow delegation is incoherent) or the agent
+    appears in ``blocked_delegate_agent_ids``. ``allowed_delegate_agent_ids`` is
+    advisory (the screen's primary specialists surfaced via the playbook), never
+    a veto.
     """
     route = str(route_family or "").strip()
     if not route:
         return None
     entry = resolve_route_orchestration_entry(route)
     if entry is None:
-        return False
+        return True
     policy = entry.get("delegation_policy")
-    if not isinstance(policy, dict) or policy.get("mode") != "one_action_gate":
+    if not isinstance(policy, dict):
+        return True
+    if policy.get("mode") == "block_delegation":
         return False
-    allowed = policy.get("allowed_delegate_agent_ids")
-    return isinstance(allowed, list) and agent_id in allowed
+    blocked = policy.get("blocked_delegate_agent_ids")
+    if isinstance(blocked, list) and agent_id in blocked:
+        return False
+    return True

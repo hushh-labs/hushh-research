@@ -162,38 +162,9 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("app-accent-hero-from");
     expect(source).toContain("text-current");
     expect(source).not.toContain("AgentSectionDropdown");
-    expect(source).toContain("<ActivityInbox />");
+    expect(source).not.toContain("<ActivityInbox");
     expect(source).not.toContain("<ConsentInboxDropdown");
     expect(source).not.toContain("<DebateTaskCenter");
-  });
-
-  it("uses the shared Search Console-style mobile sheet without changing activity ownership", () => {
-    const inbox = read("components/app-ui/activity-inbox.tsx");
-    const tasks = read("components/app-ui/debate-task-center.tsx");
-    const sheet = read("components/ui/sheet.tsx");
-
-    expect(inbox).toContain("useIsMobile");
-    expect(inbox).toContain("<Sheet modal open={open}");
-    expect(inbox).toContain("<Activity className=");
-    expect(inbox).not.toContain("<Heart className=");
-    expect(inbox).not.toContain("<Shield");
-    expect(inbox).toContain(
-      'wrapperClassName={badgeCount > 0 ? "pr-5" : undefined}',
-    );
-    expect(inbox).toContain("<SheetContent");
-    expect(inbox).not.toContain("useMobileSheetDragDismiss");
-    expect(inbox).not.toContain(
-      "onPointerMove={sheetDrag.onContentPointerMove}",
-    );
-    expect(inbox).toContain('overlayClassName="activity-inbox-sheet-overlay"');
-    expect(inbox).toContain('presentation="section"');
-    expect(inbox.match(/>Activity</g)).toHaveLength(3);
-    expect(tasks).toContain(">Notifications</p>");
-    expect(tasks).not.toContain(">Activity</p>");
-    expect(sheet).toContain('data-slot="sheet-drag-handle"');
-    expect(sheet).toContain("surface.scrollTop <= 0 && movedDown > 6");
-    expect(sheet).toContain("distance > 96 || velocity > 0.5");
-    expect(sheet).toContain('surface.style.animation = "none"');
   });
 
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
@@ -257,7 +228,6 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("VaultService.checkVault(user.uid)");
     expect(source).toContain('aria-label="Unlock vault"');
     expect(source).toContain("<KeyRound");
-    expect(source).toContain("<ActivityInbox />");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",
     );
@@ -272,6 +242,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("ThemeToggleCompact");
     expect(source).toContain(
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
+    );
+    expect(source).toContain('variant="destructive"');
+    expect(source).toContain(
+      "data-[variant=destructive]:focus:bg-popover",
+    );
+    expect(source).toContain("focus-visible:ring-accent/70");
+    expect(source).not.toContain(
+      'className="text-red-600 focus:text-red-600"',
     );
     expect(source).not.toContain(
       'return { label: "Get started", interactive: false as const };',
@@ -308,10 +286,8 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
-  it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {
+  it("uses shared mobile-width chrome for top-shell dropdowns", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
-    const consentInbox = read("components/consent/consent-inbox-dropdown.tsx");
-    const taskCenter = read("components/app-ui/debate-task-center.tsx");
     const shellActionSurface = read(
       "components/app-ui/shell-action-surface.tsx",
     );
@@ -329,15 +305,6 @@ describe("Top app bar responsive contract", () => {
     expect(chrome).toContain("max-md:min-w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:max-w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("TOP_SHELL_DROPDOWN_COLLISION_PADDING = 12");
-    expect(consentInbox).toContain(
-      "import {\n  TOP_SHELL_DROPDOWN_BODY_CLASSNAME",
-    );
-    expect(consentInbox).toContain("TopShellDropdownContent");
-    expect(consentInbox).toContain('<TopShellDropdownContent align="end">');
-    expect(taskCenter).toContain("TopShellDropdownContent");
-    expect(taskCenter).toContain('<TopShellDropdownContent align="end">');
-    expect(consentInbox).not.toContain("TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME");
-    expect(taskCenter).not.toContain("TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME");
     // Lean header treatment: icon controls have no background chip and carry
     // the muted eyebrow tone on the stroke; only the pill variant keeps the
     // translucent track. The blue ripple stays shared across both.

@@ -590,6 +590,22 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     action_key = ",".join(
                         str(value) for value in sanitized_context.get("available_action_ids", [])
                     )
+                    # Active-screen awareness: the visible content composition
+                    # (modules + controls) is part of the change signal, so One
+                    # is re-notified when the person focuses different content on
+                    # the SAME route (e.g. selecting another item), not only on
+                    # navigation. Both lists are bounded and redacted upstream.
+                    content_key = "|".join(
+                        [
+                            ",".join(
+                                str(value) for value in sanitized_context.get("visible_modules", [])
+                            ),
+                            ",".join(
+                                str(value)
+                                for value in sanitized_context.get("visible_control_ids", [])
+                            ),
+                        ]
+                    )
                     route_key = ":".join(
                         [
                             str(sanitized_context.get("route_pattern") or ""),
@@ -597,6 +613,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             str(sanitized_context.get("route_instruction_id") or ""),
                             action_key,
                             layer_key,
+                            content_key,
                         ]
                     )
                     changed = route_key != last_injected_route_key

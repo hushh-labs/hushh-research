@@ -1,0 +1,29 @@
+{
+  "skill_name": "backend",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "something in consent-protocol is off but I am not sure if it is a route, a service, or an agent, where do I start",
+        "top_k": 3
+      },
+      {
+        "prompt": "run the consent-protocol pytest suite and tell me which backend surface owns this failure",
+        "top_k": 3
+      },
+      {
+        "prompt": "walk me through the FastAPI service layer under consent-protocol/api before I change anything",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the Next.js proxy response shape does not match the FastAPI endpoint it wraps",
+        "owner": "backend-api-contracts"
+      },
+      {
+        "prompt": "IAM actor model and consent scope verification policy needs a trust boundary review",
+        "owner": "security-audit"
+      }
+    ]
+  }
+}

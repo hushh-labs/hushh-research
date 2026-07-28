@@ -307,7 +307,7 @@ def _build_summary_from_financial(financial: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class _StubSupabaseTable:
+class _StubDbTable:
     def __init__(self, rows: list[dict[str, Any]] | None = None):
         self.rows = list(rows or [])
         self.last_upsert_data = None
@@ -350,20 +350,20 @@ class _StubSupabaseTable:
         return SimpleNamespace(data=filtered, error=None)
 
 
-class _StubSupabase:
+class _StubDb:
     def __init__(self):
         self.tables = {
-            "pkm_blobs": _StubSupabaseTable(),
-            "pkm_manifests": _StubSupabaseTable(),
-            "pkm_manifest_paths": _StubSupabaseTable(),
-            "pkm_scope_registry": _StubSupabaseTable(),
-            "pkm_migration_state": _StubSupabaseTable(),
+            "pkm_blobs": _StubDbTable(),
+            "pkm_manifests": _StubDbTable(),
+            "pkm_manifest_paths": _StubDbTable(),
+            "pkm_scope_registry": _StubDbTable(),
+            "pkm_migration_state": _StubDbTable(),
         }
 
     def table(self, name: str):
         table = self.tables.get(name)
         if table is None:
-            table = _StubSupabaseTable()
+            table = _StubDbTable()
             self.tables[name] = table
         table.filters = []
         return table
@@ -423,7 +423,7 @@ async def _rehearse_current_pkm_write(
     encrypted = encrypt_data(json.dumps(rehearse_financial), vault_key_hex)
 
     service = PersonalKnowledgeModelService()
-    service._supabase = _StubSupabase()
+    service._db = _StubDb()
     service.get_encrypted_data = AsyncMock(return_value=None)
     service.get_domain_manifest = AsyncMock(return_value=None)
     service.update_domain_summary = AsyncMock(return_value=True)
@@ -451,7 +451,7 @@ async def _rehearse_current_pkm_write(
         return_result=True,
     )
 
-    stub = service._supabase
+    stub = service._db
     blob_upsert = stub.tables["pkm_blobs"].last_upsert_data or {}
     manifest_upsert = stub.tables["pkm_manifests"].last_upsert_data or {}
     scope_upsert = stub.tables["pkm_scope_registry"].last_upsert_data or {}

@@ -1,10 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
-import { LocalEmergencyDialerRow } from "@/components/one-location/redesign/local-emergency-dialer-row";
 
 const HUB_SOURCE = fs.readFileSync(
   path.resolve(
@@ -22,15 +19,13 @@ const SMS_PANEL_SOURCE = fs.readFileSync(
 );
 
 describe("One Location SMS emergency actions", () => {
-  it("opens the US 911 dialer only after an explicit user tap", () => {
-    render(<LocalEmergencyDialerRow />);
-
-    expect(
-      screen.getByRole("link", { name: "Call 911" }),
-    ).toHaveAttribute("href", "tel:911");
-    expect(screen.getByText("Emergency services")).toBeInTheDocument();
-    expect(screen.getByText("United States")).toBeInTheDocument();
+  it("renders a dialer only after the local emergency number resolves", () => {
+    expect(SMS_PANEL_SOURCE).toContain(
+      'emergencyStatus === "resolved" && emergency',
+    );
     expect(SMS_PANEL_SOURCE).toContain("href={`tel:${emergency.number}`}");
+    expect(SMS_PANEL_SOURCE).not.toContain("emergencyInfoForPoint");
+    expect(SMS_PANEL_SOURCE).not.toContain('href="tel:911"');
   });
 
   it("does not advertise unimplemented SOS support actions", () => {

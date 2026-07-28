@@ -32,6 +32,7 @@ import {
   DEVELOPER_SECTIONS,
   FAQ_ITEMS,
   MCP_PUBLIC_LINKS,
+  PUBLIC_MCP_AUTHENTICATION,
   PUBLIC_SCOPE_PATTERNS,
   PUBLIC_MCP_ENVIRONMENT,
   PUBLIC_MCP_TOOLS,
@@ -265,10 +266,7 @@ function PublicToolCatalog() {
   return (
     <div className="divide-y divide-border/60 rounded-[var(--app-radius-lg)] border border-border/60 bg-background/55">
       {PUBLIC_MCP_TOOLS.map((tool) => (
-        <div
-          key={tool.name}
-          className="space-y-1 px-4 py-3"
-        >
+        <div key={tool.name} className="space-y-1 px-4 py-3">
           <code className="block min-w-0 text-xs font-semibold text-foreground">
             {tool.name}
           </code>
@@ -422,7 +420,7 @@ function SignedOutAccessCard({
             <EmptyDescription>
               The docs and live contract stay open to everyone on this page.
               Sign in only when you want a personal developer token, editable
-              app identity, and copy-ready snippets tied to your Kai account.
+              app identity, and copy-ready snippets tied to your Hussh account.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -527,14 +525,15 @@ function AccessWorkspace({
             Enable self-serve developer access
           </SurfaceCardTitle>
           <SurfaceCardDescription>
-            One developer app and one active token are created for your Kai
-            account. Consent still happens user-by-user in Kai.
+            One developer app and one active credential are created for your
+            Hussh account. Information access still requires a separate
+            user-by-user decision in the Consent Center.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent className="space-y-5">
           <SurfaceInset className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Current Kai account
+              Current Hussh account
             </p>
             <p className="text-sm font-semibold text-foreground">
               {signedInDisplayName || signedInEmail || "Signed-in user"}
@@ -546,7 +545,7 @@ function AccessWorkspace({
               </p>
             ) : (
               <p className="text-sm leading-6 text-muted-foreground">
-                Developer access will be created for the Kai account currently
+                Developer access will be created for the Hussh account currently
                 signed in on this page.
               </p>
             )}
@@ -561,7 +560,7 @@ function AccessWorkspace({
               </EmptyTitle>
               <EmptyDescription>
                 Turn on access once and your app identity, developer token, and
-                live setup snippets will be generated from this signed-in Kai
+                live setup snippets will be generated from this signed-in Hussh
                 account.
               </EmptyDescription>
             </EmptyHeader>
@@ -597,8 +596,9 @@ function AccessWorkspace({
           <div className="space-y-1">
             <SurfaceCardTitle>Developer workspace</SurfaceCardTitle>
             <SurfaceCardDescription>
-              Manage the identity users see in Kai, keep one active token, and
-              copy setup snippets without leaving this page.
+              Manage the identity people see in the Consent Center, keep one
+              active credential, and copy setup snippets without leaving this
+              page.
             </SurfaceCardDescription>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
@@ -642,7 +642,7 @@ function AccessWorkspace({
             mobileColumns={2}
             options={[
               { value: "overview", label: "Overview" },
-              { value: "tokens", label: "Tokens" },
+              { value: "tokens", label: "Credentials" },
               { value: "profile", label: "Profile" },
               { value: "contract", label: "Contract" },
             ]}
@@ -656,7 +656,7 @@ function AccessWorkspace({
                     App Identity
                   </p>
                   <h3 className="text-lg font-semibold text-foreground">
-                    {access.app?.display_name || "Kai developer app"}
+                    {access.app?.display_name || "Hussh developer app"}
                   </h3>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Agent id: <code>{access.app?.agent_id}</code>
@@ -811,8 +811,37 @@ function AccessWorkspace({
           {workspaceTab === "tokens" ? (
             <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <p className="text-sm font-semibold text-foreground">
-                Primary token setup
+                Self-serve credentials
               </p>
+              <SurfaceInset className="space-y-3">
+                {PUBLIC_MCP_AUTHENTICATION.selfServeMethods.map((method) => (
+                  <div className="space-y-1" key={method.id}>
+                    <p className="text-sm font-semibold text-foreground">
+                      {method.label}
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      {method.detail}
+                    </p>
+                  </div>
+                ))}
+                <RuntimeValueRow
+                  label="OAuth discovery"
+                  value={PUBLIC_MCP_AUTHENTICATION.discoveryUrl}
+                  copyLabel="OAuth discovery URL"
+                  isMobile={isMobile}
+                />
+                <RuntimeValueRow
+                  label="Scope"
+                  value={PUBLIC_MCP_AUTHENTICATION.scope}
+                  copyLabel="OAuth scope"
+                  isMobile={isMobile}
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {PUBLIC_MCP_AUTHENTICATION.partnerOnlyMethod.label} is limited
+                  to operations-provisioned partner integrations. It is not a
+                  self-serve grant and does not issue refresh tokens.
+                </p>
+              </SurfaceInset>
               <RuntimeValueRow
                 label="MCP URL"
                 value={runtime.remoteMcpUrlTemplate.replace(
@@ -856,7 +885,7 @@ function AccessWorkspace({
                     </FieldLabel>
                     <FieldDescription>
                       This is the app identity shown to users when they review
-                      consent in Kai.
+                      consent in the Consent Center.
                     </FieldDescription>
                     <InputGroup>
                       <InputGroupInput
@@ -1416,8 +1445,10 @@ export function DeveloperDocsHub({
                           2. Authenticate
                         </dt>
                         <dd className="text-sm leading-6 text-foreground">
-                          Use a bearer token for a direct host, or OAuth through
-                          your provisioned integration.
+                          Choose a self-serve developer token or OAuth
+                          authorization code with S256 PKCE and rotating refresh
+                          tokens. Both use Authorization: Bearer and scope{" "}
+                          <code>{PUBLIC_MCP_AUTHENTICATION.scope}</code>.
                         </dd>
                       </div>
                       <div className="space-y-1">
@@ -1711,9 +1742,9 @@ export function DeveloperDocsHub({
                       </SurfaceCardHeader>
                       <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
                         <p>
-                          One self-serve app per Hussh account, one active token,
-                          and the same contract surfaced through remote MCP, the
-                          API, and the npm bridge.
+                          One self-serve app per Hussh account, one active
+                          token, and the same contract surfaced through remote
+                          MCP, the API, and the npm bridge.
                         </p>
                         <p>
                           The data path is the same everywhere: discover scopes,

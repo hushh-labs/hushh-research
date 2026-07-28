@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -12,6 +12,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 type VaultUnlockDialogProps = {
   user: User;
@@ -72,6 +73,10 @@ export function VaultUnlockDialog({
   onSignOut,
 }: VaultUnlockDialogProps) {
   const surfaceId = useId();
+  const [recoveryKeyDisclosureActive, setRecoveryKeyDisclosureActive] =
+    useState(false);
+  const effectiveDismissible =
+    dismissible && !recoveryKeyDisclosureActive;
 
   useEffect(() => {
     if (!open) return;
@@ -85,6 +90,12 @@ export function VaultUnlockDialog({
     };
   }, [open, surfaceId, surfaceVariant]);
 
+  useEffect(() => {
+    if (!open) {
+      setRecoveryKeyDisclosureActive(false);
+    }
+  }, [open]);
+
   // The unlock flow is a stable upper-viewport credential layout, never a
   // bottom sheet. This prevents a native keyboard from moving the entire vault
   // surface; VaultFlow scrolls its own form content when needed.
@@ -93,33 +104,33 @@ export function VaultUnlockDialog({
       open={open}
       modal
       onOpenChange={(nextOpen) => {
-        if (!dismissible && !nextOpen) return;
+        if (!effectiveDismissible && !nextOpen) return;
         onOpenChange?.(nextOpen);
       }}
     >
       <DialogPortal>
         <DialogOverlay
-          className={
-            surfaceVariant === "hard_gate"
-              ? "!z-[711] !animate-none !backdrop-blur-none [-webkit-backdrop-filter:none]"
-              : "!z-[711]"
-          }
-          style={
-            surfaceVariant === "hard_gate"
+          className={cn(
+            "!z-[711] !backdrop-blur-none [-webkit-backdrop-filter:none]",
+            surfaceVariant === "hard_gate" && "!animate-none",
+          )}
+          style={{
+            backgroundColor: "var(--background)",
+            backdropFilter: "none",
+            WebkitBackdropFilter: "none",
+            opacity: 1,
+            ...(surfaceVariant === "hard_gate"
               ? {
-                  backgroundColor: "var(--background)",
-                  backdropFilter: "none",
-                  WebkitBackdropFilter: "none",
-                  opacity: 1,
                   animation: "none",
                   transition: "none",
                 }
-              : undefined
-          }
+              : {}),
+          }}
         />
         <DialogPrimitive.Content
           data-vault-unlock-surface={surfaceVariant}
           data-vault-layout="top-centered-flat"
+          data-vault-dismissible={effectiveDismissible}
           style={{
             position: "fixed",
             zIndex: 712,
@@ -138,10 +149,10 @@ export function VaultUnlockDialog({
           }}
           className="outline-none focus:outline-none focus-visible:outline-none"
           onEscapeKeyDown={(event) => {
-            if (!dismissible) event.preventDefault();
+            if (!effectiveDismissible) event.preventDefault();
           }}
           onPointerDownOutside={(event) => {
-            if (!dismissible) event.preventDefault();
+            if (!effectiveDismissible) event.preventDefault();
           }}
         >
           <DialogTitle className="sr-only">{title}</DialogTitle>
@@ -150,6 +161,9 @@ export function VaultUnlockDialog({
             user={user}
             enableGeneratedDefault={enableGeneratedDefault}
             onSuccess={onSuccess}
+            onRecoveryKeyDisclosureChange={
+              setRecoveryKeyDisclosureActive
+            }
             onSignOut={onSignOut}
           />
         </DialogPrimitive.Content>

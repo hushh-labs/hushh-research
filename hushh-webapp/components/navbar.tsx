@@ -21,6 +21,7 @@ import {
   FolderSearch,
   Mail,
   MapPin,
+  Newspaper,
   ShieldCheck,
   Store,
   Users,
@@ -31,6 +32,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
@@ -141,6 +143,12 @@ const BOTTOM_NAV_OPTION_META: Record<
     icon: ShieldCheck,
     dataTourId: "nav-one-consent",
   },
+  feed: {
+    value: "feed",
+    label: "Feed",
+    icon: Newspaper,
+    dataTourId: "nav-one-feed",
+  },
   pkm: {
     value: "pkm",
     label: "Memory",
@@ -177,6 +185,7 @@ const BOTTOM_NAV_OPTION_META: Record<
 function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number,
+  feedUnreadCount: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
@@ -185,6 +194,8 @@ function navOptionForKey(
   let badge: number | undefined;
   if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
     badge = pendingConsents;
+  } else if (key === "feed" && feedUnreadCount > 0) {
+    badge = feedUnreadCount;
   }
   return { ...option, badge };
 }
@@ -204,6 +215,7 @@ export const Navbar = ({
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
   const pendingConsents = useConsentPendingSummaryCount();
+  const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -267,8 +279,10 @@ export const Navbar = ({
 
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
-    return keys.map((key) => navOptionForKey(key, pendingConsents ?? 0));
-  }, [normalizedPathname, bottomNavScope, pendingConsents]);
+    return keys.map((key) =>
+      navOptionForKey(key, pendingConsents ?? 0, feedUnreadCount ?? 0),
+    );
+  }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;

@@ -32,7 +32,8 @@ DEVELOPER_INSTRUCTIONS_MAX_LINES = 48
 DEVELOPER_INSTRUCTIONS_MAX_CHARS = 3000
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 ADVISORY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
-PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel from AGENTS.md"
+PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel"
+BACTERIAL_ARCHITECTURE_RULE = "Bacterial Software Architecture Gate from AGENTS.md"
 DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
     "Project-Wide Principal Craft Kernel",
     "Operate as a principal-level software engineer",
@@ -45,6 +46,9 @@ DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
     "Leslie Lamport",
     "John Carmack",
     "Steve Jobs",
+    "Project-Wide Bacterial Software Architecture Gate",
+    "A gene is the smallest useful capability",
+    "A eukaryotic monorepo backbone",
 ]
 TRUTH_FIRST_HEADER = "Truth-first protocol:"
 TRUTH_FIRST_TOKENS = [
@@ -122,6 +126,7 @@ def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
             "skills": _parse_skill_block(instructions),
             "has_advisory_rule": name == "governor" or ADVISORY_RULE in instructions,
             "has_principal_craft_kernel": PRINCIPAL_CRAFT_RULE in instructions,
+            "has_bacterial_architecture": BACTERIAL_ARCHITECTURE_RULE in instructions,
             "craft_duplication_tokens": craft_duplication_tokens,
             "has_truth_first_protocol": TRUTH_FIRST_HEADER in instructions
             and all(token in instructions for token in TRUTH_FIRST_TOKENS),
@@ -224,6 +229,10 @@ def audit(root: Path) -> OrderedDict[str, Any]:
             hard_findings.append(f"{agent['path']}: missing advisory-only authority rule")
         if not agent["has_principal_craft_kernel"]:
             hard_findings.append(f"{agent['path']}: missing Principal Craft Kernel inheritance hook")
+        if not agent["has_bacterial_architecture"]:
+            hard_findings.append(
+                f"{agent['path']}: missing Bacterial Software Architecture inheritance hook"
+            )
         if agent["developer_instruction_lines"] > DEVELOPER_INSTRUCTIONS_MAX_LINES:
             hard_findings.append(
                 f"{agent['path']}: developer_instructions too long: {agent['developer_instruction_lines']} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}"
@@ -234,7 +243,7 @@ def audit(root: Path) -> OrderedDict[str, Any]:
             )
         if agent["craft_duplication_tokens"]:
             hard_findings.append(
-                f"{agent['path']}: duplicates Principal Craft Kernel text: {', '.join(agent['craft_duplication_tokens'])}"
+                f"{agent['path']}: duplicates shared root doctrine text: {', '.join(agent['craft_duplication_tokens'])}"
             )
         if not agent["has_truth_first_protocol"]:
             hard_findings.append(f"{agent['path']}: missing complete truth-first protocol")

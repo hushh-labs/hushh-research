@@ -50,6 +50,24 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 }
 
+// JSDOM has no IntersectionObserver. embla-carousel-react (SwipeViews' swipe
+// engine) initializes a SlidesInView plugin on mount that requires it, so any
+// test rendering a SwipeViews-based page needs this polyfill or React logs an
+// unhandled ReferenceError from the passive effect.
+if (typeof globalThis.IntersectionObserver === "undefined") {
+  class IntersectionObserverMock {
+    root = null;
+    rootMargin = "";
+    thresholds: ReadonlyArray<number> = [];
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+    takeRecords = vi.fn(() => []);
+  }
+  globalThis.IntersectionObserver =
+    IntersectionObserverMock as unknown as typeof IntersectionObserver;
+}
+
 // JSDOM also has no scrollIntoView. cmdk calls this on the selected item's
 // layout effect to keep it in view, which throws in JSDOM without a stub.
 if (typeof window !== "undefined" && !window.HTMLElement.prototype.scrollIntoView) {

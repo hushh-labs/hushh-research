@@ -44,7 +44,7 @@ class TestTokenLogFingerprint:
 
         from unittest.mock import MagicMock, patch
 
-        service_path = "hushh_mcp.services.consent_db.ConsentDBService._get_supabase"
+        service_path = "hushh_mcp.services.consent_db.ConsentDBService._get_db"
         with caplog.at_level(logging.ERROR, logger="hushh_mcp.services.consent_db"):
             with patch(service_path) as mock_sb:
                 # Force the wrapped-key-bundle guard to log by passing None bundle
@@ -79,7 +79,7 @@ class TestTokenLogFingerprint:
         from unittest.mock import MagicMock, patch
 
         with caplog.at_level(logging.INFO, logger="hushh_mcp.services.consent_db"):
-            with patch("hushh_mcp.services.consent_db.ConsentDBService._get_supabase") as mock_sb:
+            with patch("hushh_mcp.services.consent_db.ConsentDBService._get_db") as mock_sb:
                 mock_sb.return_value = MagicMock()
                 import asyncio
 

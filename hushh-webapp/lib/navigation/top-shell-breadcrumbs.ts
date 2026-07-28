@@ -58,7 +58,8 @@ function oneLocationActionLabel(action: string): string {
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
     sos: "Safety",
-    privacy: "Privacy",
+    settings: "Settings",
+    privacy: "Settings",
   };
   return labels[action] ?? titleizeSegment(action);
 }
@@ -118,6 +119,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
+    [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Kai",
     [ROUTES.CONNECT]: "Connect",
@@ -285,6 +287,7 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
+    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
 
     if (debateId) {
       return {
@@ -321,6 +324,19 @@ function resolveTopShellBreadcrumbInner(
           { label: "Kai", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
+        ],
+      };
+    }
+
+    if (view === "debate") {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: "Debate" },
         ],
       };
     }
@@ -639,7 +655,7 @@ function resolveTopShellBreadcrumbInner(
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
-    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Settings,
     // temporary link, or a focused detail view) is a
     // sub-screen of the Location hub, tracked via `?action=…`. While one is
     // open, the SINGLE top-left back button must return to the Location hub
@@ -688,6 +704,26 @@ function resolveTopShellBreadcrumbInner(
           ? { label: "Profile", href: ROUTES.PROFILE }
           : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Marketplace" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.ONE_FEED) {
+    // Feed is a bottom-nav destination but reads as a One sub-surface: the
+    // shared top bar owns its "Feed" title + a single back-to-One arrow, so
+    // the page itself carries no in-body header.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Feed" },
       ],
     };
   }

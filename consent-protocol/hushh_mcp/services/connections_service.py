@@ -13,6 +13,7 @@ import logging
 from typing import Any, Callable
 
 from db.db_client import get_db
+from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,19 @@ class ConnectionsService:
             """,
             {"id": req.get("id")},
         )
+        # Best-effort feed rows for both sides of the new connection.
+        FeedService().record_event(
+            user_id=user_id,
+            source_domain="connections",
+            event_type="connection_accepted",
+            metadata={"counterpart_user_id": requester},
+        )
+        FeedService().record_event(
+            user_id=requester,
+            source_domain="connections",
+            event_type="connection_accepted",
+            metadata={"counterpart_user_id": user_id},
+        )
         return {
             "status": "accepted",
             "requestId": req.get("id"),
@@ -317,6 +331,12 @@ class ConnectionsService:
             RETURNING id
             """,
             {"id": req.get("id")},
+        )
+        FeedService().record_event(
+            user_id=str(req.get("requester_user_id")),
+            source_domain="connections",
+            event_type="connection_rejected",
+            metadata={"counterpart_user_id": user_id},
         )
         return {"status": "rejected", "requestId": req.get("id")}
 
@@ -524,4 +544,17 @@ class ConnectionsService:
             """,
             {"id": (connection_id or "").strip()},
         )
+        if conn:
+            FeedService().record_event(
+                user_id=user_a,
+                source_domain="connections",
+                event_type="connection_revoked",
+                metadata={"counterpart_user_id": user_b},
+            )
+            FeedService().record_event(
+                user_id=user_b,
+                source_domain="connections",
+                event_type="connection_revoked",
+                metadata={"counterpart_user_id": user_a},
+            )
         return {"removed": 1 if conn else 0}

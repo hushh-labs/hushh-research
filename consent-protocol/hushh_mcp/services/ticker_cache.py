@@ -2,7 +2,7 @@
 
 Goal
 ----
-Avoid hitting Supabase/Postgres for every keystroke in the ticker dropdown.
+Avoid hitting Cloud SQL/Postgres for every keystroke in the ticker dropdown.
 We preload tickers into memory on FastAPI startup and serve searches from RAM.
 
 Design

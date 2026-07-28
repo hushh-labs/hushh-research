@@ -4,7 +4,6 @@ This folder owns the shared consent center experience and all consent launchers.
 
 ## Start Here
 
-- `consent-inbox-dropdown.tsx`: top-shell shield inbox for the One user lane, rendering the first 5 rows from the shared pending page-1 consent cache.
 - `consent-sheet-controller.tsx`: compatibility launcher that redirects older sheet entrypoints into the page route.
 - `consent-center-page.tsx`: canonical standalone consent center page surface.
 - `consent-center-view.tsx`: legacy embedded consent surface kept for compatibility.

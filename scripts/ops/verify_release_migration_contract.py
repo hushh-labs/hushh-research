@@ -63,8 +63,11 @@ def build_report() -> dict:
             f"contract={uat_contract.get('expected_migration_version')}:manifest={highest_manifest_version}"
         )
 
-    if prod_contract.get("migration_version_policy") != "minimum":
-        violations.append("prod_contract_policy_must_be_minimum")
+    # Production runs the same Cloud SQL schema as UAT, so its contract must be
+    # an exact match of the integrated contract (the former "frozen subset"
+    # policy, where prod pinned a lower minimum, no longer applies).
+    if prod_contract.get("migration_version_policy") != "exact":
+        violations.append("prod_contract_policy_must_be_exact")
 
     prod_version = prod_contract.get("expected_migration_version")
     if isinstance(prod_version, int) and isinstance(highest_manifest_version, int):

@@ -22,7 +22,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 16. `agent-orchestration-governance`: custom agents, subagent limits, delegation authority, and handoff verification.
 17. `autonomous-rca-governance`: resume-safe RCA for runtime, UAT, and CI failures.
 18. `desktop-mac`: native macOS One app, LaunchAgent, and local MCP host surfaces.
-19. `kai-voice-governance`: One Voice contracts, Kai compatibility runtime, planner/executor flow, and generated gateway parity.
+19. `one-voice-governance`: One Voice contracts, Kai compatibility runtime, planner/executor flow, and generated gateway parity.
 20. `pr-governance-review`: PR review, train governance, merge-readiness, and trust-boundary review.
 
 ## Spoke skills by owner
@@ -85,7 +85,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 16. `generic-pdf-artifact-generation`
 17. `github-contribution-governance`
 18. `hushh-consent-mcp-ops`
-19. `kai-voice-governance`
+19. `one-voice-governance`
 20. `mcp-surface-change`
 21. `morphy-ax-governance`
 22. `mobile-parity-check`

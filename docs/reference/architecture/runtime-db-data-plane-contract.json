@@ -44,7 +44,7 @@
     },
     {
       "family_id": "one_action_directive_authority",
-      "owner": "kai-voice-governance",
+      "owner": "one-voice-governance",
       "mode": "report_only",
       "job_id": "directive_ledger_retention_report"
     },
@@ -440,6 +440,52 @@
       "expected_row_growth": "medium_per_user_connection"
     },
     {
+      "id": "trusted_device_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_devices"
+      ],
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService.",
+      "retention_policy": "Retain active device registrations while the account exists; retain revoked metadata only for bounded security review before compaction.",
+      "deletion_behavior": "Delete all device rows on account deletion; explicit device revocation immediately disables new challenges and records the revocation timestamp.",
+      "trust_boundary": "Public P-256 device keys and device metadata only; never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, or developer credentials.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "trusted_device_authorization_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_device_authorizations",
+        "trusted_device_challenges"
+      ],
+      "primary_access_path": "Short-lived PKCE authorization codes and single-use proof-of-possession challenges consumed atomically through TrustedDeviceService.",
+      "retention_policy": "Authorization and challenge rows expire within minutes; consumed and expired rows are compacted after the bounded replay-investigation window.",
+      "deletion_behavior": "Delete all user-bound rows on account deletion; revocation prevents new challenges and existing challenges remain unusable after expiry or first consumption.",
+      "trust_boundary": "Stores hashes, public device keys, redirect metadata, opaque identifiers, and expiry/consumption timestamps only; no bearer tokens, private device keys, vault secrets, decrypted PKM, or raw nonce values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
+    },
+    {
+      "id": "trusted_device_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_device_audit_events"
+      ],
+      "primary_access_path": "Metadata-only trusted-device authorization, challenge, capability issuance, use, and revocation audit events written by TrustedDeviceService.",
+      "retention_policy": "Long-retention security audit metadata; compact only under the regulated audit-retention policy and redact optional metadata before deleting authority history.",
+      "deletion_behavior": "Account export may include safe event metadata; hard-delete user-linked runtime audit rows on account deletion unless a separate legally mandated retention system owns an immutable copy.",
+      "trust_boundary": "Event type, user/device references, timestamps, and allowlisted metadata only; never authorization codes, nonce values, signatures, tokens, private keys, vault secrets, or decrypted information.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
       "id": "relay_ticket_replay_guard",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -612,6 +658,81 @@
       "trust_boundary": "Developer metadata and token hashes/wrappers only; no user PKM payloads.",
       "plaintext_posture": "metadata_and_token_hashes",
       "expected_row_growth": "low_developer"
+    },
+    {
+      "id": "feed_events",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "feed_events"
+      ],
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking",
+      "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
+      "deletion_behavior": "Hard-delete with account deletion.",
+      "trust_boundary": "Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "preference_world_model",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_documents"
+      ],
+      "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)",
+      "retention_policy": "Retain while the account exists; one row per owner, overwritten in place on update.",
+      "deletion_behavior": "Hard-delete on account deletion, an explicit DELETE /api/pwm, or an empty PUT.",
+      "trust_boundary": "The owner's own plaintext preference metadata, keyed by and returned only to the verified uid; never another party's data and never vault ciphertext.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "subscription_fabric_grants",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_subscription_grants"
+      ],
+      "primary_access_path": "PCHP RFC-002 subscription grants: owner-issued, subscriber-scoped read access to PWM fields (/api/fabric/grants)",
+      "retention_policy": "Retain while the grant is active or for audit; revoked/expired grants compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion; revoke (fail-closed status) on owner revocation or expiry.",
+      "trust_boundary": "Grant metadata only (subscriber, scopes, purpose, price, handle fingerprint); never the PWM values and never the plaintext handle.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "subscription_fabric_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_receipts"
+      ],
+      "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "subscription_fabric_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_consent_requests"
+      ],
+      "primary_access_path": "brand-initiated PCHP RFC-002 pairing requests: create, code lookup, approve/deny, single handle claim (/api/fabric/requests)",
+      "retention_policy": "Short-lived pairing workflow: requests expire in minutes; terminal rows compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion for bound rows; expired/denied/claimed rows are terminal and compactable.",
+      "trust_boundary": "Workflow state and grant metadata only; the signed handle is held solely between approval and its single claim, then cleared. Never PWM values; uid binds only at approval from the verified token.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
     }
   ]
 }

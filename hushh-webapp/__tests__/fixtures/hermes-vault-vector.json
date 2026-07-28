@@ -1,0 +1,10 @@
+{
+  "vector_id": "hussh-vault-passphrase-v1",
+  "schema_version": 1,
+  "passphrase": "correct horse battery staple",
+  "salt_b64": "AAECAwQFBgcICQoLDA0ODw==",
+  "iv_b64": "AAECAwQFBgcICQoL",
+  "encrypted_vault_key_b64": "Y23IVq92fddVIVsQJnFEBp3CasDwAnYPNgT3bX9L3vJM934H8QKzANCxzOnjzNiV",
+  "vault_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "vault_key_hash": "6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b"
+}

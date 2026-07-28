@@ -58,7 +58,7 @@ export function buildPublicKnowledgeRoute(tab: PublicKnowledgeTab): string {
  * A Consent Center tab switch deliberately drops list/search/detail state.
  * Keep only the route-owned advisor context and a verified in-app return link.
  */
-function buildConsentCenterTabRoute(
+export function buildConsentCenterTabRoute(
   tab: ConsentCenterTab,
   searchParams: URLSearchParams,
 ): string {

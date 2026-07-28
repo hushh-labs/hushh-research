@@ -1275,7 +1275,7 @@ Examples:
         help=(
             "Migration authority mode: replay (current behavior), observe (inspect only; no "
             "migration bodies), or ledger (pending only after verified baseline). Defaults "
-            "to HUSSH_MIGRATION_MODE or replay."
+            "to HUSHH_MIGRATION_MODE or replay."
         ),
     )
     parser.add_argument(
@@ -1349,7 +1349,7 @@ Examples:
     print("Connecting to database (DB_* env)...")
     print(f"   URL: {display_url}")
     if _ssl_config:
-        print("   SSL: enabled (Supabase)")
+        print("   SSL: enabled (Cloud SQL)")
 
     pool = await asyncpg.create_pool(
         _database_url,

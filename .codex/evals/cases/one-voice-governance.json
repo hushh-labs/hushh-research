@@ -1,0 +1,29 @@
+{
+  "skill_name": "one-voice-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "add a new capability to the local voice action contract and regenerate the Kai action gateway",
+        "top_k": 3
+      },
+      {
+        "prompt": "typed search and the spoken action for the same action_id do different things",
+        "top_k": 3
+      },
+      {
+        "prompt": "persona and workspace gating lets an unapproved user reach a One Voice capability, lock it down",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "durable memory is being written to plaintext localStorage, fix the vault encryption boundary",
+        "owner": "vault-pkm-governance"
+      },
+      {
+        "prompt": "clean up the redundant docs for the voice runtime and decide their documentation home",
+        "owner": "docs-governance"
+      }
+    ]
+  }
+}

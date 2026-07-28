@@ -1,0 +1,1 @@
+export const ONE_LOCATION_SHARE_NOTE_MAX_LENGTH = 140;

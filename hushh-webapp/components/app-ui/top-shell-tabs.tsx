@@ -10,7 +10,6 @@ import {
   topShellTabSwipePositionVariable,
   useTopShellTabSwipeState,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { cn } from "@/lib/utils";
@@ -57,6 +56,11 @@ export function TopShellTabs({
     0,
     tabSet.tabs.findIndex((tab) => tab.value === selectedValue),
   );
+  // A single-entry tab set has nothing to switch between, so the sliding
+  // pill and accent underline (both designed to show which of several
+  // segments is active) would otherwise render as one meaningless
+  // full-width bar. Skip the decorative indicators in that case.
+  const showIndicators = tabSet.tabs.length > 1;
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
@@ -104,6 +108,15 @@ export function TopShellTabs({
         className="relative flex h-full w-full"
         role="tablist"
       >
+        {/* Full-width baseline hairline the accent underline rides along, so
+            the moving indicator reads as travelling a track rather than a
+            floating blue stick. */}
+        {showIndicators ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-current/[0.12]"
+          />
+        ) : null}
         {tabSet.tabs.map((tab, index) => {
           const isActive = tab.value === selectedValue;
           return (
@@ -123,8 +136,7 @@ export function TopShellTabs({
               aria-current={isActive ? "page" : undefined}
               tabIndex={isActive ? 0 : -1}
               className={cn(
-                "relative z-10 flex h-full flex-1 items-center justify-center overflow-hidden transition-[color,opacity] duration-150",
-                isActive ? "text-current" : "text-current opacity-60 hover:opacity-100",
+                "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {
@@ -144,42 +156,37 @@ export function TopShellTabs({
                 selectIndex(nextIndex, true);
               }}
             >
-              <MaterialRipple variant="none" className="z-0" />
-              <span className="relative z-10 text-[15px] font-semibold tracking-[-0.01em]">
+              <span
+                className={cn(
+                  "relative truncate text-[15px] tracking-[-0.01em] transition-[color,opacity] duration-150",
+                  isActive
+                    ? "font-semibold text-current opacity-100"
+                    : "font-normal text-current opacity-55 hover:opacity-80",
+                )}
+              >
                 {tab.label}
               </span>
             </button>
           );
         })}
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-1.5 left-0 motion-reduce:transition-none",
-            tabSwipeState.isDragging
-              ? "transition-none"
-              : "transition-transform duration-150 ease-out",
-          )}
-          style={{
-            transform: indicatorTransform,
-            width: tabWidth,
-          }}
-        >
-          <div className="mx-1 h-full rounded-full bg-current/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.05)] ring-1 ring-inset ring-current/[0.05]" />
-        </div>
-        <div
-          aria-hidden
-          data-testid="top-shell-tab-indicator"
-          className={cn(
-            "absolute bottom-0 left-0 z-20 h-[3px] rounded-full bg-[var(--app-accent)] shadow-[0_1px_10px_color-mix(in_oklab,var(--app-accent)_45%,transparent)] motion-reduce:transition-none",
-            tabSwipeState.isDragging
-              ? "transition-none"
-              : "transition-transform duration-150 ease-out",
-          )}
-          style={{
-            transform: indicatorTransform,
-            width: tabWidth,
-          }}
-        />
+        {showIndicators ? (
+          <div
+            aria-hidden
+            data-testid="top-shell-tab-indicator"
+            className={cn(
+              "pointer-events-none absolute bottom-0 left-0 z-20 flex justify-center motion-reduce:transition-none",
+              tabSwipeState.isDragging
+                ? "transition-none"
+                : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+            )}
+            style={{
+              transform: indicatorTransform,
+              width: tabWidth,
+            }}
+          >
+            <span className="h-[2.5px] w-[max(28px,calc(100%-2rem))] rounded-full bg-[var(--app-accent)]" />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,0 +1,96 @@
+---
+name: one-voice-governance
+description: Use when changing One Voice capability authoring, Kai compatibility runtime contracts, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.
+---
+
+# One Voice Governance Skill
+
+## Purpose and Trigger
+
+- Primary scope: `one-voice-governance`
+- Trigger on One Voice capability authoring, Kai compatibility runtime changes, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
+- Avoid overlap with `frontend`, `backend-api-contracts`, and `vault-pkm-governance`.
+
+## Coverage and Ownership
+
+- Role: `owner`
+- Owner family: `one-voice-governance`
+
+Owned repo surfaces:
+
+1. `contracts/kai`
+2. `consent-protocol/hushh_mcp/services/action_gateway.py`
+3. `docs/reference/one/one-voice-runtime-architecture.md`
+4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+5. `docs/reference/kai`
+6. `hushh-webapp/lib/voice`
+7. `hushh-webapp/scripts/voice`
+8. `hushh-webapp/components/kai`
+9. `hushh-webapp/components/consent`
+10. `hushh-webapp/app/kai`
+11. `hushh-webapp/app/profile`
+12. `hushh-webapp/app/ria`
+13. `.codex/skills/one-voice-governance`
+
+Non-owned surfaces:
+
+1. `frontend`
+2. `backend-api-contracts`
+3. `vault-pkm-governance`
+4. `docs-governance`
+5. `quality-contracts`
+
+## Do Use
+
+1. Local `.voice-action-contract.json`, generated gateway, or manifest changes.
+2. Voice/search/UI action parity around stable `action_id`.
+3. Persona, workspace, vault, consent, onboarding, and durable voice memory gates.
+
+## Do Not Use
+
+1. Generic frontend layout or backend route work without voice/search/action impact.
+2. Generic docs cleanup without voice/action ownership implications.
+3. Security intake where IAM or consent policy is primary.
+
+## Read First
+
+1. `docs/reference/kai/kai-action-gateway-vnext.md`
+2. `docs/reference/one/one-voice-runtime-architecture.md`
+3. `docs/reference/one/one-agent-hierarchy.md`
+4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+5. `.codex/skills/one-voice-governance/references/voice-review-checklist.md`
+
+## Workflow
+
+1. Treat local voice action contracts as the authoring source of truth.
+2. Keep the generated gateway as the single semantic authority; do not restore a parallel compatibility manifest.
+3. Reuse stable `action_id` values across voice, search, UI actionables, analytics, and docs.
+4. Do not add capabilities through runtime heuristics, ad hoc DOM discovery, or parallel voice systems.
+5. Treat One Voice as the product-facing voice contract; keep Kai-era voice routes as compatibility/runtime identifiers until explicitly migrated.
+6. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
+7. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
+8. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
+9. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
+10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
+11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.
+12. Keep legacy query route inputs as compatibility only. Generated `route.*` actions should target canonical nested routes unless the action intentionally opens a canonical One capability route.
+13. Do not expose broken or unrelated route actions in realtime context. Published voice surface metadata may describe local controls and unavailable state, but it must omit executable `actionId` values unless that id exists in the generated gateway and is compatible with the active route, vault/persona/cache state, and UI affordance.
+
+## Handoff Rules
+
+1. Generic UI structure routes to `frontend`.
+2. Route/request/response contracts route to `backend-api-contracts`.
+3. Vault and encrypted-storage boundaries route to `vault-pkm-governance`.
+4. Documentation-home decisions route to `docs-governance`.
+5. Verification-policy changes route to `quality-contracts`.
+
+## Required Checks
+
+```bash
+cd hushh-webapp && npm run build:voice-gateway
+cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm run typecheck
+cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts
+cd consent-protocol && python3 -m pytest tests/test_one_adk_live_protocol.py tests/services/test_agent_chat_service.py -q
+./bin/hushh docs verify
+```

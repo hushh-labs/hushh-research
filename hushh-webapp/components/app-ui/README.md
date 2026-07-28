@@ -9,14 +9,13 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 - `surfaces.tsx`: semantic bridge to the Morphy-owned surface primitives and `SurfaceStack`.
 - `settings-ui.tsx`: shared grouped settings rows, segmented tabs, and mobile drawer/desktop detail-panel primitives.
 - `top-app-bar.tsx`: the single `AppTopShell` renderer for the fixed bar,
-  optional route-owned contextual tabs, persona switcher, consent inbox, vault
-  action, notifications, and Profile.
+  optional route-owned contextual tabs, persona switcher, vault action, and
+  Profile. Cross-domain activity lives in the Feed tab (bottom nav), not here.
 - `app-edge-back-gesture.tsx`: native iOS left-edge back affordance. It shares
   the authored top-shell back contract and takes priority over tab swipes.
 - `shell-action-surface.tsx`: canonical interaction surface for top-shell buttons and pills.
-- `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/bell overlays.
+- `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/overlay surfaces.
 - `command-fields.tsx`: shared command/search field chrome for route-local filters and pickers.
-- `debate-task-center.tsx`: notification bell surface for background tasks and activity.
 - `route-error-boundary.tsx`: top-level error boundary for route failures with graceful fallback UI.
 
 ## Rules
