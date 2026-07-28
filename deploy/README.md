@@ -387,6 +387,12 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 
 ### Mobile Firebase Artifacts (Regulated)
 
+> **In use by the one-click iOS pipeline.** The `.github/workflows/ship-ios-testflight.yml`
+> workflow reads `IOS_GOOGLESERVICE_INFO_PLIST_B64`, `APPSTORE_CONNECT_API_KEY_P8_B64`,
+> `APPSTORE_CONNECT_KEY_ID`, and `APPSTORE_CONNECT_ISSUER_ID` from Secret Manager
+> (`hushh-pda-uat`) via `GCP_SA_KEY_UAT` to build + sign + upload the UAT iOS build to TestFlight.
+> Setup + flow: [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+
 - Do not commit production `GoogleService-Info.plist` or `google-services.json`.
 - Store production mobile Firebase artifacts in Secret Manager:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`

@@ -41,6 +41,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>GIDClientID</key>
 	<string>1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91.apps.googleusercontent.com</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>HusshIMessageKeychainAccessGroup</key>
 	<string>WVDK9JW99C.com.hushh.app.imessage</string>
 	<key>LSRequiresIPhoneOS</key>
