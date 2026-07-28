@@ -1,3 +1,12 @@
 # Non-secret key-algorithm labels from the SMS contacts test fixture in PR #4655.
 900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:16
 900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:26
+
+# Non-secret values from the personal-agent / WebAuthn work. All three are labels or
+# public identifiers, never key material; the source lines also carry `gitleaks:allow`.
+#   personal_agent.py:37            - the podKeyWrappingAlg field alias, an algorithm label
+#   test_personal_agent_registry_repo.py:94 - the literal "X25519-AES256-GCM", an algorithm name
+#   test_webauthn_aal.py:16         - the YubiKey 5 NFC AAGUID, a publicly published FIDO id
+467291e478c4d917d4b10714817bb198eea73683:consent-protocol/api/routes/one/personal_agent.py:generic-api-key:37
+467291e478c4d917d4b10714817bb198eea73683:consent-protocol/tests/test_webauthn_aal.py:generic-api-key:16
+467291e478c4d917d4b10714817bb198eea73683:consent-protocol/tests/test_personal_agent_registry_repo.py:generic-api-key:94
