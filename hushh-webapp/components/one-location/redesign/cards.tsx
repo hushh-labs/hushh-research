@@ -10,8 +10,9 @@
  * No business logic lives here.
  */
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import {
+  ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import { Avatar, StatusPill } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
@@ -54,7 +56,7 @@ export function TrustedPersonCard({
   selected,
 }: {
   name: string;
-  subtitle: string;
+  subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
   actionLabel?: string;
@@ -77,9 +79,16 @@ export function TrustedPersonCard({
         <p className="break-words text-[13px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] sm:text-base">
           {name}
         </p>
-        <p className={cn(MUTED_TEXT, "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs")}>
-          {subtitle}
-        </p>
+        {subtitle ? (
+          <p
+            className={cn(
+              MUTED_TEXT,
+              "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs",
+            )}
+          >
+            {subtitle}
+          </p>
+        ) : null}
       </div>
 
       {statusLabel ? (
@@ -240,7 +249,6 @@ export function RequestCard({
 export function SharedWithMeCard({
   name,
   statusLine,
-  metaLine,
   onView,
   onDismiss,
   mapHref,
@@ -251,7 +259,6 @@ export function SharedWithMeCard({
 }: {
   name: string;
   statusLine: string;
-  metaLine?: string;
   onView: () => void;
   onDismiss?: () => void;
   mapHref?: string;
@@ -261,31 +268,62 @@ export function SharedWithMeCard({
   message?: string;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
-  const canDismissPreview = Boolean(previewExpanded && onDismiss);
+  const previewRegionId = useId();
+  const isPreviewExpanded = Boolean(previewExpanded);
+  const canTogglePreview = !isPreviewExpanded || Boolean(onDismiss);
+  const togglePreview = () => {
+    if (isPreviewExpanded) {
+      onDismiss?.();
+      return;
+    }
+    onView();
+  };
 
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
             {name} is sharing with you
           </p>
-          <p className={cn(MUTED_TEXT, "truncate")}>{statusLine}</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
+            <StatusPill tone="live" className="shrink-0">
+              Live
+            </StatusPill>
+          </div>
         </div>
-        <StatusPill tone="live">Live</StatusPill>
+        {canTogglePreview ? (
+          <ShellActionSurface
+            variant="icon"
+            aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
+            aria-expanded={isPreviewExpanded}
+            aria-controls={previewRegionId}
+            disabled={viewBusy && !isPreviewExpanded}
+            onClick={togglePreview}
+          >
+            {viewBusy && !isPreviewExpanded ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform duration-200",
+                  isPreviewExpanded && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+            )}
+          </ShellActionSurface>
+        ) : null}
       </div>
-      {metaLine ? <p className={MUTED_TEXT}>{metaLine}</p> : null}
-      {children}
+      <div id={previewRegionId} hidden={!isPreviewExpanded}>
+        {children}
+      </div>
       {message ? (
         <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
       ) : null}
-      <div
-        className={cn(
-          "grid gap-2",
-          canDismissPreview ? "grid-cols-2" : "grid-cols-1",
-        )}
-      >
+      <div className="grid grid-cols-1 gap-2">
         {canOpenMap ? (
           <Button
             asChild
@@ -313,16 +351,6 @@ export function SharedWithMeCard({
             View location
           </Button>
         )}
-        {canDismissPreview ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onDismiss}
-            className="h-9 rounded-full text-sm"
-          >
-            Dismiss
-          </Button>
-        ) : null}
       </div>
     </div>
   );

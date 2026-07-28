@@ -2654,29 +2654,29 @@ html.native-ios {
        chrome disagree, especially in mobile WebKit. */
     background-color: var(--background) !important;
   }
-html.native-ios body {
-  padding-top: 0;
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-}
+  html.native-ios body {
+    padding-top: 0;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
 
-/* The Capacitor Google Maps renderer is a native surface below the WebView.
+  /* The Capacitor Google Maps renderer is a native surface below the WebView.
  * Only the immersive Map route opts into this class, so its shell layers must
  * be transparent while the controls above remain regular web UI. Keeping the
  * override route-scoped prevents native maps from changing any other screen. */
-html.one-location-map-native,
-html.one-location-map-native body,
-html.one-location-map-native [data-app-shell-root="true"],
-html.one-location-map-native [data-app-scroll-root="true"],
-html.one-location-map-native [data-app-shell-content="true"],
-html.one-location-map-native .one-location-map {
-  background: transparent !important;
-  background-color: transparent !important;
-}
+  html.one-location-map-native,
+  html.one-location-map-native body,
+  html.one-location-map-native [data-app-shell-root="true"],
+  html.one-location-map-native [data-app-scroll-root="true"],
+  html.one-location-map-native [data-app-shell-content="true"],
+  html.one-location-map-native .one-location-map {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
 
-html {
-  overflow-x: hidden;
-}
+  html {
+    overflow-x: hidden;
+  }
 }
 /* Lighter blur variant for performance-critical areas */
 .backdrop-blur-optimized {
@@ -2735,9 +2735,11 @@ md-ripple.morphy-md-ripple {
 }
 
 .ambient-chrome-mask {
-  /* Persistent chrome is a sampled tint and feathered fade, never frosted
-     content. The structure remains opaque through contextual tabs; only the
-     material wash and tail are deliberately light and transparent. */
+  /* Persistent chrome uses one neutral, theme-derived feather. Surface
+     sampling still drives native system-bar contrast, but it must not cast a
+     route color across either app edge. */
+  --ambient-chrome-material-bg: var(--background);
+  --ambient-chrome-material-fg: var(--foreground);
   --tw-backdrop-blur: blur(0px);
   --tw-backdrop-saturate: saturate(1);
   --ambient-chrome-wash: 58%;
@@ -2754,7 +2756,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .ambient-chrome-mask--top {
-  --ambient-chrome-bg: var(--ambient-chrome-top-bg, #f5f5f7);
+  --ambient-chrome-bg: var(--ambient-chrome-material-bg);
   background-color: color-mix(
     in srgb,
     var(--ambient-chrome-bg) var(--ambient-chrome-wash),
@@ -2789,34 +2791,52 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      instead of stepping through a single mid alpha. Stops are fractions of the
      resolved fade tail (--top-fade-active) so they stay in order and adapt to
      the device safe-area inset. */
+  --ambient-chrome-top-solid-height: calc(
+    var(--top-shell-reserved-height) - var(--top-chrome-collapse-px, 0px)
+  );
+  --ambient-chrome-top-visible-height: calc(
+    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0,
-    #000 var(--top-shell-reserved-height),
+    #000 var(--ambient-chrome-top-solid-height),
     rgba(0, 0, 0, 0.82)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.24),
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
+      ),
     rgba(0, 0, 0, 0.5)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.46),
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
+      ),
     rgba(0, 0, 0, 0.2)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.72),
-    transparent var(--top-shell-visual-height)
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
+      ),
+    transparent var(--ambient-chrome-top-visible-height)
   );
   mask-image: linear-gradient(
     to bottom,
     #000 0,
-    #000 var(--top-shell-reserved-height),
+    #000 var(--ambient-chrome-top-solid-height),
     rgba(0, 0, 0, 0.82)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.24),
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
+      ),
     rgba(0, 0, 0, 0.5)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.46),
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
+      ),
     rgba(0, 0, 0, 0.2)
-      calc(var(--top-shell-reserved-height) + var(--top-fade-active) * 0.72),
-    transparent var(--top-shell-visual-height)
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
+      ),
+    transparent var(--ambient-chrome-top-visible-height)
   );
 }
 
 .ambient-chrome-mask--bottom {
-  --ambient-chrome-bg: var(--ambient-chrome-bottom-bg, #f5f5f7);
+  --ambient-chrome-bg: var(--ambient-chrome-material-bg);
   /* Match the Search Console dock: the bottom edge dissolves content into its
      live sampled tint rather than placing a second frosted slab over cards. */
   background-color: transparent;
@@ -2834,12 +2854,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* Top controls consume the same foreground token as the top mask. This is
  * intentionally scoped: cards and route content keep their own semantic ink. */
 [data-app-top-bar].ambient-chrome-top-foreground {
-  color: var(--ambient-chrome-top-fg, #1d1d1f);
+  color: var(--foreground);
 }
 
 [data-app-top-bar] .shell-action-surface,
 [data-app-top-bar] .top-shell-ambient-ink {
-  color: var(--ambient-chrome-top-fg, #1d1d1f);
+  color: var(--foreground);
 }
 
 /* A chrome child must not pin its own theme foreground while the sampled edge
@@ -2852,7 +2872,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 [data-app-top-bar] .shell-action-surface:hover {
-  color: var(--ambient-chrome-top-fg, #1d1d1f);
+  color: var(--foreground);
 }
 
 /* Legacy aliases remain temporarily for non-shell migration callers. New
@@ -3073,29 +3093,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    subtle highlight so the current route stays readable. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
-  color: var(--ambient-chrome-bottom-fg, #1d1d1f);
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--ambient-chrome-bottom-fg, #1d1d1f) 10%,
-      transparent
-    ) !important;
-  background: color-mix(
-    in srgb,
-    var(--ambient-chrome-bottom-bg, #f5f5f7) 74%,
-    transparent
-  ) !important;
+  color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--background) 74%, transparent) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: blur(12px) saturate(130%);
   backdrop-filter: blur(12px) saturate(130%);
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
-  background: color-mix(
-    in srgb,
-    var(--ambient-chrome-bottom-fg, #1d1d1f) 8%,
-    transparent
-  ) !important;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent) !important;
   border: 0;
   box-shadow: none !important;
 }
@@ -3144,11 +3151,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: color-mix(
-    in srgb,
-    var(--ambient-chrome-bottom-fg, #1d1d1f) 70%,
-    transparent
-  ) !important;
+  color: color-mix(in srgb, var(--foreground) 70%, transparent) !important;
   min-height: 48px;
   gap: 0.2rem !important;
   padding: 0.4rem 0.2rem 0.42rem !important;
@@ -3195,13 +3198,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-search-action {
-  color: var(--ambient-chrome-bottom-fg, #1d1d1f) !important;
+  color: var(--foreground) !important;
   border: 0 !important;
-  background: color-mix(
-    in srgb,
-    var(--ambient-chrome-bottom-fg, #1d1d1f) 6%,
-    transparent
-  ) !important;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

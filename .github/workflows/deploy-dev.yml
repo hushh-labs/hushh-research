@@ -252,6 +252,7 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --hushh-trusted-device-enabled "false" \
             > /tmp/dev-runtime-secret-sync.json
 
           # Same main-workflow vs train-tree skew guard as the backend sync:

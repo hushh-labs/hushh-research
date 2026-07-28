@@ -58,7 +58,8 @@ function oneLocationActionLabel(action: string): string {
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
     sos: "Safety",
-    privacy: "Privacy",
+    settings: "Settings",
+    privacy: "Settings",
   };
   return labels[action] ?? titleizeSegment(action);
 }
@@ -654,7 +655,7 @@ function resolveTopShellBreadcrumbInner(
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
-    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Settings,
     // temporary link, or a focused detail view) is a
     // sub-screen of the Location hub, tracked via `?action=…`. While one is
     // open, the SINGLE top-left back button must return to the Location hub

@@ -202,12 +202,12 @@ canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
 Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a blur-free sampled
-tint and feathered dissolve; the top mask keeps the shell legible through its
-tab stack before fading into content. Those edges must remain present on mobile
-and desktop wherever the signed-in top/bottom shell is present.
+`components/app-ui/ambient-chrome-mask.tsx`: both edges use a blur-free neutral
+theme feather; the top mask keeps the shell legible through its visible tab
+stack and moves its dissolve with header collapse. Those edges must remain
+present on mobile and desktop wherever the signed-in top/bottom shell is present.
 
-Persistent chrome text and icons inherit the sampled ambient foreground through
+Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
 `text-muted-foreground` classes. Lucide icons use the shared
 `--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
