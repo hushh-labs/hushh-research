@@ -95,7 +95,7 @@ LAYERS_ALL=[
  ]),
  ("INFRASTRUCTURE","INFRA","the governed foundation everything above runs on",[
    ("GCP · Cloud Run + Vertex","cloud compute + LLM","serverless compute + Gemini","scales · governed deploys","UAT → prod parity","hosts API + MCP","ship",[]),
-   ("Supabase / Postgres","database","relational data plane","durable workflow state","consent·audit·metadata","ciphertext rows","ship",[]),
+   ("Cloud SQL / Postgres","database","relational data plane","durable workflow state","consent·audit·metadata","ciphertext rows","ship",[]),
    ("GCP Secret Manager","secret store","secret store","no keys in code","runtime refs · BYOK refs","model API keys","ship",[]),
    ("Firebase / FCM","auth + push","auth + push messaging","identity & notifications","tokens + messaging","consent push prompt","ship",[]),
    ("CI/CD","delivery pipeline","delivery pipeline","safe, repeatable ships","parity gates UAT→prod","blocked on red test","ship",[]),
@@ -185,7 +185,7 @@ SANITIZE=[
  ("Google ADK","agent dev kit"),("ADK runtime + tools","agent runtime + tools"),("Agent Development Kit (Google)","agent dev kit"),("agent dev kit (Google)","agent dev kit"),("ADK","agent dev kit"),
  ("Hermes (Nous)","Agent runtime"),("Mac · Hermes runtime","On-device · agent runtime"),("Hermes runtime","agent runtime"),("Hermes","agent runtime"),("(Nous)",""),("Nous Research","research lab"),("Nous",""),
  ("Firebase Auth","Identity provider"),("Firebase / FCM","Auth + push"),("Firebase Cloud Messaging push","push messaging"),("Firebase identity","identity provider"),("Firebase","auth"),("FCM","push messaging"),
- ("Supabase / Postgres","Database"),("Supabase","Postgres"),
+ ("Cloud SQL / Postgres","Database"),("Cloud SQL","Postgres"),
  ("@hushh/mcp · Hosted MCP","Hosted MCP server"),("@hushh/mcp","hosted MCP"),
  ("Next.js","web framework"),("Capacitor","native shell"),("MLX","on-device ML"),
  ("Renaissance overlay tiers","systematic overlay tiers"),("Renaissance","systematic"),

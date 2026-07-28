@@ -1,0 +1,269 @@
+name: Migrate UAT to Prod Cloud SQL
+
+# ONE-OFF migration lane: clones the UAT Cloud SQL database into the production
+# Cloud SQL instance (hushh-pda:us-central1:hushh-vault-db) so production runs
+# the same schema + data as UAT, on GCP only.
+#
+# This workflow is temporary. It exists to move production off the retired
+# Supabase database onto Cloud SQL. Delete it once the cutover is complete and
+# verified (tracked in docs/reference/operations/prod-cloudsql-cutover.md).
+#
+# Safety contract:
+# - `mode: dry-run` (the default) dumps UAT and reports what WOULD be written,
+#   touching production only with read-only introspection.
+# - `mode: apply` requires `confirm: MIGRATE` so an accidental dispatch cannot
+#   write to production.
+# - `apply` refuses to run unless the production target database is empty,
+#   unless `allow_non_empty_target` is explicitly set. The prod instance already
+#   has automated backups + PITR enabled as the rollback path.
+# - Runs on ubuntu-latest with the PostgreSQL 15 client, matching both servers
+#   (a PG14 client cannot dump a PG15 server).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run reports only; apply writes to the production Cloud SQL instance"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirm:
+        description: "Type MIGRATE to authorize an apply run (ignored for dry-run)"
+        required: false
+        type: string
+      allow_non_empty_target:
+        description: "Allow apply when the production database already has tables"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  UAT_PROJECT_ID: hushh-pda-uat
+  PROD_PROJECT_ID: hushh-pda
+  UAT_CLOUDSQL_INSTANCE: hushh-pda-uat:us-central1:hushh-uat-pg
+  PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
+  PROD_DB_NAME: hushh_vault
+  UAT_PROXY_PORT: "6543"
+  PROD_PROXY_PORT: "6544"
+
+concurrency:
+  group: migrate-uat-to-prod-cloudsql
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate UAT to Prod Cloud SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate apply authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE="${{ inputs.mode }}"
+          CONFIRM="${{ inputs.confirm }}"
+          if [ "${MODE}" = "apply" ] && [ "${CONFIRM}" != "MIGRATE" ]; then
+            echo "Refusing to apply: 'confirm' must be exactly MIGRATE."
+            exit 1
+          fi
+          echo "Mode: ${MODE}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 15 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Both UAT and prod are POSTGRES_15; an older client aborts on
+          # "server version mismatch", so pin the matching major version.
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-15
+          /usr/lib/postgresql/15/bin/pg_dump --version
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROD_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Cloud SQL Auth Proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Start Cloud SQL proxies (UAT + prod)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cloud-sql-proxy --address 127.0.0.1 --port "${UAT_PROXY_PORT}" "${UAT_CLOUDSQL_INSTANCE}" &
+          cloud-sql-proxy --address 127.0.0.1 --port "${PROD_PROXY_PORT}" "${PROD_CLOUDSQL_INSTANCE}" &
+          for _ in $(seq 1 30); do
+            if nc -z 127.0.0.1 "${UAT_PROXY_PORT}" && nc -z 127.0.0.1 "${PROD_PROXY_PORT}"; then
+              echo "Both proxies are listening."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Cloud SQL proxies did not become ready."
+          exit 1
+
+      - name: Resolve database credentials
+        id: creds
+        shell: bash
+        run: |
+          set -euo pipefail
+          UAT_DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${UAT_PROJECT_ID}")"
+          UAT_DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${UAT_PROJECT_ID}")"
+          PROD_DB_USER="$(gcloud secrets versions access latest --secret=PROD_CLOUDSQL_DB_USER --project="${PROD_PROJECT_ID}")"
+          PROD_DB_PASSWORD="$(gcloud secrets versions access latest --secret=PROD_CLOUDSQL_DB_PASSWORD --project="${PROD_PROJECT_ID}")"
+          echo "::add-mask::${UAT_DB_USER}"
+          echo "::add-mask::${UAT_DB_PASSWORD}"
+          echo "::add-mask::${PROD_DB_USER}"
+          echo "::add-mask::${PROD_DB_PASSWORD}"
+          {
+            echo "uat_db_user=${UAT_DB_USER}"
+            echo "uat_db_password=${UAT_DB_PASSWORD}"
+            echo "prod_db_user=${PROD_DB_USER}"
+            echo "prod_db_password=${PROD_DB_PASSWORD}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Inspect source and target
+        id: inspect
+        shell: bash
+        env:
+          PGPASSWORD_UAT: ${{ steps.creds.outputs.uat_db_password }}
+          PGPASSWORD_PROD: ${{ steps.creds.outputs.prod_db_password }}
+        run: |
+          set -euo pipefail
+          PSQL=/usr/lib/postgresql/15/bin/psql
+
+          UAT_TABLES="$(PGPASSWORD="${PGPASSWORD_UAT}" "${PSQL}" \
+            "host=127.0.0.1 port=${UAT_PROXY_PORT} user=${{ steps.creds.outputs.uat_db_user }} dbname=postgres" \
+            -tAX -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+          PROD_TABLES="$(PGPASSWORD="${PGPASSWORD_PROD}" "${PSQL}" \
+            "host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}" \
+            -tAX -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+
+          echo "UAT public tables:  ${UAT_TABLES}"
+          echo "Prod public tables: ${PROD_TABLES}"
+          echo "uat_tables=${UAT_TABLES}" >> "$GITHUB_OUTPUT"
+          echo "prod_tables=${PROD_TABLES}" >> "$GITHUB_OUTPUT"
+
+          if [ "${UAT_TABLES}" -eq 0 ]; then
+            echo "Refusing to continue: UAT source has no tables."
+            exit 1
+          fi
+
+      - name: Dump UAT database
+        shell: bash
+        env:
+          PGPASSWORD: ${{ steps.creds.outputs.uat_db_password }}
+        run: |
+          set -euo pipefail
+          /usr/lib/postgresql/15/bin/pg_dump \
+            "host=127.0.0.1 port=${UAT_PROXY_PORT} user=${{ steps.creds.outputs.uat_db_user }} dbname=postgres" \
+            --format=custom \
+            --no-owner \
+            --no-privileges \
+            --schema=public \
+            --file=/tmp/uat.dump
+          ls -la /tmp/uat.dump
+
+      - name: Dry run summary
+        if: inputs.mode == 'dry-run'
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## UAT to Prod Cloud SQL - dry run"
+            echo ""
+            echo "- UAT source: \`${UAT_CLOUDSQL_INSTANCE}\` (${{ steps.inspect.outputs.uat_tables }} public tables)"
+            echo "- Prod target: \`${PROD_CLOUDSQL_INSTANCE}\` db \`${PROD_DB_NAME}\` (${{ steps.inspect.outputs.prod_tables }} public tables)"
+            echo "- Dump captured: $(stat -c%s /tmp/uat.dump) bytes"
+            echo ""
+            echo "No production writes were made. Re-run with mode=apply and confirm=MIGRATE to perform the migration."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guard non-empty production target
+        if: inputs.mode == 'apply'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_TABLES="${{ steps.inspect.outputs.prod_tables }}"
+          if [ "${PROD_TABLES}" -ne 0 ] && [ "${{ inputs.allow_non_empty_target }}" != "true" ]; then
+            echo "Refusing to apply: production target already has ${PROD_TABLES} tables."
+            echo "Re-run with allow_non_empty_target=true only if overwriting is intended."
+            exit 1
+          fi
+
+      - name: Restore into production Cloud SQL
+        if: inputs.mode == 'apply'
+        shell: bash
+        env:
+          PGPASSWORD: ${{ steps.creds.outputs.prod_db_password }}
+        run: |
+          set -euo pipefail
+          # --clean --if-exists makes the restore idempotent when re-run against
+          # a target that was partially populated by an earlier attempt.
+          /usr/lib/postgresql/15/bin/pg_restore \
+            --dbname="host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}" \
+            --no-owner \
+            --no-privileges \
+            --clean \
+            --if-exists \
+            --exit-on-error \
+            /tmp/uat.dump
+
+      - name: Verify parity
+        if: inputs.mode == 'apply'
+        shell: bash
+        env:
+          PGPASSWORD_UAT: ${{ steps.creds.outputs.uat_db_password }}
+          PGPASSWORD_PROD: ${{ steps.creds.outputs.prod_db_password }}
+        run: |
+          set -euo pipefail
+          PSQL=/usr/lib/postgresql/15/bin/psql
+
+          UAT_AFTER="$(PGPASSWORD="${PGPASSWORD_UAT}" "${PSQL}" \
+            "host=127.0.0.1 port=${UAT_PROXY_PORT} user=${{ steps.creds.outputs.uat_db_user }} dbname=postgres" \
+            -tAX -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+          PROD_AFTER="$(PGPASSWORD="${PGPASSWORD_PROD}" "${PSQL}" \
+            "host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}" \
+            -tAX -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+
+          echo "UAT tables after:  ${UAT_AFTER}"
+          echo "Prod tables after: ${PROD_AFTER}"
+
+          {
+            echo "## UAT to Prod Cloud SQL - applied"
+            echo ""
+            echo "- UAT tables: ${UAT_AFTER}"
+            echo "- Prod tables: ${PROD_AFTER}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${PROD_AFTER}" -ne "${UAT_AFTER}" ]; then
+            echo "Table-count parity check failed."
+            exit 1
+          fi
+          echo "Parity verified."

@@ -149,7 +149,7 @@ Used by:
 - `.github/workflows/deploy-dev.yml`
 - `.github/workflows/deploy-uat.yml`
 - `.github/workflows/deploy-production.yml`
-- `.github/workflows/prod-supabase-backup-posture.yml`
+- `.github/workflows/prod-cloudsql-backup-posture.yml`
 
 ---
 
@@ -248,7 +248,7 @@ Used by:
 |----------|----------|--------|-----------|--------|
 | `APP_SIGNING_KEY` | Yes | Yes | Local: `.env`; Prod: Secret Manager | 32+ chars; HMAC signing |
 | `VAULT_DATA_KEY` | Yes | Yes | Local: `.env`; Prod: Secret Manager | 64-char hex |
-| `DB_USER` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Supabase pooler username |
+| `DB_USER` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Cloud SQL database user |
 | `DB_PASSWORD` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | DB password |
 | `DB_HOST` | Yes | No | Local: `.env`; Prod: Cloud Run env | Pooler host |
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
@@ -316,7 +316,7 @@ One mailbox production caveats:
 | `CONSENT_SSE_ENABLED` | No | No | Local: `.env`; UAT/Prod: Cloud Run env | Local + UAT should be true for web fallback validation; production stays false by default (FCM-first) |
 | `SYNC_REMOTE_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Legacy deploy flag; keep false |
 | `DEVELOPER_API_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Keep false in production |
-| `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Supabase data-health stale-ratio anomaly |
+| `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Cloud SQL data-health stale-ratio anomaly |
 | `DEVELOPER_REGISTRY_JSON` | Optional legacy | No | Local/non-prod env | Legacy developer registry JSON |
 | `HUSHH_DEVELOPER_TOKEN` | Optional | No | Local: `.env` when needed | Self-serve developer token for stdio MCP and token-auth `/api/user/lookup` |
 
@@ -481,25 +481,24 @@ Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the che
 
 | Variable | Scope | Used by | Notes |
 |----------|-------|---------|-------|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-supabase-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
-| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-supabase-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
+| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
 
-### Cloud Run Job runtime config (required for logical backup)
+### Backup posture config (Cloud SQL)
+
+Production backups are native Cloud SQL automated backups + PITR; there is no
+backup Cloud Run job or GCS backup bucket in the recovery path.
 
 | Key | Scope | Used by | Notes |
 |-----|-------|---------|-------|
-| `BACKUP_BUCKET` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py` | GCS bucket for backup artifacts |
-| `BACKUP_PREFIX` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py`, `scripts/ops/logical_backup_freshness_check.py` | Prefix path in bucket (`prod/supabase-logical`) |
-| `BACKUP_RETENTION_DAYS` | Cloud Run Job env | `scripts/ops/supabase_logical_backup.py` | Metadata + lifecycle target (default `14`) |
-| `BACKUP_MAX_AGE_HOURS` | Deploy/workflow env | `scripts/ops/logical_backup_freshness_check.py` | Freshness gate threshold (default `30`) |
+| `BACKUP_MAX_AGE_HOURS` | Deploy/workflow env | `scripts/ops/cloudsql_backup_freshness_check.py` | Freshness gate threshold (default `30`) |
 
 Validation command:
 
 ```bash
-python3 scripts/ops/logical_backup_freshness_check.py \
+python3 scripts/ops/cloudsql_backup_freshness_check.py \
   --project-id hushh-pda \
-  --bucket hushh-pda-prod-db-backups \
-  --prefix prod/supabase-logical \
+  --instance hushh-vault-db \
   --max-age-hours 30 \
   --report-path /tmp/prod-backup-posture-report.json
 ```

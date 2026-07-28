@@ -88,7 +88,7 @@ Use for:
 
 ### Bootstrap / legacy initialization
 
-- `consent-protocol/db/legacy/init_supabase_schema.sql`
+- `consent-protocol/db/legacy/init_legacy_schema.sql`
 - `consent-protocol/db/legacy/COMBINED_MIGRATION.sql`
 
 Use for:

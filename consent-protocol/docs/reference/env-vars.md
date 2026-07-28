@@ -24,9 +24,9 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 |----------|------------|----------|-------|
 | `APP_SIGNING_KEY` | `hushh_mcp/config.py` | Yes | Min 32 chars (64-char hex recommended). HMAC signing and state integrity only. |
 | `VAULT_DATA_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. Vault/PKM data encryption only. |
-| `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Supabase pooler username. |
+| `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Cloud SQL pooler username. |
 | `DB_PASSWORD` | same | Yes | Database password. |
-| `DB_HOST` | same | Yes | Supabase session pooler host. |
+| `DB_HOST` | same | Yes | Cloud SQL host. |
 | `DB_PORT` | same | No | Default: 5432. |
 | `DB_NAME` | same | No | Default: postgres. |
 | `REQUIRE_DATABASE_ON_STARTUP` | `server.py` | No | Optional startup strictness override. Defaults to `true` in production and `false` in development; when `false`, local startup warns instead of failing if the DB is offline, but schema mismatches still fail. |

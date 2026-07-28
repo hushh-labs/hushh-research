@@ -39,7 +39,7 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
 
     return {
         "status": "ok",
-        "policy": "production_frozen_by_contract",
+        "policy": "production_matches_integrated_contract",
         "prod_contract": {
             "path": str(prod_contract_path.relative_to(REPO_ROOT)),
             "expected_migration_version": prod.get("expected_migration_version"),
@@ -59,7 +59,7 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Report the intentional delta between prod core and integrated UAT DB contracts.")
+    parser = argparse.ArgumentParser(description="Report any delta between the prod and integrated DB contracts (expected: none).")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
     parser.add_argument("--prod-contract", default=str(PROD_CONTRACT_PATH), help="Production frozen contract file.")
     parser.add_argument("--integrated-contract", default=str(INTEGRATED_CONTRACT_PATH), help="Integrated reference contract file.")
@@ -70,7 +70,7 @@ def main() -> int:
         print(json.dumps(report, indent=2))
         return 0
 
-    print("Production posture: frozen by policy")
+    print("Production posture: parity with the integrated contract")
     print(
         f"Prod contract: v{report['prod_contract']['expected_migration_version']} "
         f"({report['prod_contract']['migration_version_policy']})"
@@ -80,7 +80,7 @@ def main() -> int:
         f"({report['integrated_reference']['migration_version_policy']})"
     )
     print("")
-    print("Tables intentionally absent from prod contract:")
+    print("Tables absent from prod contract (expected none):")
     for table_name in report["intentional_gaps"]["tables_not_in_prod_contract"] or ["(none)"]:
         print(f"- {table_name}")
     print("")
@@ -91,7 +91,7 @@ def main() -> int:
     else:
         print("- (none)")
     print("")
-    print("Functions intentionally absent from prod contract:")
+    print("Functions absent from prod contract (expected none):")
     for function_name in report["intentional_gaps"]["functions_not_in_prod_contract"] or ["(none)"]:
         print(f"- {function_name}")
     return 0

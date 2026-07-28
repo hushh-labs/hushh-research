@@ -8,7 +8,12 @@ import { MapPin, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { CACHE_KEYS } from "@/lib/services/cache-service";
+import {
+  CACHE_KEYS,
+  CACHE_TTL,
+  CacheService,
+} from "@/lib/services/cache-service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -55,6 +60,8 @@ export interface FeedActionButton {
   tone: FeedActionTone;
   run: () => Promise<void> | void;
   disabled?: boolean;
+  /** Irreversible action — the row requires a second confirming tap. */
+  confirm?: boolean;
 }
 
 /**
@@ -109,6 +116,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const cache = useMemo(() => CacheService.getInstance(), []);
 
   // ── Debate + background-task live stores (in-memory, synchronous) ──
   const [debateState, setDebateState] = useState(() =>
@@ -181,6 +189,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
   });
 
   // ── Location access requests (vault-gated read) ──
+  // Shares the canonical ONE_LOCATION_STATE cache with the Location workspace,
+  // so this loader write-throughs via OneLocationStateResource (which owns that
+  // key) rather than leaving the shared snapshot stale; useStaleResource only
+  // peeks the cache, so without the write the SWR warm-render never happens.
   const locationResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.ONE_LOCATION_STATE(userId)
@@ -188,7 +200,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     enabled: Boolean(userId) && Boolean(vaultOwnerToken),
     load: async () => {
       if (!vaultOwnerToken) throw new Error("Unlock to review location requests");
-      return OneLocationService.getState(vaultOwnerToken);
+      const state = await OneLocationService.getState(vaultOwnerToken);
+      if (userId) OneLocationStateResource.write(userId, state);
+      return state;
     },
   });
 
@@ -201,7 +215,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!idToken) throw new Error("Sign in to review connections");
-      return ConnectionsService.listRequests({ idToken, direction: "incoming" });
+      const requests = await ConnectionsService.listRequests({
+        idToken,
+        direction: "incoming",
+      });
+      // Write-through so a revisit renders instantly (useStaleResource peeks
+      // the cache but never populates it; the loader owns that here).
+      if (userId) {
+        cache.set(CACHE_KEYS.CONNECTIONS_INCOMING(userId), requests, CACHE_TTL.SHORT);
+      }
+      return requests;
     },
   });
 
@@ -214,6 +237,15 @@ export function useFeedActionables(): UseFeedActionablesResult {
     [router],
   );
 
+  // Pull stable slices out of the resource wrappers (which useStaleResource
+  // returns fresh every render) so the memo below depends on the actual data
+  // + the stable refresh callbacks, not the changing wrapper identity.
+  const locationRequests = locationResource.data?.requests;
+  const locationRefresh = locationResource.refresh;
+  const connectionRequests = connectionsResource.data;
+  const connectionsRefresh = connectionsResource.refresh;
+  const consentItems = consentListResource.data?.items;
+
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
     const items: FeedActionable[] = [];
@@ -222,7 +254,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // lives in the consent manager, so the feed routes there rather than
     // one-tap approving; mirrors the prior consent inbox).
     if ((pendingConsentCount ?? 0) > 0) {
-      for (const entry of consentListResource.data?.items ?? []) {
+      for (const entry of consentItems ?? []) {
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
@@ -240,13 +272,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
           }),
           chevron: true,
           actions: [],
-          sortAt: toTimestamp(entry.expires_at) || Date.now(),
+          // No reliable arrival time on a consent entry (only a future
+          // expiry), so treat pending consents as current rather than mixing
+          // future expiry into the descending recency sort.
+          sortAt: Date.now(),
         });
       }
     }
 
     // Location access requests — inline Approve (1h) / Deny.
-    const pendingLocation = (locationResource.data?.requests ?? []).filter(
+    const pendingLocation = (locationRequests ?? []).filter(
       (request: OneLocationAccessRequest) => request.status === "pending",
     );
     for (const request of pendingLocation) {
@@ -263,13 +298,15 @@ export function useFeedActionables(): UseFeedActionablesResult {
             label: "Deny",
             tone: "ghost",
             disabled: !vaultOwnerToken,
+            confirm: true,
             run: async () => {
               if (!vaultOwnerToken) return;
               await OneLocationService.denyRequest({
                 vaultOwnerToken,
                 requestId: request.id,
               });
-              await locationResource.refresh({ force: true });
+              if (userId) OneLocationStateResource.invalidate(userId);
+              await locationRefresh({ force: true });
             },
           },
           {
@@ -284,7 +321,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 requestId: request.id,
                 durationHours: 1,
               });
-              await locationResource.refresh({ force: true });
+              if (userId) OneLocationStateResource.invalidate(userId);
+              await locationRefresh({ force: true });
             },
           },
         ],
@@ -293,7 +331,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     }
 
     // Connection requests — inline Confirm / Decline.
-    const pendingConnections = (connectionsResource.data ?? []).filter(
+    const pendingConnections = (connectionRequests ?? []).filter(
       (request: ConnectionRequest) => request.status === "pending",
     );
     for (const request of pendingConnections) {
@@ -309,22 +347,25 @@ export function useFeedActionables(): UseFeedActionablesResult {
             key: "decline",
             label: "Decline",
             tone: "ghost",
+            disabled: !userId,
+            confirm: true,
             run: async () => {
               const idToken = await user?.getIdToken();
               if (!idToken) return;
               await ConnectionsService.reject({ idToken, requestId: request.id });
-              await connectionsResource.refresh({ force: true });
+              await connectionsRefresh({ force: true });
             },
           },
           {
             key: "confirm",
             label: "Confirm",
             tone: "primary",
+            disabled: !userId,
             run: async () => {
               const idToken = await user?.getIdToken();
               if (!idToken) return;
               await ConnectionsService.accept({ idToken, requestId: request.id });
-              await connectionsResource.refresh({ force: true });
+              await connectionsRefresh({ force: true });
             },
           },
         ],
@@ -355,6 +396,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label: "Cancel",
           tone: "danger",
           disabled: !vaultOwnerToken,
+          confirm: true,
           run: async () => {
             if (!vaultOwnerToken) return;
             await DebateRunManagerService.cancelRun({
@@ -426,12 +468,18 @@ export function useFeedActionables(): UseFeedActionablesResult {
     }
 
     return items.sort((a, b) => b.sortAt - a.sortAt);
+    // Depend on the resources' `data` + stable `refresh` (not the wrapper
+    // objects, which useStaleResource returns fresh every render) so this memo
+    // only recomputes when the underlying data actually changes — otherwise a
+    // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
-    connectionsResource,
-    consentListResource.data,
+    connectionRequests,
+    connectionsRefresh,
+    consentItems,
     debateState.tasks,
-    locationResource,
+    locationRequests,
+    locationRefresh,
     openAnalysis,
     pendingConsentCount,
     router,

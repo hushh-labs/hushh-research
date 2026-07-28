@@ -3350,7 +3350,7 @@ async def _load_shadow_state(
     user_id: str,
 ) -> dict[str, Any]:
     manifests = (
-        service.supabase.table("pkm_manifests")
+        service.db.table("pkm_manifests")
         .select("domain,top_level_scope_paths,summary_projection,path_count,manifest_version")
         .eq("user_id", user_id)
         .order("domain")

@@ -35,7 +35,7 @@ class _Query:
         return _Response(self._responses.pop(0))
 
 
-class _Supabase:
+class _FakeDb:
     def __init__(self, responses):
         self._responses = responses
 
@@ -49,8 +49,8 @@ async def test_fetch_expired_consents_uses_only_the_latest_external_grant(monkey
     service = ConsentDBService()
     monkeypatch.setattr(
         service,
-        "_get_supabase",
-        lambda: _Supabase(
+        "_get_db",
+        lambda: _FakeDb(
             [
                 [
                     {
@@ -113,8 +113,8 @@ async def test_mark_consent_revoked_appends_only_when_the_expired_grant_is_curre
     service = ConsentDBService()
     monkeypatch.setattr(
         service,
-        "_get_supabase",
-        lambda: _Supabase([[record], [record]]),
+        "_get_db",
+        lambda: _FakeDb([[record], [record]]),
     )
     inserted = []
 

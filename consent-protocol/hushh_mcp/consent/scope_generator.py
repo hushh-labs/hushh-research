@@ -122,15 +122,15 @@ class DynamicScopeGenerator:
     _VISIBILITY_POSTURES = {"private", "consent_required"}
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._scope_cache: dict[str, set[str]] = {}  # user_id -> set of scopes
         self._cache_ttl = 300  # 5 minutes
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def generate_scope(self, domain: str, attribute_key: str) -> str:
         """
@@ -303,7 +303,7 @@ class DynamicScopeGenerator:
 
     async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
         result = (
-            self.supabase.table("pkm_index")
+            self.db.table("pkm_index")
             .select("available_domains", "domain_summaries")
             .eq("user_id", user_id)
             .limit(1)
@@ -349,13 +349,13 @@ class DynamicScopeGenerator:
 
     async def _get_user_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
         manifest_rows = (
-            self.supabase.table("pkm_manifests")
+            self.db.table("pkm_manifests")
             .select("domain,top_level_scope_paths,externalizable_paths")
             .eq("user_id", user_id)
             .execute()
         )
         path_rows = (
-            self.supabase.table("pkm_manifest_paths")
+            self.db.table("pkm_manifest_paths")
             .select("domain,json_path,path_type,exposure_eligibility")
             .eq("user_id", user_id)
             .execute()
@@ -406,20 +406,20 @@ class DynamicScopeGenerator:
         """
         try:
             index_result = (
-                self.supabase.table("pkm_index")
+                self.db.table("pkm_index")
                 .select("available_domains")
                 .eq("user_id", user_id)
                 .limit(1)
                 .execute()
             )
             manifest_result = (
-                self.supabase.table("pkm_manifests")
+                self.db.table("pkm_manifests")
                 .select("domain,top_level_scope_paths,externalizable_paths,manifest_version")
                 .eq("user_id", user_id)
                 .execute()
             )
             path_result = (
-                self.supabase.table("pkm_manifest_paths")
+                self.db.table("pkm_manifest_paths")
                 .select(
                     "domain,json_path,path_type,exposure_eligibility,consent_label,scope_handle"
                 )
@@ -427,7 +427,7 @@ class DynamicScopeGenerator:
                 .execute()
             )
             registry_result = (
-                self.supabase.table("pkm_scope_registry")
+                self.db.table("pkm_scope_registry")
                 .select(
                     "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
                 )

@@ -99,13 +99,13 @@ class ConsentDBService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
 
-    def _get_supabase(self):
+    def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     @staticmethod
     def _normalize_agent_id(agent_id: Optional[str]) -> str:
@@ -445,8 +445,8 @@ class ConsentDBService:
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Fallback for older databases that still store self activity in consent_audit."""
-        supabase = self._get_supabase()
-        query = supabase.table("consent_audit").select("*").eq("user_id", user_id)
+        db = self._get_db()
+        query = db.table("consent_audit").select("*").eq("user_id", user_id)
         if actions:
             query = query.in_("action", actions)
         query = query.order("issued_at", desc=True)
@@ -486,15 +486,15 @@ class ConsentDBService:
         A request is pending if it has REQUESTED action with no resolution.
 
         Note: This uses Python post-processing to handle DISTINCT ON logic
-        since Supabase REST API doesn't support complex SQL.
+        since Cloud SQL REST API doesn't support complex SQL.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Fetch all relevant rows (we'll filter in Python)
         # Note: Cannot use .neq("request_id", None) - SQL "!= NULL" is always NULL (not true)
         # Instead, fetch all rows and filter request_id IS NOT NULL in Python
-        query = supabase.table("consent_audit").select("*")
+        query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
             .order("issued_at", desc=True)
@@ -563,9 +563,9 @@ class ConsentDBService:
         user_ids: Optional[List[str]] = None,
     ) -> Optional[Dict]:
         """Get a specific pending request by request_id."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        query = supabase.table("consent_audit").select("*")
+        query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
             .eq("request_id", request_id)
@@ -630,8 +630,8 @@ class ConsentDBService:
         if not normalized_request_id and not normalized_bundle_id:
             return None
 
-        supabase = self._get_supabase()
-        query = supabase.table("consent_audit").select("*")
+        db = self._get_db()
+        query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
             .order("issued_at", desc=True)
@@ -693,11 +693,11 @@ class ConsentDBService:
         scope: str,
     ) -> Optional[Dict]:
         """Return the newest still-pending exact request for one agent+scope."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select("*")
             .eq("user_id", user_id)
             .eq("agent_id", agent_id)
@@ -753,11 +753,11 @@ class ConsentDBService:
         Note: Uses Python post-processing to handle DISTINCT ON logic.
         Uniqueness is keyed by (agent_id, scope), not just scope.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Fetch all CONSENT_GRANTED and REVOKED actions
-        query = supabase.table("consent_audit").select("*")
+        query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
             .in_("action", ["CONSENT_GRANTED", "REVOKED"])
@@ -832,7 +832,7 @@ class ConsentDBService:
 
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         response = (
-            self._get_supabase()
+            self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
             .in_("action", ["CONSENT_GRANTED", "REVOKED"])
@@ -879,7 +879,7 @@ class ConsentDBService:
     async def mark_consent_revoked(self, consent_id: str) -> None:
         """Append one revocation only if this expired grant remains current."""
         record_response = (
-            self._get_supabase()
+            self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
             .eq("id", consent_id)
@@ -899,7 +899,7 @@ class ConsentDBService:
         if not user_id or not agent_id or not scope:
             return
         latest_response = (
-            self._get_supabase()
+            self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
             .eq("user_id", user_id)
@@ -1000,9 +1000,9 @@ class ConsentDBService:
         """Get active internal/self tokens without exposing them to the external consent ledger."""
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         try:
-            supabase = self._get_supabase()
+            db = self._get_db()
             response_data = (
-                supabase.table("internal_access_events")
+                db.table("internal_access_events")
                 .select("*")
                 .eq("user_id", user_id)
                 .in_("action", ["CONSENT_GRANTED", "REVOKED"])
@@ -1095,9 +1095,9 @@ class ConsentDBService:
 
         if is_internal_lookup:
             try:
-                supabase = self._get_supabase()
+                db = self._get_db()
                 query = (
-                    supabase.table("internal_access_events")
+                    db.table("internal_access_events")
                     .select("action,expires_at,issued_at,token_id")
                     .eq("user_id", user_id)
                     .eq("scope", normalized_scope)
@@ -1120,9 +1120,9 @@ class ConsentDBService:
                     limit=1,
                 )
         else:
-            supabase = self._get_supabase()
+            db = self._get_db()
             query = (
-                supabase.table("consent_audit")
+                db.table("consent_audit")
                 .select("action,expires_at,issued_at,token_id")
                 .eq("user_id", user_id)
                 .eq("scope", normalized_scope)
@@ -1157,13 +1157,13 @@ class ConsentDBService:
         This prevents MCP from immediately re-requesting after a denial,
         which would cause duplicate toast notifications.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         cooldown_ms = cooldown_seconds * 1000
         cutoff_ms = now_ms - cooldown_ms
 
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select("action,issued_at")
             .eq("user_id", user_id)
             .eq("scope", scope)
@@ -1190,12 +1190,12 @@ class ConsentDBService:
         user_ids: Optional[List[str]] = None,
     ) -> Dict:
         """Get paginated audit log for a user."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         offset = (page - 1) * limit
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Get paginated results (TableQuery uses .limit/.offset, not .range)
-        query = supabase.table("consent_audit").select("*")
+        query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
             .order("issued_at", desc=True)
@@ -1204,7 +1204,7 @@ class ConsentDBService:
             .execute()
         )
 
-        count_query = supabase.table("consent_audit").select("id,agent_id,action,scope")
+        count_query = db.table("consent_audit").select("id,agent_id,action,scope")
         count_response = self._apply_user_filter(count_query, user_id, user_ids).execute()
         total = len(
             [row for row in (count_response.data or []) if self._is_external_audit_row(row)]
@@ -1252,9 +1252,9 @@ class ConsentDBService:
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         day_cutoff_ms = now_ms - (24 * 60 * 60 * 1000)
         try:
-            supabase = self._get_supabase()
+            db = self._get_db()
             recent_rows = (
-                supabase.table("internal_access_events")
+                db.table("internal_access_events")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("issued_at", desc=True)
@@ -1262,7 +1262,7 @@ class ConsentDBService:
                 .execute()
             ).data or []
             daily_rows = (
-                supabase.table("internal_access_events")
+                db.table("internal_access_events")
                 .select("id")
                 .eq("user_id", user_id)
                 .gt("issued_at", day_cutoff_ms)
@@ -1322,7 +1322,7 @@ class ConsentDBService:
         - Disallow broad deletes unless clear_all=True.
         - Block delete when active consents would be impacted.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         if not clear_all and not agent_id and not request_id:
             raise ValueError("At least one filter (agent_id or request_id) is required")
@@ -1362,7 +1362,7 @@ class ConsentDBService:
                     "active_count": len(active_for_request),
                 }
 
-        delete_query = supabase.table("consent_audit").delete().eq("user_id", user_id)
+        delete_query = db.table("consent_audit").delete().eq("user_id", user_id)
         if agent_id:
             delete_query = delete_query.eq("agent_id", agent_id)
         if request_id:
@@ -1416,7 +1416,7 @@ class ConsentDBService:
                 metadata=metadata,
             )
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         issued_at = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         token_id = token_id or f"evt_{issued_at}"
@@ -1441,7 +1441,7 @@ class ConsentDBService:
         # Remove None values
         data = {k: v for k, v in data.items() if v is not None}
 
-        response = supabase.table("consent_audit").insert(data).execute()
+        response = db.table("consent_audit").insert(data).execute()
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:
@@ -1468,7 +1468,7 @@ class ConsentDBService:
         metadata: Optional[Dict] = None,
     ) -> int:
         """Insert an internal/self activity event into the internal ledger."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         issued_at = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         token_id = token_id or f"evt_{issued_at}"
         metadata_json = json.dumps(metadata) if metadata else None
@@ -1488,14 +1488,14 @@ class ConsentDBService:
         data = {k: v for k, v in data.items() if v is not None}
 
         try:
-            response = supabase.table("internal_access_events").insert(data).execute()
+            response = db.table("internal_access_events").insert(data).execute()
         except DatabaseExecutionError as exc:
             if not self._is_missing_internal_access_events_error(exc):
                 raise
             logger.warning(
                 "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
             )
-            response = supabase.table("consent_audit").insert(data).execute()
+            response = db.table("consent_audit").insert(data).execute()
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
             logger.info("Inserted internal %s event: %s", action, event_id)
@@ -1513,11 +1513,11 @@ class ConsentDBService:
         Return REQUESTED rows that have passed poll_timeout_at and do not yet have a TIMEOUT event.
         Used by the optional timeout job to emit TIMEOUT events over SSE.
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         scan_limit = _background_scan_limit()
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select(_BACKGROUND_CONSENT_COLUMNS)
             .eq("action", "REQUESTED")
             .order("issued_at", desc=True)
@@ -1550,7 +1550,7 @@ class ConsentDBService:
             return []
         # Which of these already have a TIMEOUT?
         timeout_resp = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select("request_id")
             .eq("action", "TIMEOUT")
             .in_("request_id", request_ids)
@@ -1611,11 +1611,11 @@ class ConsentDBService:
         if not request_ids:
             return []
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         rows: List[Dict[str, Any]]
 
         try:
-            query = supabase.table("internal_access_events").select(
+            query = db.table("internal_access_events").select(
                 "request_id,action,issued_at,metadata,user_id,agent_id,scope"
             )
             query = query.in_("request_id", request_ids)
@@ -1628,7 +1628,7 @@ class ConsentDBService:
             logger.warning(
                 "internal_access_events_missing fallback=consent_audit action=list_internal_request_events"
             )
-            query = supabase.table("consent_audit").select(
+            query = db.table("consent_audit").select(
                 "request_id,action,issued_at,metadata,user_id,agent_id,scope"
             )
             query = query.in_("request_id", request_ids)
@@ -1652,11 +1652,11 @@ class ConsentDBService:
 
     async def get_pending_notification_candidates(self) -> List[Dict[str, Any]]:
         """Return latest pending requests with enough metadata for reminder scheduling."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         scan_limit = _background_scan_limit()
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select(_BACKGROUND_CONSENT_COLUMNS)
             .in_("action", _BACKGROUND_CONSENT_ACTIONS)
             .order("issued_at", desc=True)
@@ -1767,10 +1767,10 @@ class ConsentDBService:
         Returns:
             List of consent events
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select(
                 "token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at"
             )
@@ -1818,10 +1818,10 @@ class ConsentDBService:
         Returns:
             Resolution event if found, None otherwise
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select("action,scope,agent_id,issued_at")
             .eq("user_id", user_id)
             .eq("request_id", request_id)
@@ -1840,10 +1840,10 @@ class ConsentDBService:
 
     async def get_request_status(self, user_id: str, request_id: str) -> Optional[Dict]:
         """Return the latest external consent event for one request_id."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select(
                 "id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
             )
@@ -1888,9 +1888,9 @@ class ConsentDBService:
         filtering by ``agent_id`` prevents cross-app reference probing.
         """
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         response = (
-            supabase.table("consent_audit")
+            db.table("consent_audit")
             .select(
                 "id,token_id,request_id,action,scope,agent_id,issued_at,"
                 "scope_description,metadata,expires_at,poll_timeout_at"
@@ -1965,9 +1965,9 @@ class ConsentDBService:
         Returns:
             True if stored successfully, False otherwise
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        # Convert ms timestamp to ISO format for Supabase
+        # Convert ms timestamp to ISO format for Cloud SQL
         from datetime import datetime, timezone
 
         expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc).isoformat()
@@ -2032,7 +2032,7 @@ class ConsentDBService:
             }
             if export_id:
                 export_row["export_id"] = export_id
-            supabase.table("consent_exports").upsert(
+            db.table("consent_exports").upsert(
                 export_row,
                 on_conflict="consent_token",
             ).execute()
@@ -2056,11 +2056,11 @@ class ConsentDBService:
         Returns:
             Export data dict if found and not expired, None otherwise
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         try:
             response = (
-                supabase.table("consent_exports")
+                db.table("consent_exports")
                 .select("*")
                 .eq("consent_token", consent_token)
                 .gt("expires_at", datetime.now(timezone.utc).isoformat())
@@ -2083,10 +2083,10 @@ class ConsentDBService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve the internal consent token for one app-bound grant reference."""
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             response = (
-                supabase.table("consent_exports")
+                db.table("consent_exports")
                 .select("*")
                 .eq("grant_id", grant_id)
                 .eq("app_id", app_id)
@@ -2133,10 +2133,10 @@ class ConsentDBService:
     async def get_consent_export_by_id(self, export_id: str) -> Optional[Dict[str, Any]]:
         """Load one non-expired resource by its unguessable export id."""
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             response = (
-                supabase.table("consent_exports")
+                db.table("consent_exports")
                 .select("*")
                 .eq("export_id", export_id)
                 .gt("expires_at", datetime.now(timezone.utc).isoformat())
@@ -2152,10 +2152,10 @@ class ConsentDBService:
             return None
 
     async def mark_export_refresh_status(self, consent_token: str, refresh_status: str) -> bool:
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             (
-                supabase.table("consent_exports")
+                db.table("consent_exports")
                 .update({"refresh_status": self._normalize_refresh_status(refresh_status)})
                 .eq("consent_token", consent_token)
                 .execute()
@@ -2175,10 +2175,10 @@ class ConsentDBService:
         Returns:
             True if deleted, False otherwise
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         try:
-            supabase.table("consent_exports").delete().eq("consent_token", consent_token).execute()
+            db.table("consent_exports").delete().eq("consent_token", consent_token).execute()
 
             logger.info(
                 "Deleted consent export for token_fp=%s",
@@ -2235,7 +2235,7 @@ class ConsentDBService:
         trigger_domain: str,
         trigger_paths: List[str] | None = None,
     ) -> bool:
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_iso = datetime.now(timezone.utc).isoformat()
         normalized_paths = sorted(
             {str(path).strip() for path in (trigger_paths or []) if str(path).strip()}
@@ -2247,7 +2247,7 @@ class ConsentDBService:
             ):
                 return False
             existing_rows = (
-                supabase.table("consent_export_refresh_jobs")
+                db.table("consent_export_refresh_jobs")
                 .select("*")
                 .eq("consent_token", consent_token)
                 .limit(1)
@@ -2268,7 +2268,7 @@ class ConsentDBService:
             except Exception:
                 attempt_count = 0
 
-            supabase.table("consent_export_refresh_jobs").upsert(
+            db.table("consent_export_refresh_jobs").upsert(
                 {
                     "user_id": user_id,
                     "consent_token": consent_token,
@@ -2299,10 +2299,10 @@ class ConsentDBService:
         statuses: tuple[str, ...] = ("pending", "failed"),
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             query = (
-                supabase.table("consent_export_refresh_jobs")
+                db.table("consent_export_refresh_jobs")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("requested_at")
@@ -2342,8 +2342,8 @@ class ConsentDBService:
     ) -> List[Dict[str, Any]]:
         """Atomically lease continuous-refresh jobs across tabs and devices."""
 
-        supabase = self._get_supabase()
-        response = supabase.rpc(
+        db = self._get_db()
+        response = db.rpc(
             "claim_consent_export_refresh_jobs_v2",
             {
                 "p_user_id": user_id,
@@ -2359,9 +2359,9 @@ class ConsentDBService:
         user_id: str,
         claim_id: str,
     ) -> Optional[Dict[str, Any]]:
-        supabase = self._get_supabase()
+        db = self._get_db()
         response = (
-            supabase.table("consent_export_refresh_jobs")
+            db.table("consent_export_refresh_jobs")
             .select("*")
             .eq("user_id", user_id)
             .eq("claim_id", claim_id)
@@ -2393,8 +2393,8 @@ class ConsentDBService:
     ) -> bool:
         """Commit one revision with a DB-side lease and revision CAS."""
 
-        supabase = self._get_supabase()
-        response = supabase.rpc(
+        db = self._get_db()
+        response = db.rpc(
             "complete_consent_export_refresh_v2",
             {
                 "p_user_id": user_id,
@@ -2421,10 +2421,10 @@ class ConsentDBService:
         return False
 
     async def complete_consent_export_refresh_job(self, consent_token: str) -> bool:
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             (
-                supabase.table("consent_export_refresh_jobs")
+                db.table("consent_export_refresh_jobs")
                 .update(
                     {
                         "status": "completed",
@@ -2447,10 +2447,10 @@ class ConsentDBService:
         claim_id: str,
         last_error: str | None = None,
     ) -> bool:
-        supabase = self._get_supabase()
+        db = self._get_db()
         try:
             existing_rows = (
-                supabase.table("consent_export_refresh_jobs")
+                db.table("consent_export_refresh_jobs")
                 .select("attempt_count,consent_token")
                 .eq("user_id", user_id)
                 .eq("claim_id", claim_id)
@@ -2472,7 +2472,7 @@ class ConsentDBService:
             if not consent_token:
                 return False
             response = (
-                supabase.table("consent_export_refresh_jobs")
+                db.table("consent_export_refresh_jobs")
                 .update(
                     {
                         "status": "failed",
@@ -2501,11 +2501,11 @@ class ConsentDBService:
         Returns:
             Number of exports deleted
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         try:
             # Call the cleanup function
-            response = supabase.rpc("cleanup_expired_consent_exports").execute()
+            response = db.rpc("cleanup_expired_consent_exports").execute()
 
             if response.data is not None:
                 deleted_count = response.data

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
@@ -15,23 +15,52 @@ import type {
 
 function ActionButton({ action }: { action: FeedActionButton }) {
   const [busy, setBusy] = useState(false);
+  // Irreversible actions (Deny / Decline / Cancel) require a confirming second
+  // tap: the first tap arms the button ("Sure?") and auto-disarms after a few
+  // seconds, so a stray tap can't reject a request or abort a running analysis.
+  const [armed, setArmed] = useState(false);
+  const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    };
+  }, []);
+
+  const runNow = async () => {
+    setArmed(false);
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    setBusy(true);
+    try {
+      await action.run();
+    } catch {
+      toast.error("That didn't go through. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const showConfirm = action.confirm && armed;
+
   return (
     <button
       type="button"
       disabled={action.disabled || busy}
-      onClick={async (event) => {
+      aria-label={
+        action.confirm && !armed ? `${action.label} (tap again to confirm)` : undefined
+      }
+      onClick={(event) => {
         // The row itself may be a link/button; never let an action bubble into it.
         event.stopPropagation();
         event.preventDefault();
         if (busy) return;
-        setBusy(true);
-        try {
-          await action.run();
-        } catch {
-          toast.error("That didn't go through. Try again.");
-        } finally {
-          setBusy(false);
+        if (action.confirm && !armed) {
+          setArmed(true);
+          if (disarmTimer.current) clearTimeout(disarmTimer.current);
+          disarmTimer.current = setTimeout(() => setArmed(false), 3500);
+          return;
         }
+        void runNow();
       }}
       className={cn(
         "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
@@ -41,10 +70,11 @@ function ActionButton({ action }: { action: FeedActionButton }) {
           "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.1]",
         action.tone === "danger" &&
           "bg-foreground/[0.06] text-destructive hover:bg-destructive/10",
+        showConfirm && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       )}
     >
       {busy ? <Icon icon={Loader2} size="xs" className="animate-spin" /> : null}
-      {action.label}
+      {showConfirm ? "Sure?" : action.label}
     </button>
   );
 }
@@ -89,7 +119,11 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   if (item.href) {
     return (
       <SettingsRow asChild {...shared} chevron={item.chevron}>
-        <Link href={item.href} prefetch={false} aria-label={item.title} />
+        <Link
+          href={item.href}
+          prefetch={false}
+          aria-label={`${item.title}. ${item.description}`}
+        />
       </SettingsRow>
     );
   }

@@ -198,35 +198,29 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
 
 4. **Configure production logical backup infrastructure** (GCP)
 
-   Provision the bucket + service accounts + Cloud Run Job + Cloud Scheduler:
+   Production backups are native Cloud SQL automated backups + point-in-time
+   recovery on `hushh-pda:us-central1:hushh-vault-db`. Apply/refresh the posture:
 
    ```bash
-   PROJECT_ID=hushh-pda REGION=us-central1 bash deploy/backup/setup_prod_logical_backup.sh
+   gcloud sql instances patch hushh-vault-db \
+     --project hushh-pda \
+     --backup-start-time=06:00 \
+     --enable-point-in-time-recovery \
+     --retained-backups-count=30 \
+     --retained-transaction-log-days=7
    ```
 
-   The setup script enforces bucket hardening (UBLA + PAP), lifecycle delete at 14 days, and soft-delete disabled for cost control.
-
-   If the currently deployed backend image does not yet include `scripts/ops/supabase_logical_backup.py`,
-   pass an explicit image override:
+   Validate backup posture locally (same gate used by the production deploy workflow):
 
    ```bash
-   PROJECT_ID=hushh-pda REGION=us-central1 \
-   BACKUP_JOB_IMAGE=gcr.io/hushh-pda/consent-protocol:backup-job-YYYYMMDD-HHMMSS \
-   bash deploy/backup/setup_prod_logical_backup.sh
-   ```
-
-   Validate backup freshness policy locally (same gate used by production deploy workflow):
-
-   ```bash
-   python3 scripts/ops/logical_backup_freshness_check.py \
+   python3 scripts/ops/cloudsql_backup_freshness_check.py \
      --project-id hushh-pda \
-     --bucket hushh-pda-prod-db-backups \
-     --prefix prod/supabase-logical \
+     --instance hushh-vault-db \
      --max-age-hours 30 \
      --report-path /tmp/prod-backup-posture-report.json
    ```
 
-  This checker requires ADC-capable credentials (`gcloud auth application-default login`) or a service account credential source.
+  This checker uses `gcloud`, so it requires an authenticated gcloud session or service-account credentials.
 
 5. **Configure RIA marketplace investor replenisher** (UAT first)
 
@@ -444,20 +438,16 @@ OBS_ALERT_EMAIL=you@example.com bash deploy/observability/setup_gcp_observabilit
 ### Production DB Governance Helpers
 
 ```bash
-# Provision logical backup infra (idempotent)
-bash deploy/backup/setup_prod_logical_backup.sh
-
-# Execute logical backup job manually (optional pre-deploy trigger)
-gcloud run jobs execute prod-supabase-logical-backup \
+# Take an on-demand Cloud SQL backup (optional pre-deploy trigger)
+gcloud sql backups create \
+  --instance hushh-vault-db \
   --project hushh-pda \
-  --region us-central1 \
-  --wait
+  --description "manual-predeploy"
 
-# Read-only logical backup freshness gate
-python3 scripts/ops/logical_backup_freshness_check.py \
+# Read-only Cloud SQL backup posture gate
+python3 scripts/ops/cloudsql_backup_freshness_check.py \
   --project-id hushh-pda \
-  --bucket hushh-pda-prod-db-backups \
-  --prefix prod/supabase-logical \
+  --instance hushh-vault-db \
   --max-age-hours 30 \
   --report-path /tmp/prod-backup-posture-report.json
 
@@ -586,7 +576,6 @@ gcloud run services update-traffic consent-protocol \
 deploy/
 ├── backend.cloudbuild.yaml      # Backend Cloud Build config
 ├── frontend.cloudbuild.yaml     # Frontend Cloud Build config
-├── backup/setup_prod_logical_backup.sh  # Logical backup infra bootstrap
 ├── ../scripts/ops/verify-env-secrets-parity.py  # Secrets/deploy parity audit utility
 ├── .env.backend.example         # Backend env vars template
 ├── .env.frontend.example        # Frontend env vars template

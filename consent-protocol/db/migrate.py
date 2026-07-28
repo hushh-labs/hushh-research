@@ -1349,7 +1349,7 @@ Examples:
     print("Connecting to database (DB_* env)...")
     print(f"   URL: {display_url}")
     if _ssl_config:
-        print("   SSL: enabled (Supabase)")
+        print("   SSL: enabled (Cloud SQL)")
 
     pool = await asyncpg.create_pool(
         _database_url,

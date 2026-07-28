@@ -45,14 +45,14 @@ class VaultKeysService:
     VAULT_STATE_CACHE_TTL_SECONDS = 180
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._vault_state_cache: dict[str, tuple[float, Dict[str, Any]]] = {}
 
-    def _get_supabase(self):
+    def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _get_cached_vault_state(self, user_id: str) -> Optional[Dict[str, Any]]:
         cached = self._vault_state_cache.get(user_id)
@@ -79,8 +79,8 @@ class VaultKeysService:
         if not user_id_clean:
             return False
 
-        supabase = self._get_supabase()
-        with supabase.engine.begin() as conn:
+        db = self._get_db()
+        with db.engine.begin() as conn:
             result = conn.execute(
                 text(
                     """
@@ -268,11 +268,11 @@ class VaultKeysService:
         if not user_id_clean:
             raise ValueError("userId is required")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = self._now_ms()
 
         existing_response = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
@@ -304,7 +304,7 @@ class VaultKeysService:
                 "updated_at": now_ms,
             }
             try:
-                insert_result = supabase.table("vault_keys").insert(create_payload).execute()
+                insert_result = db.table("vault_keys").insert(create_payload).execute()
             except DatabaseExecutionError as exc:
                 details = str(exc.details or "").lower()
                 is_concurrent_insert = (
@@ -321,7 +321,7 @@ class VaultKeysService:
             if insert_result is None or not insert_result.data:
                 # Race-safe fallback if another request inserted concurrently.
                 existing_response = (
-                    supabase.table("vault_keys")
+                    db.table("vault_keys")
                     .select(
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
                         "setup_completed,setup_skipped,setup_completed_at,"
@@ -354,16 +354,13 @@ class VaultKeysService:
             "updated_at": now_ms,
         }
         update_response = (
-            supabase.table("vault_keys")
-            .update(update_payload)
-            .eq("user_id", user_id_clean)
-            .execute()
+            db.table("vault_keys").update(update_payload).eq("user_id", user_id_clean).execute()
         )
         if update_response.data:
             return self._serialize_user_entry(update_response.data[0])
 
         refreshed = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
@@ -506,7 +503,7 @@ class VaultKeysService:
             )
 
         now_ms = self._now_ms()
-        supabase = self._get_supabase()
+        db = self._get_db()
         update_payload = {
             "setup_completed": next_completed,
             "setup_skipped": next_skipped,
@@ -585,9 +582,7 @@ class VaultKeysService:
                     "onboarding_journey_updated_at": now_ms,
                 }
             )
-        update_query = (
-            supabase.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
-        )
+        update_query = db.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
         if expected_onboarding_journey_updated_at is not None:
             update_query = update_query.eq(
                 "onboarding_journey_updated_at",
@@ -736,9 +731,9 @@ class VaultKeysService:
             state = self._ensure_user_entry_sync(user_id)
             status = state["vaultStatus"]
         else:
-            supabase = self._get_supabase()
+            db = self._get_db()
             header = (
-                supabase.table("vault_keys")
+                db.table("vault_keys")
                 .select("vault_status")
                 .eq("user_id", user_id)
                 .limit(1)
@@ -751,9 +746,9 @@ class VaultKeysService:
         if status != "active":
             return False
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         passphrase_wrapper = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .select("user_id")
             .eq("user_id", user_id)
             .eq("method", "passphrase")
@@ -773,9 +768,9 @@ class VaultKeysService:
         # event loop; a blocked loop serialises every concurrent request (vault,
         # consent, persona) into multi-second latency.
         def _read_vault_state() -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
-            supabase = self._get_supabase()
+            db = self._get_db()
             header_resp = (
-                supabase.table("vault_keys")
+                db.table("vault_keys")
                 .select(
                     "vault_status,vault_key_hash,primary_method,primary_wrapper_id,"
                     "recovery_encrypted_vault_key,recovery_salt,recovery_iv"
@@ -791,7 +786,7 @@ class VaultKeysService:
             if self._normalize_vault_status(header_row.get("vault_status")) != "active":
                 return None, []
             wrapper_resp = (
-                supabase.table("vault_key_wrappers")
+                db.table("vault_key_wrappers")
                 .select(
                     "method,wrapper_id,encrypted_vault_key,salt,iv,passkey_credential_id,passkey_prf_salt,passkey_rp_id,passkey_provider,passkey_device_label,passkey_last_used_at"
                 )
@@ -892,7 +887,7 @@ class VaultKeysService:
         primary_wrapper_id: Optional[str] = None,
     ) -> bool:
         """Create/update vault state atomically by replacing wrappers in one DB transaction."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
@@ -970,7 +965,7 @@ class VaultKeysService:
             for wrapper in normalized_wrappers
         ]
 
-        with supabase.engine.begin() as conn:
+        with db.engine.begin() as conn:
             existing_vault = conn.execute(
                 text(
                     """
@@ -1243,7 +1238,7 @@ class VaultKeysService:
         passkey_last_used_at: Optional[int] = None,
     ) -> bool:
         """Add or update a single wrapper for an existing vault state."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
@@ -1255,7 +1250,7 @@ class VaultKeysService:
             raise ValueError("vaultKeyHash is required")
 
         existing = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select("vault_key_hash")
             .eq("user_id", user_id_clean)
             .limit(1)
@@ -1303,7 +1298,7 @@ class VaultKeysService:
         }
 
         upsert_result = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .upsert(data, on_conflict="user_id,method,wrapper_id")
             .execute()
         )
@@ -1326,7 +1321,7 @@ class VaultKeysService:
         primary_wrapper_id: Optional[str] = None,
     ) -> bool:
         """Set default unlock method for UX prompt among enrolled wrappers."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
             raise ValueError("userId is required")
@@ -1335,7 +1330,7 @@ class VaultKeysService:
         primary_wrapper = self._normalize_wrapper_id(primary_wrapper_id)
 
         wrapper_response = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .select("method,wrapper_id")
             .eq("user_id", user_id_clean)
             .eq("method", primary)
@@ -1348,7 +1343,7 @@ class VaultKeysService:
 
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         update_result = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .update(
                 {
                     "primary_method": primary,
@@ -1381,7 +1376,7 @@ class VaultKeysService:
         fallback_primary_wrapper_id: Optional[str] = "default",
     ) -> bool:
         """Remove a non-passphrase wrapper after proving the caller has the vault key."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
             raise ValueError("userId is required")
@@ -1400,7 +1395,7 @@ class VaultKeysService:
                 return row.get(key)
             return getattr(row, "_mapping", {}).get(key)
 
-        with supabase.engine.begin() as conn:
+        with db.engine.begin() as conn:
             vault_row = conn.execute(
                 text(
                     """
@@ -1540,13 +1535,13 @@ class VaultKeysService:
         if token_obj.user_id != user_id:
             raise ValueError("Token user_id does not match requested user_id")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         kai_has_data = False
         kai_field_count = 0
         try:
             wm_response = (
-                supabase.table("pkm_index")
+                db.table("pkm_index")
                 .select("domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)

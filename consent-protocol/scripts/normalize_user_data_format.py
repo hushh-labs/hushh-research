@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Normalize user-data rows in Supabase for the current vault/PKM contract.
+Normalize user-data rows in Cloud SQL for the current vault/PKM contract.
 
 What this script normalizes:
 1. vault_keys
@@ -300,7 +300,7 @@ def main() -> int:
         )
         return 1
 
-    parser = argparse.ArgumentParser(description="Normalize Supabase user-data rows.")
+    parser = argparse.ArgumentParser(description="Normalize Cloud SQL user-data rows.")
     parser.add_argument("--apply", action="store_true", help="Apply updates (default is dry-run).")
     parser.add_argument("--user-id", type=str, default=None, help="Only normalize one user_id.")
     args = parser.parse_args()
