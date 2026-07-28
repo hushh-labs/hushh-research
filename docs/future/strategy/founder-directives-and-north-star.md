@@ -4,6 +4,10 @@ Faithful capture of the founder's standing strategic direction for this workstre
 so future sessions and the codex brain build against it. Direction is quoted/
 paraphrased from the founder; execution status is code-cited and honest.
 
+## Visual Context
+
+Canonical visual owner: [docs index](../../README.md).
+
 ## The three directives
 
 1. **Agents are marketplace-deployable.** The 🤫 Agent One *service agents* should

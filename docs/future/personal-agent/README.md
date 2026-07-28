@@ -6,6 +6,21 @@
 > orchestrate → teardown); nothing is enabled in released environments.
 > Branch: `claude/hushh-infrastructure-analysis-7o991c`.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  human["human · HusshID"] -->|consent token| pod["per-user agent pod"]
+  pod --> backend{"ComputeBackend"}
+  backend --> gcp["GcpBackend<br/>Cloud Run"]
+  backend --> anypoint["AnypointBackend<br/>CloudHub 2.0"]
+  backend --> byoc["UserGcpBackend<br/>user's own project"]
+  pod -->|receipt| ledger["consent ledger"]
+```
+
+Every compute host is interchangeable behind one identity + one consent handshake.
+Companion contracts: [ARCHITECTURE.md](./ARCHITECTURE.md), [ROADMAP.md](./ROADMAP.md).
+
 ## Documentation map (start here)
 
 | Doc | Role |
@@ -78,8 +93,8 @@ explicitly turned on.
 
 | Piece | Path |
 |---|---|
-| Registry + deletion tombstones schema | `consent-protocol/db/migrations/900_personal_agent_registry.sql` |
-| Versioned prompt store (hot prompt-sync) | `consent-protocol/db/migrations/901_agent_prompt_versions.sql` |
+| Registry + deletion tombstones schema | `consent-protocol/db/migrations/parked/900_personal_agent_registry.sql` |
+| Versioned prompt store (hot prompt-sync) | `consent-protocol/db/migrations/parked/901_agent_prompt_versions.sql` |
 | Kill-switch flag | `consent-protocol/hushh_mcp/runtime_settings.py` (`personal_agent_enabled()`) |
 | Phone to opaque HusshID + phone hash | `consent-protocol/hushh_mcp/services/personal_agent_identity_service.py` |
 | Per-agent X25519 public-key contract | `consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py` |

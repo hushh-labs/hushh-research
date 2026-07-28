@@ -673,6 +673,16 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "id": "consent_audit_receipts",
+      "lifecycle_status": "planned",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
         "consent_audit",
         "internal_access_events",
         "consent_scope_templates"
@@ -4304,7 +4314,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "1a02aa456549e92ceea962f8e2daa679d8f2c83eeefdea77b36612e981ecc147",
-    "data_plane": "ed3d4b7de0e2064d5bbcbf6d133515c36201aeaed7187fca6d375c81d33500ff",
+    "data_plane": "582f2918a0682eba3fa50eed8ed0c4e248fd21d66e004474beed3edd7154f8a7",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "46d94273cc53d297b8a4f4cdc7916f6cb23d602209555b5328201c0a9b78423b",
@@ -4323,6 +4333,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 113,
     "semantic_routes": 14,
-    "table_families": 41
+    "table_families": 42
   }
 }

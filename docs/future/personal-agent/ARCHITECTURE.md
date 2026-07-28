@@ -8,6 +8,10 @@
 > [`SECURITY-REVIEW.md`](./SECURITY-REVIEW.md) (adversarial audit) ·
 > [`ROADMAP.md`](./ROADMAP.md) (milestones, timelines, risks, 1B launch).
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## 1. The one-line thesis
 
 **One consent-native runtime — Agent One — portable across many compute backends.**

@@ -7,6 +7,10 @@
 > `hussh-developer-platform` project. Companion: [`ROADMAP.md`](./ROADMAP.md) (M4),
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§7 Apple-PCC-on-GCP).
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## What this validated (and what it did not)
 
 **Proven, live:** the **deploy → agents-orchestrate → access-locked → teardown**
