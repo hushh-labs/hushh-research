@@ -1,0 +1,386 @@
+name: Ship iOS to TestFlight
+
+# One-click: cut a Hushh One iOS build from the latest green `main` (the SHA that
+# UAT runs), build the Capacitor app against the UAT backend + UAT Firebase, sign
+# it with Apple-managed signing via an App Store Connect API key, and upload to
+# TestFlight. TestFlight only -- no App Store review, no prod backend/Firebase.
+#
+# Web sibling: .github/workflows/deploy-uat.yml (same SHA -> UAT website).
+# Runbook + secret setup: docs/guides/mobile/ship-ios-testflight.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact green main SHA to ship (blank defaults to latest origin/main)"
+        required: false
+        type: string
+      dry_run:
+        description: "Archive + sign but do NOT upload to TestFlight (isolates signing)"
+        required: false
+        default: false
+        type: boolean
+      notes:
+        description: "Optional note for the run summary (what to test)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+
+env:
+  GCP_PROJECT_ID: hushh-pda-uat
+  GCP_REGION: us-central1
+  IOS_BUNDLE_ID: com.hushh.app
+  XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
+  XCODE_SCHEME: App
+  PBXPROJ: hushh-webapp/ios/App/App.xcodeproj/project.pbxproj
+  # cap:build (Next.js static export) is memory-heavy. The macos-15 standard
+  # runner is Apple silicon with limited RAM; if this OOM-kills the build, bump
+  # `runs-on` below to `macos-15-xlarge` (14 GB) and this to 12288.
+  NODE_OPTIONS: --max-old-space-size=8192
+
+concurrency:
+  # Serialize dispatches so two runs can't race the same TestFlight build number.
+  group: ship-ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    name: Build & upload iOS (UAT) to TestFlight
+    runs-on: macos-15
+    environment: uat
+    timeout-minutes: 40
+
+    steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing iOS ship from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Authorize dispatching actor (uat surface)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+
+      - name: Resolve release SHA
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUESTED="${{ github.event.inputs.sha }}"
+          git fetch --no-tags origin main
+          if [ -z "${REQUESTED}" ]; then
+            SHA="$(git rev-parse origin/main)"
+          else
+            SHA="${REQUESTED}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release SHA: ${SHA}"
+
+      - name: Require SHA is on main and passed the smoke gate
+        shell: bash
+        env:
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve.outputs.sha }}"
+
+      - name: Check out the exact release SHA (detached)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "${{ steps.resolve.outputs.sha }}"
+          git --no-pager log -1 --oneline
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web dependencies (must precede SPM resolve)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # CapApp-SPM/Package.swift references ../../../node_modules, so the JS
+          # deps must exist before any Swift Package Manager resolution.
+          npm ci --prefix hushh-webapp
+
+      - name: Authenticate to Google Cloud (UAT)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Materialize UAT frontend contract + native Firebase config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Each NEXT_PUBLIC_* value is an individual GCP Secret Manager secret in
+          # hushh-pda-uat (same source of truth deploy-uat.yml / bootstrap_profiles.sh
+          # use). prepare-ios-uat-archive.mjs lets process env override for
+          # APP_RUNTIME_PROFILE and NEXT_PUBLIC_* keys, so we export them here.
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
+          }
+          require() {
+            local name="$1" val="$2"
+            if [ -z "$val" ]; then
+              echo "Missing required GCP secret: $name (project ${GCP_PROJECT_ID})" >&2
+              exit 1
+            fi
+          }
+          put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
+
+          BACKEND_URL="$(get BACKEND_URL)"
+          require BACKEND_URL "$BACKEND_URL"
+          APP_URL="$(get APP_FRONTEND_ORIGIN)"
+          [ -n "$APP_URL" ] || APP_URL="$(get FRONTEND_URL)"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+
+          FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
+          FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
+          FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";      require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
+          FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)";     require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
+          FB_SENDER="$(get NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID)"; require NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
+          FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";              require NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
+          FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
+
+          # Optional analytics id (unsuffixed, then legacy suffixes).
+          FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
+          [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT)"
+          [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING)"
+
+          # NEXT_PUBLIC_* are public build values (baked into the client bundle),
+          # but keep the API/VAPID keys out of the log for hygiene.
+          echo "::add-mask::$FB_API_KEY"
+          echo "::add-mask::$FB_VAPID"
+
+          put APP_RUNTIME_PROFILE "uat"
+          put NEXT_PUBLIC_APP_ENV "uat"
+          put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
+          put NEXT_PUBLIC_APP_URL "$APP_URL"
+          put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
+          put NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
+          put NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
+          put NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
+          put NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
+          put NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
+          put NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
+          put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
+          [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
+          put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
+          put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
+          put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
+
+          # Native GoogleService-Info.plist for the iOS target. This is NOT part of
+          # ios:prepare:uat, and sync:native-firebase-configs requires an Android
+          # config we don't have here, so decode the GCP secret straight into place.
+          PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
+          if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
+            echo "Create it from the iOS GoogleService-Info.plist:" >&2
+            echo "  base64 -i GoogleService-Info.plist | gcloud secrets create IOS_GOOGLESERVICE_INFO_PLIST_B64 --data-file=- --project=${GCP_PROJECT_ID}" >&2
+            echo "See docs/guides/mobile/ship-ios-testflight.md." >&2
+            exit 1
+          fi
+          gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" \
+            | openssl base64 -d -A > "$PLIST_DEST"
+          if ! plutil -lint "$PLIST_DEST" >/dev/null 2>&1; then
+            echo "Decoded GoogleService-Info.plist failed plist validation." >&2
+            exit 1
+          fi
+          echo "Native GoogleService-Info.plist materialized (bundle ${IOS_BUNDLE_ID})."
+
+      - name: Decode App Store Connect API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The ASC signing key lives in GCP Secret Manager (hushh-pda-uat), the
+          # same store deploy/README.md designates for native signing assets:
+          #   APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID / _ISSUER_ID.
+          # Nothing App Store-related is stored as a GitHub secret.
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
+          }
+          for name in APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID; do
+            if ! gcloud secrets describe "$name" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+              echo "Missing GCP secret $name in ${GCP_PROJECT_ID}." >&2
+              echo "See docs/guides/mobile/ship-ios-testflight.md for setup." >&2
+              exit 1
+            fi
+          done
+          ASC_KEY_ID="$(get APPSTORE_CONNECT_KEY_ID)"
+          ASC_ISSUER_ID="$(get APPSTORE_CONNECT_ISSUER_ID)"
+          echo "::add-mask::${ASC_KEY_ID}"
+          echo "::add-mask::${ASC_ISSUER_ID}"
+          umask 077
+          get APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "${RUNNER_TEMP}/asc.p8"
+          chmod 600 "${RUNNER_TEMP}/asc.p8"
+          if ! grep -q "BEGIN PRIVATE KEY" "${RUNNER_TEMP}/asc.p8"; then
+            echo "Decoded ASC key is not a valid PEM .p8 (check APPSTORE_CONNECT_API_KEY_P8_B64)." >&2
+            exit 1
+          fi
+          # Key id + issuer id are needed by later xcodebuild/resolver steps; they
+          # are masked in logs above.
+          echo "ASC_KEY_ID=${ASC_KEY_ID}" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=${ASC_ISSUER_ID}" >> "$GITHUB_ENV"
+
+      - name: Create signing keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="${RUNNER_TEMP}/app-signing.keychain-db"
+          KC_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lt 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          # Add to the search list and make default so Apple-managed signing can
+          # store the fetched distribution cert + key.
+          security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
+          security default-keychain -s "$KEYCHAIN"
+
+      - name: Prepare iOS project (web build + cap sync, UAT backend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --prefix hushh-webapp ios:prepare:uat
+
+      - name: Resolve next TestFlight build number
+        id: build_number
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/asc-venv"
+          "${RUNNER_TEMP}/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
+          NEXT_BUILD="$("${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/resolve-ios-build-number.py \
+            --p8-path "${RUNNER_TEMP}/asc.p8" \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer-id "${ASC_ISSUER_ID}" \
+            --bundle-id "${IOS_BUNDLE_ID}" \
+            --pbxproj "${PBXPROJ}")"
+          echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
+          echo "Next build number: ${NEXT_BUILD}"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Resolve Swift package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${RUNNER_TEMP}/App.xcarchive" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
+            archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
+
+      - name: Export & upload to TestFlight
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          EXPORT_PLIST="hushh-webapp/ios/ExportOptions/AppStoreConnect.plist"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            # Dry run: archive + sign + export the .ipa locally, but do NOT upload.
+            EXPORT_PLIST="${RUNNER_TEMP}/ExportOptions.dryrun.plist"
+            cp "hushh-webapp/ios/ExportOptions/AppStoreConnect.plist" "$EXPORT_PLIST"
+            /usr/libexec/PlistBuddy -c "Set :destination export" "$EXPORT_PLIST"
+            echo "DRY RUN: exporting signed .ipa without uploading to TestFlight."
+          fi
+          xcodebuild -exportArchive \
+            -archivePath "${RUNNER_TEMP}/App.xcarchive" \
+            -exportOptionsPlist "$EXPORT_PLIST" \
+            -exportPath "${RUNNER_TEMP}/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
+            2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-${{ steps.build_number.outputs.next_build }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/export/**
+            ${{ runner.temp }}/xcodebuild-archive.log
+            ${{ runner.temp }}/xcodebuild-export.log
+            ${{ runner.temp }}/App.xcarchive/dSYMs/**
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          {
+            echo "## Ship iOS to TestFlight"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| SHA | \`${{ steps.resolve.outputs.sha }}\` |"
+            echo "| Version | ${MARKETING:-unknown} |"
+            echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Bundle | ${IOS_BUNDLE_ID} |"
+            echo "| Backend | UAT (hushh-pda-uat) |"
+            echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }} |"
+            if [ -n "${{ github.event.inputs.notes }}" ]; then
+              echo "| Notes | ${{ github.event.inputs.notes }} |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

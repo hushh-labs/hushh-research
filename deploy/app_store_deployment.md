@@ -1,10 +1,17 @@
 # App Store & Play Store Deployment Guide for Hushh
 
-**Status**: ✅ App configured and ready for store submission  
-**App Name**: Kai
+> **For TestFlight, use the one-click pipeline instead of this manual guide.**
+> `.github/workflows/ship-ios-testflight.yml` (say `ship ios`) cuts the current UAT build and
+> uploads it to TestFlight automatically — runbook:
+> [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+> The steps below remain the reference for a **public App Store / Play Store submission**, which
+> is a separate milestone (see `KT/hushh-one-publish-safety-audit.md`).
+
+**Status**: Reference for public store submission (TestFlight is automated — see banner above)  
+**App Name**: Hussh One (display name; historically "Kai")  
 **Bundle ID**: com.hushh.app  
-**Version**: 1.0.0  
-**Build**: 1  
+**Current version**: 1.3.5 (marketing) — see `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`  
+**Build**: auto-incremented by `scripts/ci/resolve-ios-build-number.py`  
 
 ---
 

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Export options for `xcodebuild -exportArchive` in the one-click TestFlight
+  pipeline (.github/workflows/ship-ios-testflight.yml).
+
+  Keys mirror the proven, gitignored build/TestFlight/ExportOptions-AppStoreConnect-40.plist
+  that shipped builds 37-40, with two deliberate choices for CI:
+    * destination = upload  -> the export step uploads to TestFlight in-place
+      (no altool/pilot follow-up). The dry_run job path rewrites this to
+      "export" via PlistBuddy so it archives + signs without uploading.
+    * manageAppVersionAndBuildNumber = false -> keep the build number that the
+      workflow computes (scripts/ci/resolve-ios-build-number.py, injected as
+      CURRENT_PROJECT_VERSION) authoritative; do not let Xcode auto-bump it.
+
+  Signing is Apple-managed via the App Store Connect API key passed to
+  xcodebuild (-allowProvisioningUpdates); signingStyle stays automatic and
+  teamID matches DEVELOPMENT_TEAM in App.xcodeproj/project.pbxproj.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>teamID</key>
+	<string>WVDK9JW99C</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>
