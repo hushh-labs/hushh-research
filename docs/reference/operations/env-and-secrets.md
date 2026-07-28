@@ -192,6 +192,12 @@ These are not Cloud Run runtime secrets.
 
 - Required on each `dev`, `uat`, and `production` GitHub environment:
   `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT`.
+- UAT and production declare these required names in
+  `config/ci-governance.json`; run
+  `python3 scripts/ci/verify-deployment-environment-governance.py` to detect
+  missing environment configuration before dispatch. The workflow reads
+  `vars.*`, so setting same-named GitHub environment secrets does not satisfy
+  the contract.
 - Required as repository variables for the scheduled production backup posture
   workflow: `GCP_WORKLOAD_IDENTITY_PROVIDER` and
   `GCP_BACKUP_SERVICE_ACCOUNT`.

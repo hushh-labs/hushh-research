@@ -281,6 +281,10 @@ The repo includes:
 - [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production`.
 - [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): manual UAT deploy (`workflow_dispatch`) through `uat`.
 
+Production GitHub OIDC/WIF setup has one idempotent entrypoint:
+[`deploy/iam/setup_production_github_wif.sh`](iam/setup_production_github_wif.sh).
+Do not provision a parallel provider or restore a service-account JSON key.
+
 Manual dispatch now supports `scope`:
 
 - `all` (default): deploy backend then frontend in one run/approval

@@ -1,0 +1,83 @@
+# Software supply-chain provenance for the consent-protocol backend.
+#
+# Produces the machine-verifiable evidence federal / DoD / IC evaluators look for
+# (EO 14028, NIST SSDF 800-218, SLSA, NTIA SBOM Minimum Elements): a CycloneDX
+# SBOM of the backend's dependency graph, plus a keyless (OIDC + Sigstore) signed
+# build-provenance attestation binding that SBOM to this repository, workflow, and
+# commit. See roadmap issue #4678 (item D). This is additive and independent of
+# the deploy pipeline — it never gates a release; it only publishes evidence.
+#
+# Verify later with:
+#   gh attestation verify sbom.cyclonedx.json --repo hushh-labs/hushh-research
+#
+# Scope note (honest): this attests the backend dependency SBOM at the source
+# tier. Image-level SLSA build provenance for the Cloud Build container image is a
+# tracked follow-up in #4678, not claimed here.
+
+name: Supply Chain Provenance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "consent-protocol/pyproject.toml"
+      - "consent-protocol/requirements.txt"
+      - "consent-protocol/requirements-dev.txt"
+      - "consent-protocol/uv.lock"
+
+# Least privilege: read the tree, mint an OIDC token, and write attestations.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom-provenance:
+    name: Backend SBOM + signed provenance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate CycloneDX SBOM for the consent-protocol backend
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./consent-protocol
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          # Do not fail the evidence job on scanner warnings.
+          upload-artifact: false
+
+      - name: Attest build provenance for the SBOM (keyless, Sigstore)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-sbom-${{ github.sha }}
+          path: sbom.cyclonedx.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Supply-chain evidence"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- SBOM: \`sbom.cyclonedx.json\` (CycloneDX, backend dependency graph)"
+            echo "- Provenance: signed build-provenance attestation (keyless OIDC + Sigstore)"
+            echo ""
+            echo "Verify: \`gh attestation verify sbom.cyclonedx.json --repo ${GITHUB_REPOSITORY}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
