@@ -229,16 +229,27 @@ jobs:
           PGPASSWORD: ${{ steps.creds.outputs.prod_db_password }}
         run: |
           set -euo pipefail
-          # --clean --if-exists makes the restore idempotent when re-run against
-          # a target that was partially populated by an earlier attempt.
-          /usr/lib/postgresql/15/bin/pg_restore \
-            --dbname="host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}" \
-            --no-owner \
-            --no-privileges \
-            --clean \
-            --if-exists \
-            --exit-on-error \
-            /tmp/uat.dump
+          # Sectioned restore, not a single pass. A schema-scoped custom-format
+          # dump doesn't reliably record the dependency edge between an
+          # extension (e.g. pgvector) and a table column that uses its type, so
+          # a single-pass restore can try to create that column before the
+          # extension exists. Restoring pre-data (schemas, extensions, types,
+          # table shells) to completion first, then data, then post-data
+          # (indexes/constraints/FKs) removes the ordering hazard entirely.
+          # --clean --if-exists only applies to the pre-data pass, which is
+          # where the schema/extension/table drops live; it also makes the
+          # whole restore idempotent when re-run against a target that was
+          # partially populated by an earlier attempt.
+          DSN="host=127.0.0.1 port=${PROD_PROXY_PORT} user=${{ steps.creds.outputs.prod_db_user }} dbname=${PROD_DB_NAME}"
+          for section in pre-data data post-data; do
+            args=(--dbname="${DSN}" --no-owner --no-privileges --exit-on-error --section="${section}")
+            if [ "${section}" = "pre-data" ]; then
+              args+=(--clean --if-exists)
+            fi
+            echo "::group::pg_restore --section=${section}"
+            /usr/lib/postgresql/15/bin/pg_restore "${args[@]}" /tmp/uat.dump
+            echo "::endgroup::"
+          done
 
       - name: Verify parity
         if: inputs.mode == 'apply'
