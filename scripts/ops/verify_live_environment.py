@@ -15,11 +15,14 @@ Exit code is 0 only when every required probe matches its expected posture, so
 this is safe to gate a release on.
 
 The remote MCP surface is deliberately posture-checked rather than
-availability-checked: `docs/reference/operations/env-and-secrets.md` records
-"keep false in production" for `DEVELOPER_API_ENABLED`, and `remote_mcp_enabled()`
-requires it. A production run therefore expects MCP to answer
-`404 REMOTE_MCP_DISABLED`, and a run that finds it *open* fails loudly. Flip
-`--expect-mcp enabled` only alongside a deliberate, documented policy change.
+availability-checked: production and UAT both run with `DEVELOPER_API_ENABLED`
+and `REMOTE_MCP_ENABLED` true (matching posture as of the 2026-07-28 Cloud SQL
+cutover), so both expect `401 DEVELOPER_TOKEN_REQUIRED`, never a bare `200`. A
+run that finds either environment answering `200` unauthenticated, or `404`
+disabled, fails loudly -- a `404` now means the flag was reverted, since the
+'Sync canonical hosted runtime secrets' step in deploy-production.yml
+regenerates this posture on every deploy. Flip `--expect-mcp disabled` only
+alongside a deliberate, documented policy change.
 """
 
 from __future__ import annotations
@@ -41,7 +44,10 @@ ENVIRONMENTS: dict[str, dict[str, str]] = {
 }
 
 # Posture the repo documents for each environment's developer/MCP surface.
-DEFAULT_MCP_POSTURE = {"production": "disabled", "uat": "enabled"}
+# Production was cut over from Supabase to Cloud SQL and the developer
+# API/remote MCP surface enabled to match UAT on 2026-07-28; both environments
+# now carry the same standing posture.
+DEFAULT_MCP_POSTURE = {"production": "enabled", "uat": "enabled"}
 
 TIMEOUT_SECONDS = 25
 
