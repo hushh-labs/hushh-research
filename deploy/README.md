@@ -22,7 +22,7 @@ The green `main` SHA is the deployment source of truth for a manual UAT dispatch
 
 1. opens a Cloud SQL Auth Proxy session to the UAT database
 2. applies the canonical release lane with `python3 consent-protocol/db/migrate.py --release`
-3. enforces the live UAT schema contract in `consent-protocol/db/schema_contract/uat_integrated_schema.json`
+3. enforces the live UAT schema contract in `consent-protocol/db/contracts/uat_integrated_schema.json`
 4. deploys backend/frontend
 5. reruns the read-only UAT schema contract gate after deploy
 6. runs the hosted runtime parity check
@@ -196,7 +196,7 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
    `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
    UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
 
-4. **Configure production logical backup infrastructure** (GCP)
+4. **Configure the production backup posture** (GCP)
 
    Production backups are native Cloud SQL automated backups + point-in-time
    recovery on `hushh-pda:us-central1:hushh-vault-db`. Apply/refresh the posture:
@@ -457,7 +457,7 @@ python3 scripts/ops/db_migration_release_guard.py \
 
 # Latest-integrated UAT schema contract gate
 python3 scripts/ops/db_migration_release_guard.py \
-  --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+  --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
   --report-path /tmp/uat-db-migration-guard-report.json
 
 # Generate audit manifest for a production release

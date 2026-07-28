@@ -10,6 +10,59 @@ Canonical visual owner: [Operations Index](README.md). Use that map for the top-
 
 See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.example](../../../consent-protocol/.env.example), [hushh-webapp/.env.example](../../../hushh-webapp/.env.example), [deploy/.env.backend.example](../../../deploy/.env.backend.example), [deploy/.env.frontend.example](../../../deploy/.env.frontend.example). For FCM push notifications, see [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md).
 
+## Visual Map
+
+Where env values originate, how they reach each runtime, and which scripts
+enforce the parity rule. Counts live in the cloudbuild files, not here, because a
+number written in prose drifts the first time a secret is added.
+
+```mermaid
+flowchart TB
+  subgraph templates["Tracked templates"]
+    beex["consent-protocol/.env.example"]
+    feex["hushh-webapp/.env.local.local.example<br/>plus .env.uat, .env.dev, .env.prod variants"]
+  end
+
+  subgraph localrt["Local runtime, uncommitted"]
+    boot["bin/hushh bootstrap<br/>scripts/env/bootstrap_profiles.sh"]
+    active["scripts/env/use_profile.sh activates<br/>consent-protocol/.env and hushh-webapp/.env.local"]
+  end
+
+  subgraph gcp["GCP Secret Manager"]
+    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by append_optional_secret"]
+    fesec["Frontend secrets<br/>build-time args plus Cloud Run runtime secrets"]
+  end
+
+  subgraph deploy["Deploy path, GitHub OIDC Workload Identity Federation"]
+    wf["deploy-dev.yml, deploy-uat.yml,<br/>deploy-production.yml"]
+    becb["deploy/backend.cloudbuild.yaml<br/>set-secrets plus set-env-vars"]
+    fecb["deploy/frontend.cloudbuild.yaml<br/>build-args plus runtime set-secrets"]
+  end
+
+  subgraph runtime["Cloud Run"]
+    berun["consent-protocol<br/>hushh_mcp/config.py, hushh_mcp/runtime_settings.py"]
+    ferun["hushh-webapp<br/>lib/config.ts and app/api route handlers"]
+  end
+
+  audit["scripts/ops/verify-env-secrets-parity.py<br/>scripts/ops/verify-runtime-profile-env-shape.py"]
+
+  beex --> boot
+  feex --> boot
+  besec --> boot
+  fesec --> boot
+  boot --> active
+  besec --> becb
+  fesec --> fecb
+  wf --> becb
+  wf --> fecb
+  becb --> berun
+  fecb --> ferun
+  wf --> audit
+  active --> audit
+  audit --> besec
+  audit --> fesec
+```
+
 ---
 
 ## Parity rule: code ↔ .env ↔ Secret Manager

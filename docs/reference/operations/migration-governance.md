@@ -2,7 +2,55 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines the database migration authority and the frozen-vs-integrated contract model.
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines the database migration authority and the environment contract model.
+
+## Visual Map
+
+Execution mode is a fail-closed state machine in `migration_authority.py`. The
+contract model is a separate, always-exact parity check.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+
+  [*] --> replay
+
+  replay: executes every migration body
+  replay: writes no ledger rows
+  replay: repo and production default
+
+  observe: advisory lock acquired
+  observe: creates and reads the schema_migrations_v2 ledger
+  observe: validates recorded checksums
+  observe: executes no migration bodies
+
+  baselineGate: UAT zero-loss baseline gate
+  baselineGate: db_preservation_manifest.py
+  baselineGate: restore_logical_backup_clone.py
+  baselineGate: establish_baseline requires baseline authorization evidence
+
+  ledger: requires a verified baseline marker
+  ledger: executes only pending migrations
+
+  failClosed: MigrationAuthorityError
+  failClosed: no migration bodies executed
+
+  replay --> observe: HUSHH_MIGRATION_MODE set to observe
+  observe --> baselineGate: bounded write-freeze, evidence captured
+  baselineGate --> ledger: baseline recorded, local/test/UAT only
+  baselineGate --> failClosed: incomplete or unverified preservation evidence
+  ledger --> ledger: re-run executes zero bodies
+  observe --> failClosed: an accepted checksum changed
+  ledger --> failClosed: baseline absent or an accepted checksum changed
+
+  note right of replay
+    Contract model, enforced in the blocking CI governance lane:
+    uat_integrated_schema.json  policy exact, v120
+    prod_core_schema.json       policy exact, v120
+    verify_release_migration_contract.py fails when prod policy is not exact
+    report_prod_contract_posture.py exits non-zero on any prod/integrated delta
+  end note
+```
 
 ## One Authority
 
@@ -56,22 +104,33 @@ Before establishing a UAT baseline:
 Evidence is accepted only when the source identity, clone comparison, backup
 checksum, catalog digest, information digests, and freshness window all match.
 The dump and restore clients must use the source PostgreSQL major version;
-operators set `PG_DUMP_BIN` and `PG_RESTORE_BIN` explicitly when the host
-default differs.
+operators set `PG_RESTORE_BIN` explicitly when the host default differs.
 Reports remain under ignored `tmp/` and never contain plaintext protected
-information. Production is explicitly outside this cutover.
+information.
+
+This logical dump/restore procedure is a **UAT baseline tool only**. It is not the
+production recovery path: production recovery is Cloud SQL automated backups plus
+PITR, described in
+[production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md).
 
 ## Environment Contract Model
+
+UAT and production run the same Cloud SQL schema, so both contracts are exact and
+must stay at the same migration version:
 
 - `uat_integrated_schema.json`
   - exact policy
   - tracks the current integrated release lane
 - `prod_core_schema.json`
-  - minimum policy
-  - intentionally frozen
+  - exact policy
+  - mirrors the integrated contract table-for-table
   - validated read-only
 
-Production is not converged to the integrated UAT contract in this program. That gap is explicit policy, not silent drift.
+Production is converged to the integrated contract. Any delta between the two
+files is drift to close, not accepted policy, and
+`verify_release_migration_contract.py` fails when the production contract is not
+`exact`. (The earlier "frozen subset" model, where production pinned a lower
+minimum version and a reduced table set, is retired.)
 
 ## Surface Taxonomy
 
@@ -121,13 +180,13 @@ Do not use as:
 
 - `scripts/ops/db_migration_release_guard.py`
 - `scripts/ops/verify_release_migration_contract.py`
-- `scripts/ops/report_prod_frozen_posture.py`
+- `scripts/ops/report_prod_contract_posture.py`
 
 Use for:
 
 - contract alignment
 - UAT exact verification
-- production frozen posture reporting
+- production/integrated contract parity reporting
 
 ### Data migration / seed utilities
 
@@ -160,7 +219,8 @@ Meaning:
 - `verify-uat-schema`
   - runs the exact UAT contract against live UAT runtime DB settings, read-only
 - `report-prod-posture`
-  - reports the intentional delta between frozen prod and integrated UAT contracts
+  - reports any delta between the production and integrated contracts, and exits
+    non-zero when they have drifted apart (expected delta: none)
 - `data-model-audit`
   - verifies migration-created tables are classified under the runtime DB data-plane contract
   - blocks unclassified tables and canonical writes into legacy memory tables
@@ -182,7 +242,7 @@ When a new numbered migration lands:
 1. add the SQL file under `db/migrations/`
 2. update `release_migration_manifest.json`
 3. update `uat_integrated_schema.json` when the integrated contract advances
-4. keep `prod_core_schema.json` frozen unless production policy intentionally changes
+4. advance `prod_core_schema.json` in the same change so it stays an exact mirror of the integrated contract
 5. follow the maintainer SOP in [data-model-governance.md](../architecture/data-model-governance.md)
 6. update [runtime-db-data-plane-contract.json](../architecture/runtime-db-data-plane-contract.json) when the migration creates or renames tables
 7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready

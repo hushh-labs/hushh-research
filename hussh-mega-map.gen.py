@@ -6,8 +6,11 @@
 #   Apple Mac unified memory / Nvidia RTX Spark on-device · UCP · AP2 agent-economy.
 # Colors standardized on the hushh-search-console Foundation palette (ink/gold) but
 #   kept CONTRASTIVE for legibility; gold = emphasis/navigation only (Foundation law).
-# Renders BOTH hussh-mega-map.dark.svg and hussh-mega-map.light.svg.
-import html, math, re
+# Renders four SVGs next to this file: hussh-mega-map.{dark,light}.svg (internal,
+#   eight layers) and hussh-mega-map.{dark,light}.public.svg (public, seven layers).
+import html, math, os, re
+
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 def e(s): return html.escape(str(s))
 
 W=3320; AX0=100; INW=W-2*AX0
@@ -394,7 +397,7 @@ def render(theme_name, public=False):
 
     S.append("</g></svg>")
     suffix=f"{theme_name}.public" if public else theme_name
-    out=f"/Users/kushaltrivedi/Documents/GitHub/hushh-research/hussh-mega-map.{suffix}.svg"
+    out=os.path.join(REPO_ROOT, f"hussh-mega-map.{suffix}.svg")
     svg_str="\n".join(S)
     # round long float coords so geometry digit-runs can't trip the wiki credit_card scan
     svg_str=re.sub(r'(\d+\.\d{3,})', lambda m: f"{float(m.group(1)):.2f}", svg_str)

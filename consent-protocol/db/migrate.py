@@ -1275,7 +1275,7 @@ Examples:
         help=(
             "Migration authority mode: replay (current behavior), observe (inspect only; no "
             "migration bodies), or ledger (pending only after verified baseline). Defaults "
-            "to HUSSH_MIGRATION_MODE or replay."
+            "to HUSHH_MIGRATION_MODE or replay."
         ),
     )
     parser.add_argument(

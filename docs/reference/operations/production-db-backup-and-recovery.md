@@ -16,6 +16,59 @@ Scope:
 - No application-side dump job, GCS backup bucket, or logical-backup Cloud Run
   job is involved in the production recovery path.
 
+## Visual Map
+
+Cloud SQL owns the backup substrate, posture verification gates the production
+deploy, and every recovery path clones to a new instance rather than restoring in
+place.
+
+```mermaid
+flowchart LR
+  subgraph source["Cloud SQL production substrate"]
+    inst["hushh-vault-db<br/>PostgreSQL 15, database hushh_vault"]
+    auto["Daily automated backup<br/>30 retained"]
+    wal["Transaction logs<br/>PITR enabled, 7 days"]
+    ondemand["On-demand backup<br/>gcloud sql backups create"]
+  end
+
+  subgraph posture["Posture verification"]
+    daily["prod-cloudsql-backup-posture.yml<br/>daily schedule plus manual dispatch"]
+    check["cloudsql_backup_freshness_check.py<br/>--max-age-hours 30"]
+    report["backup-posture-report.json<br/>uploaded artifact"]
+  end
+
+  subgraph release["deploy-production.yml release gate"]
+    pre["Optional predeploy backup<br/>run_predeploy_backup_job=true"]
+    gate["Backup posture gate<br/>blocks on disabled backups, disabled PITR, or a stale backup"]
+    guard["db_migration_release_guard.py<br/>ordering, prod contract, live drift"]
+    manifest["generate_migration_release_manifest.py<br/>prod_migration_release_manifest.json"]
+    deploy["Backend and frontend Cloud Build deploy"]
+  end
+
+  subgraph recover["Recovery paths, never in place"]
+    pitr["gcloud sql instances clone<br/>--point-in-time"]
+    restore["gcloud sql backups restore<br/>into a recovery instance"]
+    drill["Monthly restore drill<br/>table counts, PKM coherence, observed RTO, delete clone"]
+  end
+
+  inst --> auto
+  inst --> wal
+  inst --> ondemand
+  daily --> check
+  auto --> check
+  wal --> check
+  check --> report
+  pre --> gate
+  report --> gate
+  gate --> guard
+  guard --> manifest
+  manifest --> deploy
+  wal --> pitr
+  auto --> restore
+  ondemand --> restore
+  pitr --> drill
+```
+
 ---
 
 ## Recovery Profile
@@ -104,7 +157,7 @@ gcloud sql backups create \
   --description "pre-change-snapshot"
 ```
 
-Migration guard (read-only):
+Production/integrated contract parity (read-only; exits non-zero on any delta):
 
 ```bash
 ./bin/hushh db report-prod-posture

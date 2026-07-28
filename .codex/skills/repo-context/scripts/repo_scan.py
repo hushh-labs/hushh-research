@@ -113,15 +113,6 @@ PATH_PREFIXES = (
 )
 SKILL_CONTEXT_LINE_LIMIT = 180
 DOC_CONTEXT_LINE_LIMIT = 700
-CODE_MODULARITY_LINE_LIMIT = 3000
-CODE_REVIEW_EXTENSIONS = (".py", ".ts", ".tsx", ".mjs", ".js", ".sh")
-CODE_REVIEW_EXCLUDED_PARTS = {
-    ".next",
-    ".venv",
-    "__pycache__",
-    "DerivedData",
-    "node_modules",
-}
 COMMAND_PATTERNS = [
     r"^\./bin/hushh\s+",
     r"^\./scripts/ci/",
@@ -135,7 +126,12 @@ COMMAND_PATTERNS = [
     r"^cd hushh-webapp && npx vitest run ",
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
+    r"^python3 \.claude/skills/",
+    r"^python3 scripts/ops/",
     r"^python3 -m py_compile ",
+    # Native build lanes: the only two shapes the mobile parity audit runs.
+    r"^cd hushh-webapp && \./android/gradlew ",
+    r"^cd hushh-webapp && xcodebuild -project ios/App/",
     r"^gh auth status$",
     r"^gh api user --jq ",
     r"^gh run list ",
@@ -293,22 +289,8 @@ def _git_paths(*args: str) -> list[Path]:
     ]
 
 
-def _tracked_and_untracked_paths() -> list[Path]:
-    return _git_paths("ls-files") + _git_paths("ls-files", "--others", "--exclude-standard")
-
-
 def _line_count(path: Path) -> int:
     return len(_load_text(path).splitlines())
-
-
-def _is_reviewable_code_path(path: Path) -> bool:
-    if path.suffix not in CODE_REVIEW_EXTENSIONS:
-        return False
-    try:
-        rel_parts = path.relative_to(REPO_ROOT).parts
-    except ValueError:
-        return False
-    return not any(part in CODE_REVIEW_EXCLUDED_PARTS for part in rel_parts)
 
 
 def _modularity_review_findings() -> list[str]:
@@ -338,16 +320,50 @@ def _modularity_review_findings() -> list[str]:
             f"Context-size review required for doc {rel}: {lines} lines; split only when a bounded subtopic needs its own canonical home."
         )
 
-    oversized_code: list[tuple[str, int]] = []
-    for path in _tracked_and_untracked_paths():
-        if not path.exists() or not _is_reviewable_code_path(path):
-            continue
-        lines = _line_count(path)
-        if lines > CODE_MODULARITY_LINE_LIMIT:
-            oversized_code.append((str(path.relative_to(REPO_ROOT)), lines))
-    for rel, lines in sorted(oversized_code, key=lambda item: item[1], reverse=True)[:8]:
+    fitness_script = (
+        SKILLS_ROOT / "repo-context" / "scripts" / "architecture_fitness.py"
+    )
+    if not fitness_script.exists():
         findings.append(
-            f"Modularity review required for code {rel}: {lines} lines; future edits should extract new bounded behavior instead of growing the file by default."
+            "Bacterial architecture fitness is unavailable: architecture_fitness.py is missing."
+        )
+        return findings
+
+    result = subprocess.run(
+        [sys.executable, str(fitness_script), "--json"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        findings.append(
+            "Bacterial architecture fitness could not run; inspect the focused checker before relying on modularity guidance."
+        )
+        return findings
+
+    payload = json.loads(result.stdout)
+    ranked = sorted(
+        payload.get("findings", []),
+        key=lambda item: (
+            -(
+                (item.get("value") or 0) / max(item.get("limit") or 1, 1)
+                if item.get("limit")
+                else 0
+            ),
+            item.get("kind", ""),
+            item.get("path", ""),
+        ),
+    )
+    for item in ranked[:8]:
+        symbol = f"::{item['symbol']}" if item.get("symbol") else ""
+        metric = (
+            f" {item['value']}>{item['limit']}"
+            if item.get("value") is not None and item.get("limit") is not None
+            else ""
+        )
+        findings.append(
+            "Bacterial architecture review required for "
+            f"{item['path']}{symbol}: {item['kind']}{metric}; {item['detail']}."
         )
 
     return findings

@@ -466,7 +466,7 @@ flowchart TB
     prodFrontend["Cloud Run service<br/>hushh-webapp"]
     prodBackend["Cloud Run service<br/>consent-protocol"]
     prodApp["App origin<br/>https://one.hushh.ai"]
-    prodBackup["Production logical backup posture<br/>Cloud Run Job + storage bucket"]
+    prodBackup["Production backup posture<br/>Cloud SQL automated backups + PITR"]
     prodDb["Production Cloud SQL/Postgres path<br/>runtime DB_* contract"]
   end
 

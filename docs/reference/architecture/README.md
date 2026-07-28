@@ -32,6 +32,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [architecture-view-catalog.md](./architecture-view-catalog.md): C4 + ISO 42010 architecture views for system landscape, context, containers, components, dynamic flows, deployment/network/physical topology, and data boundaries.
 - [founder-language-matrix.md](./founder-language-matrix.md): canonical founder-term to implementation-term mapping and audit checklist.
 - [api-contracts.md](./api-contracts.md): API surface and proxy/backend contracts.
+- [preference-subscription-fabric.md](./preference-subscription-fabric.md): the Personal World Model (`/api/pwm`) and the PCHP RFC-002 Preference Subscription Fabric (`/api/fabric`) — grants, the pairing handshake, subscriber reads, and the hash-chained receipt ledger.
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
 - [runtime-topology-maintenance.md](./runtime-topology-maintenance.md): generated cross-contract index, maintenance profiles, compatibility lifecycle, and destructive-retirement boundary.
 - [schema-migration-discipline.md](./schema-migration-discipline.md): expand/contract rules for Postgres schema changes — additive first, destructive last and alone, tested down paths.
@@ -44,6 +45,9 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [cache-coherence.md](./cache-coherence.md): cache invalidation and freshness model.
 - [data-model-governance.md](./data-model-governance.md): maintainer SOP for schema, data classes, retention, deletion, and table-family changes.
 - [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md): runtime storage facts and boundaries.
+- [crd-scraping-api.md](./crd-scraping-api.md): CRD scraping and financial-verification provider contract behind the `/api/ria` facade.
+- [one-location-agent.md](./one-location-agent.md): One Location agent v1 implementation contract.
+- [pkm-storage-adr.md](./pkm-storage-adr.md): decision record for PKM storage shape.
 - [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json): machine-readable table-family ownership, retention, deletion, and trust-boundary contract used by the data-model audit.
 - [data-provenance-ledger.md](./data-provenance-ledger.md): provenance and audit data model.
 - [pkm-cutover-runbook.md](./pkm-cutover-runbook.md): PKM cutover and compatibility rules.
