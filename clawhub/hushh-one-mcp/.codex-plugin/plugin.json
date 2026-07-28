@@ -1,7 +1,7 @@
 {
   "name": "hushh-one-mcp",
-  "version": "0.1.1",
-  "description": "OpenClaw bundle for the Hussh One consent MCP, enabling agents to request explicit scoped access to a user's PKM through Hussh.",
+  "version": "0.1.2",
+  "description": "OpenClaw bundle for the Hushh One private agent consent MCP, enabling agents to request explicit scoped access to a user's PKM through Hushh.",
   "author": {
     "name": "Hushh",
     "email": "partners@hushh.ai",
