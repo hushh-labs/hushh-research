@@ -5,6 +5,10 @@
 `google-cloud-kms` dependency (lazy-imported only when the flag is on) and a
 provisioned Cloud KMS key — none of which a normal process needs today.
 
+## Visual Context
+
+Canonical visual owner: [consent-protocol reference index](./README.md).
+
 ## Why
 
 Today the core data-encryption keys (DEKs) — `APP_SIGNING_KEY` (HMAC token +

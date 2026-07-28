@@ -5,6 +5,10 @@
 gated by `WEBAUTHN_ENABLED` (also default off). Enabling AAL3 elevation additionally
 requires a provisioned, verified FIDO MDS extract at `WEBAUTHN_MDS_BLOB_PATH`.
 
+## Visual Context
+
+Canonical visual owner: [consent-protocol reference index](./README.md).
+
 ## Why
 
 The server-side WebAuthn ceremony already verifies attestation/assertion and the

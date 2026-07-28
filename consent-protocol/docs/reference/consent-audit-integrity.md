@@ -5,6 +5,10 @@
 (900 band, not in `db/release_migration_manifest.json`) until greenlit. Nothing
 in a released environment changes until the flag is turned on.
 
+## Visual Context
+
+Canonical visual owner: [consent-protocol reference index](./README.md).
+
 ## Why
 
 The primary consent ledger (`consent_audit`) is event-sourced and each consent

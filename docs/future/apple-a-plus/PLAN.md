@@ -11,6 +11,10 @@ rational, good judgment). Beneath the four moats — brand · product · service
 the non-negotiable floor is **taste & craft**. "A+" is verifiable on the real surface,
 not slideware.
 
+## Visual Context
+
+Canonical visual owner: [docs index](../../README.md).
+
 ## Grades — was → now (grounded in a four-way repo examination, updated as increments ship)
 
 | Dimension | Was | Now | Movement |

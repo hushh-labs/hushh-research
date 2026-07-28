@@ -21,6 +21,21 @@
 > `consent-protocol/`). The `ENTERPRISE_SSO.md` / `sso-providers.ts` surfaces
 > live in the separate `hushh-search-console` repo and are **not** part of this.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  user["human"] --> auth{"authenticator"}
+  auth --> platform["platform<br/>Face ID / Touch ID"]
+  auth --> hw["hardware key<br/>Titan / YubiKey"]
+  platform -->|user verified| aal2["AAL2"]
+  hw -->|user verified| cand["AAL3-candidate"]
+  cand -->|FIDO-MDS verified| aal3["AAL3"]
+```
+
+Assurance is classified honestly: a hardware key stays *candidate* until its
+attestation is MDS-verified. Companion: [../personal-agent/README.md](../personal-agent/README.md).
+
 ## 1. The honest current state (what "biometric/FaceID" means today)
 
 **hussh supports biometric + FaceID + passkeys for *vault unlock*, not for *login*.**

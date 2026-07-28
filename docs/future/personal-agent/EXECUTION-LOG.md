@@ -6,6 +6,10 @@
 > evidence). All on branch `claude/hushh-infrastructure-analysis-7o991c`,
 > **flag-off / dev-only**; nothing merged to `main` or deployed to UAT/Prod.
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## Milestone → change → commit ledger
 
 | Milestone | What shipped | Commit(s) |

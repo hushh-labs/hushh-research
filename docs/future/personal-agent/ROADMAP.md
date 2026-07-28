@@ -8,6 +8,10 @@
 > Design of record: [`ARCHITECTURE.md`](./ARCHITECTURE.md). Engineering record:
 > [`README.md`](./README.md). Audit: [`SECURITY-REVIEW.md`](./SECURITY-REVIEW.md).
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## How to read this
 
 - **Velocity assumption.** Timelines assume a well-resourced AI-engineering team moving

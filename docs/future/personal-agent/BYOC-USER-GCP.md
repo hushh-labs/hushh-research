@@ -8,6 +8,10 @@
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) (design of record), [`ROADMAP.md`](./ROADMAP.md)
 > (M6 tier), [`M4-LIVE-VALIDATION.md`](./M4-LIVE-VALIDATION.md) (the slim pod this builds on).
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## What it is
 
 The sovereignty flagship: instead of hussh hosting the per-user pod, the user runs

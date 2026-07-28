@@ -416,7 +416,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -432,7 +432,7 @@
         "connection_requests",
         "connections"
       ],
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester→addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
+      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester\u2192addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
       "retention_policy": "Active connections persist as the users' mutual relationship graph; revoked connections and terminal requests (rejected/cancelled) are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is either party (requester/addressee, or user_a/user_b); revoke active connections and their mirrored trusted_connections edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (user references, status, source, optional plaintext message on a request, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -670,6 +670,21 @@
       "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
       "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
       "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "consent_audit_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "planned",
+      "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained consent-event metadata only (hashes, signatures, scope/agent/request labels); never token secrets or PKM values.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
     },

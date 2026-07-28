@@ -8,6 +8,10 @@
 > **Purpose:** this is the gate the plan requires *before* the live-path wiring
 > (auto-provision on phone-verify, teardown on account-deletion) is enabled.
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md).
+
 ## Verdict
 
 The **core authorization and zero-knowledge design is sound** (see "Confirmed

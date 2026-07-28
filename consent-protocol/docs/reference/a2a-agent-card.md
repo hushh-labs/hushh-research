@@ -4,6 +4,10 @@
 (`A2A_AGENT_CARD_ENABLED`, default off). With the flag off the standard well-known
 path returns **404** — the existing release gate is preserved.
 
+## Visual Context
+
+Canonical visual owner: [consent-protocol reference index](./README.md).
+
 ## Why
 
 The founder directive is that 🤫 Agent One service agents be **deployable on external
