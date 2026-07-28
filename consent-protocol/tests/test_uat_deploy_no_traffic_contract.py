@@ -53,6 +53,19 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
+def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
+    assert 'genai_project_id="hushh-pda-uat"' in backend_build
+    assert '"${_DEPLOY_ENV}" != "dev"' in backend_build
+    assert "roles/serviceusage.serviceUsageConsumer" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
+    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1
+    assert "GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '_GENAI_PROJECT_ID: ""' in backend_build
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
