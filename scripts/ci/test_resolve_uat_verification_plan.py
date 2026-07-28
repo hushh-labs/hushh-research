@@ -107,6 +107,78 @@ def test_frontend_vault_change_requires_byok_browser() -> None:
     assert plan.as_dict()["requires_web_dependencies"] is True
 
 
+def test_divergent_service_bases_do_not_reselect_already_deployed_vault_change() -> None:
+    resolver = load_module()
+    changed_by_base = {
+        "backend-base": {
+            "consent-protocol/api/routes/health.py",
+            "hushh-webapp/lib/services/vault-service.ts",
+            "scripts/ci/shared-release-check.py",
+        },
+        "frontend-base": {
+            "hushh-webapp/components/one-location/live-map.tsx",
+            "consent-protocol/api/routes/already-deployed.py",
+            "scripts/ci/shared-release-check.py",
+        },
+    }
+    resolver._git_diff = lambda base, _target: changed_by_base[base]
+
+    plan = resolver.resolve_plan(
+        target_sha="target",
+        backend_base_sha="backend-base",
+        frontend_base_sha="frontend-base",
+        deploy_backend=True,
+        deploy_frontend=True,
+    )
+
+    assert plan.changed_files == (
+        "consent-protocol/api/routes/health.py",
+        "hushh-webapp/components/one-location/live-map.tsx",
+        "scripts/ci/shared-release-check.py",
+    )
+    assert plan.run_pkm_upgrade_gate is False
+    assert plan.run_reviewer_byok is False
+    assert plan.reason == "changed_paths:standard"
+
+
+def test_divergent_service_bases_preserve_owned_and_shared_protected_changes() -> None:
+    resolver = load_module()
+    changed_by_base = {
+        "backend-base": {
+            "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
+            "consent-protocol/hushh_mcp/services/vault_reader.py",
+            "hushh-webapp/lib/vault/already-deployed.ts",
+            ".codex/skills/reviewer-app-testing/SKILL.md",
+        },
+        "frontend-base": {
+            "hushh-webapp/lib/services/pkm-upgrade-reader.ts",
+            "hushh-webapp/lib/vault/key.ts",
+            "consent-protocol/hushh_mcp/services/vault_already_deployed.py",
+            ".codex/skills/reviewer-app-testing/SKILL.md",
+        },
+    }
+    resolver._git_diff = lambda base, _target: changed_by_base[base]
+
+    plan = resolver.resolve_plan(
+        target_sha="target",
+        backend_base_sha="backend-base",
+        frontend_base_sha="frontend-base",
+        deploy_backend=True,
+        deploy_frontend=True,
+    )
+
+    assert plan.changed_files == (
+        ".codex/skills/reviewer-app-testing/SKILL.md",
+        "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
+        "consent-protocol/hushh_mcp/services/vault_reader.py",
+        "hushh-webapp/lib/services/pkm-upgrade-reader.ts",
+        "hushh-webapp/lib/vault/key.ts",
+    )
+    assert plan.pkm_evaluator_runs == 1
+    assert plan.run_pkm_upgrade_gate is True
+    assert plan.run_reviewer_byok is True
+
+
 def test_missing_deployed_sha_fails_closed() -> None:
     resolver = load_module()
     plan = resolver.resolve_plan(
@@ -122,6 +194,21 @@ def test_missing_deployed_sha_fails_closed() -> None:
     lanes = plan.as_dict()["lanes"]
     assert lanes["pkm_upgrade"]["reason"] == "comparison_base_unproven_fail_closed"
     assert lanes["reviewer_byok"]["reason"] == "comparison_base_unproven_fail_closed"
+
+
+def test_one_missing_service_base_fails_closed_for_all_service_deploy() -> None:
+    resolver = load_module()
+    plan = resolver.resolve_plan(
+        target_sha="target",
+        backend_base_sha="backend-base",
+        frontend_base_sha="",
+        deploy_backend=True,
+        deploy_frontend=True,
+    )
+    assert plan.pkm_evaluator_runs == 1
+    assert plan.run_pkm_upgrade_gate is True
+    assert plan.run_reviewer_byok is True
+    assert plan.reason == "conservative:comparison_base_unproven"
 
 
 def test_unresolvable_comparison_base_fails_closed() -> None:
@@ -155,7 +242,10 @@ def main() -> int:
         test_pkm_gate_policy_change_relies_on_always_on_contract_tests,
         test_unknown_path_keeps_expensive_lanes_skipped,
         test_frontend_vault_change_requires_byok_browser,
+        test_divergent_service_bases_do_not_reselect_already_deployed_vault_change,
+        test_divergent_service_bases_preserve_owned_and_shared_protected_changes,
         test_missing_deployed_sha_fails_closed,
+        test_one_missing_service_base_fails_closed_for_all_service_deploy,
         test_unresolvable_comparison_base_fails_closed,
     ]
     for test in tests:
