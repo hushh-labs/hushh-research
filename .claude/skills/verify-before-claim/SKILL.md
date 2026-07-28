@@ -6,13 +6,67 @@ allowed-tools: Read Grep Glob Bash
 
 # Verify before you claim
 
-> Role models: **Jeff Dean** — know the mechanism and the numbers, design for the
-> failure case, make the simplest thing that survives scale. **Andrej Karpathy** —
-> small self-contained pieces, tests and evals as the only ground truth, understand
-> the system end to end before you touch it.
-
 The single rule: **a claim is only as good as the evidence you gathered for it.**
 Everything below is a specific way that rule gets broken.
+
+---
+
+## 0. What we actually learn from Jeff Dean and Andrej Karpathy
+
+Not decoration — these are the working habits. Both, from opposite ends of the
+field, converge on the same enemy: **systems that fail silently.**
+
+### Karpathy — "it fails silently"
+
+His central warning about neural nets is that they are a *leaky abstraction*: a
+misconfigured system does not crash, it **trains and produces plausible garbage**.
+Everything looks fine. That is exactly our failure mode:
+
+- A branch failed CI for **two weeks** and looked healthy — the tests never ran.
+- A page returned `200` and said **"Blog not found."**
+- Annotating a source line *appeared* to fix a scanner finding. It did not.
+
+His method, applied here:
+
+- **Become one with the data.** Before writing code, read the actual system:
+  the real write path, the real gate script, the real config. Do not design from
+  the mental model — design from the artifact.
+- **End-to-end skeleton + dumb baseline first.** Get the simplest possible thing
+  working end to end and *verified*, then add sophistication. We inverted this and
+  paid for it: we built four sophisticated controls before ever proving the branch
+  could pass CI or deploy anywhere.
+- **Verify at every step; trust nothing.** Add one thing, confirm it did what you
+  expected, then add the next. Never batch five unverified changes.
+- **Evals are the ground truth.** Not intuition, not "it looks right." If you
+  cannot measure it, you do not know it.
+- **Code like bacteria** — small, self-contained, independently useful pieces that
+  another system could lift without importing your whole world.
+
+### Jeff Dean — know the mechanism, design for failure
+
+- **Back-of-the-envelope before you build.** Estimate orders of magnitude first —
+  requests, rows, bytes, round trips — and let that pick the design. Knowing that a
+  memory reference is nanoseconds, a datacenter round trip is microseconds, and a
+  cross-continent round trip is ~150ms tells you where the design must not go.
+  Cheap arithmetic beats expensive rewrites.
+- **At scale, everything fails all the time.** Failure is the normal case, not the
+  exception. Design so a component's failure degrades the system instead of breaking
+  it. This is *precisely* why our audit mirror can never break the consent write it
+  mirrors, and why our key resolver has a strict/fail-safe split.
+- **Measure the real bottleneck; don't optimize by intuition.** Instrument, then
+  act on the number.
+- **Watch the tail, not the mean.** The p99 is what users actually feel. A system
+  that is fast on average and terrible at the tail is a terrible system.
+- **Get the interface right.** Implementations get replaced; a good seam survives.
+  The `ComputeBackend` protocol is worth more than any single backend behind it.
+- **Roll out incrementally and be able to roll back.** Which is our ship-dark rule.
+
+### The synthesis
+
+Karpathy says *verify every step because failure is silent.* Dean says *assume
+failure and design so it degrades safely.* Together: **build the smallest thing that
+runs end to end, prove it with measurement, make every component fail safe, and never
+believe a system is working because it looks like it is.**
 
 ---
 
