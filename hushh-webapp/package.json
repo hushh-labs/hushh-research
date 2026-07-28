@@ -62,6 +62,7 @@
     "ios:run": "npm run cap:build && npm run cap:sync:ios && npx cap run ios",
     "ios:prepare:uat": "node ./scripts/native/prepare-ios-uat-archive.mjs",
     "ios:prepare:prod": "node ./scripts/native/prepare-ios-prod-archive.mjs",
+    "ios:release:prod": "node ../scripts/release/dispatch-ios-appstore.mjs",
     "ios:verify-archive-symbols": "./scripts/native/verify-ios-archive-symbols.sh",
     "android:run": "npm run cap:build && npm run cap:sync:android && npx cap run android",
     "ios:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && npm run ios:prepare:uat && ./scripts/native/ios-test.sh",
