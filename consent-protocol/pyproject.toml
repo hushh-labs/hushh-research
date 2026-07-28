@@ -122,6 +122,8 @@ ignore = [
 "tests/*" = ["S101", "S105"]  # Allow assert + placeholder credential fixtures in tests
 "api/routes/*" = ["B008"]  # Redundant with global; FastAPI Depends() pattern
 "scripts/*" = ["S101", "S106", "S108"]  # Verification scripts: assert-driven checks + isolated offline tmp db
+"hushh_mcp/operons/kai/__init__.py" = ["F401"]  # PEP 562 lazy barrel: TYPE_CHECKING imports mirror the runtime __getattr__ export table for static type resolution
+"tests/operons/kai/test_package_import_safety.py" = ["S603"]  # Import-safety probe intentionally subprocesses a fixed, in-repo source string, never external input
 
 [tool.ruff.format]
 # Enable ruff format for consistent Python formatting
