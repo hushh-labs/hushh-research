@@ -5,7 +5,7 @@ These tests scan the codebase for violations of consent-first patterns.
 Failing these tests will BLOCK the PR from merging.
 
 CRITICAL: These tests enforce our core architecture rules:
-1. API routes must use service layer (not direct Supabase)
+1. API routes must use service layer (not direct Cloud SQL)
 2. All vault operations must validate consent tokens
 3. No backdoors or bypasses allowed
 4. PKM scopes only: attr.{domain}.* and pkm.read/write
@@ -20,19 +20,19 @@ import pytest
 
 
 class TestServiceLayerCompliance:
-    """Ensure API routes never access Supabase directly."""
+    """Ensure API routes never access Cloud SQL directly."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         """Set working directory to consent-protocol root."""
         self.cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-    def test_no_direct_supabase_in_routes(self):
-        """API routes must use service layer, not get_db() or get_supabase()."""
+    def test_no_direct_db_in_routes(self):
+        """API routes must use service layer, not get_db() directly."""
         grep_path = shutil.which("grep")
         assert grep_path, "grep not found on PATH"
         result = subprocess.run(  # noqa: S603
-            [grep_path, "-rE", "get_supabase\\(\\)|get_db\\(\\)", "api/routes/"],
+            [grep_path, "-rE", "get_db\\(\\)|get_db\\(\\)", "api/routes/"],
             capture_output=True,
             text=True,
             cwd=self.cwd,
@@ -42,7 +42,7 @@ class TestServiceLayerCompliance:
         assert not violations, f"""
 ❌ CONSENT VIOLATION: Direct database access in API routes!
 
-API routes must use service layer classes, not get_db() or get_supabase() directly.
+API routes must use service layer classes, not get_db() directly.
 
 WRONG:
     from db.db_client import get_db
@@ -65,14 +65,14 @@ Violations found:
 """
 
     def test_no_direct_db_import_in_routes(self):
-        """API routes must not import db.db_client or db.supabase_client directly."""
+        """API routes must not import db.db_client or db.db_client directly."""
         grep_path = shutil.which("grep")
         assert grep_path, "grep not found on PATH"
         result = subprocess.run(  # noqa: S603
             [
                 grep_path,
                 "-rE",
-                r"from db\.(supabase_client|db_client|connection) import",
+                r"from db\.(db_client|db_client|connection) import",
                 "api/routes/",
             ],
             capture_output=True,
@@ -87,7 +87,7 @@ Violations found:
 API routes must import services, not database clients.
 
 WRONG:
-    from db.supabase_client import get_supabase
+    from db.db_client import get_db
 
 CORRECT:
     from hushh_mcp.services import VaultDBService

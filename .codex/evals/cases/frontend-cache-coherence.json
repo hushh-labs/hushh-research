@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend-cache-coherence",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the protected route still flashes a loader even when the cache is warm, fix the screen cache posture",
+        "top_k": 3
+      },
+      {
+        "prompt": "set the TTL and background refresh policy for these stale-while-revalidate resource hooks",
+        "top_k": 3
+      },
+      {
+        "prompt": "audit cache invalidation so warm screens stop blocking on loaders during reviewer rehearsal",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "take a full inventory of app routes and clean up package scripts and frontend verification ownership",
+        "owner": "frontend-architecture"
+      },
+      {
+        "prompt": "we are changing where encrypted PKM information is persisted in the vault",
+        "owner": "vault-pkm-governance"
+      }
+    ]
+  }
+}

@@ -165,7 +165,7 @@ Then compile the host-native tests before considering device execution:
 ```bash
 cd hushh-webapp && npm run verify:capacitor:static
 cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon
-cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C' -derivedDataPath ios/App/build/DerivedData build-for-testing
+cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/App/build/DerivedData build-for-testing
 ```
 
 Only then, and only with explicit authority, run the destructive audit. Do not

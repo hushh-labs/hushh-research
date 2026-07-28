@@ -104,10 +104,19 @@ export function FeedPage() {
     })();
   }, [user, data]);
 
-  const items = useMemo(
-    () => [...(data?.items ?? []), ...additionalItems],
-    [data, additionalItems],
-  );
+  const items = useMemo(() => {
+    // The cached first page can revalidate and shift after "load more" has
+    // appended later pages; de-dupe by id so a boundary item never renders
+    // twice (duplicate React keys) if it reappears across the seam.
+    const seen = new Set<string>();
+    const merged: FeedItem[] = [];
+    for (const item of [...(data?.items ?? []), ...additionalItems]) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      merged.push(item);
+    }
+    return merged;
+  }, [data, additionalItems]);
   const error = resourceError
     ? "Feed could not be loaded right now."
     : loadMoreError;
@@ -158,7 +167,7 @@ export function FeedPage() {
             below travel with the scroll. */}
         <AppPageContentRegion>
           {hasActionables ? (
-            <section className="bg-accent/[0.03]">
+            <section aria-label="Needs you" className="bg-accent/[0.03]">
               <SectionLabel>Needs you</SectionLabel>
               <div className="divide-y divide-[color:var(--foundation-hairline)]">
                 {actionables.map((item) => (
@@ -188,7 +197,7 @@ export function FeedPage() {
 
           {hasHistory
             ? dayGroups.map((group) => (
-                <section key={group.label}>
+                <section key={group.label} aria-label={group.label}>
                   <SectionLabel>{group.label}</SectionLabel>
                   <div className="divide-y divide-[color:var(--foundation-hairline)]">
                     {group.items.map((item) => (
@@ -223,8 +232,8 @@ export function FeedPage() {
  *  reads as one continuous descending stream, not a stack of cards. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky top-0 z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
+    <h2 className="sticky top-0 z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
       {children}
-    </div>
+    </h2>
   );
 }

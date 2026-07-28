@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend-design-system",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "our card shadows and border radii are inconsistent across shared components, unify the styling rules",
+        "top_k": 3
+      },
+      {
+        "prompt": "the shell chrome and shared header need one styling rule set instead of three",
+        "top_k": 3
+      },
+      {
+        "prompt": "add a reusable button primitive to the shared UI layer with proper design tokens",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "update route contracts and package-level conventions for the frontend, no visual changes",
+        "owner": "frontend-architecture"
+      },
+      {
+        "prompt": "audit iOS and Android parity and release readiness for this build",
+        "owner": "mobile-parity-audit"
+      }
+    ]
+  }
+}

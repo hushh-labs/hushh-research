@@ -179,6 +179,12 @@ export function LocationImmersiveMap() {
   });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
+  // Count of the account's own ACTIVE outgoing shares (people it is sharing
+  // its location WITH). Sourced from the full getState (map-state only carries
+  // incoming markers), so it's fetched on a lighter cadence than the 5s marker
+  // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
+  // shares carry no coordinate to plot.
+  const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
@@ -314,6 +320,19 @@ export function LocationImmersiveMap() {
     }
   }, [auth.userId, demoMode, rendererReady, vaultOwnerToken]);
 
+  const refreshShareCount = useCallback(async () => {
+    if (demoMode || !vaultOwnerToken || !auth.userId) return;
+    try {
+      const state = await OneLocationService.getState(vaultOwnerToken);
+      if (!mountedRef.current) return;
+      setActiveShareCount(
+        state.ownerGrants.filter((grant) => grant.status === "active").length,
+      );
+    } catch {
+      // A status count is non-critical; leave the last-known value in place.
+    }
+  }, [auth.userId, demoMode, vaultOwnerToken]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -368,22 +387,32 @@ export function LocationImmersiveMap() {
     if (!vaultOwnerToken || !rendererReady) return;
     void refresh();
     if (demoMode) return;
+    void refreshShareCount();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, 5_000);
+    // The outgoing-share count changes far less often than live positions, so
+    // poll it on a much slower cadence than the 5s marker refresh.
+    const shareCountTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshShareCount();
+    }, 30_000);
     let appListener: { remove: () => Promise<void> } | undefined;
     if (isNative()) {
       void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
-        if (isActive) void refresh();
+        if (isActive) {
+          void refresh();
+          void refreshShareCount();
+        }
       }).then((listener) => {
         appListener = listener;
       });
     }
     return () => {
       window.clearInterval(timer);
+      window.clearInterval(shareCountTimer);
       void appListener?.remove();
     };
-  }, [demoMode, refresh, rendererReady, vaultOwnerToken]);
+  }, [demoMode, refresh, refreshShareCount, rendererReady, vaultOwnerToken]);
 
   useEffect(() => {
     if (!rendererReady || !mapElement.current) return;
@@ -719,6 +748,12 @@ export function LocationImmersiveMap() {
       const grants = state.ownerGrants.filter(
         (grant) => grant.status === "active" && !!grant.id,
       );
+      // Keep the on-map "Sharing with N" status in sync off this same fetch.
+      if (mountedRef.current) {
+        setActiveShareCount(
+          state.ownerGrants.filter((grant) => grant.status === "active").length,
+        );
+      }
       await Promise.all(
         grants.map(async (grant) => {
           const recipient = recipientsByKey.get(
@@ -764,7 +799,7 @@ export function LocationImmersiveMap() {
 
   const markerCountLabel = useMemo(
     () =>
-      `${markers.length} ${markers.length === 1 ? "person" : "people"} on Your Map`,
+      `${markers.length} ${markers.length === 1 ? "person" : "people"} sharing with you`,
     [markers.length],
   );
 
@@ -861,6 +896,21 @@ export function LocationImmersiveMap() {
         >
           <X className="h-5 w-5 stroke-[2.25]" />
         </ShellActionSurface>
+        {!demoMode && (activeShareCount ?? 0) > 0 ? (
+          <span
+            data-testid="one-location-map-sharing-status"
+            aria-label={`You are sharing your location with ${activeShareCount} ${
+              activeShareCount === 1 ? "person" : "people"
+            }`}
+            className="pointer-events-none flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+          >
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
+              aria-hidden="true"
+            />
+            <span className="truncate">Sharing with {activeShareCount}</span>
+          </span>
+        ) : null}
         {rendererReady ? (
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
@@ -1016,7 +1066,9 @@ export function LocationImmersiveMap() {
                   ) : null}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  Active private shares only
+                  {(activeShareCount ?? 0) > 0
+                    ? `People sharing with you · you're sharing with ${activeShareCount}`
+                    : "People sharing their location with you"}
                 </span>
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">

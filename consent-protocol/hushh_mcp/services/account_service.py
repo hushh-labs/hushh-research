@@ -28,7 +28,7 @@ class AccountService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
             "actor_identity_cache": text(
@@ -348,11 +348,11 @@ class AccountService:
         }
 
     @property
-    def supabase(self):
+    def db(self):
         """Get database client."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _load_actor_profile(self, user_id: str) -> dict[str, Any] | None:
         try:

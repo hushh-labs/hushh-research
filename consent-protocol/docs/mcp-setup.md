@@ -10,6 +10,56 @@ Founder-language mapping:
 - `Developer API / MCP` is the public developer lane
 - `Capability Tokens` remain explicit in setup examples as `developer token`
 
+## Visual Map
+
+Both transports mount the same `mcp_server.py` server object and the same guard
+chain. The only behavioral fork is `is_local_stdio_transport()`, which enables
+auto-keypair and local decrypt on stdio and never on `/mcp`.
+
+```mermaid
+flowchart TB
+  subgraph hosts["MCP hosts"]
+    remotehost["Claude connectors, MuleSoft, partner CRM<br/>Streamable HTTP + bearer or OAuth"]
+    stdiohost["Local stdio host<br/>npx -y @hushh/mcp or python mcp_server.py"]
+  end
+
+  subgraph transport["Transports"]
+    mount["server.py<br/>app.mount('/mcp', remote_mcp_app)"]
+    remoteapp["mcp_remote.py<br/>bearer or OAuth principal, per-app rate limit"]
+    session["StreamableHTTPSessionManager<br/>stateless, no session id"]
+    stdio["mcp_server.py main<br/>stdio_server + mark_local_stdio_transport"]
+  end
+
+  core["mcp_server.py server object<br/>list_tools and call_tool router<br/>shared by both transports"]
+
+  subgraph guards["Per-call guards, mcp_modules"]
+    devctx["developer_context.py<br/>is_tool_allowed, schema_profile"]
+    contract["public_contract.py + flat_projection.py<br/>five-tool catalog, strict in/out validation"]
+  end
+
+  handlers["mcp_modules/tools/public_tools_v3.py<br/>search-user-scopes, request-consent,<br/>check-consent-status, get-encrypted-scoped-export"]
+  campaign["mcp_modules/tools/campaign_context_tools.py<br/>prepare-campaign-context"]
+  keypair["local_mcp_keypair_service.py<br/>stdio only: auto key + local decrypt"]
+  backend["FASTAPI_URL /api/v1/mcp/*"]
+  resources["mcp_modules/resources.py"]
+
+  remotehost --> mount
+  mount --> remoteapp
+  remoteapp --> session
+  session --> core
+  stdiohost --> stdio
+  stdio --> core
+  stdio --> keypair
+  core --> devctx
+  devctx --> contract
+  contract --> handlers
+  contract --> campaign
+  core --> resources
+  keypair --> handlers
+  campaign --> handlers
+  handlers --> backend
+```
+
 ## Public Onboarding Source
 
 Start public MCP setup from the npm package page:

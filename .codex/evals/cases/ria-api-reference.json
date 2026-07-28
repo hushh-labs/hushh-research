@@ -1,0 +1,29 @@
+{
+  "skill_name": "ria-api-reference",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "wire the /api/ria/crd-scrape-jobs facade to the provider and preserve the payload untouched",
+        "top_k": 3
+      },
+      {
+        "prompt": "our BrokerCheck and IAPD lookups return a stale shape, check the RIA financial verification job contract against the provider docs",
+        "top_k": 3
+      },
+      {
+        "prompt": "the CRD scraping proxy service swallows provider errors, fix it and update the route tests",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the RIA marketplace access scopes need a new actor model rule",
+        "owner": "iam-consent-governance"
+      },
+      {
+        "prompt": "the RIA marketplace onboarding flow needs new relationship-sharing analytics events",
+        "owner": "analytics-observability-governance"
+      }
+    ]
+  }
+}

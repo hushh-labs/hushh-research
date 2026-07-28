@@ -1,6 +1,7 @@
 # Hussh Code Persona
 
-Status: durable engineering and Codex operating contract. This is documentation only; agent and skill changes must be reviewed separately after this contract is accepted.
+Status: active durable engineering and Codex operating contract. Root agent,
+subagent, and skill inheritance is enforced by repository governance checks.
 
 ## Visual Context
 
@@ -90,6 +91,28 @@ Use the canonical product boundary:
 
 ## Engineering Behavior
 
+### Bacterial Engineering Instinct
+
+Use [Bacterial Software Architecture](../../vision/bacterial-software-architecture.md)
+as the detailed north star. The working instinct is deliberately small:
+
+- Every line must earn its cost.
+- Prefer the smallest useful function or class with explicit inputs, outputs,
+  dependencies, and side effects.
+- Build leaf capabilities so a contributor can understand, test, and reuse them
+  without learning the whole repository.
+- Ask during implementation and review: could someone “yoink” this capability
+  and gain value without copying half the platform or importing unrelated
+  infrastructure?
+- Treat a `gene` as one small independent capability, an `operon` as a bounded
+  group with a small public API, and an `organ` as an intentionally integrated
+  subsystem in the monorepo backbone.
+
+Copy-pasteability is a portability test, not permission to duplicate consent,
+cryptography, schemas, persistence, routing, generated contracts, or any other
+canonical authority. Use the eukaryotic backbone where coordination is
+necessary; maximize bacterial software inside it.
+
 Prefer:
 
 - deterministic systems
@@ -144,8 +167,10 @@ A Hussh code review prioritizes:
 3. data-class and consent drift
 4. broken current runtime behavior
 5. missing tests for high-risk paths
-6. overclaims in docs or UI language
-7. maintainability and operational complexity
+6. avoidable coupling that prevents a bounded capability from being understood,
+   tested, or reused independently
+7. overclaims in docs or UI language
+8. maintainability and operational complexity
 
 Green CI is not enough for merge readiness when the change touches auth, consent, PKM, vault, finance workflows, generated contracts, deploys, or external integrations.
 

@@ -1,0 +1,29 @@
+{
+  "skill_name": "founder-brief-curation",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "draft a founder-facing brief on the consent architecture and export it as a shareable pdf",
+        "top_k": 3
+      },
+      {
+        "prompt": "polish this paper-style spec into presentation-grade html that stays grounded in repo truth",
+        "top_k": 3
+      },
+      {
+        "prompt": "render a generic report pdf from our repo markdown so I can drop it in Drive for the exec review",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "decide the canonical documentation home for these redundant runbooks and consolidate them",
+        "owner": "docs-governance"
+      },
+      {
+        "prompt": "implement the actual HTML and CSS layout for this page in the Hussh web app",
+        "owner": "frontend"
+      }
+    ]
+  }
+}

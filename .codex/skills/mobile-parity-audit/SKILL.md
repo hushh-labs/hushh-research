@@ -1,6 +1,6 @@
 ---
 name: mobile-parity-audit
-description: Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hussh app.
+description: Use when auditing mobile/native parity, release readiness, the native route inventory report, or platform-specific coverage gates across the Hussh app.
 ---
 
 # Hussh Mobile Parity Audit Skill
@@ -69,7 +69,7 @@ Non-owned surfaces:
 ```bash
 cd hushh-webapp && npm run verify:capacitor:static
 cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon
-cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C' -derivedDataPath ios/App/build/DerivedData build-for-testing
+cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/App/build/DerivedData build-for-testing
 ```
 
 Run `npm run ios:cold:audit`, `npm run android:cold:audit`, or the UI cold-audit

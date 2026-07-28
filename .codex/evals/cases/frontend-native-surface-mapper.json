@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend-native-surface-mapper",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "before I touch this route show me which Next.js proxy and backend endpoint family it depends on",
+        "top_k": 3
+      },
+      {
+        "prompt": "add a route-specific override to the generated surface map for this screen",
+        "top_k": 3
+      },
+      {
+        "prompt": "map this screen API calls to native transport and check the iOS screen still matches the web route",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "implement and register the new Capacitor plugin in the iOS native bridge",
+        "owner": "mobile-plugin-contracts"
+      },
+      {
+        "prompt": "author a new One Voice capability and its generated action gateway contract",
+        "owner": "one-voice-governance"
+      }
+    ]
+  }
+}

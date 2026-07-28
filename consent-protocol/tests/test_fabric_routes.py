@@ -158,9 +158,7 @@ def test_verify_chain_detects_tail_truncation_against_pinned_head():
     # attacker relies on).
     assert _verify(truncated)["ok"] is True
     # With the pinned head, truncation is caught and fails closed.
-    out = _verify(
-        truncated, expected_head_seq=3, expected_head_hash=full[-1]["hash"]
-    )
+    out = _verify(truncated, expected_head_seq=3, expected_head_hash=full[-1]["hash"])
     assert out["ok"] is False
     assert out["reason"] == "head_regressed"
 

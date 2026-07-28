@@ -1,0 +1,29 @@
+{
+  "skill_name": "autonomous-rca-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "core runtime check is red again, classify whether it is a missing secret or a legacy mount and give me the smallest fix",
+        "top_k": 3
+      },
+      {
+        "prompt": "run ./bin/hushh codex rca --surface uat and tell me what is blocking the release",
+        "top_k": 3
+      },
+      {
+        "prompt": "the semantic release gate keeps failing, I need a repeatable root-cause loop with saved artifacts",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the UAT deploy is failing because Secret Manager wiring in the Cloud Run workflow is wrong",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "the doctor script reports a false missing dependency on a fresh contributor bootstrap",
+        "owner": "contributor-onboarding"
+      }
+    ]
+  }
+}

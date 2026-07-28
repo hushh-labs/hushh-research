@@ -543,10 +543,10 @@ Blocking rule:
 
 The production deploy workflow (`.github/workflows/deploy-production.yml`) enforces additional DB governance before backend deploy:
 
-1. Supabase backup posture gate:
-- validates logical backup freshness from GCS manifests via `scripts/ops/logical_backup_freshness_check.py`
+1. Cloud SQL backup posture gate:
+- validates Cloud SQL automated backups + PITR via `scripts/ops/cloudsql_backup_freshness_check.py`
 - requires latest successful backup age within configured threshold (`BACKUP_MAX_AGE_HOURS`, default `30`)
-- optional manual predeploy backup execution via workflow input `run_predeploy_backup_job=true`
+- optional on-demand Cloud SQL backup via workflow input `run_predeploy_backup_job=true`
 
 2. Migration governance + drift gate:
 - checks migration filename monotonicity (`consent-protocol/db/migrations`)
@@ -555,13 +555,13 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 - checks live DB schema contract in read-only mode
 
 3. Manifest artifact:
-- emits a production migration release manifest with logical backup evidence (`backup_object_uri`, checksum, completion timestamp)
+- emits a production migration release manifest with Cloud SQL backup evidence (backup id, completion timestamp)
 
 UAT deploys use a separate latest-integrated contract:
 
 - `consent-protocol/db/contracts/uat_integrated_schema.json`
 
-The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
+The daily scheduled workflow `.github/workflows/prod-cloudsql-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
 
 ---
 

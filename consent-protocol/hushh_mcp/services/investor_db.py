@@ -27,21 +27,21 @@ class InvestorDBService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
 
-    def _get_supabase(self):
+    def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     async def search_investors(self, name: str, limit: int = 10) -> List[Dict]:
         """
         Search for investors by name using fuzzy matching.
 
-        Note: Supabase REST API doesn't support PostgreSQL similarity() function
+        Note: Cloud SQL REST API doesn't support PostgreSQL similarity() function
         or trigram matching directly. This implementation uses ILIKE matching
-        and post-processes results. For production, consider using Supabase
+        and post-processes results. For production, consider using Cloud SQL
         full-text search or implementing a custom search function.
 
         Args:
@@ -51,19 +51,19 @@ class InvestorDBService:
         Returns:
             List of investor search results with similarity scores
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         # Normalize search term
         name_normalized = re.sub(r"\s+", "", name.lower())
         search_pattern = f"%{name}%"
         normalized_pattern = f"%{name_normalized}%"
 
-        # Fetch candidates using ILIKE (Supabase supports this)
+        # Fetch candidates using ILIKE (Cloud SQL supports this)
         # Note: We can't use PostgreSQL similarity() or % operator directly
         # So we fetch broader results and rank in Python
-        # Supabase .or_() syntax: need to use .or_() with proper filter syntax
+        # Cloud SQL .or_() syntax: need to use .or_() with proper filter syntax
         response = (
-            supabase.table("investor_profiles")
+            db.table("investor_profiles")
             .select(
                 "id,name,firm,title,investor_type,aum_billions,investment_style,name_normalized"
             )
@@ -76,7 +76,7 @@ class InvestorDBService:
         # Also search by normalized name if different
         if name_normalized != name.lower():
             response2 = (
-                supabase.table("investor_profiles")
+                db.table("investor_profiles")
                 .select(
                     "id,name,firm,title,investor_type,aum_billions,investment_style,name_normalized"
                 )
@@ -146,10 +146,10 @@ class InvestorDBService:
         Returns:
             Investor profile dictionary or None if not found
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         response = (
-            supabase.table("investor_profiles").select("*").eq("id", investor_id).limit(1).execute()
+            db.table("investor_profiles").select("*").eq("id", investor_id).limit(1).execute()
         )
 
         if not response.data or len(response.data) == 0:
@@ -215,9 +215,9 @@ class InvestorDBService:
         Returns:
             Investor profile dictionary or None if not found
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
-        response = supabase.table("investor_profiles").select("*").eq("cik", cik).limit(1).execute()
+        response = db.table("investor_profiles").select("*").eq("cik", cik).limit(1).execute()
 
         if not response.data or len(response.data) == 0:
             return None
@@ -279,11 +279,11 @@ class InvestorDBService:
         Returns:
             Dictionary with total count and breakdown by type
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         # Get total count
         total_response = (
-            supabase.table("investor_profiles").select("id", count="exact").limit(0).execute()
+            db.table("investor_profiles").select("id", count="exact").limit(0).execute()
         )
 
         total = 0
@@ -291,9 +291,9 @@ class InvestorDBService:
             total = total_response.count
 
         # Get breakdown by type (fetch all and group in Python)
-        # Note: Supabase doesn't support GROUP BY directly in REST API
+        # Note: Cloud SQL doesn't support GROUP BY directly in REST API
         # For better performance, consider using a database function or RPC
-        type_response = supabase.table("investor_profiles").select("investor_type").execute()
+        type_response = db.table("investor_profiles").select("investor_type").execute()
 
         by_type = {}
         for row in type_response.data or []:
@@ -315,19 +315,17 @@ class InvestorDBService:
         Returns:
             Created/updated investor record
         """
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         try:
             if upsert_key and data.get(upsert_key):
                 response = (
-                    supabase.table("investor_profiles")
-                    .upsert(data, on_conflict=upsert_key)
-                    .execute()
+                    db.table("investor_profiles").upsert(data, on_conflict=upsert_key).execute()
                 )
             else:
                 # Remove None key if present
                 clean_data = {k: v for k, v in data.items() if k != upsert_key or v is not None}
-                response = supabase.table("investor_profiles").insert(clean_data).execute()
+                response = db.table("investor_profiles").insert(clean_data).execute()
 
             if response.data and len(response.data) > 0:
                 return response.data[0]
