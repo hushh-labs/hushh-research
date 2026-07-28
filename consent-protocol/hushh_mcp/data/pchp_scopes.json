@@ -1,0 +1,341 @@
+{
+  "pchp": "rfc-002-draft",
+  "registry": "https://hushh.ai/pchp/scopes.json",
+  "version": "0.3.0",
+  "updated": "2026-07-28",
+  "note": "The canonical scope registry for the Preference Subscription Fabric. Draft, published in the open. Grants are always field-level and per-subscriber; scopes marked sensitive:true must be requested individually, never bundled. The human can revoke any grant at any time, fabric-wide.",
+  "roots": {
+    "privacy": "Consent state every site legally needs - the wedge that replaces the cookie banner.",
+    "prefs": "How to serve this person well - sizes, formats, channels, constraints.",
+    "wants": "What this person is in the market for right now - the demand side of the 🤫 Yellow Pages, named to match its professions.",
+    "favorites": "The things this person loves - published by them, subscribable at their terms."
+  },
+  "scopes": [
+    {
+      "scope": "privacy.marketing-email",
+      "type": "boolean",
+      "label": "Email you about offers and news"
+    },
+    {
+      "scope": "privacy.marketing-sms",
+      "type": "boolean",
+      "label": "Text you about offers"
+    },
+    {
+      "scope": "privacy.analytics",
+      "type": "boolean",
+      "label": "Measure how you use this site"
+    },
+    {
+      "scope": "privacy.personalization",
+      "type": "boolean",
+      "label": "Personalize what you see here"
+    },
+    {
+      "scope": "privacy.ads",
+      "type": "boolean",
+      "label": "Show you personalized ads"
+    },
+    {
+      "scope": "privacy.data-sale",
+      "type": "boolean",
+      "label": "Sell or share your data (CCPA)",
+      "default": false
+    },
+    {
+      "scope": "prefs.communication.channel",
+      "type": "enum",
+      "values": [
+        "email",
+        "sms",
+        "phone",
+        "agent"
+      ],
+      "label": "How you prefer to be reached"
+    },
+    {
+      "scope": "prefs.communication.frequency",
+      "type": "enum",
+      "values": [
+        "daily",
+        "weekly",
+        "monthly",
+        "only-important"
+      ],
+      "label": "How often you want to hear from anyone"
+    },
+    {
+      "scope": "prefs.communication.language",
+      "type": "string",
+      "label": "Preferred language"
+    },
+    {
+      "scope": "prefs.apparel.shoe-size",
+      "type": "string",
+      "label": "Shoe size"
+    },
+    {
+      "scope": "prefs.apparel.sizes",
+      "type": "string",
+      "label": "Clothing sizes"
+    },
+    {
+      "scope": "prefs.apparel.fit",
+      "type": "enum",
+      "values": [
+        "slim",
+        "regular",
+        "relaxed"
+      ],
+      "label": "Preferred fit"
+    },
+    {
+      "scope": "prefs.food.dietary",
+      "type": "list",
+      "label": "Dietary preferences and restrictions",
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.food.cuisines",
+      "type": "list",
+      "label": "Favorite cuisines"
+    },
+    {
+      "scope": "prefs.home.delivery-window",
+      "type": "string",
+      "label": "Best delivery window"
+    },
+    {
+      "scope": "prefs.home.access-notes",
+      "type": "string",
+      "label": "Delivery and access notes",
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.travel.seat",
+      "type": "enum",
+      "values": [
+        "window",
+        "aisle",
+        "no-preference"
+      ],
+      "label": "Seat preference"
+    },
+    {
+      "scope": "prefs.travel.hotel-floor",
+      "type": "enum",
+      "values": [
+        "low",
+        "high",
+        "no-preference"
+      ],
+      "label": "Hotel floor preference"
+    },
+    {
+      "scope": "prefs.accessibility.needs",
+      "type": "list",
+      "label": "Accessibility needs",
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.budget.tier",
+      "type": "enum",
+      "values": [
+        "value",
+        "mid",
+        "premium",
+        "luxury"
+      ],
+      "label": "Typical spending tier"
+    },
+    {
+      "scope": "wants.home-services.plumber",
+      "type": "boolean",
+      "label": "Looking for a plumber"
+    },
+    {
+      "scope": "wants.home-services.electrician",
+      "type": "boolean",
+      "label": "Looking for an electrician"
+    },
+    {
+      "scope": "wants.home-services.hvac",
+      "type": "boolean",
+      "label": "Looking for heating/cooling help"
+    },
+    {
+      "scope": "wants.home-services.cleaner",
+      "type": "boolean",
+      "label": "Looking for a housekeeper or cleaner"
+    },
+    {
+      "scope": "wants.home-services.gardener",
+      "type": "boolean",
+      "label": "Looking for a gardener or lawn care"
+    },
+    {
+      "scope": "wants.home-services.pool",
+      "type": "boolean",
+      "label": "Looking for pool care"
+    },
+    {
+      "scope": "wants.home-services.contractor",
+      "type": "boolean",
+      "label": "Planning a renovation or build"
+    },
+    {
+      "scope": "wants.family.childcare",
+      "type": "boolean",
+      "label": "Looking for childcare or a nanny",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.family.elder-care",
+      "type": "boolean",
+      "label": "Looking for elder care",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.family.tutor",
+      "type": "boolean",
+      "label": "Looking for a tutor"
+    },
+    {
+      "scope": "wants.family.pet-care",
+      "type": "boolean",
+      "label": "Looking for pet care"
+    },
+    {
+      "scope": "wants.health.doctor",
+      "type": "boolean",
+      "label": "Looking for a doctor",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.dentist",
+      "type": "boolean",
+      "label": "Looking for a dentist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.therapist",
+      "type": "boolean",
+      "label": "Looking for a therapist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.chiropractor",
+      "type": "boolean",
+      "label": "Looking for a chiropractor",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.physical-therapist",
+      "type": "boolean",
+      "label": "Looking for a physical therapist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.eye-care",
+      "type": "boolean",
+      "label": "Looking for an optometrist or eye doctor",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.massage",
+      "type": "boolean",
+      "label": "Looking for a massage therapist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.acupuncturist",
+      "type": "boolean",
+      "label": "Looking for an acupuncturist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.pediatrician",
+      "type": "boolean",
+      "label": "Looking for a pediatrician",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.dermatologist",
+      "type": "boolean",
+      "label": "Looking for a dermatologist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.health.podiatrist",
+      "type": "boolean",
+      "label": "Looking for a podiatrist",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.money.advisor",
+      "type": "boolean",
+      "label": "Looking for a financial advisor"
+    },
+    {
+      "scope": "wants.money.cpa",
+      "type": "boolean",
+      "label": "Looking for a CPA or tax help"
+    },
+    {
+      "scope": "wants.money.insurance",
+      "type": "boolean",
+      "label": "Shopping for insurance"
+    },
+    {
+      "scope": "wants.legal.attorney",
+      "type": "boolean",
+      "label": "Looking for an attorney",
+      "sensitive": true
+    },
+    {
+      "scope": "wants.personal-care.salon",
+      "type": "boolean",
+      "label": "Looking for a salon or barber"
+    },
+    {
+      "scope": "wants.auto.technician",
+      "type": "boolean",
+      "label": "Looking for a car technician"
+    },
+    {
+      "scope": "wants.zip",
+      "type": "string",
+      "label": "The ZIP code where you need it"
+    },
+    {
+      "scope": "favorites.brands",
+      "type": "list",
+      "label": "Favorite brands"
+    },
+    {
+      "scope": "favorites.artists",
+      "type": "list",
+      "label": "Favorite artists and musicians"
+    },
+    {
+      "scope": "favorites.teams",
+      "type": "list",
+      "label": "Favorite teams"
+    },
+    {
+      "scope": "favorites.creators",
+      "type": "list",
+      "label": "Favorite creators and writers"
+    },
+    {
+      "scope": "favorites.places",
+      "type": "list",
+      "label": "Favorite places"
+    },
+    {
+      "scope": "favorites.things",
+      "type": "list",
+      "label": "Favorite things - the whole list"
+    }
+  ]
+}
