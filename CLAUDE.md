@@ -78,6 +78,10 @@ the `uat` runtime identity for behavior parity, and **never promotes** to uat/pr
   (`.github/workflows/`, `deploy/`, `scripts/ci/`, `config/ci-governance.json`) are
   edit-restricted to the maintainer cohort.
 - **CI:** every PR runs the `CI Status Gate`; verify locally before pushing.
+- **Engineering bar:** the `verify-before-claim` skill is the standing practice for all
+  coding work here — verify against the running artifact rather than memory, reproduce a
+  gate locally at the CI-pinned version before pushing, read the real code before
+  designing, ship dark, and never suppress a control or fabricate an attestation.
 - **Secrets:** never in code — GCP Secret Manager / env only.
 - **Docs cadence:** update the relevant `docs/reference/**` runbook with any infra
   change (founder-brief + changelog cadence per `.codex/skills/docs-governance`).
@@ -88,3 +92,4 @@ the `uat` runtime identity for behavior parity, and **never promotes** to uat/pr
 - Route any task → **codex-bridge** skill (reads `.codex/` live)
 - Preview a branch → dev fast lane: `docs/reference/operations/dev-fast-lane.md`
 - iOS / mobile → `run-ios-sim`, `mobile-bug-log` skills
+- How we work (Dean / Karpathy method, verification discipline) → `verify-before-claim` skill
