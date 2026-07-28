@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 ## Visual Map
 
@@ -33,6 +33,9 @@ Plain coordinates are allowed only on:
 
 - the owner's device while capturing foreground location
 - the approved recipient's device after local decryption
+- the authenticated Maps proxy in request memory while forwarding an explicit
+  owner-initiated reverse-geocode lookup; neither coordinates nor results are
+  persisted or logged
 - `one_location_public_invites.metadata.publicLocation` when the owner
   explicitly creates a snapshot-backed public location link
 - public invite resolve responses when the owner explicitly attached a captured
@@ -79,17 +82,17 @@ reverse geocode, map, notify, or inspect latitude/longitude.
 Saved Home, Work, and owner-labelled places are private PKM information, not
 live-location grants:
 
-- the owner confirms each save from onboarding or Profile → Preferences
+- the owner confirms each save from onboarding or Location → Settings
 - exact coordinates and the friendly address live under `location.saved_places`
   inside the encrypted Location PKM domain
 - the backend stores only the normal encrypted PKM blob, manifest, revision,
   and non-sensitive summary count; there is no plaintext saved-place table or
   One Location saved-place API
-- Profile → Preferences reads and mutates saved places only while the vault is
+- Location → Settings reads and mutates saved places only while the vault is
   unlocked; decrypted values remain in memory or the encrypted device cache
 - reverse geocoding may send the captured point through the authenticated Maps
-  proxy to obtain display copy, but the Maps service does not persist the point
-  or address
+  proxy to obtain display copy and an ISO country code, but the Maps service
+  does not persist the point or result
 - a device-local prompt marker may record that the optional onboarding question
   was answered; it never contains coordinates, an address, or a place label
 

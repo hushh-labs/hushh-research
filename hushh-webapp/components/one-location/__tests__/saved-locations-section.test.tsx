@@ -80,6 +80,7 @@ describe("SavedLocationsSection", () => {
     mocks.reverseGeocode.mockReset().mockResolvedValue({
       formattedAddress: "Kasturba Road, Bengaluru",
       name: null,
+      countryCode: "IN",
     });
   });
 

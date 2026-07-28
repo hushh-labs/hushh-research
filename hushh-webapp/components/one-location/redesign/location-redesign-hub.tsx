@@ -83,10 +83,18 @@ import {
   QuickActionsSection,
 } from "@/components/one-location/redesign/quick-actions";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
+import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import type {
+  EmergencyInfo,
+  EmergencyNumberLookupStatus,
+} from "@/lib/one-location/emergency-numbers";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
+
+export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+export const ONE_LOCATION_SHARE_NOTE_MAX_LENGTH = 140;
 
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
@@ -143,6 +151,8 @@ export type LocationHubViewModel = {
   recipientSearch: string;
   selectedRecipientIds: string[];
   selectedRequestOwnerIds: string[];
+  shareDurationHours: string;
+  shareMessage: string;
   durationHours: string;
   requestMessage: string;
   shareReviewOpen: boolean;
@@ -151,6 +161,8 @@ export type LocationHubViewModel = {
 
   /* setters (presentation state owned by page) */
   setRecipientSearch: (v: string) => void;
+  setShareDurationHours: (v: string) => void;
+  setShareMessage: (v: string) => void;
   setDurationHours: (v: string) => void;
   setRequestMessage: (v: string) => void;
   setShareReviewOpen: (v: boolean) => void;
@@ -193,6 +205,9 @@ export type LocationHubViewModel = {
   sosActive: boolean;
   sosBusy: boolean;
   sosStartedAtLabel: string | null;
+  sosEmergency: EmergencyInfo | null;
+  sosEmergencyStatus: EmergencyNumberLookupStatus;
+  onResolveSosLocation: () => void;
   onTriggerSos: (message?: "Come get me" | "I'm not safe" | null) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
@@ -237,7 +252,7 @@ type FlowKind =
   | "check-in"
   | "sos"
   | "sms-contacts"
-  | "privacy"
+  | "settings"
   | "active-shares"
   | "shared-with-me"
   | "needs-review";
@@ -255,7 +270,7 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "check-in": "check-in",
   sos: "sos",
   "sms-contacts": "sms-contacts",
-  privacy: "privacy",
+  settings: "settings",
   "active-shares": "active-shares",
   "shared-with-me": "shared-with-me",
   "needs-review": "needs-review",
@@ -274,6 +289,10 @@ const ACTION_TO_FLOW: Record<string, FlowKind> = Object.fromEntries(
     flow as FlowKind,
   ]),
 );
+
+const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
+  privacy: "settings",
+};
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
@@ -428,7 +447,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // Share sub-step + review flag on close ensures re-opening Share always starts
   // clean at step 1 (never jumps back into the consent-review screen).
   useEffect(() => {
-    const action = (searchParams.get(FLOW_ACTION_PARAM) || "").trim();
+    const rawAction = (searchParams.get(FLOW_ACTION_PARAM) || "").trim();
+    const action = LEGACY_ACTION_TO_FLOW[rawAction] ?? rawAction;
+    if (rawAction && rawAction !== action) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set(FLOW_ACTION_PARAM, action);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
@@ -546,8 +571,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
-        ) : flow === "privacy" ? (
-          <PrivacyFlow
+        ) : flow === "settings" ? (
+          <LocationSettingsFlow
             smsContactCount={vm.smsContactUserIds.length}
             onManageSharing={() => closeFlow("people")}
             onManageSmsContacts={() => openFlow("sms-contacts")}
@@ -634,7 +659,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
-              onOpenPrivacy={() => openFlow("privacy")}
+              onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
 
@@ -678,7 +703,7 @@ function NowHub({
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
-  onOpenPrivacy,
+  onOpenSettings,
 }: {
   vm: LocationHubViewModel;
   onStartShare: () => void;
@@ -688,7 +713,7 @@ function NowHub({
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
-  onOpenPrivacy: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
@@ -747,8 +772,8 @@ function NowHub({
           title="Settings"
           density="compact"
           chevron
-          onClick={onOpenPrivacy}
-          testId="one-location-privacy-entry"
+          onClick={onOpenSettings}
+          testId="one-location-settings-entry"
         />
       </SettingsGroup>
 
@@ -903,7 +928,7 @@ function LocationDetailFlow({
 /* =================================================================== */
 
 /* =================================================================== */
-/* PRIVACY FLOW                                                         */
+/* SETTINGS FLOW                                                        */
 /* =================================================================== */
 
 /** iOS-style switch (51×31, 27px knob) matching the Apple Blue v2 design. */
@@ -938,7 +963,7 @@ function LocationToggle({
   );
 }
 
-function PrivacyFlow({
+function LocationSettingsFlow({
   smsContactCount,
   onManageSharing,
   onManageSmsContacts,
@@ -955,7 +980,7 @@ function PrivacyFlow({
     <div>
       <TaskFlowHeader
         eyebrow="Location"
-        title="Privacy"
+        title="Settings"
         description="You control who sees your location and when. Change this anytime."
       />
 
@@ -1040,6 +1065,10 @@ function PrivacyFlow({
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
       </button>
+
+      <div className="mt-7">
+        <SavedLocationsSection />
+      </div>
     </div>
   );
 }
@@ -1180,11 +1209,6 @@ function PeopleHub({
             </div>
           </div>
         </SectionCard>
-
-        <TrustNoteCard
-          title="Private sharing starts after approval"
-          description="They must sign in, verify phone and accept first."
-        />
       </div>
     );
   }
@@ -1462,6 +1486,13 @@ function SosFlow({
   onClose: () => void;
   onEditContacts: () => void;
 }) {
+  const onResolveSosLocation = vm.onResolveSosLocation;
+  const [lookupStartedForMount, setLookupStartedForMount] = useState(false);
+  useEffect(() => {
+    onResolveSosLocation();
+    setLookupStartedForMount(true);
+  }, [onResolveSosLocation]);
+
   return (
     <SosPanel
       recipients={vm.smsRecipients}
@@ -1472,7 +1503,11 @@ function SosFlow({
       onEditContacts={onEditContacts}
       recipientLabel={vm.recipientLabel}
       isRecipientShareReady={vm.isRecipientShareReady}
-      myLocationPoint={vm.myLocationPoint}
+      emergency={lookupStartedForMount ? vm.sosEmergency : null}
+      emergencyStatus={
+        lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
+      }
+      onResolveEmergencyNumber={onResolveSosLocation}
     />
 
   );
@@ -1498,14 +1533,21 @@ function ShareFlow({
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
-  const selectedReady = vm.recipients.filter(
-    (r) =>
-      vm.selectedRecipientIds.includes(r.userId) && vm.isRecipientShareReady(r),
+  const recipientById = new globalThis.Map(
+    vm.recipients.map((recipient) => [recipient.userId, recipient]),
   );
+  const selectedReady = vm.selectedRecipientIds
+    .map((recipientId) => recipientById.get(recipientId))
+    .filter(
+      (recipient): recipient is OneLocationRecipient =>
+        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    );
+  const shareNoteLength = vm.shareMessage.length;
+  const shareNoteLimitExceeded =
+    shareNoteLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
 
   // Review screen (consent check) is driven by the existing shareReviewOpen flag.
   if (vm.shareReviewOpen) {
-    const primary = selectedReady[0];
     return (
       <div className="space-y-5">
         <TaskFlowHeader
@@ -1517,7 +1559,25 @@ function ShareFlow({
           <div className="space-y-3">
             <ReviewRow
               label="Can see"
-              value={primary ? vm.recipientLabel(primary) : "Selected people"}
+              value={
+                selectedReady.length ? (
+                  <ul
+                    aria-label="People who can see your location"
+                    className="min-w-0 space-y-1 text-right"
+                  >
+                    {selectedReady.map((recipient) => (
+                      <li
+                        key={recipient.userId}
+                        className="break-words [overflow-wrap:anywhere]"
+                      >
+                        {vm.recipientLabel(recipient)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  "Selected people"
+                )
+              }
             />
             <ReviewRow
               label="Location type"
@@ -1529,15 +1589,11 @@ function ShareFlow({
             />
             <ReviewRow
               label="Duration"
-              value={durationLabel(vm.durationHours)}
+              value={durationLabel(vm.shareDurationHours)}
             />
             <ReviewRow label="Control" value="You can stop anytime" />
           </div>
         </SectionCard>
-        <TrustNoteCard
-          title="Access ends automatically after expiry"
-          description="Never share if you feel pressured. You are always in control."
-        />
         <div className="space-y-2.5">
           <Button
             onClick={vm.onConfirmShare}
@@ -1572,31 +1628,61 @@ function ShareFlow({
               onChange={setLocationType}
             />
             <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
+              value={vm.shareDurationHours}
+              onChange={vm.setShareDurationHours}
+              presentation="select"
             />
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-foreground">
+              <label
+                htmlFor="one-location-share-note"
+                className="text-sm font-semibold text-foreground"
+              >
                 Optional note
-              </p>
-              <textarea
-                value={vm.requestMessage}
-                onChange={(e) => vm.setRequestMessage(e.target.value)}
-                rows={2}
-                maxLength={80}
-                placeholder="On my way to the meeting"
-                className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-              />
+              </label>
+              <div className="relative">
+                <textarea
+                  id="one-location-share-note"
+                  value={vm.shareMessage}
+                  onChange={(event) =>
+                    vm.setShareMessage(event.target.value)
+                  }
+                  rows={2}
+                  aria-invalid={shareNoteLimitExceeded}
+                  aria-describedby={
+                    shareNoteLimitExceeded
+                      ? "one-location-share-note-count one-location-share-note-error"
+                      : "one-location-share-note-count"
+                  }
+                  placeholder="On my way to the meeting"
+                  className="block w-full rounded-[14px] border border-border/70 bg-background px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
+                />
+                <span
+                  id="one-location-share-note-count"
+                  className={cn(
+                    "pointer-events-none absolute bottom-2.5 right-3 text-xs tabular-nums",
+                    shareNoteLimitExceeded
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {shareNoteLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
+                </span>
+              </div>
+              {shareNoteLimitExceeded ? (
+                <p
+                  id="one-location-share-note-error"
+                  role="alert"
+                  className="text-right text-xs font-medium text-destructive"
+                >
+                  character limit exceed
+                </p>
+              ) : null}
             </div>
           </div>
         </SectionCard>
-        <TrustNoteCard
-          title="Private by design"
-          description="They can see you only for the selected time."
-        />
         <Button
           onClick={vm.onOpenShareReview}
-          disabled={!vm.canShare}
+          disabled={!vm.canShare || shareNoteLimitExceeded}
           isLoading={vm.busy === "share"}
           className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:opacity-50"
         >
@@ -1629,7 +1715,7 @@ function ShareFlow({
                 name={vm.recipientLabel(r)}
                 subtitle={
                   ready
-                    ? "Ready for private sharing"
+                    ? undefined
                     : "Invite first to enable sharing"
                 }
                 tone={ready ? "ready" : "pending"}
@@ -1670,15 +1756,21 @@ function ShareFlow({
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
+      <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-foreground">
+      <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">
         {value}
-      </span>
+      </div>
     </div>
   );
 }
