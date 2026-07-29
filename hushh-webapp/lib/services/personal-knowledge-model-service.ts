@@ -1618,6 +1618,8 @@ export class PersonalKnowledgeModelService {
 
         // Handle 404 as valid "no data" response for new users
         if (response.status === 404) {
+          persistToDeviceCache = false;
+          shouldCacheResult = false;
           result = this.emptyMetadata(userId);
         } else if (response.status === 401 || response.status === 403) {
           // Token may be missing/expired/revoked during startup transitions.

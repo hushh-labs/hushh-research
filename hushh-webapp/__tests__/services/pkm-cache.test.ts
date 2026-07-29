@@ -143,6 +143,17 @@ describe("PKM cache behavior", () => {
     expect(result.totalAttributes).toBe(19);
   });
 
+  it("skips cache hydration for unresolved PKM identities", async () => {
+    const userId = "user-unresolved";
+
+    apiFetchMock.mockResolvedValue(new Response("not found", { status: 404 }));
+
+    const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
+
+    expect(result).toEqual(PersonalKnowledgeModelService.emptyMetadata(userId));
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+  });
+
   it("reads encrypted user/domain blobs from cache on subsequent calls", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.includes("/api/pkm/data/user-1")) {
