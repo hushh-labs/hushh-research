@@ -42,6 +42,23 @@ describe("observability log redactor", () => {
   });
 });
 
+describe("observability log redactor - standard error boundary coverage", () => {
+  it("preserves a standard Error message when redacted as a log line", () => {
+    const error = new Error("Test failure context");
+    const output = redactObservabilityLog(error.message);
+
+    expect(output).toContain("Test failure context");
+    expect(output).toBe(error.message);
+  });
+
+  it("passes an empty object literal through the value redactor without crashing", () => {
+    const value = {};
+
+    expect(() => redactObservabilityLogValue(value)).not.toThrow();
+    expect(redactObservabilityLogValue(value)).toBe(value);
+  });
+});
+
 // ── Parameter truncation mechanics ────────────────────────────────────────────
 //
 // redactObservabilityLog contains an implicit truncation mechanism:
