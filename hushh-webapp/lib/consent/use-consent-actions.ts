@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Consent Actions Hook - Centralized Approve/Deny/Revoke Logic
@@ -6,7 +6,7 @@
  *
  * Provides a unified interface for consent actions that:
  * - Coordinates with seenRequestIds state to prevent toast re-showing
- * - Uses toast.promise for loading → success/error transitions
+ * - Uses toast.promise for loading -> success/error transitions
  * - Triggers data refresh after action completion
  */
 
@@ -20,12 +20,12 @@ import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
+import { verifyLocalConsentActionAccess } from "@/lib/consent/consent-cache-manager";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
 // Types
-// ============================================================================
 
 export interface PendingConsent {
   id: string;
@@ -283,6 +283,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!vaultOwnerToken) {
           throw new Error("Vault owner token required");
         }
+        if (!(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))) {
+          throw new Error("Consent access required");
+        }
 
         let scopeData: Record<string, unknown> = {};
         let sourceContentRevision: number | undefined;
@@ -492,8 +495,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         toast.promise(promise, {
           id: toastId,
           loading: "Approving consent...",
-          success: (data) => `✅ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          success: (data) => `âœ… ${data}`,
+          error: (err) => `âŒ ${err.message}`,
           duration: 3000,
         });
       }
@@ -545,6 +548,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!vaultOwnerToken) {
           throw new Error("Vault owner token required");
         }
+        if (!(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))) {
+          throw new Error("Consent access required");
+        }
 
         const response = await ApiService.denyPendingConsent({
           userId,
@@ -563,8 +569,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         toast.promise(promise, {
           id: toastId,
           loading: "Denying consent...",
-          success: (data) => `❌ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          success: (data) => `âŒ ${data}`,
+          error: (err) => `âŒ ${err.message}`,
           duration: 3000,
         });
       }
@@ -611,8 +617,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       toast.promise(promise, {
         id: toastId,
         loading: `Approving ${options?.bundleLabel || "request bundle"}...`,
-        success: "✅ Request bundle approved",
-        error: (err) => `❌ ${err.message}`,
+        success: "âœ… Request bundle approved",
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 
@@ -638,8 +644,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       toast.promise(promise, {
         id: toastId,
         loading: `Denying ${options?.bundleLabel || "request bundle"}...`,
-        success: "❌ Request bundle denied",
-        error: (err) => `❌ ${err.message}`,
+        success: "âŒ Request bundle denied",
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 
@@ -663,6 +669,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
+        if (
+          vaultOwnerToken &&
+          !(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))
+        ) {
+          throw new Error("Consent access required");
+        }
         const response = await ApiService.revokeConsent({
           userId,
           scope: normalizedScope,
@@ -683,8 +695,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       toast.promise(promise, {
         id: actionKey,
         loading: "Revoking consent...",
-        success: () => `🔒 Consent revoked`,
-        error: (err) => `❌ ${err.message}`,
+        success: () => `ðŸ”’ Consent revoked`,
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 

@@ -12,3 +12,7 @@ export {
   type ConsentMutationDetail,
   type PendingConsent,
 } from "./use-consent-actions";
+export {
+  ConsentCacheManager,
+  type ConsentRemoteFallback,
+} from "./consent-cache-manager";
