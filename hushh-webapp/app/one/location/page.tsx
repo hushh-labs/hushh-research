@@ -4235,7 +4235,10 @@ function OneLocationAgentPageContent() {
                                 className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                               >
                                 {busy === "view" ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  <Loader2
+                                    aria-hidden="true"
+                                    className="mr-2 h-4 w-4 animate-spin"
+                                  />
                                 ) : (
                                   <ShieldCheck className="mr-2 h-4 w-4" />
                                 )}
