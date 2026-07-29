@@ -31,7 +31,7 @@ export async function GET(
         return NextResponse.json(errorJson, { status: response.status });
       } catch (_e) {
         return NextResponse.json(
-          { error: "Backend error", details: errorText },
+          { error: "Backend error" },
           { status: response.status }
         );
       }
