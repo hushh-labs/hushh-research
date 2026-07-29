@@ -199,23 +199,42 @@ def _to_http_exception(error: Exception) -> HTTPException:
             },
         )
     if isinstance(error, PlaidApiError):
-        detail = {
-            "code": error.error_code or "PLAID_API_ERROR",
-            "message": str(error),
-            "error_type": error.error_type,
-            "display_message": error.display_message,
-            "payload": error.payload,
-        }
+        # Expose only the user-facing display_message when available; never
+        # forward error.payload (raw Plaid API response that can contain
+        # internal request IDs, base URLs, and provider debug data).
+        logger.warning(
+            "plaid.api_error code=%s type=%s: %s",
+            error.error_code,
+            error.error_type,
+            error,
+        )
+        client_message = (
+            error.display_message
+            or "Plaid service returned an error. Please try again."
+        )
         status_code = error.status_code if error.status_code >= 400 else 502
-        return HTTPException(status_code=status_code, detail=detail)
+        return HTTPException(
+            status_code=status_code,
+            detail={
+                "code": error.error_code or "PLAID_API_ERROR",
+                "message": client_message,
+            },
+        )
     if isinstance(error, AlpacaApiError):
-        detail = {
-            "code": error.error_code or "ALPACA_API_ERROR",
-            "message": str(error),
-            "payload": error.payload,
-        }
+        # Never forward error.payload (raw Alpaca API response body).
+        logger.warning(
+            "alpaca.api_error code=%s: %s",
+            error.error_code,
+            error,
+        )
         status_code = error.status_code if error.status_code >= 400 else 502
-        return HTTPException(status_code=status_code, detail=detail)
+        return HTTPException(
+            status_code=status_code,
+            detail={
+                "code": error.error_code or "ALPACA_API_ERROR",
+                "message": "Alpaca service returned an error. Please try again.",
+            },
+        )
     if isinstance(error, RuntimeError):
         message = str(error)
         if message == "No active Plaid Item is available to refresh.":
@@ -226,9 +245,10 @@ def _to_http_exception(error: Exception) -> HTTPException:
                     "message": message,
                 },
             )
+    logger.warning("plaid.route_failure: %s", error)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={"code": "PLAID_ROUTE_FAILURE", "message": str(error)},
+        detail={"code": "PLAID_ROUTE_FAILURE", "message": "An unexpected error occurred."},
     )
 
 
