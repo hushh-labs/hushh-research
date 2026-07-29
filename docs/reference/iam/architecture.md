@@ -126,13 +126,18 @@ elevation:
 
 1. Firebase OAuth identifies the account through Authorization Code + PKCE.
 2. A registered P-256 device key proves the exact Hermes installation.
-3. The existing passphrase wrapper is fetched and unwrapped locally; the
-   passphrase and vault key never enter Hussh infrastructure or model context.
-4. A signed, single-use device challenge permits a 15-minute
+3. The approval browser may reuse an RP-compatible One passkey to unwrap and
+   hash-validate the vault key locally, seal it to an ephemeral Hermes key, and
+   attach ciphertext to the one-time authorization. The PKCE exchange consumes
+   that ciphertext exactly once.
+4. If no usable passkey exists, Hermes fetches the mandatory passphrase wrapper
+   and unwraps it through a native masked prompt. The passphrase and plaintext
+   vault key never enter Hussh infrastructure or model context.
+5. A signed, single-use device challenge permits a 15-minute
    device-bound `VAULT_OWNER` capability.
-5. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
+6. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
    validation/store endpoints and optimistic concurrency contract.
-6. Developer tokens remain application identity only. They never map to
+7. Developer tokens remain application identity only. They never map to
    `VAULT_OWNER`, PKM write, vault unwrap, or a trusted-device credential.
 
 The 15-minute capability is an automatically renewable in-memory lease, not
@@ -148,6 +153,9 @@ the replaceable outbox seam for future Redis/Memorystore fan-out.
 Postgres owns one-time codes, nonce replay protection, device state, and
 metadata-only audit today. `TrustedDeviceStore` is the replaceable seam for a
 future Redis/Memorystore replay and revocation fan-out adapter.
+
+Canonical enrollment, custody, failure, and UAT verification contract:
+[Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md).
 
 ## Change Control
 
