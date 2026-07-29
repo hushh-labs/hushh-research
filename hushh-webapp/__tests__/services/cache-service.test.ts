@@ -89,4 +89,19 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+    it("stops notifying cache listeners after unsubscribe", () => {
+    const cache = CacheService.getInstance();
+    const events: string[] = [];
+
+    const unsubscribe = cache.subscribe((event) => {
+      events.push(event.type);
+    });
+
+    cache.set("market-home", { ok: true }, 1_000);
+    unsubscribe();
+    cache.set("portfolio-feed", { ok: true }, 1_000);
+    cache.clear();
+
+    expect(events).toEqual(["set"]);
+  });
 });
