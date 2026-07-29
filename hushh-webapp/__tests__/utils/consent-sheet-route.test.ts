@@ -224,5 +224,13 @@ describe("path resolver safety — dangerous edge case handling", () => {
     );
     expect(result.kind).toBe("external");
   });
+  it("omits empty request identifiers from fallback consent routes", () => {
+  expect(
+    resolveConsentRequestHref(null, "pending", {
+      requestId: "",
+      bundleId: "bundle_123",
+    })
+  ).toBe("/consents?tab=pending&bundleId=bundle_123");
+});
 });
 // ── End path safety coverage ──────────────────────────────────────────────────
