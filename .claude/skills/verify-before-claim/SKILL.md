@@ -6,6 +6,14 @@ allowed-tools: Read Grep Glob Bash
 
 # Verify before you claim
 
+Apply the repo-wide Principal Craft Kernel and Bacterial Software Architecture Gate from
+`AGENTS.md`; this skill adds verification practice and failure-diagnosis discipline, not
+authority to weaken correctness, security, or verification.
+
+This skill is the operational expansion of one line in that kernel — *"do not claim
+certainty without saying what was verified"*. The kernel states the rule; this states the
+specific ways it gets broken here.
+
 The single rule: **a claim is only as good as the evidence you gathered for it.**
 Everything below is a specific way that rule gets broken.
 
@@ -103,6 +111,39 @@ file-scanning tools. Annotating a source line did **not** clear a gitleaks findi
 because gitleaks scans historical commit diffs — the finding lived in the commit that
 introduced the line. The mechanism determines the fix.
 
+## 2b. Read the failure signal before you believe its name
+
+A failure's *label* is a design choice someone made; it is not evidence. Three specific
+traps, each of which cost us real time:
+
+- **Fallback classifications lie about their cause.** `runtime_mount_missing` is the
+  *default* the dev lane emits when the parity report is empty, and
+  `semantic_verifier_failed` fires when no report was produced at all. Neither means what
+  its name says. We reported a broken dev environment to the board for two weeks on the
+  strength of a label that actually meant "a script exited before writing its report".
+  **Read the code that emits the classification before repeating it.**
+- **Timing is a diagnostic.** A step that fails in ~1 second did not reach the network. That
+  is argument parsing, config validation, or a missing binary — not an API or credentials
+  problem. A step that fails after ~30s is doing real work. Check the duration before
+  forming a hypothesis; it eliminates whole categories for free.
+- **Green on the run is not green on the thing.** The workflow reporting success and the
+  service actually serving your code are two different claims. Verify deployed revision,
+  response *content*, and that flag-gated surfaces are still dark.
+
+## 2c. Unversioned interfaces between config and code
+
+The dev lane runs its **workflow definition from `main`** while running the **script that
+workflow invokes from the deployed SHA**. Those two travel independently, so a flag added
+to the invocation in `main` breaks every in-flight branch whose copy of the script does not
+yet parse it — instantly, with a misleading label.
+
+Generalise the check: whenever configuration and the code it drives come from different
+refs, versions, or repositories, that seam is unversioned and will skew. Ask where the
+caller comes from, where the callee comes from, and whether anything forces them to agree.
+The same question applies to generated files — `.claude/agents/*.md` are generated from
+`.codex/agents/*.toml`, so editing the generated copy is a change that silently disappears
+on the next sync.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
@@ -182,6 +223,8 @@ Run before reporting any coding work complete:
 
 ```
 [ ] I read the code I changed, and one example of the pattern I followed
+[ ] The file I edited is hand-authored, not generated from another source
+[ ] Any failure label I am repeating, I traced to the code that emits it
 [ ] The gate I might trip, I reproduced locally at the CI-pinned version
 [ ] Tests pass — and I know which ones actually exercise my change
 [ ] CI is green on the exact pushed SHA (not "should be")
