@@ -127,7 +127,6 @@ function profileOriginCrumbLabel(backHref: string): string {
   return labels[path] ?? "One";
 }
 
-
 function profileDetailLabel(detail: string | null): string | null {
   if (!detail) return null;
   if (detail.startsWith("domain:")) return "Domain detail";
@@ -175,6 +174,8 @@ export interface ResolveTopShellBreadcrumbOptions {
    * retrace to the hub so the first onboarding pass is unchanged.
    */
   setupDismissed?: boolean;
+  /** Public display metadata supplied by the loaded CRM registry. */
+  connectedSystemLabel?: string | null;
 }
 
 export function resolveTopShellBreadcrumb(
@@ -182,7 +183,11 @@ export function resolveTopShellBreadcrumb(
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
   options?: ResolveTopShellBreadcrumbOptions,
 ): TopShellBreadcrumbConfig | null {
-  const config = resolveTopShellBreadcrumbInner(pathname, searchParams);
+  const config = resolveTopShellBreadcrumbInner(
+    pathname,
+    searchParams,
+    options?.connectedSystemLabel,
+  );
   if (!config || !options?.setupDismissed) return config;
   // Once onboarding is dismissed, a product/agent surface must never send BACK
   // into the setup funnel. Setup-internal pages (the hub, connections, a
@@ -203,8 +208,11 @@ export function resolveTopShellBreadcrumb(
 function resolveTopShellBreadcrumbInner(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+  connectedSystemLabel?: string | null,
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
+  const resolvedConnectedSystemLabel =
+    String(connectedSystemLabel || "").trim() || "CRM";
 
   if (pathname === ROUTES.CONNECT_SETTINGS) {
     return {
@@ -287,7 +295,9 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
-    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
+    const view = String(searchParams?.get("view") || "")
+      .trim()
+      .toLowerCase();
 
     if (debateId) {
       return {
@@ -762,7 +772,7 @@ function resolveTopShellBreadcrumbInner(
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
           { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
-          { label: "System detail" },
+          { label: resolvedConnectedSystemLabel },
         ],
       };
     }
@@ -789,7 +799,7 @@ function resolveTopShellBreadcrumbInner(
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
-        { label: "System detail" },
+        { label: resolvedConnectedSystemLabel },
       ],
     };
   }
@@ -867,7 +877,6 @@ function resolveTopShellBreadcrumbInner(
       ],
     };
   }
-
 
   if (!pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;

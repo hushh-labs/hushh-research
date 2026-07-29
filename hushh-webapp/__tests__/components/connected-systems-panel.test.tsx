@@ -254,7 +254,7 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     expect(await screen.findByText("Customer CRM")).toBeTruthy();
-    expect(screen.getByText("Example · CRM")).toBeTruthy();
+    expect(screen.getByText("Example")).toBeTruthy();
     expect(screen.getByText("Set up")).toBeTruthy();
     fireEvent.click(screen.getByText("Customer CRM"));
     expect(routerPushMock).toHaveBeenCalledWith(
@@ -272,7 +272,7 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     expect(await screen.findByText("Customer CRM")).toBeTruthy();
-    expect(await screen.findByText("Example · CRM")).toBeTruthy();
+    expect(await screen.findByText("Example")).toBeTruthy();
     expect(screen.getByText("Set up")).toBeTruthy();
     expect(screen.queryByText("CRM systems", { exact: true })).toBeNull();
   });
@@ -488,7 +488,11 @@ describe("ConnectedSystemsPanel", () => {
       await screen.findByRole("button", { name: "Find my record" }),
     );
 
-    expect(await screen.findByText("Information")).toBeTruthy();
+    expect(
+      await screen.findByRole("region", { name: "CRM record fields" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh fields" })).toBeTruthy();
+    expect(screen.queryByText("Information")).toBeNull();
     expect(await screen.findByText("person@example.test")).toBeTruthy();
     expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
   });
@@ -544,7 +548,10 @@ describe("ConnectedSystemsPanel", () => {
       />,
     );
 
-    expect(await screen.findByText("Information")).toBeTruthy();
+    expect(
+      await screen.findByRole("region", { name: "CRM record fields" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Information")).toBeNull();
     fireEvent.change(screen.getByLabelText("Field view"), {
       target: { value: "all" },
     });
@@ -568,6 +575,71 @@ describe("ConnectedSystemsPanel", () => {
     });
     expect(await screen.findByText("Review update request")).toBeTruthy();
     expect(screen.getByText("PreferredLanguage")).toBeTruthy();
+  });
+
+  it("keeps verified create and lookup fields locked even when the CRM omits identity metadata", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce({
+      ...readySchema,
+      profileFieldMappings: { email: "Email" },
+      fields: readySchema.fields.map((field) =>
+        field.key === "Email"
+          ? {
+              ...field,
+              identityField: false,
+              immutable: false,
+              updateable: true,
+            }
+          : field,
+      ),
+    });
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      status: "active",
+      binding: {
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        recordId: "person-42",
+        status: "active",
+      },
+    });
+    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValueOnce({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      resultClass: "succeeded",
+      recordId: "person-42",
+      records: [
+        {
+          recordId: "person-42",
+          fields: {
+            Email: "person@example.test",
+            PreferredLanguage: "English",
+          },
+        },
+      ],
+    });
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "CRM record fields" }),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Field view"), {
+      target: { value: "all" },
+    });
+    expect(screen.queryByRole("button", { name: "Edit Email" })).toBeNull();
+    expect(screen.getByText("Primary CRM lookup field is locked")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Edit Preferred language" }),
+    ).toBeTruthy();
   });
 
   it("keeps CRM field values hidden until an explicit record refresh settles", async () => {

@@ -23,9 +23,9 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--ambient-chrome-top-visible-height");
     expect(styles).toContain("var(--top-fade-active)");
     expect(providers).toContain(
-      '"--top-fade-active": topShellMetrics.hasTabs ? "24px" : "42px"',
+      '"--top-fade-active": topShellMetrics.hasTabs ? "16px" : "32px"',
     );
-    expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "12px"');
+    expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "8px"');
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
     );
@@ -72,11 +72,13 @@ describe("tabbed ambient chrome contract", () => {
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%",
+      "color-mix(in srgb, var(--ambient-chrome-bg) 91%, transparent) 16%",
     );
     expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%",
+      "color-mix(in srgb, var(--ambient-chrome-bg) 38%, transparent) 64%",
     );
+    expect(styles).toContain(".ambient-chrome-mask--bottom");
+    expect(styles).toContain("rgba(0, 0, 0, 0.72) 38%");
   });
 
   it("keeps neutral theme foreground authoritative for text and icons", () => {
@@ -107,6 +109,6 @@ describe("tabbed ambient chrome contract", () => {
 
     expect(bottomShell).toContain("var(--bottom-chrome-progress, 0)");
     expect(bottomShell).toContain("var(--bottom-nav-travel, 0px)");
-    expect(bottomShell).toContain("var(--bottom-chrome-fade-tail)");
+    expect(bottomShell).not.toContain("var(--bottom-chrome-fade-tail)");
   });
 });

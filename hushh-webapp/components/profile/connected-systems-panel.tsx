@@ -8,6 +8,7 @@ import {
   Building2,
   Database,
   ListChecks,
+  LockKeyhole,
   Pencil,
   RefreshCw,
   SendHorizontal,
@@ -25,7 +26,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
   SettingsDetailPanel,
   SettingsGroup,
@@ -39,6 +39,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
+import { resolveCrmLogoAsset } from "@/lib/branding/crm-logo-registry";
 import { cn } from "@/lib/utils";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
@@ -102,6 +103,8 @@ type CrmProfileField = {
   inputType?: string;
   required?: boolean;
   identityField?: boolean;
+  /** A verified-identity field used to bind this CRM record to its owner. */
+  bindingKey?: boolean;
   readable?: boolean;
   createable?: boolean;
   updateable?: boolean;
@@ -142,7 +145,6 @@ function registryAvailabilityLabel(
   return statusBadge(system?.status);
 }
 
-const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
 const DEFAULT_CRM_PROFILE_VALUES: CrmFieldValues = {};
 
 function inputTypeFromSchema(dataType?: string): string | undefined {
@@ -184,58 +186,38 @@ function crmFieldFromSchemaDescriptor(
   };
 }
 
-function customerLogoSrc(
-  system?: ConnectedSystemSummary | null,
-): string | null {
-  const customer = String(system?.customerDisplayName || system?.target || "")
-    .trim()
-    .toLowerCase();
-  if (customer.includes("macy") || customer.includes("macys")) {
-    return MACYS_LOGO_SRC;
-  }
-  return null;
-}
-
-function crmTypeDisplayLabel(
+export function crmTypeDisplayLabel(
   system?: Pick<ConnectedSystemSummary, "systemType" | "systemName"> | null,
 ): string {
-  const labels = [system?.systemType, system?.systemName]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .filter(
-      (value, index, values) =>
-        values.findIndex(
-          (candidate) =>
-            candidate.localeCompare(value, undefined, {
-              sensitivity: "accent",
-            }) === 0,
-        ) === index,
-    );
-  return labels.join(" · ");
+  return String(system?.systemType || system?.systemName || "").trim();
 }
 
-function ConnectedSystemLogo({
+export function ConnectedSystemLogo({
   system,
   size = "row",
 }: {
   system?: ConnectedSystemSummary | null;
   size?: "row" | "hero";
 }) {
-  const logoSrc = customerLogoSrc(system);
+  const logo = resolveCrmLogoAsset(system);
   const label = system?.customerDisplayName || system?.target || "CRM system";
   const dimensions =
-    size === "hero"
-      ? "h-12 w-12 rounded-[14px] p-2.5"
-      : "h-10 w-10 rounded-[12px] p-2";
+    logo && size === "hero"
+      ? "h-14 w-28 rounded-[18px] p-2"
+      : logo
+        ? "h-11 w-[4.75rem] rounded-[14px] p-2"
+        : size === "hero"
+          ? "h-12 w-12 rounded-[14px] p-2.5"
+          : "h-10 w-10 rounded-[12px] p-2";
 
   return (
     <span
       className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]`}
     >
-      {logoSrc ? (
+      {logo ? (
         <Image
-          src={logoSrc}
-          alt={`${label} logo`}
+          src={logo.src}
+          alt={logo.alt || `${label} logo`}
           width={size === "hero" ? 48 : 40}
           height={size === "hero" ? 48 : 40}
           className="h-full w-full object-contain"
@@ -441,6 +423,21 @@ function crmRecordFieldKey(
   return null;
 }
 
+function normalizedCrmFieldToken(value?: string | null): string {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function isCrmFieldLocked(field: CrmProfileField): boolean {
+  return (
+    field.identityField === true ||
+    field.bindingKey === true ||
+    field.updateable === false ||
+    field.immutable === true
+  );
+}
+
 function changedFieldsFromValues(
   values: CrmFieldValues,
   baseline: CrmFieldValues,
@@ -448,12 +445,7 @@ function changedFieldsFromValues(
 ): Record<string, string> {
   const additionalFields: Record<string, string> = {};
   for (const field of fields) {
-    if (
-      field.identityField ||
-      field.updateable === false ||
-      field.immutable === true
-    )
-      continue;
+    if (isCrmFieldLocked(field)) continue;
     const nextValue = (values[field.key] || "").trim();
     const previousValue = (baseline[field.key] || "").trim();
     if (nextValue !== previousValue) additionalFields[field.key] = nextValue;
@@ -622,10 +614,28 @@ export function ConnectedSystemsPanel({
       .map((field) => crmFieldFromSchemaDescriptor(field))
       .filter((field): field is CrmProfileField => Boolean(field));
   }, [schema?.fields]);
+  const bindingFieldTokens = useMemo(
+    () =>
+      new Set(
+        Object.values(schema?.profileFieldMappings || {})
+          .map((value) => normalizedCrmFieldToken(String(value || "")))
+          .filter(Boolean),
+      ),
+    [schema?.profileFieldMappings],
+  );
   const visibleProfileFields = useMemo(() => {
-    if (schemaDrivenProfileFields.length > 0) return schemaDrivenProfileFields;
+    if (schemaDrivenProfileFields.length > 0) {
+      return schemaDrivenProfileFields.map((field) => ({
+        ...field,
+        bindingKey:
+          field.identityField === true ||
+          [field.rawName, field.key].some((value) =>
+            bindingFieldTokens.has(normalizedCrmFieldToken(value)),
+          ),
+      }));
+    }
     return [];
-  }, [schemaDrivenProfileFields]);
+  }, [bindingFieldTokens, schemaDrivenProfileFields]);
   const displayedProfileFields = useMemo(() => {
     if (fieldView === "all") return visibleProfileFields;
     const mappedFields = new Set(
@@ -1180,13 +1190,7 @@ export function ConnectedSystemsPanel({
   ]);
 
   const updateCrmFieldValue = (field: CrmProfileField, value: string) => {
-    if (
-      !schemaReady ||
-      field.updateable === false ||
-      field.identityField ||
-      field.immutable === true
-    )
-      return;
+    if (!schemaReady || isCrmFieldLocked(field)) return;
     setCrmFieldValues((current) => ({ ...current, [field.key]: value }));
   };
 
@@ -1415,7 +1419,7 @@ export function ConnectedSystemsPanel({
     {
       accessorKey: "label",
       header: "Field",
-      size: 116,
+      size: 156,
       cell: ({ row }) => (
         <span className="block break-words font-medium text-foreground">
           {row.original.label}
@@ -1433,35 +1437,51 @@ export function ConnectedSystemsPanel({
     },
     {
       id: "actions",
-      header: "",
-      size: 44,
+      header: () => <span className="sr-only">Edit</span>,
+      size: 52,
       cell: ({ row }) => {
         const field = row.original.field;
         if (
           !hasBoundRecord ||
           !schemaReady ||
           !supportsAction("update") ||
-          field.updateable === false ||
-          field.identityField ||
-          field.immutable
+          isCrmFieldLocked(field)
         ) {
-          return <span className="text-xs text-muted-foreground">—</span>;
+          return (
+            <span
+              className="flex justify-end text-muted-foreground"
+              title={
+                field.bindingKey || field.identityField
+                  ? "Primary CRM lookup field"
+                  : "This CRM field is read-only"
+              }
+            >
+              <Icon icon={LockKeyhole} size="xs" />
+              <span className="sr-only">
+                {field.bindingKey || field.identityField
+                  ? "Primary CRM lookup field is locked"
+                  : "CRM field is read-only"}
+              </span>
+            </span>
+          );
         }
         return (
-          <Button
-            type="button"
-            variant="none"
-            effect="fade"
-            size="icon-sm"
-            disabled={busy !== null}
-            aria-label={`Edit ${field.label}`}
-            onClick={() => {
-              setEditingField(field);
-              setEditingValue(cleanFieldValue(crmFieldValues[field.key]));
-            }}
-          >
-            <Icon icon={Pencil} size="sm" />
-          </Button>
+          <span className="flex justify-end">
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="icon-sm"
+              disabled={busy !== null}
+              aria-label={`Edit ${field.label}`}
+              onClick={() => {
+                setEditingField(field);
+                setEditingValue(cleanFieldValue(crmFieldValues[field.key]));
+              }}
+            >
+              <Icon icon={Pencil} size="sm" />
+            </Button>
+          </span>
         );
       },
     },
@@ -1469,29 +1489,13 @@ export function ConnectedSystemsPanel({
 
   const renderCrmFieldTable = (configurationMessage?: string | null) => (
     <div className="space-y-2">
-      {visibleProfileFields.length > displayedProfileFields.length ||
-      fieldView === "all" ? (
-        <div className="flex items-center justify-end">
-          <select
-            aria-label="Field view"
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-            value={fieldView}
-            onChange={(event) =>
-              setFieldView(event.target.value as "basic" | "all")
-            }
-          >
-            <option value="basic">Basic fields</option>
-            <option value="all">All fields</option>
-          </select>
-        </div>
-      ) : null}
       <DataTable
         columns={crmFieldColumns}
         data={crmFieldRows}
         globalSearchKeys={["label", "currentValue"]}
         searchPlaceholder="Search fields"
-        initialPageSize={10}
-        pageSizeOptions={[10, 20, 50]}
+        initialPageSize={6}
+        pageSizeOptions={[6, 10, 20]}
         density="compact"
         stickyHeader
         tableContainerClassName="max-w-full"
@@ -1519,6 +1523,49 @@ export function ConnectedSystemsPanel({
           ))}
         </div>
       </div>
+    ) : null;
+
+  const deleteRecordControl =
+    !isSetupPresentation &&
+    hasBoundRecord &&
+    !isRecordStateLoading &&
+    supportsAction("delete") ? (
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            variant="destructive"
+            effect="fade"
+            size="icon-sm"
+            disabled={busy !== null || !(deleteId || currentRecordId)}
+            aria-label={`Delete ${primaryObjectLabel.toLowerCase()} from ${customerName}`}
+          >
+            <Icon icon={Trash2} size="sm" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this CRM record?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the {primaryObjectLabel} in {customerName}. The One
+              binding will be cleared only after the CRM no longer returns this
+              record through its registered read tool.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === "delete"}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy === "delete"}
+              onClick={() => void deleteRecord()}
+            >
+              Delete record
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     ) : null;
 
   if (!canUseBackend && mode !== "list") {
@@ -1640,17 +1687,13 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {isRecordStateLoading ? (
-        <SettingsGroup title="Checking record">
-          <SettingsRow
-            icon={RefreshCw}
-            title="Looking for your saved CRM record"
-            description="Checking the saved record before showing record actions."
-            trailing={
-              <Icon icon={RefreshCw} size="sm" className="animate-spin" />
-            }
-            stackTrailingOnMobile
-          />
-        </SettingsGroup>
+        <span
+          role="status"
+          aria-label="Checking saved CRM record"
+          className="flex justify-center py-2 text-muted-foreground"
+        >
+          <Icon icon={RefreshCw} size="sm" className="animate-spin" />
+        </span>
       ) : null}
 
       {showCatalogueOnly ? (
@@ -1810,55 +1853,57 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {canShowBoundRecordActions ? (
-        <section
-          className="space-y-3"
-          aria-labelledby="connected-system-information"
-        >
-          <SectionHeader
-            id="connected-system-information"
-            title="Information"
-            description={
-              Object.keys(changedProfileFields).length > 0
-                ? `${Object.keys(changedProfileFields).length} change${Object.keys(changedProfileFields).length === 1 ? "" : "s"} ready to review`
-                : "Choose a field to update."
-            }
-            actions={
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={resetWorkingCopy}
-                >
-                  Reset
-                </Button>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void loadSchema()}
-                >
-                  <Icon icon={ListChecks} size="sm" className="mr-2" />
-                  {schema ? "Refresh fields" : "Discover fields"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void readRecord()}
-                >
-                  <Icon icon={RefreshCw} size="sm" className="mr-2" />
-                  Refresh
-                </Button>
-              </div>
-            }
-          />
+        <section className="space-y-3" aria-label="CRM record fields">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <select
+                aria-label="Field view"
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                value={fieldView}
+                onChange={(event) =>
+                  setFieldView(event.target.value as "basic" | "all")
+                }
+              >
+                <option value="basic">Basic fields</option>
+                <option value="all">All fields</option>
+              </select>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void loadSchema()}
+              >
+                <Icon icon={ListChecks} size="sm" className="mr-2" />
+                {schema ? "Refresh fields" : "Discover fields"}
+              </Button>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void readRecord()}
+              >
+                <Icon icon={RefreshCw} size="sm" className="mr-2" />
+                Refresh
+              </Button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null}
+                onClick={resetWorkingCopy}
+              >
+                Reset
+              </Button>
+              {deleteRecordControl}
+            </div>
+          </div>
           {isFieldTableRefreshing ? (
             <SurfaceInset className="px-3.5 py-3 text-sm text-muted-foreground sm:px-4">
               Refreshing the latest CRM fields…
@@ -1886,61 +1931,6 @@ export function ConnectedSystemsPanel({
               {busy === "update" ? "Updating..." : "Update record"}
             </Button>
           </div>
-        </section>
-      ) : null}
-
-      {!isSetupPresentation &&
-      hasBoundRecord &&
-      !isRecordStateLoading &&
-      supportsAction("delete") ? (
-        <section
-          className="space-y-3"
-          aria-labelledby="connected-system-delete-record"
-        >
-          <SectionHeader
-            id="connected-system-delete-record"
-            title="Delete record"
-            description={`Permanently remove this ${primaryObjectLabel.toLowerCase()} from ${customerName}.`}
-            actions={
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    effect="fill"
-                    size="sm"
-                    disabled={busy !== null || !(deleteId || currentRecordId)}
-                  >
-                    <Icon icon={Trash2} size="sm" className="mr-2" />
-                    Delete
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent size="sm">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this CRM record?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This deletes the {primaryObjectLabel} in {customerName}.
-                      The One binding will be cleared only after the CRM no
-                      longer returns this record through its registered read
-                      tool.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={busy === "delete"}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      disabled={busy === "delete"}
-                      onClick={() => void deleteRecord()}
-                    >
-                      Delete record
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            }
-          />
         </section>
       ) : null}
       {deleteResult ? (

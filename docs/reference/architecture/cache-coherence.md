@@ -185,7 +185,9 @@ Do:
   settles so a person never edits values known to be in flight.
 - FCM consent request, resolution, and connection events must invalidate the
   canonical in-memory consent cache and trigger one retained-data background
-  refresh for an open Consent Center. When push is unavailable, the visible
+  refresh for an open Consent Center. Cached rows and counts stay visible until
+  that refresh settles; the single top-right refresh control is the only
+  in-page loading signal. When push is unavailable, the visible
   fallback reconciler uses the same cache keys and event path.
 - Keep passive background refresh copy human-readable:
   - `Getting your portfolio data ready`

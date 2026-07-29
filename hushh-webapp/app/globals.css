@@ -388,11 +388,10 @@ textarea {
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
   --app-bottom-chrome-lift: 0px;
-  /* Visual-only tail for the persistent dock. It deliberately does not affect
-   * scroll clearance: the fade can dissolve content above the Agent Bar without
-   * moving controls or shrinking the usable viewport. */
+  /* The bottom material stays within the measured fixed chrome. Its gradient
+   * and mask may feather inside that footprint but must not blur page content
+   * above the Agent Bar or navigation edge. */
   --bottom-chrome-fade-overscan: 10px;
-  --bottom-chrome-fade-tail: 52px;
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) +
       var(--app-bottom-chrome-lift)
@@ -2801,17 +2800,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.82)
+    rgba(0, 0, 0, 0.9)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.2
       ),
-    rgba(0, 0, 0, 0.5)
+    rgba(0, 0, 0, 0.62)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.44
       ),
-    rgba(0, 0, 0, 0.2)
+    rgba(0, 0, 0, 0.24)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.74
       ),
     transparent var(--ambient-chrome-top-visible-height)
   );
@@ -2819,17 +2818,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.82)
+    rgba(0, 0, 0, 0.9)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.2
       ),
-    rgba(0, 0, 0, 0.5)
+    rgba(0, 0, 0, 0.62)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.44
       ),
-    rgba(0, 0, 0, 0.2)
+    rgba(0, 0, 0, 0.24)
       calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.74
       ),
     transparent var(--ambient-chrome-top-visible-height)
   );
@@ -2843,12 +2842,33 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-image: linear-gradient(
     to top,
     color-mix(in srgb, var(--ambient-chrome-bg) 94%, transparent) 0%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 91%, transparent) 16%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 72%, transparent) 38%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 38%, transparent) 64%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 12%, transparent) 84%,
     transparent 100%
   );
-  -webkit-mask-image: none;
-  mask-image: none;
+  /* `backdrop-filter` affects transparent pixels unless the element itself is
+   * masked. Match the visual dissolve here so blur stops at the chrome edge
+   * instead of extending into the page's final component. */
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 16%,
+    rgba(0, 0, 0, 0.72) 38%,
+    rgba(0, 0, 0, 0.38) 64%,
+    rgba(0, 0, 0, 0.12) 84%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 16%,
+    rgba(0, 0, 0, 0.72) 38%,
+    rgba(0, 0, 0, 0.38) 64%,
+    rgba(0, 0, 0, 0.12) 84%,
+    transparent 100%
+  );
 }
 
 /* Top controls consume the same foreground token as the top mask. This is

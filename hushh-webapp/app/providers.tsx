@@ -185,8 +185,8 @@ function AppShellFrame({ children }: ProvidersProps) {
         // context-sensitive tail. Tabs stay fully solid through their
         // underline, but the dissolve must finish before the first bounded
         // route surface so its text remains readable.
-        "--top-fade-active": topShellMetrics.hasTabs ? "24px" : "42px",
-        "--top-ambient-tab-tail-midpoint": "12px",
+        "--top-fade-active": topShellMetrics.hasTabs ? "16px" : "32px",
+        "--top-ambient-tab-tail-midpoint": "8px",
         "--top-content-pad":
           "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
@@ -207,9 +207,6 @@ function AppShellFrame({ children }: ProvidersProps) {
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
-        "--bottom-chrome-fade-tail": chromeState.hideCommandBar
-          ? "28px"
-          : "64px",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         // Hidden-shell routes deliberately omit the app navigation, but many
         // of them still render the fixed onboarding Agent Bar. The scroll root

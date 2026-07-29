@@ -98,6 +98,10 @@ import {
   type TopShellBreadcrumbConfig,
   type TopShellBreadcrumbItem,
 } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  getConnectedSystemPresentationLabel,
+  subscribeConnectedSystemPresentation,
+} from "@/lib/navigation/connected-system-presentation";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -445,6 +449,35 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         : model.navigation.pathname,
     [model, pathname],
   );
+  const connectedSystemId = useMemo(() => {
+    const detailPrefix = `${ROUTES.CONNECTED_SYSTEMS}/`;
+    if (normalizedPathname.startsWith(detailPrefix)) {
+      const segment = normalizedPathname
+        .slice(detailPrefix.length)
+        .split("/", 1)[0] || "";
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    }
+    return normalizedPathname === ROUTES.CONNECTED_SYSTEMS
+      ? searchParams?.get("system") || ""
+      : "";
+  }, [normalizedPathname, searchParams]);
+  const [connectedSystemLabel, setConnectedSystemLabel] = useState<
+    string | null
+  >(() => getConnectedSystemPresentationLabel(connectedSystemId));
+  useEffect(() => {
+    setConnectedSystemLabel(
+      getConnectedSystemPresentationLabel(connectedSystemId),
+    );
+    return subscribeConnectedSystemPresentation((presentation) => {
+      if (presentation.systemId === connectedSystemId) {
+        setConnectedSystemLabel(presentation.label);
+      }
+    });
+  }, [connectedSystemId]);
   const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
@@ -461,9 +494,16 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     return (
       resolveTopShellBreadcrumb(normalizedPathname, searchParams, {
         setupDismissed,
+        connectedSystemLabel,
       }) ?? resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId)
     );
-  }, [lastAgentSectionId, normalizedPathname, searchParams, user?.uid]);
+  }, [
+    connectedSystemLabel,
+    lastAgentSectionId,
+    normalizedPathname,
+    searchParams,
+    user?.uid,
+  ]);
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
     [normalizedPathname],

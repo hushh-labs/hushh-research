@@ -1134,6 +1134,34 @@ async def test_bound_mutations_reject_other_record_ids_and_recheck_binding_on_ap
 
 
 @pytest.mark.asyncio
+async def test_bound_mutations_reject_verified_lookup_fields_without_schema_identity_metadata():
+    service, _adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-owner",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000ownedQAA",
+        }
+    )
+
+    # The route-owned schema mapper marks verified create/search fields as
+    # binding keys. This remains enforced even when the CRM schema has not
+    # labelled the field as identity or immutable.
+    with pytest.raises(ConnectedSystemValidationError, match="Field cannot be updated"):
+        await service.update_record_intent_from_fields(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type=None,
+            record_id=None,
+            record_fields={"MailingCity": "Austin"},
+            locked_field_names={"MailingCity"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_force_refresh_bypasses_binding_and_researches():
     """force_refresh=True re-runs the MCP search even when a binding exists."""
     service, adapter = build_service()

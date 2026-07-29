@@ -31,6 +31,10 @@ describe("canonical workspace hierarchy", () => {
     expect(topShellTabs).toContain('label: "Active"');
     expect(topShellTabs).toContain('label: "History"');
     expect(topShellTabs).toContain('label: "Connections"');
+    expect(consent).not.toContain('title="Your decision"');
+    expect(consent).not.toContain(
+      "Shares a one-time copy; later changes are not included.",
+    );
   });
 
   it("keeps every Finance swipe panel inside the Profile reading gutter", () => {

@@ -307,6 +307,11 @@ describe("SettingsDetailPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
+    expect(
+      document
+        .querySelector('[data-slot="dialog-header"]')
+        ?.className.includes("bg-[var(--activeGlassColor)]"),
+    ).toBe(true);
   });
 
   it("places supplied identity media before the detail title", () => {
