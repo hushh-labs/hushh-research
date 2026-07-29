@@ -220,5 +220,18 @@ describe("getOrCreateRequestTimestampMs — drift-safe header parsing", () => {
 
     expect(getOrCreateRequestTimestampMs(headers, NOW)).toBe(validTs);
   });
+  it("preserves negative request timestamps as accepted past metadata", () => {
+  const result = validateHeaderTimestampConstraints(-1, { nowMs: NOW });
+
+  expect(result.isSyncBlockAccepted).toBe(true);
+  expect(result.errorLabel).toBeNull();
+
+  expect(
+    getOrCreateRequestTimestampMs(
+      { [REQUEST_TIMESTAMP_HEADER]: "-1" },
+      NOW
+    )
+  ).toBe(-1);
+});
 });
 // ── End drift anomaly coverage ────────────────────────────────────────────────
