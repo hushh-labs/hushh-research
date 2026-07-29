@@ -987,7 +987,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       return;
     }
 
-    const hash = window.location.hash.replace(/^#/, "");
+    const hash = location.hash.replace(/^#/, "");
     if (!hash) {
       initialHashHandledRef.current = true;
       return;
