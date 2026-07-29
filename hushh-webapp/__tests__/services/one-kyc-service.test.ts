@@ -101,6 +101,24 @@ describe("OneKycService", () => {
     );
   });
 
+  it("serializes a maximum safe integer workflow list limit without coercion", async () => {
+    await OneKycService.listWorkflows({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      `/api/one/kyc/workflows?user_id=user_1&limit=${Number.MAX_SAFE_INTEGER}`,
+      {
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  });
+
   it("syncs recent One mailbox messages before refreshing the request list", async () => {
     await OneKycService.syncRecentEmails({
       userId: "user_1",
