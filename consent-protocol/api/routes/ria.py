@@ -108,7 +108,7 @@ class RIAConsentRequestCreate(BaseModel):
     scope_template_id: str = Field(..., min_length=1, max_length=128)
     selected_scope: str | None = Field(None, max_length=128)
     duration_mode: str = Field("preset", max_length=50)
-    duration_hours: int | None = None
+    duration_hours: int | None = Field(None, ge=1, le=8760)
     firm_id: str | None = Field(None, max_length=128)
     reason: str | None = Field(None, max_length=1000)
 
