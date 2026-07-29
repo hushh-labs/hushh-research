@@ -626,4 +626,17 @@ describe("AuthService.restoreNativeSession", () => {
     expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
     expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
   });
+  it("preserves local dev verification id classification", () => {
+  expect(
+    AuthService.isLocalDevPhoneVerificationId(
+      "local-dev-phone:%2B16505550101"
+    )
+  ).toBe(true);
+
+  expect(
+    AuthService.isLocalDevPhoneVerificationId(
+      "uat-test-phone:abc123"
+    )
+  ).toBe(false);
+});
 });
