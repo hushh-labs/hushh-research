@@ -964,6 +964,10 @@ export function VaultFlow({
                 <Input
                   id="recovery-key"
                   placeholder="HRK-XXXX-XXXX-XXXX-XXXX"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   value={recoveryKeyInput}
                   onChange={(e) =>
                     setRecoveryKeyInput(e.target.value.toUpperCase())
