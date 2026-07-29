@@ -469,6 +469,8 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                     value={symbolInput}
                     onChange={(event) => setSymbolInput(event.target.value.toUpperCase())}
                     placeholder="AAPL"
+                    spellCheck={false}
+                    autoComplete="off"
                   />
                 </label>
 
