@@ -4515,7 +4515,7 @@ function ProfilePageContent() {
               </Button>
               <Button
                 size="default"
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto sm:min-w-[10.5rem]"
                 disabled={
                   switchingVaultMethod ||
                   newPassphrase.length < 8 ||
