@@ -247,4 +247,16 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("profile");
     expect(output).toContain("data");
   });
+
+  it("redacts a vault token before Windows carriage return boundaries without corrupting the next line", () => {
+    const logLine = "vault_crlf_test_key_004\r\nstatus=complete";
+
+    const output = redactObservabilityLog(logLine);
+
+    expect(output).toBe("[REDACTED_VAULT_KEY]\r\nstatus=complete");
+    expect(output).not.toContain("vault_crlf_test_key_004");
+    expect(output).toContain("[REDACTED_VAULT_KEY]");
+    expect(output).toContain("\r\nstatus=complete");
+    expect(output.split("\r\n")[1]).toBe("status=complete");
+  });
 });
