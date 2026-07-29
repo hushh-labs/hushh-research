@@ -1096,12 +1096,13 @@ export default function MarketplacePage() {
           accent="marketplace"
           actions={
             <Button
-              variant="none"
-              effect="fade"
-              size="sm"
-              className="rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]"
-              onClick={() => router.push(connectionsRoute)}
-            >
+  type="button"
+  variant="none"
+  effect="fade"
+  size="sm"
+  className="rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]"
+  onClick={() => router.push(connectionsRoute)}
+>
               Connections
             </Button>
           }
@@ -1126,6 +1127,7 @@ export default function MarketplacePage() {
               <Button
                 variant="none"
                 effect="fade"
+                type="button"
                 size="sm"
                 className="h-10 rounded-full bg-card px-3"
                 onClick={() => void matchContacts()}
@@ -1210,6 +1212,7 @@ export default function MarketplacePage() {
                 </h3>
               </div>
               <Button
+                type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
@@ -1318,6 +1321,7 @@ export default function MarketplacePage() {
 
                   <div className="grid grid-cols-3 gap-2">
                     <Button
+                      type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
@@ -1329,6 +1333,7 @@ export default function MarketplacePage() {
                       <span className="hidden sm:inline">Pass</span>
                     </Button>
                     <Button
+                      type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
@@ -1340,6 +1345,7 @@ export default function MarketplacePage() {
                       <ArrowUpRight className="h-4 w-4 sm:ml-2" />
                     </Button>
                     <Button
+                      type="button"
                       variant="blue-gradient"
                       effect="fill"
                       size="sm"
@@ -1452,6 +1458,7 @@ export default function MarketplacePage() {
 
                 <div className="mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <Button
+                    type="button"
                     variant="blue-gradient"
                     effect="fill"
                     size="sm"
