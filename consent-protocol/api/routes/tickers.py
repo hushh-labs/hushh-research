@@ -8,7 +8,6 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -23,7 +22,7 @@ router = APIRouter(prefix="/api/tickers", tags=["Tickers (Public)"])
 class SyncHoldingsRequest(BaseModel):
     """User-holdings driven ticker ETL request payload."""
 
-    holdings: list[dict] = Field(default_factory=list, max_length=10000)
+    holdings: list[dict] = Field(default_factory=list)
     max_symbols: int = Field(default=200, ge=1, le=1000)
     enrich_missing: bool = Field(default=True)
     refresh_cache: bool = Field(default=True)
@@ -44,29 +43,23 @@ async def search_tickers(
         service = TickerDBService()
         results = await service.search_tickers(q, limit=limit)
         return results
-    except Exception:
-        logger.error("ticker.search.error", exc_info=True)
+    except Exception as e:
+        logger.error("Error searching tickers: %s", e)
         raise HTTPException(status_code=500, detail="Ticker search is temporarily unavailable.")
 
 
 @router.get("/all", response_model=List[dict])
 async def all_tickers(refresh: bool = Query(False)):
-    """
-    Return the full ticker universe (cached in memory when available).
-
-    Canonical attach point:
-        api.routes.tickers.all_tickers -> GET /api/tickers/all
-    """
+    """Return the full ticker universe (cached in memory when available)."""
     try:
         if refresh or not ticker_cache.loaded:
             # Reload on demand (after metadata enrichment), otherwise load once per process.
-            # load_from_db is synchronous; wrap it to avoid blocking the event loop.
-            await run_in_threadpool(ticker_cache.load_from_db)
+            ticker_cache.load_from_db()
 
         return ticker_cache.all()
-    except Exception:
-        logger.error("ticker.all.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ticker listing is temporarily unavailable.")
+    except Exception as e:
+        logger.error("Error returning all tickers: %s", e)
+        raise HTTPException(status_code=500, detail="Ticker data is temporarily unavailable.")
 
 
 @router.get("/cache-status")
@@ -102,6 +95,6 @@ async def sync_tickers_from_holdings(
             refresh_cache=request.refresh_cache,
         )
         return {"success": True, **result}
-    except Exception:
-        logger.error("ticker.sync_holdings.error user_id=%s", user_id, exc_info=True)
+    except Exception as e:
+        logger.error("Error syncing tickers from holdings for %s: %s", user_id, e)
         raise HTTPException(status_code=500, detail="Ticker sync is temporarily unavailable.")

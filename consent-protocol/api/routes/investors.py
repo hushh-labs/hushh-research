@@ -156,9 +156,9 @@ async def get_investor(investor_id: int):
 
     except HTTPException:
         raise
-    except Exception:
-        logger.error("investor.fetch.error investor_id=%s", investor_id, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error("Error fetching investor %s: %s", investor_id, e)
+        raise HTTPException(status_code=500, detail="Investor data is temporarily unavailable.")
 
 
 @router.get("/cik/{cik}", response_model=InvestorProfile)
@@ -241,9 +241,11 @@ async def create_investor(
         logger.info("investor.create.success name=%s id=%s", investor.name, result.get("id"))
         return {"id": result.get("id"), "name": investor.name, "status": "created"}
 
-    except Exception:
-        logger.error("investor.create.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error("Error creating investor: %s", e)
+        raise HTTPException(
+            status_code=500, detail="An internal error occurred creating the investor profile."
+        )
 
 
 @router.post("/bulk", status_code=201)
