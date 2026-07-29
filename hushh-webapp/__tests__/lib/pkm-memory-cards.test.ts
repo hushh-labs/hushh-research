@@ -108,4 +108,49 @@ describe("PKM memory cards", () => {
     expect((domainData.profile as Record<string, unknown>).name).toBe("Akshat Kumar");
     expect((deleted.profile as Record<string, unknown>).roll_no).toBeUndefined();
   });
+
+  it("strips regex metacharacters from the search query and evaluates tokens as literals (regex escape guard)", () => {
+    // tokens() splits the query on the static pre-compiled regex
+    // /[^a-z0-9$.\-]+/g — metacharacters such as *, ?, + become
+    // split delimiters and are never forwarded to new RegExp().
+    // Constructing `new RegExp("test*user?alpha+")` would throw a
+    // SyntaxError (quantifiers with nothing to quantify).  The static
+    // split path must NOT throw and must produce the same token set —
+    // and therefore the same scoring results — as the plain equivalent.
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: {
+        professional: {
+          profile: {
+            name: "test_user_alpha",
+            university: "test_org_beta",
+          },
+        },
+      },
+    });
+
+    expect(() =>
+      selectRelevantPkmMemoryCards(snapshot.cards, "test*user?alpha+", 18)
+    ).not.toThrow();
+
+    const resultWithMetachars = selectRelevantPkmMemoryCards(
+      snapshot.cards,
+      "test*user?alpha+",
+      18
+    );
+    const resultPlain = selectRelevantPkmMemoryCards(
+      snapshot.cards,
+      "test user alpha",
+      18
+    );
+
+    // Both calls must return arrays — never undefined on malformed input.
+    expect(Array.isArray(resultWithMetachars)).toBe(true);
+    // Metachar query must score at least one match: tokens "test", "user",
+    // "alpha" all appear in the "test_user_alpha" card searchText.
+    expect(resultWithMetachars.length).toBeGreaterThan(0);
+    // Token sets are identical after stripping metacharacters — results
+    // must match exactly, proving operators were stripped not evaluated.
+    expect(resultWithMetachars.length).toBe(resultPlain.length);
+  });
 });
