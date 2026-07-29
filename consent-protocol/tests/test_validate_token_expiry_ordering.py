@@ -134,3 +134,38 @@ class TestExpiredTokenResponseOrdering:
                 f"Probing scope {probe!r} against expired vault.owner token returned "
                 f"'{reason}' instead of 'Token expired'. Scope information leaked."
             )
+
+
+class TestMalformedExpiryClaimGuard:
+    def test_expired_and_malformed_expiry_claims_fail_closed(self):
+        import base64
+        import time
+
+        from hushh_mcp.consent.token import _sign
+        from hushh_mcp.constants import CONSENT_TOKEN_PREFIX
+
+        issued_at = int(time.time() * 1000)
+        expiry_claim_values = [
+            str(2**31 - 1),
+            "-" + ("9" * 64),
+            "-1",
+            "not-an-epoch",
+            "1e309",
+            "Infinity",
+        ]
+
+        for expires_at in expiry_claim_values:
+            raw = f"{_UID}|{_AGENT}|{ConsentScope.PKM_READ.value}|{issued_at}|{expires_at}"
+            signature = _sign(raw)
+            encoded = base64.urlsafe_b64encode(raw.encode()).decode()
+            token = f"{CONSENT_TOKEN_PREFIX}:{encoded}.{signature}"
+
+            valid, reason, parsed = validate_token(
+                token,
+                expected_scope=ConsentScope.PKM_READ,
+            )
+
+            assert valid is False
+            assert parsed is None
+            assert reason is not None
+            assert reason == "Token expired" or reason.startswith("Malformed token")
