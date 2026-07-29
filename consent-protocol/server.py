@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
@@ -146,6 +147,19 @@ app.middleware("http")(observability_middleware)
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(_request: Request, _exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": {
+                "error": "Validation error",
+                "code": "VALIDATION_ERROR",
+            }
+        },
+    )
 
 
 def _database_error_payload(
