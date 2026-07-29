@@ -447,4 +447,10 @@ describe("observability sandbox audit", () => {
 
     persistArtifact();
   });
+    it("preserves generated audit timestamps as utc iso strings", () => {
+    const artifact = buildArtifact();
+
+    expect(artifact.generatedAt).toContain("T");
+    expect(artifact.generatedAt.endsWith("Z")).toBe(true);
+  });
 });
