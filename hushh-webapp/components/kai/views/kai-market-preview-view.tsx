@@ -1642,7 +1642,9 @@ function useKaiMarketHomeController() {
     refreshing: baselineResource.refreshing || personalizedResource.refreshing,
     error: sanitizeMarketHomeError(
       payload
-        ? personalizedResource.error || baselineResource.error
+        ? personalizedPayload
+          ? personalizedResource.error
+          : baselineResource.error
         : baselineResource.error || personalizedResource.error
     ),
     activePickSource,
