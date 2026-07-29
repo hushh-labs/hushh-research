@@ -31,6 +31,7 @@ Companion contracts: [ARCHITECTURE.md](./ARCHITECTURE.md), [ROADMAP.md](./ROADMA
 | [`SECURITY-REVIEW.md`](./SECURITY-REVIEW.md) | Phase-0 adversarial audit — gate items closed, standing caveats (I1). |
 | [`M4-LIVE-VALIDATION.md`](./M4-LIVE-VALIDATION.md) | **Live evidence** — the real deploy/orchestrate/teardown runs, the slim-pod surface proof, and the min-instances (warm-floor) measurements. |
 | [`EXECUTION-LOG.md`](./EXECUTION-LOG.md) | **What shipped, when** — the milestone → change → commit → validation ledger. |
+| [`DEV-LIVE-EXECUTION-PLAN.md`](./DEV-LIVE-EXECUTION-PLAN.md) | **Authoritative, unexecuted** — real per-developer pods in `hushh-pda-dev`, a dev-only migration lane, background provisioning in the activity feed, and local-first onboarding with vault as the final step. |
 | [`BYOC-USER-GCP.md`](./BYOC-USER-GCP.md) | The **user-owned-GCP (BYOC)** tier — the pod in the *user's* cloud via keyless Workload Identity Federation + a least-privilege bootstrap. |
 | [`../identity-assurance/README.md`](../identity-assurance/README.md) | M14 companion — WebAuthn/FIDO2 + Titan/YubiKey passkey login + NIST 800-63B AAL mapping. |
 | [`../apple-a-plus/PLAN.md`](../apple-a-plus/PLAN.md) | The Apple/Jobs "A+" grading loop for the "your sovereign agent is alive" throughline. |
