@@ -70,11 +70,11 @@ export default function KaiLayout({
     };
 
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const requestIdle = window.requestIdleCallback as (
+      const requestIdle = requestIdleCallback as (
         callback: IdleRequestCallback,
         options?: IdleRequestOptions
       ) => number;
-      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      const cancelIdle = cancelIdleCallback as (handle: number) => void;
       idleHandle = requestIdle(() => {
         runWarm();
       }, { timeout: 2500 });
