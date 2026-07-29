@@ -786,10 +786,11 @@ async def get_vault_status(
 
         return status
 
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    except ValueError as e:
+        logger.warning("db_proxy.vault_status.consent_error: %s", e)
+        raise HTTPException(status_code=401, detail="Consent token validation failed")
     except HTTPException:
         raise
-    except Exception:
-        logger.error("vault.status.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error("db_proxy.vault_status.error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve vault status")
