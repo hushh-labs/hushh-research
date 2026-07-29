@@ -120,9 +120,11 @@ export async function storeKaiPreferences(
   // For now, preferences are stored in kai_sessions table
   // In production, might want to encrypt and store in vault
 
+  if (process.env.NODE_ENV !== "production") {
   console.log(
     "[Kai] Preferences stored in session (vault integration pending)"
   );
+}
   return { success: true };
 }
 
@@ -136,5 +138,7 @@ export async function logKaiAudit(
   metadata: Record<string, unknown> = {}
 ): Promise<void> {
   // Optional: Add audit logging endpoint
+ if (process.env.NODE_ENV !== "production") {
   console.log(`[Kai Audit] ${action}`, { sessionId, ...metadata });
+}
 }
