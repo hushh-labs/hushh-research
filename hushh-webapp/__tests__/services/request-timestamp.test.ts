@@ -183,6 +183,13 @@ describe("getOrCreateRequestTimestampMs — drift-safe header parsing", () => {
     expect(getOrCreateRequestTimestampMs(headers, NOW)).toBe(validTs);
   });
 
+  it("returns the parsed timestamp when the header value contains trailing tab characters", () => {
+    const validTs = NOW - 10_000;
+    const headers = { [REQUEST_TIMESTAMP_HEADER]: `${validTs}\t\t` };
+
+    expect(getOrCreateRequestTimestampMs(headers, NOW)).toBe(validTs);
+  });
+
   it("falls back to runtime clock when no timestamp header is present", () => {
     expect(getOrCreateRequestTimestampMs({}, NOW)).toBe(NOW);
     expect(getOrCreateRequestTimestampMs(null, NOW)).toBe(NOW);
