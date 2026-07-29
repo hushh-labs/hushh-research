@@ -1687,21 +1687,17 @@ describe("OneLocationAgentPage", () => {
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
-    expect(screen.queryAllByText(/Paused · last seen/).length).toBeGreaterThan(
-      0,
-    );
+    expect(screen.queryAllByText(/Paused · last seen/)).toHaveLength(1);
+    expect(screen.queryAllByText(/^Updated /)).toHaveLength(1);
     expect(screen.getByText(/Accuracy \+\/- 18 m/)).toBeTruthy();
     expect(screen.queryByText("Lat")).toBeNull();
     expect(screen.queryByText("Lng")).toBeNull();
 
-    const directionsLink = screen.getByRole("link", {
-      name: "Open Google Maps directions to shared live location",
-    });
-    expect(directionsLink.getAttribute("target")).toBe("_blank");
-    expect(directionsLink.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(directionsLink.getAttribute("href")).toContain(
-      "https://www.google.com/maps/dir/?api=1&destination=28.613900%2C77.209000&travelmode=driving",
-    );
+    expect(
+      screen.queryByRole("link", {
+        name: "Open Google Maps directions to shared live location",
+      }),
+    ).toBeNull();
 
     const openMapLink = screen.getByRole("link", {
       name: "Open shared location in Google Maps",
@@ -1713,22 +1709,31 @@ describe("OneLocationAgentPage", () => {
     );
 
     const viewCallsBeforeCollapse = mockViewEnvelope.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+
+    const collapseButton = screen.getByRole("button", {
+      name: "Collapse shared location from Trusted A",
+    });
+    expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(collapseButton);
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
     expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View location" })).toBeTruthy();
+    const expandButton = screen.getByRole("button", {
+      name: "Expand shared location from Trusted A",
+    });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
     expect(
       window.localStorage.getItem("one_location_unwatched_grants_v1:user_b"),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "View location" }));
+    fireEvent.click(expandButton);
     expect(await screen.findByTitle("Live location map preview")).toBeTruthy();
     expect(mockViewEnvelope).toHaveBeenCalledTimes(viewCallsBeforeCollapse);
 
-    // The duplicate "Start" navigation button was removed from location
-    // previews (it opened the same Google Maps navigation as "Directions").
-    // Only the single "Directions" action should remain.
+    // Inline navigation CTAs are omitted from received-share previews. The
+    // single "Open map" action remains the deliberate provider handoff.
     expect(
       screen.queryByRole("link", {
         name: "Start Google Maps navigation to shared live location",
