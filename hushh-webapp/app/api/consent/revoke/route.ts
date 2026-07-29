@@ -15,6 +15,20 @@ import {
 
 const BACKEND_URL = getPythonApiUrl();
 
+/**
+ * Scope values this revocation endpoint will act on.
+ * Prevents arbitrary or injected strings from reaching the consent service.
+ */
+const REVOCABLE_SCOPES = [
+  "read",
+  "write",
+  "export",
+  "full",
+  "analytics",
+  "marketing",
+  "personalization",
+] as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await readJsonObject(request)) as {
@@ -35,6 +49,19 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    // ── Scope guard (inline, default-deny) ────────────────────────────────────
+    // Validate scope against the known revocable surface before any backend
+    // call.  Unrecognised scope values are rejected here so the Python service
+    // never receives an arbitrary string it cannot act on.  No helper import.
+    if (!(REVOCABLE_SCOPES as readonly string[]).includes(scope)) {
+      return NextResponse.json(
+        { error: "scope must be one of the recognised revocable consent scopes" },
+        { status: 400 },
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     if (!authHeader) {
       return NextResponse.json(
         { error: "Missing Authorization header" },
