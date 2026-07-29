@@ -3854,7 +3854,7 @@ function ProfilePageContent() {
         placeholder="What should Hussh remember?"
         className="min-h-[112px]"
       />
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
         {editingFinancialContextId ? (
           <Button
             variant="none"
