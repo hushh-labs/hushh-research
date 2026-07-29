@@ -48,6 +48,11 @@ describe("normalizeConsentResponse", () => {
       expect(call({ granted: 1 })).toStrictEqual(DENY);
     });
 
+    it("rejects array-coerced active and granted flags", () => {
+      expect(call({ active: [true] })).toStrictEqual(DENY);
+      expect(call({ granted: [true, false] })).toStrictEqual(DENY);
+    });
+
     it("rejects object status (non-string type in status field)", () => {
       expect(call({ status: {} })).toStrictEqual(DENY);
     });
