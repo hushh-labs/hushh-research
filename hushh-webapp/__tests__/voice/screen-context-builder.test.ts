@@ -256,6 +256,19 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
+  it("drops empty raw available action frames before building screen context", () => {
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {
+        available_actions: ["", "   ", "Open Kai"],
+      },
+    });
+
+    expect(context.ui.available_actions).toContain("Open Kai");
+    expect(context.ui.available_actions).not.toContain("");
+    expect(context.ui.available_actions).not.toContain("   ");
+  });
+
   it("prefers explicit published surface metadata and exposes available actions", () => {
     window.history.pushState({}, "", "/profile/receipts");
     publishVoiceSurfaceMetadata("test_surface", {
