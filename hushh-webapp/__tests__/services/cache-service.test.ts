@@ -89,4 +89,18 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+    it("does not notify listeners when invalidateMany receives no keys", () => {
+    const cache = CacheService.getInstance();
+    const events: string[] = [];
+
+    cache.set("market-home", { ok: true }, 1_000);
+    cache.subscribe((event) => {
+      events.push(event.type);
+    });
+
+    cache.invalidateMany([]);
+
+    expect(cache.get("market-home")).toEqual({ ok: true });
+    expect(events).toEqual([]);
+  });
 });
