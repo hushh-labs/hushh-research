@@ -130,6 +130,15 @@ describe("normalizeConsentResponse — malformed payload defaults to strict deny
     expect(normalizeConsentResponse({})).toEqual(DENY);
   });
 
+  it("ignores unrelated nested payload containers and returns deny", () => {
+    const nestedPayload = {
+      payload: { user: { settings: null, consent: { active: null } } },
+    };
+
+    expect(() => normalizeConsentResponse(nestedPayload as never)).not.toThrow();
+    expect(normalizeConsentResponse(nestedPayload as never)).toEqual(DENY);
+  });
+
   it("returns deny state when active and granted are undefined and status is null", () => {
     expect(
       normalizeConsentResponse({ active: undefined, granted: undefined, status: null })
