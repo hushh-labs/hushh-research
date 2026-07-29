@@ -132,6 +132,7 @@ import {
 } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
+import { verifyUserMatch } from "@/lib/auth/validate";
 
 function createIdToken(expiresInSeconds: number): string {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
@@ -625,5 +626,38 @@ describe("AuthService.restoreNativeSession", () => {
     expect(AuthService.isUatPhoneTestVerificationId("uat-test-phone:abc123")).toBe(true);
     expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
     expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
+  });
+});
+
+// ── verifyUserMatch — strict identity equality parsing constraints ─────────────
+//
+// verifyUserMatch uses === (strict equality) to bind token ownership to a
+// requesting user.  The guard must reject any attempt to satisfy the check
+// via implicit type coercion, which can occur when numeric IDs are
+// deserialized from untyped JSON payloads at runtime (e.g. a JWT claim field
+// that arrives as a number rather than a string).
+//
+// TypeScript's static types won't catch this at runtime if the caller casts
+// through `as any` or receives the value from an untyped external source.
+// These tests confirm the runtime contract independently of static analysis.
+
+describe("verifyUserMatch — strict identity equality parsing constraints", () => {
+  it("grants access when token user ID and request user ID are identical strings", () => {
+    expect(verifyUserMatch("123", "123")).toBe(true);
+  });
+
+  it("rejects access when token user ID is numeric 123 and request ID is string '123' (type coercion guard)", () => {
+    // Strict === rejects cross-type equality: 123 !== "123".
+    // Passing the number as unknown as string simulates an untyped JSON path
+    // where the numeric ID bypasses TypeScript's compile-time check.
+    expect(verifyUserMatch(123 as unknown as string, "123")).toBe(false);
+  });
+
+  it("rejects access when token user ID is undefined (missing identity guard)", () => {
+    expect(verifyUserMatch(undefined, "123")).toBe(false);
+  });
+
+  it("rejects access when token user ID and request user ID are different strings (value mismatch)", () => {
+    expect(verifyUserMatch("456", "123")).toBe(false);
   });
 });
