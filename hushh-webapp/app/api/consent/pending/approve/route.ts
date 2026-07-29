@@ -10,6 +10,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  APPROVED_PURPOSES,
+  isPurposeValid,
+} from "@/lib/consent/purposeValidator";
 
 const BACKEND_URL = getPythonApiUrl();
 
@@ -58,6 +62,20 @@ export async function POST(request: NextRequest) {
         { error: "userId and requestId are required" },
         { status: 400 }
       ));
+    }
+
+    // Purpose guard — rejects before any backend call when the declared
+    // purpose is absent, blank, or not in the approved operational tier list.
+    const rawPurpose = (body as Record<string, unknown>).purpose;
+    if (!isPurposeValid(rawPurpose, APPROVED_PURPOSES)) {
+      return NextResponse.json(
+        {
+          error:
+            "purpose is required and must be one of the approved operational tiers",
+          allowedPurposes: [...APPROVED_PURPOSES],
+        },
+        { status: 400 }
+      );
     }
 
     if ("exportKey" in body) {
