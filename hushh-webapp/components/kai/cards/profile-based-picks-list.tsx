@@ -160,7 +160,7 @@ export function ProfileBasedPicksList({
       {loading ? <PicksSkeleton /> : null}
 
       {!loading && picks.length === 0 ? (
-        <SurfaceInset className="p-3 text-xs text-muted-foreground">
+        <SurfaceInset className="flex min-h-[10.5rem] items-center p-3 text-xs text-muted-foreground">
           {error
             ? "Profile picks are temporarily unavailable."
             : "No profile picks available from current market context."}
