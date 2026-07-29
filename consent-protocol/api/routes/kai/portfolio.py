@@ -2137,11 +2137,22 @@ async def import_portfolio(
 
     # Import portfolio
     service = get_portfolio_import_service()
-    result: ImportResult = await service.import_file(
-        user_id=user_id,
-        file_content=content,
-        filename=file.filename,
-    )
+    try:
+        result: ImportResult = await service.import_file(
+            user_id=user_id,
+            file_content=content,
+            filename=file.filename,
+        )
+    except Exception:
+        logger.exception(
+            "[Portfolio Import] Unhandled error during import_file for user=%s filename=%s",
+            user_id,
+            file.filename,
+        )
+        return PortfolioImportResponse(
+            success=False,
+            error="Portfolio file could not be processed. Please check the format and try again.",
+        )
 
     if (
         not result.success

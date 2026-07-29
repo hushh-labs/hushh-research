@@ -3576,13 +3576,10 @@ Content sample:
             )
 
         except Exception as e:
-            logger.error(f"Error importing portfolio: {e}")
-            import traceback
-
-            logger.error(traceback.format_exc())
+            logger.error("Error importing portfolio: %s", e, exc_info=True)
             return ImportResult(
                 success=False,
-                error=f"Error processing file: {str(e)}",
+                error="Portfolio file could not be processed. Please check the format and try again.",
             )
 
     def _build_portfolio_data(
