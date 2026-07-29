@@ -296,6 +296,27 @@ describe("UnlockWarmOrchestrator", () => {
       // Profile sync should only be called once (single run)
       expect(profileSyncMock).toHaveBeenCalledTimes(1);
     });
+
+    it("does not register duplicate readiness tasks for concurrent startup routes", async () => {
+      setupDefaultMocks();
+
+      const params = {
+        userId: "user-dedup-1",
+        vaultKey: "vault-key-dedup-1",
+        vaultOwnerToken: "test-owner-token",
+      };
+
+      const [result1, result2] = await Promise.all([
+        UnlockWarmOrchestrator.run({ ...params, routePath: "/kai" }),
+        UnlockWarmOrchestrator.run({ ...params, routePath: "/profile" }),
+      ]);
+
+      expect(result1).toEqual(result2);
+      expect(appBackgroundStartTaskMock).toHaveBeenCalledTimes(1);
+      expect(appBackgroundCompleteTaskMock).toHaveBeenCalledTimes(1);
+      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("invalidateForUser", () => {

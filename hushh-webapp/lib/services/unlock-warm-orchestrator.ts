@@ -225,6 +225,11 @@ export class UnlockWarmOrchestrator {
       return existing;
     }
 
+    const existingForUser = this.inFlightByUser.get(params.userId);
+    if (existingForUser) {
+      return existingForUser;
+    }
+
     const promise = this.runInternal(params)
       .then((result) => {
         this.recentResultBySignature.set(signature, {
