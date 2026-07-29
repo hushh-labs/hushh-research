@@ -258,3 +258,133 @@ describe("normalizeConsentResponse — malformed payload defaults to strict deny
   });
 });
 // ── End malformed payload coverage ───────────────────────────────────────────
+
+// ── Empty-array boundary conditions ──────────────────────────────────────────
+//
+// The consent-matching layer accepts empty arrays `[]` as structurally valid
+// (the integrity guard checks `Array.isArray`, and `Array.isArray([]) === true`).
+// Empty arrays must not silently slip through evaluation loops to produce
+// unexpected permission entries or spurious grant signals.
+//
+// Contracts under test:
+//   A. An empty permissions or scopes array alone yields DENY — no entries
+//      means no permission strings surface and no grant signal fires.
+//   B. An empty array alongside an explicit grant flag (active/granted/status)
+//      returns isGranted: true but an empty permission list — the grant signal
+//      is honoured; the empty array is not silently promoted to a grant.
+//   C. One empty, one non-empty: only the non-empty side contributes entries.
+//   D. The integrity guard passes empty arrays cleanly (no false positive deny).
+
+describe("normalizeConsentResponse — empty array boundary conditions", () => {
+  const DENY: NormalizedConsentState = { isGranted: false, permissions: [] };
+
+  // ── A: empty arrays alone → DENY ─────────────────────────────────────────
+
+  it("returns DENY when permissions is an empty array and no grant signal is present", () => {
+    // The filter loop iterates zero items — nothing can slip through.
+    expect(normalizeConsentResponse({ permissions: [] })).toEqual(DENY);
+  });
+
+  it("returns DENY when scopes is an empty array and no grant signal is present", () => {
+    expect(normalizeConsentResponse({ scopes: [] })).toEqual(DENY);
+  });
+
+  it("returns DENY when both permissions and scopes are empty arrays", () => {
+    // Merging [] and [] produces []; the spread never appends any entry.
+    expect(normalizeConsentResponse({ permissions: [], scopes: [] })).toEqual(DENY);
+  });
+
+  it("returns DENY when both empty arrays accompany a non-granting status string", () => {
+    expect(
+      normalizeConsentResponse({ permissions: [], scopes: [], status: "pending" })
+    ).toEqual(DENY);
+  });
+
+  // ── B: empty arrays + explicit grant flag ─────────────────────────────────
+
+  it("returns isGranted: true with empty permissions when active: true accompanies an empty permissions array", () => {
+    // The grant comes from the boolean flag, not from permissions — the empty
+    // array must not promote or suppress the grant.
+    const result = normalizeConsentResponse({ active: true, permissions: [] });
+    expect(result.isGranted).toBe(true);
+    expect(result.permissions).toEqual([]);
+  });
+
+  it("returns isGranted: true with empty permissions when granted: true accompanies an empty scopes array", () => {
+    const result = normalizeConsentResponse({ granted: true, scopes: [] });
+    expect(result.isGranted).toBe(true);
+    expect(result.permissions).toEqual([]);
+  });
+
+  it("returns isGranted: true with empty permissions when status is 'approved' and both arrays are empty", () => {
+    const result = normalizeConsentResponse({
+      status: "approved",
+      permissions: [],
+      scopes: [],
+    });
+    expect(result.isGranted).toBe(true);
+    expect(result.permissions).toEqual([]);
+  });
+
+  it("returns isGranted: true with empty permissions when status is 'active' and both arrays are empty", () => {
+    const result = normalizeConsentResponse({
+      status: "active",
+      permissions: [],
+      scopes: [],
+    });
+    expect(result.isGranted).toBe(true);
+    expect(result.permissions).toEqual([]);
+  });
+
+  // ── C: one empty, one non-empty ───────────────────────────────────────────
+
+  it("surfaces only the non-empty permissions when scopes is an empty array", () => {
+    const result = normalizeConsentResponse({
+      permissions: ["profile:read", "vault:read"],
+      scopes: [],
+    });
+    expect(result.permissions).toEqual(["profile:read", "vault:read"]);
+  });
+
+  it("surfaces only the non-empty scopes when permissions is an empty array", () => {
+    const result = normalizeConsentResponse({
+      permissions: [],
+      scopes: ["vault:read"],
+    });
+    expect(result.permissions).toEqual(["vault:read"]);
+  });
+
+  it("merges non-empty permissions with empty scopes and deduplicates correctly", () => {
+    const result = normalizeConsentResponse({
+      permissions: ["profile:read", "profile:read"],
+      scopes: [],
+    });
+    expect(result.permissions).toEqual(["profile:read"]);
+  });
+
+  // ── D: integrity guard passes empty arrays (no false-positive deny) ───────
+
+  it("does not deny a payload with an empty permissions array (guard accepts valid arrays)", () => {
+    // The guard only checks Array.isArray — an empty array is structurally
+    // valid and must pass through, not trigger the DENY_STATE path.
+    // Proof: add a grant signal alongside the empty array and confirm it is
+    // honoured (isGranted: true).  If the guard had fired it would return
+    // DENY_STATE and isGranted would be false regardless of the flag.
+    expect(
+      normalizeConsentResponse({ permissions: [], active: true }).isGranted
+    ).toBe(true);
+  });
+
+  it("does not deny a payload with an empty scopes array (guard accepts valid arrays)", () => {
+    const withGrant = normalizeConsentResponse({ scopes: [], granted: true });
+    expect(withGrant.isGranted).toBe(true);
+  });
+
+  it("never throws when permissions and scopes are both empty arrays", () => {
+    // Zero-iteration safety: the filter loop must handle [] without error.
+    expect(() =>
+      normalizeConsentResponse({ permissions: [], scopes: [] })
+    ).not.toThrow();
+  });
+});
+// ── End empty-array boundary conditions ──────────────────────────────────────
