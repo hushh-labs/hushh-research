@@ -21,7 +21,7 @@ import os
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import validate_token_with_db
@@ -151,7 +151,7 @@ async def require_vault_owner_consent_header(
 
 
 class VaultCheckRequest(BaseModel):
-    userId: str
+    userId: str = Field(..., max_length=128)
 
 
 class VaultCheckResponse(BaseModel):
@@ -159,7 +159,7 @@ class VaultCheckResponse(BaseModel):
 
 
 class VaultBootstrapStateRequest(BaseModel):
-    userId: str | None = None
+    userId: str | None = Field(None, max_length=128)
 
 
 class VaultBootstrapStateResponse(BaseModel):
@@ -178,7 +178,7 @@ class VaultBootstrapStateResponse(BaseModel):
 
 
 class VaultPreStateUpdateRequest(BaseModel):
-    userId: str | None = None
+    userId: str | None = Field(None, max_length=128)
     preOnboardingCompleted: bool | None = None
     preOnboardingSkipped: bool | None = None
     preOnboardingCompletedAt: int | None = None
@@ -187,73 +187,73 @@ class VaultPreStateUpdateRequest(BaseModel):
 
 
 class VaultGetRequest(BaseModel):
-    userId: str
+    userId: str = Field(..., max_length=128)
 
 
 class VaultWrapperData(BaseModel):
-    method: str
-    wrapperId: str | None = None
-    encryptedVaultKey: str
-    salt: str
-    iv: str
-    passkeyCredentialId: str | None = None
-    passkeyPrfSalt: str | None = None
-    passkeyRpId: str | None = None
-    passkeyProvider: str | None = None
-    passkeyDeviceLabel: str | None = None
+    method: str = Field(..., max_length=50)
+    wrapperId: str | None = Field(None, max_length=128)
+    encryptedVaultKey: str = Field(..., max_length=2048)
+    salt: str = Field(..., max_length=256)
+    iv: str = Field(..., max_length=256)
+    passkeyCredentialId: str | None = Field(None, max_length=512)
+    passkeyPrfSalt: str | None = Field(None, max_length=256)
+    passkeyRpId: str | None = Field(None, max_length=253)
+    passkeyProvider: str | None = Field(None, max_length=100)
+    passkeyDeviceLabel: str | None = Field(None, max_length=256)
     passkeyLastUsedAt: int | None = None
 
 
 class VaultStateData(BaseModel):
-    vaultKeyHash: str
-    primaryMethod: str
-    primaryWrapperId: str | None = None
-    recoveryEncryptedVaultKey: str
-    recoverySalt: str
-    recoveryIv: str
-    wrappers: list[VaultWrapperData]
+    vaultKeyHash: str = Field(..., max_length=256)
+    primaryMethod: str = Field(..., max_length=50)
+    primaryWrapperId: str | None = Field(None, max_length=128)
+    recoveryEncryptedVaultKey: str = Field(..., max_length=2048)
+    recoverySalt: str = Field(..., max_length=256)
+    recoveryIv: str = Field(..., max_length=256)
+    wrappers: list[VaultWrapperData] = Field(..., max_length=20)
 
 
 class VaultSetupStateRequest(BaseModel):
-    userId: str
-    vaultKeyHash: str
-    primaryMethod: str
-    primaryWrapperId: str | None = None
-    recoveryEncryptedVaultKey: str
-    recoverySalt: str
-    recoveryIv: str
-    wrappers: list[VaultWrapperData]
+    userId: str = Field(..., max_length=128)
+    vaultKeyHash: str = Field(..., max_length=256)
+    primaryMethod: str = Field(..., max_length=50)
+    primaryWrapperId: str | None = Field(None, max_length=128)
+    recoveryEncryptedVaultKey: str = Field(..., max_length=2048)
+    recoverySalt: str = Field(..., max_length=256)
+    recoveryIv: str = Field(..., max_length=256)
+    wrappers: list[VaultWrapperData] = Field(..., max_length=20)
 
 
 class VaultWrapperUpsertRequest(BaseModel):
-    userId: str
-    vaultKeyHash: str
-    method: str
-    wrapperId: str | None = None
-    encryptedVaultKey: str
-    salt: str
-    iv: str
-    passkeyCredentialId: str | None = None
-    passkeyPrfSalt: str | None = None
-    passkeyRpId: str | None = None
-    passkeyProvider: str | None = None
-    passkeyDeviceLabel: str | None = None
+    userId: str = Field(..., max_length=128)
+    vaultKeyHash: str = Field(..., max_length=256)
+    method: str = Field(..., max_length=50)
+    wrapperId: str | None = Field(None, max_length=128)
+    encryptedVaultKey: str = Field(..., max_length=2048)
+    salt: str = Field(..., max_length=256)
+    iv: str = Field(..., max_length=256)
+    passkeyCredentialId: str | None = Field(None, max_length=512)
+    passkeyPrfSalt: str | None = Field(None, max_length=256)
+    passkeyRpId: str | None = Field(None, max_length=253)
+    passkeyProvider: str | None = Field(None, max_length=100)
+    passkeyDeviceLabel: str | None = Field(None, max_length=256)
     passkeyLastUsedAt: int | None = None
 
 
 class VaultWrapperDeleteRequest(BaseModel):
-    userId: str
-    vaultKeyHash: str
-    method: str
-    wrapperId: str | None = None
-    fallbackPrimaryMethod: str | None = "passphrase"
-    fallbackPrimaryWrapperId: str | None = "default"
+    userId: str = Field(..., max_length=128)
+    vaultKeyHash: str = Field(..., max_length=256)
+    method: str = Field(..., max_length=50)
+    wrapperId: str | None = Field(None, max_length=128)
+    fallbackPrimaryMethod: str | None = Field("passphrase", max_length=50)
+    fallbackPrimaryWrapperId: str | None = Field("default", max_length=128)
 
 
 class VaultPrimaryMethodSetRequest(BaseModel):
-    userId: str
-    primaryMethod: str
-    primaryWrapperId: str | None = None
+    userId: str = Field(..., max_length=128)
+    primaryMethod: str = Field(..., max_length=50)
+    primaryWrapperId: str | None = Field(None, max_length=128)
 
 
 class SuccessResponse(BaseModel):
