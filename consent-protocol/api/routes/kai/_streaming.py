@@ -15,6 +15,12 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal, cast
 
+# SSE frame whitespace-separator filter — re-exported from canonical module.
+# [Stream Integrity Guard by Abdul Gaffar]
+# Implementation lives in hushh_mcp.services.sse_filter (dependency-free) so
+# tests can import it without triggering the heavy Kai agent init path.
+from hushh_mcp.services.sse_filter import iter_sse_chunks as iter_sse_chunks  # noqa: PLC0414
+
 StreamKind = Literal["portfolio_import", "portfolio_optimize", "stock_analyze"]
 SCHEMA_VERSION = "1.0"
 DEFAULT_STREAM_TIMEOUT_SECONDS = 120
@@ -269,3 +275,5 @@ def parse_json_with_single_repair(
             raise ValueError(f"Missing required keys: {', '.join(missing)}")
 
     return parsed, diagnostics
+
+
