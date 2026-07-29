@@ -278,9 +278,10 @@ function SourcesList({ sources }: { sources: string[] }) {
   return (
     <div className="space-y-1.5">
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-      >
+  type="button"
+  onClick={() => setExpanded(!expanded)}
+  className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+>
         <Icon icon={ExternalLink} size={12} />
         Sources ({valid.length})
         {valid.length > 3 &&
