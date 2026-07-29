@@ -1112,7 +1112,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       });
       setAccess(payload);
       setAccessError(null);
-      toast.success("Developer app profile updated");
+      toast.success("Developer app profile updated", { id: "developer-profile-save-success" });
     } catch (error) {
       const message = formatDeveloperAccessError(
         error,
@@ -1137,6 +1137,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   }
 
   function updateProfileDraft(field: keyof ProfileDraft, value: string) {
+    toast.dismiss("developer-profile-save-success");
     setProfileDraft((current) => ({
       ...current,
       [field]: value,
