@@ -1498,6 +1498,77 @@ async def test_sync_relationship_from_consent_action_uses_active_tokens_over_lat
 
 
 @pytest.mark.asyncio
+async def test_relationship_request_upsert_uses_no_firm_partial_conflict_target():
+    captured: dict[str, object] = {}
+
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            captured["query"] = query
+            captured["args"] = args
+            return {"id": "relationship_no_firm"}
+
+    service = RIAIAMService()
+
+    relationship_id = await service._upsert_advisor_investor_relationship(
+        _FakeConn(),
+        investor_user_id="investor_1",
+        ria_profile_id="11111111-1111-1111-1111-111111111111",
+        firm_id=None,
+        request_id="req_1",
+        scope="attr.financial.*",
+    )
+
+    query = str(captured["query"])
+    assert relationship_id == "relationship_no_firm"
+    assert "SELECT id" not in query
+    assert "ON CONFLICT (investor_user_id, ria_profile_id)" in query
+    assert "WHERE firm_id IS NULL" in query
+    assert "DO UPDATE SET" in query
+    assert captured["args"] == (
+        "investor_1",
+        "11111111-1111-1111-1111-111111111111",
+        "req_1",
+        "attr.financial.*",
+    )
+
+
+@pytest.mark.asyncio
+async def test_relationship_request_upsert_uses_with_firm_partial_conflict_target():
+    captured: dict[str, object] = {}
+
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            captured["query"] = query
+            captured["args"] = args
+            return {"id": "relationship_with_firm"}
+
+    service = RIAIAMService()
+
+    relationship_id = await service._upsert_advisor_investor_relationship(
+        _FakeConn(),
+        investor_user_id="investor_1",
+        ria_profile_id="11111111-1111-1111-1111-111111111111",
+        firm_id="22222222-2222-2222-2222-222222222222",
+        request_id="req_1",
+        scope="attr.financial.*",
+    )
+
+    query = str(captured["query"])
+    assert relationship_id == "relationship_with_firm"
+    assert "SELECT id" not in query
+    assert "ON CONFLICT (investor_user_id, ria_profile_id, firm_id)" in query
+    assert "WHERE firm_id IS NOT NULL" in query
+    assert "DO UPDATE SET" in query
+    assert captured["args"] == (
+        "investor_1",
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+        "req_1",
+        "attr.financial.*",
+    )
+
+
+@pytest.mark.asyncio
 async def test_queue_ria_invite_email_delivery_records_queue_and_success_metadata(monkeypatch):
     import hushh_mcp.services.ria_iam_service as ria_module
 
