@@ -108,7 +108,8 @@ class TrustedDeviceVaultHandoffRequest(BaseModel):
             "vault_handoff_tag": 16,
             "vault_handoff_sender_public_key": 32,
         }
-        if len(decoded) != expected_lengths[info.field_name]:
+        expected_length = expected_lengths.get(info.field_name or "")
+        if expected_length is None or len(decoded) != expected_length:
             raise ValueError("Vault handoff fields have an invalid byte length.")
         return value
 
