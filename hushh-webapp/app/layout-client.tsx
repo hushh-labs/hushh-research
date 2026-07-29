@@ -3,6 +3,8 @@
 import { ReactNode } from "react";
 import { Providers } from "./providers";
 
+import { FeedbackWidget } from "@/components/app-ui/feedback-widget";
+
 interface RootLayoutClientProps {
   children: ReactNode;
   fontClasses: string;
@@ -34,7 +36,9 @@ export function RootLayoutClient({
       />
 
       <Providers>
+        
         {children}
+        <FeedbackWidget />
       </Providers>
     </body>
   );
