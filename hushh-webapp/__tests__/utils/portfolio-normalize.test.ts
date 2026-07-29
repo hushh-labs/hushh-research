@@ -271,6 +271,7 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(consolidated[0].market_value).toBeCloseTo(-5400.22, 8);
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
   });
+  
 });
 
 describe("portfolio normalizer - decimal amount boundaries", () => {
