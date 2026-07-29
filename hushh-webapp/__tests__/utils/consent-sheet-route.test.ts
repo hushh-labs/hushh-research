@@ -15,6 +15,13 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("processes internal route values when the input string contains consecutive sequential slash characters", () => {
+    const doubleSlashInput = "/consents//callback";
+    const result = normalizeInternalAppHref(doubleSlashInput);
+
+    expect(result).toBe(doubleSlashInput);
+  });
+
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
       normalizeInternalAppHref(
