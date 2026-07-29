@@ -452,7 +452,7 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
           <ChartTooltip cursor={false} content={renderVoteTooltip} />
-          <ChartLegend content={<ChartLegendContent className="text-[11px] font-medium text-foreground/80 dark:text-foreground/80" />} />
+          <ChartLegend content={<ChartLegendContent className="max-w-full overflow-hidden text-[11px] font-medium text-foreground/80 [&>*]:min-w-0 [&>*]:truncate dark:text-foreground/80" />} />
           <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
           <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
           <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
