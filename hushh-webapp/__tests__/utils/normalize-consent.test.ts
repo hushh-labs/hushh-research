@@ -236,6 +236,7 @@ describe("normalizeConsentResponse — malformed payload defaults to strict deny
       42 as never,
       false as never,
       [] as never,
+      [true, , false] as never,
     ];
 
     for (const input of corruptedInputs) {
