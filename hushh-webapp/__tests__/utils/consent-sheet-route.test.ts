@@ -101,6 +101,16 @@ describe("consent sheet route helpers", () => {
       href: "https://example.com/disclosures/request-123",
     });
   });
+
+  it("processes navigation target values when the input string features mixed case characters and trailing numerical query elements", () => {
+    const mixedCaseInput = "/Consent/Auth?hash=992A";
+    const result = resolveConsentNavigationTarget(mixedCaseInput);
+
+    expect(result).toEqual({
+      kind: "external",
+      href: mixedCaseInput,
+    });
+  });
 });
 
 // ── Path safety — edge cases, empty inputs, and traversal resistance ──────────
