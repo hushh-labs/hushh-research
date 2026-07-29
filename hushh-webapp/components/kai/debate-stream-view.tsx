@@ -156,31 +156,31 @@ function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.
   switch (errorType) {
     case "rate_limit":
       return {
-        icon: <Icon icon={Clock} size={32} className="text-amber-500" />,
+        icon: <Icon icon={Clock} size={32} className="text-amber-500" aria-hidden="true" />,
         title: "Analysis Queue Is Busy",
         message: retryIn ? `We will retry in ${retryIn}s...` : "Please try again in a moment.",
       };
     case "auth_expired":
       return {
-        icon: <Icon icon={ShieldAlert} size={32} className="text-red-500" />,
+        icon: <Icon icon={ShieldAlert} size={32} className="text-red-500" aria-hidden="true" />,
         title: "Session Needs Refresh",
         message: "Please sign in again to continue.",
       };
     case "server_error":
       return {
-        icon: <Icon icon={AlertCircle} size={32} className="text-red-500" />,
+        icon: <Icon icon={AlertCircle} size={32} className="text-red-500" aria-hidden="true" />,
         title: "Service Unavailable",
         message: retryIn ? `We will retry in ${retryIn}s...` : "Please try again shortly.",
       };
     case "connection_lost":
       return {
-        icon: <Icon icon={WifiOff} size={32} className="text-orange-500" />,
+        icon: <Icon icon={WifiOff} size={32} className="text-orange-500" aria-hidden="true" />,
         title: "Connection Lost",
         message: toInvestorMessage("NETWORK_RECOVERY"),
       };
     default:
       return {
-        icon: <Icon icon={AlertCircle} size={32} className="text-red-500" />,
+        icon: <Icon icon={AlertCircle} size={32} className="text-red-500" aria-hidden="true" />,
         title: "Analysis Interrupted",
         message: "Please try again.",
       };
@@ -1543,7 +1543,7 @@ export function DebateStreamView({
             <p className="text-sm text-muted-foreground text-center">{error}</p>
             {retryCountdown !== null && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Icon icon={Loader2} size="sm" className="animate-spin" />
+                <Icon icon={Loader2} size="sm" className="animate-spin" aria-hidden="true" />
                 <span>Trying again in {retryCountdown}s...</span>
               </div>
             )}
@@ -1567,12 +1567,12 @@ export function DebateStreamView({
                     setReloadNonce((prev) => prev + 1);
                   }}
                 >
-                  <Icon icon={RefreshCw} size="sm" className="mr-2" /> Try again
+                  <Icon icon={RefreshCw} size="sm" className="mr-2" aria-hidden="true" /> Try again
                 </MorphyButton>
               )}
               {errorType === "auth_expired" && (
                 <MorphyButton size="sm" onClick={onClose}>
-                  <Icon icon={ShieldAlert} size="sm" className="mr-2" /> Re-authenticate
+                  <Icon icon={ShieldAlert} size="sm" className="mr-2" aria-hidden="true" /> Re-authenticate
                 </MorphyButton>
               )}
             </div>
@@ -1619,14 +1619,14 @@ export function DebateStreamView({
             <div>
               {decision ? (
                 <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-semibold">
-                  <Icon icon={CheckCircle2} size={12} className="mr-1" /> Complete
+                  <Icon icon={CheckCircle2} size={12} className="mr-1" aria-hidden="true" /> Complete
                 </Badge>
               ) : loading && kaiThinking ? (
                 <Badge
                   variant="outline"
                   className="max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
                 >
-                  <Icon icon={Loader2} size={12} className="mr-1 animate-spin" /> {kaiThinking}
+                  <Icon icon={Loader2} size={12} className="mr-1 animate-spin" aria-hidden="true" /> {kaiThinking}
                 </Badge>
               ) : retryCountdown !== null ? (
                 <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/30">
