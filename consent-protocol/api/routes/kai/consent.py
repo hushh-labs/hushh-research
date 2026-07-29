@@ -43,6 +43,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Privileged scopes that must never be self-issued via this Firebase-auth
+# endpoint, even though they are valid ConsentScope enum members accepted
+# by _validate_scope's Kai-contract check below.
+_SCOPE_BLOCKLIST: frozenset[str] = frozenset({
+    "vault.owner",
+    "agent.nav.revoke",
+    "pkm.write",
+})
+
+
+def _assert_scope_allowed(scope_str: str) -> None:
+    """Raise HTTPException 403 if scope is privileged and cannot be granted here."""
+    if scope_str in _SCOPE_BLOCKLIST:
+        logger.warning("kai.consent.grant blocked privileged scope=%s", scope_str)
+        raise HTTPException(
+            status_code=403,
+            detail="This scope cannot be granted via this endpoint.",
+        )
+
+
 # Allowed dynamic scope prefixes for Kai consent grants.
 # Only financial data and Kai agent scopes may be issued at this boundary.
 # Broader PKM domains (health, food, travel, etc.) are outside the Kai
@@ -136,6 +156,10 @@ async def grant_consent(
     last_token_issued = None
 
     for scope_str in request.scopes:
+        # Block privileged scopes before the Kai-contract check, since
+        # _validate_scope intentionally accepts any ConsentScope enum value.
+        _assert_scope_allowed(scope_str)
+
         try:
             _validate_scope(scope_str)
             # issue_token accepts both ConsentScope enum values and dynamic
