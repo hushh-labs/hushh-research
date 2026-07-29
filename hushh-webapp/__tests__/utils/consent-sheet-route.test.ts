@@ -171,6 +171,11 @@ describe("path resolver safety — dangerous edge case handling", () => {
     expect(normalizeInternalAppHref(deep)).toBe(deep);
   });
 
+  it("normalizeInternalAppHref preserves internal route strings containing dot-dot sub-path segments", () => {
+    const traversalInput = "/consents/../callback";
+    expect(normalizeInternalAppHref(traversalInput)).toBe(traversalInput);
+  });
+
   it("resolveConsentNavigationTarget classifies /consents/* deep paths as internal", () => {
     const result = resolveConsentNavigationTarget(
       "/consents/a/b/c/d/e/f?requestId=req_1",
