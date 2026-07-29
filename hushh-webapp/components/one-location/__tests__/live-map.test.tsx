@@ -75,7 +75,7 @@ describe("LiveMap", () => {
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
   });
 
-  it("constructs the map with the app theme's color scheme", () => {
+  it("constructs a quiet preview map with the app theme's color scheme", () => {
     const Marker = vi.fn(function () {
       return { getPosition: () => null, setPosition: vi.fn() };
     });
@@ -91,7 +91,11 @@ describe("LiveMap", () => {
 
     expect(Map).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ colorScheme: "DARK" }),
+      expect.objectContaining({
+        colorScheme: "DARK",
+        disableDefaultUI: true,
+        keyboardShortcuts: false,
+      }),
     );
     mockTheme.current = "light";
   });

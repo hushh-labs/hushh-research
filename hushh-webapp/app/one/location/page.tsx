@@ -948,10 +948,7 @@ function LocalMapPreview({
 
       <div className="space-y-3 p-3">
         <div className="min-w-0">
-          <p className="text-[15px] font-semibold text-foreground">
-            {statusLabel}
-          </p>
-          <p className="mt-1 break-words text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">
+          <p className="break-words text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">
             Updated {captured}
             {accuracy ? ` - ${accuracy}` : ""} -{" "}
             {locationSourceLabel(point.sourcePlatform)}

@@ -1,10 +1,25 @@
 # App Store & Play Store Deployment Guide for Hushh
 
-**Status**: ✅ App configured and ready for store submission  
-**App Name**: Kai
+> **iOS is automated in two tiers — use these instead of the manual iOS steps below.**
+> - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` (say `ship ios`) cuts the
+>   current UAT build and uploads it to TestFlight — runbook:
+>   [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+> - **Production App Store:** `make ios-prod-release` (or
+>   `.github/workflows/release-ios-appstore.yml`) builds against production, signs with the
+>   production entitlement, uploads to App Store Connect, and prepares the App Store version up to
+>   Apple's final review — runbook:
+>   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+>
+> The manual iOS steps below remain a reference. The human App Store Connect steps that no pipeline
+> can automate (metadata, screenshots, privacy nutrition labels, age rating, pricing, final review)
+> are documented in the production runbook. **Play Store remains fully manual.** Publish-safety
+> preconditions: `KT/hushh-one-publish-safety-audit.md`.
+
+**Status**: Reference for public store submission (iOS TestFlight + App Store upload/prepare are automated — see banner above)  
+**App Name**: Hussh One (display name; historically "Kai")  
 **Bundle ID**: com.hushh.app  
-**Version**: 1.0.0  
-**Build**: 1  
+**Current version**: 1.3.5 (marketing) — see `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`  
+**Build**: auto-incremented by `scripts/ci/resolve-ios-build-number.py`  
 
 ---
 
