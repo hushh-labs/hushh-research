@@ -183,7 +183,7 @@ class DeveloperConsentRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
     expiry_hours: int = 24
     approval_timeout_minutes: int = 24 * 60
-    connector_public_key: str = Field(min_length=16)
+    connector_public_key: str = Field(min_length=16, max_length=8192)
     connector_key_id: str = Field(min_length=1, max_length=128)
     connector_wrapping_alg: str = Field(min_length=1, max_length=128)
     offer: DeveloperConsentOffer | None = None
