@@ -1,5 +1,6 @@
 import * as React from "react";
 import { type IconWeight } from "@phosphor-icons/react";
+import { Loader2 } from "lucide-react";
 
 import {
   Button as StockButton,
@@ -133,22 +134,29 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     const renderContent = (contentChildren: React.ReactNode) => (
       <>
-        <span className="relative z-0 inline-flex items-center justify-center text-inherit">
-          {IconComponent ? (
-            <span
-              className={cn(
-                "mr-2.5 flex items-center justify-center rounded-lg border",
-                getIconBoxSize(),
-                iconBoxClass
-              )}
-            >
-              <IconComponent
-                className={cn(getIconSize(), iconColorClass)}
-                weight={icon?.weight || iconWeight}
-              />
+        <span className="relative z-0 inline-grid min-w-0 items-center justify-center text-inherit">
+          <span className={cn("inline-flex min-w-0 items-center justify-center", loading && "opacity-0")}>
+            {IconComponent ? (
+              <span
+                className={cn(
+                  "mr-2.5 flex items-center justify-center rounded-lg border",
+                  getIconBoxSize(),
+                  iconBoxClass
+                )}
+              >
+                <IconComponent
+                  className={cn(getIconSize(), iconColorClass)}
+                  weight={icon?.weight || iconWeight}
+                />
+              </span>
+            ) : null}
+            {contentChildren}
+          </span>
+          {loading ? (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className={cn(getIconSize(), "animate-spin")} aria-hidden="true" />
             </span>
           ) : null}
-          {contentChildren}
         </span>
         {shouldShowRipple ? (
           <MaterialRipple
