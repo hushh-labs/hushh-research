@@ -480,6 +480,7 @@ export function StreamingAccordion({
             {/* Scroll to bottom button */}
             {userScrolledUp && isStreaming && isOpen && (
               <button
+                type="button"
                 onClick={handleScrollToBottom}
                 className={cn(
                   "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
