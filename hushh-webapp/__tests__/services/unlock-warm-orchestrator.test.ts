@@ -68,13 +68,17 @@ vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
   },
 }));
 
+const cacheSetMock = vi.fn();
 vi.mock("@/lib/services/cache-service", () => {
   const store = new Map<string, unknown>();
   return {
     CacheService: {
       getInstance: () => ({
         get: (key: string) => store.get(key) ?? null,
-        set: (key: string, value: unknown) => store.set(key, value),
+        set: (key: string, value: unknown, ttlMs?: number) => {
+          cacheSetMock(key, value, ttlMs);
+          return store.set(key, value);
+        },
         delete: (key: string) => store.delete(key),
         clear: () => store.clear(),
       }),
@@ -267,6 +271,58 @@ describe("UnlockWarmOrchestrator", () => {
       expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
       expect(result.metadataWarmed).toBe(true);
       expect(result.consentsWarmed).toBe(true);
+    });
+
+    it("writes unlock warm data through the canonical cache keys", async () => {
+      setupDefaultMocks();
+      const userId = "user-cache-contract-1";
+      const profile = { riskProfile: "balanced" };
+      pkmLoadDomainDataMock.mockResolvedValue({
+        profile,
+        holdings: [{ symbol: "AAPL", asset_type: "equity" }],
+      });
+      apiGetVaultStatusMock.mockResolvedValue(okJsonResponse({ status: "active" }));
+      apiGetActiveConsentsMock.mockResolvedValue(
+        okJsonResponse({ active: [{ consentId: "consent-active-1" }] })
+      );
+      apiGetPendingConsentsMock.mockResolvedValue(
+        okJsonResponse({ pending: [{ consentId: "consent-pending-1" }] })
+      );
+      apiGetConsentHistoryMock.mockResolvedValue(
+        okJsonResponse({ items: [{ consentId: "consent-audit-1" }] })
+      );
+
+      await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        userId,
+        routePath: undefined,
+      });
+
+      expect(cacheSetMock).toHaveBeenCalledWith(
+        `vault_status:${userId}`,
+        { status: "active" },
+        expect.any(Number)
+      );
+      expect(cacheSetMock).toHaveBeenCalledWith(
+        `active_consents:${userId}`,
+        [{ consentId: "consent-active-1" }],
+        expect.any(Number)
+      );
+      expect(cacheSetMock).toHaveBeenCalledWith(
+        `pending_consents:${userId}`,
+        [{ consentId: "consent-pending-1" }],
+        expect.any(Number)
+      );
+      expect(cacheSetMock).toHaveBeenCalledWith(
+        `consent_audit:${userId}`,
+        [{ consentId: "consent-audit-1" }],
+        expect.any(Number)
+      );
+      expect(cacheSetMock).toHaveBeenCalledWith(
+        `kai_profile:${userId}`,
+        profile,
+        expect.any(Number)
+      );
     });
   });
 
