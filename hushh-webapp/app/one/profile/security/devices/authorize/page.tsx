@@ -33,10 +33,20 @@ export default function TrustedDeviceAuthorizePage() {
       device_name: requiredParam(searchParams, "device_name"),
       platform: requiredParam(searchParams, "platform") || "macos",
       state: requiredParam(searchParams, "state"),
+      replaces_device_id:
+        requiredParam(searchParams, "replaces_device_id") || undefined,
     }),
     [searchParams],
   );
-  const complete = Object.values(request).every(Boolean);
+  const complete = [
+    request.redirect_uri,
+    request.code_challenge,
+    request.code_challenge_method,
+    request.device_public_key,
+    request.device_name,
+    request.platform,
+    request.state,
+  ].every(Boolean);
 
   async function approve() {
     if (!user || !complete || submitting) return;

@@ -153,7 +153,9 @@ class ConsentDBService:
             return True
         if normalized_agent in {"self", "agent_kai", "kai"}:
             return True
-        if normalized_scope == "vault.owner" and normalized_agent in {"", "system"}:
+        if normalized_scope == "vault.owner" and (
+            normalized_agent in {"", "system"} or normalized_agent.startswith("device:")
+        ):
             return True
         return False
 

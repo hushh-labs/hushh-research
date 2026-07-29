@@ -1486,6 +1486,7 @@ export class ApiService {
     device_name: string;
     platform: string;
     state: string;
+    replaces_device_id?: string;
   }): Promise<Response> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) {

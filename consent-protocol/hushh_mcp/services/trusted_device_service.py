@@ -59,12 +59,17 @@ class DeviceAuthorization:
     redirect_uri: str
     redirect_url: str
     expires_at: int
+    replaces_device_id: str | None = None
 
 
 class TrustedDeviceStore(Protocol):
     def insert_authorization(self, row: dict[str, Any]) -> None: ...
 
     def consume_authorization(
+        self, *, code_hash: str, code_challenge: str, now_ms: int
+    ) -> dict[str, Any] | None: ...
+
+    def consume_and_activate_authorization(
         self, *, code_hash: str, code_challenge: str, now_ms: int
     ) -> dict[str, Any] | None: ...
 
@@ -124,6 +129,57 @@ class PostgresTrustedDeviceStore:
                 "code_challenge": code_challenge,
                 "now_ms": now_ms,
             },
+        )
+        return result.data[0] if result.data else None
+
+    def consume_and_activate_authorization(
+        self, *, code_hash: str, code_challenge: str, now_ms: int
+    ) -> dict[str, Any] | None:
+        """Consume PKCE and replace a legacy device in one database statement."""
+        result = self._db.execute_raw(
+            """WITH consumed AS (
+                   UPDATE trusted_device_authorizations
+                   SET consumed_at = :now_ms
+                   WHERE code_hash = :code_hash
+                     AND consumed_at IS NULL
+                     AND expires_at > :now_ms
+                     AND code_challenge = :code_challenge
+                     AND (
+                       replaces_device_id IS NULL OR EXISTS (
+                         SELECT 1 FROM trusted_devices previous
+                         WHERE previous.device_id = trusted_device_authorizations.replaces_device_id
+                           AND previous.user_id = trusted_device_authorizations.user_id
+                           AND previous.status = 'active'
+                       )
+                     )
+                   RETURNING *
+                 ), activated AS (
+                   INSERT INTO trusted_devices
+                     (device_id, user_id, device_public_key, device_name, platform,
+                      status, created_at, last_used_at, revoked_at)
+                   SELECT device_id, user_id, device_public_key, device_name, platform,
+                          'active', :now_ms, :now_ms, NULL
+                   FROM consumed
+                   ON CONFLICT (device_id) DO UPDATE SET
+                     device_public_key = EXCLUDED.device_public_key,
+                     device_name = EXCLUDED.device_name,
+                     platform = EXCLUDED.platform,
+                     status = 'active',
+                     last_used_at = EXCLUDED.last_used_at,
+                     revoked_at = NULL
+                   WHERE trusted_devices.user_id = EXCLUDED.user_id
+                   RETURNING device_id, user_id, device_public_key, device_name, platform
+                 ), replaced AS (
+                   UPDATE trusted_devices previous
+                   SET status = 'revoked', revoked_at = :now_ms
+                   WHERE previous.device_id = (SELECT replaces_device_id FROM consumed)
+                     AND previous.user_id = (SELECT user_id FROM consumed)
+                     AND previous.status = 'active'
+                   RETURNING previous.device_id
+                 )
+                 SELECT activated.*, (SELECT device_id FROM replaced) AS replaced_device_id
+                 FROM activated""",
+            {"code_hash": code_hash, "code_challenge": code_challenge, "now_ms": now_ms},
         )
         return result.data[0] if result.data else None
 
@@ -341,6 +397,7 @@ class TrustedDeviceService:
         device_name: str,
         platform: str,
         state: str,
+        replaces_device_id: str | None = None,
     ) -> DeviceAuthorization:
         if not _PKCE_RE.fullmatch(code_challenge):
             raise TrustedDeviceError(
@@ -360,6 +417,12 @@ class TrustedDeviceService:
                 "TRUSTED_DEVICE_UNSUPPORTED_PLATFORM",
                 "The trusted-device MVP currently supports macOS only.",
             )
+        previous_device_id = str(replaces_device_id or "").strip() or None
+        if previous_device_id and not _DEVICE_ID_RE.fullmatch(previous_device_id):
+            raise TrustedDeviceError(
+                "TRUSTED_DEVICE_INVALID_REPLACEMENT",
+                "The prior trusted device reference is invalid.",
+            )
 
         now_ms = _now_ms()
         authorization_id = f"tda_{secrets.token_urlsafe(24)}"
@@ -378,6 +441,7 @@ class TrustedDeviceService:
                 "platform": clean_platform,
                 "created_at": now_ms,
                 "expires_at": now_ms + _AUTHORIZATION_TTL_MS,
+                "replaces_device_id": previous_device_id,
             }
         )
         self._store.audit(
@@ -395,6 +459,7 @@ class TrustedDeviceService:
                 normalized_redirect, {"code": code, "state": state}
             ),
             expires_at=now_ms + _AUTHORIZATION_TTL_MS,
+            replaces_device_id=previous_device_id,
         )
 
     def exchange_authorization(self, *, code: str, code_verifier: str) -> dict[str, Any]:
@@ -403,7 +468,7 @@ class TrustedDeviceService:
                 "TRUSTED_DEVICE_INVALID_GRANT", "The authorization grant is invalid."
             )
         now_ms = _now_ms()
-        row = self._store.consume_authorization(
+        row = self._store.consume_and_activate_authorization(
             code_hash=_secret_hash(code),
             code_challenge=_pkce_digest(code_verifier),
             now_ms=now_ms,
@@ -418,16 +483,22 @@ class TrustedDeviceService:
             "device_public_key": str(row["device_public_key"]),
             "device_name": str(row["device_name"]),
             "platform": str(row["platform"]),
-            "created_at": now_ms,
-            "last_used_at": now_ms,
+            "replaced_device_id": str(row.get("replaced_device_id") or "") or None,
         }
-        self._store.upsert_device(device)
         self._store.audit(
             user_id=device["user_id"],
             device_id=device["device_id"],
             event_type="authorization_exchanged",
             created_at=now_ms,
         )
+        if device["replaced_device_id"]:
+            self._store.audit(
+                user_id=device["user_id"],
+                device_id=device["device_id"],
+                event_type="device_replaced",
+                created_at=now_ms,
+                metadata={"replaced_device_id": device["replaced_device_id"]},
+            )
         return device
 
     def list_devices(self, *, user_id: str) -> list[dict[str, Any]]:

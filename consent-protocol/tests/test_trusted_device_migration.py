@@ -10,10 +10,13 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     manifest = json.loads(
         (ROOT / "db" / "release_migration_manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["ordered_migrations"][-1] == "121_trusted_devices.sql"
-    assert "121_trusted_devices.sql" in manifest["groups"]["iam"]
+    assert manifest["ordered_migrations"][-1] == "122_trusted_device_repair.sql"
+    assert "122_trusted_device_repair.sql" in manifest["groups"]["iam"]
 
     sql = (ROOT / "db" / "migrations" / "121_trusted_devices.sql").read_text(encoding="utf-8")
+    repair_sql = (ROOT / "db" / "migrations" / "122_trusted_device_repair.sql").read_text(
+        encoding="utf-8"
+    )
     for table in (
         "trusted_device_authorizations",
         "trusted_devices",
@@ -25,6 +28,7 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     assert "firebase_refresh_token" not in lowered
     assert "vault_passphrase" not in lowered
     assert "vault_key " not in lowered
+    assert "add column if not exists replaces_device_id" in repair_sql.lower()
 
     expected_columns = {
         "trusted_device_authorizations": {
@@ -40,6 +44,7 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
             "created_at",
             "expires_at",
             "consumed_at",
+            "replaces_device_id",
         },
         "trusted_devices": {
             "device_id",
@@ -78,6 +83,6 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
         contract = json.loads(
             (ROOT / "db" / "contracts" / contract_name).read_text(encoding="utf-8")
         )
-        assert contract["expected_migration_version"] == 121
+        assert contract["expected_migration_version"] == 122
         for table, columns in expected_columns.items():
             assert set(contract["required_tables"][table]) == columns

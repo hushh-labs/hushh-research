@@ -58,6 +58,7 @@ class TrustedDeviceAuthorizationRequest(BaseModel):
     device_name: str = Field(min_length=1, max_length=100)
     platform: Literal["macos"]
     state: str = Field(min_length=16, max_length=512)
+    replaces_device_id: str | None = Field(default=None, min_length=24, max_length=96)
 
 
 class TrustedDeviceExchangeRequest(BaseModel):
@@ -83,6 +84,14 @@ async def _trusted_device_guard(user_id: str | None = None) -> None:
             },
         )
     allowlist = _trusted_device_allowlist()
+    if not allowlist:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ALLOWED",
+                "message": "Trusted-device enrollment is not available for this account.",
+            },
+        )
     # The unauthenticated PKCE exchange is guarded by possession of the
     # one-time code and verifier; the allowlist was enforced when that code was
     # created. Every signed-in entrypoint fails closed when rollout membership
@@ -150,6 +159,60 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
     return str(claims.get("uid") or claims.get("sub") or "").strip()
 
 
+async def _verified_account_email(user_id: str) -> str:
+    """Return the server-verified display identity for a trusted device.
+
+    Hermes stores this value locally only to make an already-authorized account
+    recognizable.  It is intentionally obtained from Firebase after the
+    one-time code is consumed; a browser query parameter or client-supplied
+    label must never become identity authority.
+    """
+    app = get_firebase_auth_app()
+    if app is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FIREBASE_ADMIN_UNAVAILABLE",
+                "message": "Verified account identity is unavailable.",
+            },
+        )
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_ACCOUNT_LOOKUP_FAILED",
+                "message": "Verified account identity is unavailable.",
+            },
+        ) from exc
+    email = str(getattr(record, "email", "") or "").strip()
+    if not email or not bool(getattr(record, "email_verified", False)):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_EMAIL_REQUIRED",
+                "message": "A verified email address is required to connect a trusted device.",
+            },
+        )
+    return email
+
+
+async def _verified_account_phone(user_id: str) -> None:
+    """Require the same durable phone admission claim as One's browser flow."""
+    identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+    if identity.get("phone_verified") is not True:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_PHONE_REQUIRED",
+                "message": "A verified phone number is required to connect a trusted device.",
+            },
+        )
+
+
 @router.post("/trusted-device-authorizations")
 async def create_trusted_device_authorization(
     payload: TrustedDeviceAuthorizationRequest,
@@ -158,6 +221,10 @@ async def create_trusted_device_authorization(
 ):
     """Approve a PKCE-bound Hermes installation for the signed-in account."""
     await _trusted_device_guard(firebase_uid)
+    # Fail before persisting an authorization/device record when the account
+    # cannot later be shown as a verified local identity in Hermes.
+    await _verified_account_email(firebase_uid)
+    await _verified_account_phone(firebase_uid)
     browser_uid = await _verify_browser_enrollment_identity(authorization)
     if browser_uid != firebase_uid:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
@@ -171,6 +238,7 @@ async def create_trusted_device_authorization(
             device_name=payload.device_name,
             platform=payload.platform,
             state=payload.state,
+            replaces_device_id=payload.replaces_device_id,
         )
     except TrustedDeviceError as exc:
         _raise_trusted_device_error(exc)
@@ -180,6 +248,7 @@ async def create_trusted_device_authorization(
         "redirect_uri": device_authorization.redirect_uri,
         "redirect_url": device_authorization.redirect_url,
         "expires_at": device_authorization.expires_at,
+        "replaces_device_id": device_authorization.replaces_device_id,
     }
 
 
@@ -208,6 +277,7 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
     try:
         from firebase_admin import auth as firebase_auth
 
+        account_email = await _verified_account_email(str(device["user_id"]))
         custom_token = await run_in_threadpool(
             firebase_auth.create_custom_token,
             device["user_id"],
@@ -228,6 +298,8 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
         "firebase_custom_token": token,
         "device_id": device["device_id"],
         "user_id": device["user_id"],
+        "account_email": account_email,
+        "replaced_device_id": device.get("replaced_device_id"),
     }
 
 
