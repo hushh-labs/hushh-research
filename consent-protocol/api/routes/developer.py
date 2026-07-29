@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Literal, Optional, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.developer_auth import (
     authenticate_developer_principal,
@@ -289,6 +289,16 @@ class DeveloperPortalProfileUpdateRequest(BaseModel):
     policy_url: str | None = Field(default=None, max_length=512)
     website_url: str | None = Field(default=None, max_length=512)
     brand_image_url: str | None = Field(default=None, max_length=512)
+
+    @field_validator("support_url", "policy_url", "website_url", "brand_image_url", mode="before")
+    @classmethod
+    def _require_safe_url_scheme(cls, v: object) -> object:
+        if v is None:
+            return v
+        url = str(v).strip()
+        if url and not (url.startswith("https://") or url.startswith("http://")):
+            raise ValueError("URL must use https:// or http:// scheme")
+        return url
 
 
 class OwnerProfile(TypedDict):
