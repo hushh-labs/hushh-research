@@ -1677,6 +1677,7 @@ export class ApiService {
     requestId?: string;
     userId: string;
     vaultOwnerToken: string;
+    purpose?: string;
     encryptedData?: string;
     encryptedIv?: string;
     encryptedTag?: string;
@@ -1762,6 +1763,7 @@ export class ApiService {
       body: JSON.stringify({
         userId: data.userId,
         requestId,
+        ...(data.purpose !== undefined ? { purpose: data.purpose } : {}),
         encryptedData: data.encryptedData,
         encryptedIv: data.encryptedIv,
         encryptedTag: data.encryptedTag,

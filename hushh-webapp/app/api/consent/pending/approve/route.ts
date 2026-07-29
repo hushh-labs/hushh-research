@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { isPurposeValid } from "@/lib/consent/purpose-guard";
 
 const BACKEND_URL = getPythonApiUrl();
 
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
+      purpose,
       userId,
       requestId,
       encryptedData,
@@ -58,6 +60,13 @@ export async function POST(request: NextRequest) {
         { error: "userId and requestId are required" },
         { status: 400 }
       ));
+    }
+
+    if (purpose !== undefined && !isPurposeValid(purpose)) {
+      return NextResponse.json(
+        { error: "Invalid approval purpose" },
+        { status: 400 }
+      );
     }
 
     if ("exportKey" in body) {
