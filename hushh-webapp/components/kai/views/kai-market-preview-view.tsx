@@ -108,7 +108,7 @@ function normalizeMarketSymbol(value: unknown): string {
   return String(value || "").trim().toUpperCase();
 }
 
-function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
+export function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
     .map((symbol) => normalizeMarketSymbol(symbol))
