@@ -188,4 +188,15 @@ describe("financial statement snapshots", () => {
       })
     ).toBe("plaid");
   });
+  it("returns no statement options when snapshot list is empty", () => {
+  expect(
+    getStatementSnapshotOptions({
+      sources: {
+        statement: {
+          snapshots: [],
+        },
+      },
+    })
+  ).toEqual([]);
+});
 });
