@@ -430,3 +430,189 @@ describe("getErrorMessage", () => {
     expect(result.length).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Null-byte injection hardening
+//
+// sanitizeErrorMessage must never forward null-bytes embedded in raw error
+// messages to client-facing output. The production isSafe predicate already
+// guarantees this for three category paths:
+//
+//   • server (5xx)  — isClientError=false, so isSafe is always false
+//   • authentication (401) — category guard, always returns fallback
+//   • permission (403)     — category guard, always returns fallback
+//
+// In each case the raw message is discarded in favour of the generic fallback
+// before any character from the error ever reaches the caller.
+//
+// Additionally, the 200-character length gate provides a second line of
+// defence: a payload padded with null-bytes past the threshold is rejected
+// even for 4xx client-error categories.
+// ---------------------------------------------------------------------------
+
+describe("sanitizeErrorMessage — null-byte injection hardening", () => {
+  it("never forwards a null-byte-injected payload through the server error path", () => {
+    const result = sanitizeErrorMessage(
+      new Error("crash\0injection\0payload"),
+      500,
+    );
+
+    expect(result.message).not.toContain("\0");
+    expect(result.message).toBe(
+      "An error occurred on our end. Please try again in a moment.",
+    );
+    expect(result.category).toBe("server");
+    expect(result.isClientError).toBe(false);
+  });
+
+  it("never forwards a null-byte injection attempt through the auth error path (401)", () => {
+    const result = sanitizeErrorMessage(
+      new Error("token\0bypass\0attempt"),
+      401,
+    );
+
+    expect(result.message).not.toContain("\0");
+    expect(result.category).toBe("authentication");
+  });
+
+  it("never forwards a null-byte injection attempt through the permission error path (403)", () => {
+    const result = sanitizeErrorMessage(
+      new Error("access\0denied\0escalate"),
+      403,
+    );
+
+    expect(result.message).not.toContain("\0");
+    expect(result.category).toBe("permission");
+  });
+
+  it("rejects a null-byte-padded message that exceeds the 200-character length gate", () => {
+    // Padding with null-bytes past the 200-char threshold causes the isSafe
+    // predicate to fail even for a 4xx client-error category.
+    const overflow = "Email required" + "\0".repeat(200);
+    const result = sanitizeErrorMessage(new Error(overflow), 400);
+
+    expect(result.message).not.toContain("\0");
+    expect(result.message.length).toBeLessThan(200);
+    expect(result.category).toBe("validation");
+  });
+
+  it("catches null-bytes interleaved with a sensitive pattern on a 400 response", () => {
+    // The sensitive-pattern regex still fires when null-bytes surround the
+    // trigger word; isSafe becomes false and the fallback replaces the raw
+    // message, so neither the sensitive word nor the null-bytes reach output.
+    const result = sanitizeErrorMessage(
+      new Error("psycopg2\0bypass\0injection"),
+      400,
+    );
+
+    expect(result.message).not.toContain("psycopg2");
+    expect(result.message).not.toContain("\0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Control-character injection hardening
+//
+// Low-ASCII control characters (BEL, BS, VT, FF, ESC, CR, LF, etc.) must
+// not appear in the sanitized message returned to callers.  For all category
+// paths where isSafe is guaranteed false the fallback string is all printable
+// ASCII, so no control characters can surface.
+// ---------------------------------------------------------------------------
+
+describe("sanitizeErrorMessage — control-character injection hardening", () => {
+  it("never forwards low-ASCII control characters through a server error (500)", () => {
+    // BEL \x07, BS \x08, VT \x0b, FF \x0c, ESC \x1b
+    const result = sanitizeErrorMessage(
+      new Error("error\x07\x08\x0b\x0c\x1b"),
+      500,
+    );
+
+    expect(result.message).not.toMatch(/[\x00-\x1f]/);
+    expect(result.category).toBe("server");
+  });
+
+  it("neutralises CRLF response-splitting injection through the server error path", () => {
+    // A raw error crafted with \r\n sequences could be used to inject a
+    // spurious HTTP response if the message were forwarded verbatim.
+    const result = sanitizeErrorMessage(
+      new Error("crash\r\nHTTP/1.1 200 OK\r\nX-Injected: header"),
+      500,
+    );
+
+    expect(result.message).not.toMatch(/[\r\n]/);
+    expect(result.message).toBe(
+      "An error occurred on our end. Please try again in a moment.",
+    );
+  });
+
+  it("never forwards control characters through the auth error path (401)", () => {
+    const result = sanitizeErrorMessage(
+      new Error("session\x00\x01\x02\x03expired"),
+      401,
+    );
+
+    expect(result.message).not.toMatch(/[\x00-\x1f]/);
+    expect(result.category).toBe("authentication");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractErrorCode — null-byte injection resistance
+//
+// The regex /^([A-Z_]+):/ anchors at position 0.  A leading null-byte is
+// not in [A-Z_] so the match never starts.  A null-byte inserted between
+// a real code and the colon separator interrupts the match before the colon
+// can be consumed, so an injected "code" is never extracted.
+// ---------------------------------------------------------------------------
+
+describe("extractErrorCode — null-byte injection resistance", () => {
+  it("returns null when a null-byte precedes an otherwise valid code prefix", () => {
+    // \0INJECTED_CODE: — the leading null-byte prevents the ^ anchor from
+    // ever reaching [A-Z_], so the pattern does not match.
+    const result = extractErrorCode(new Error("\0INJECTED_CODE: payload"));
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when a null-byte is injected between the code and its colon separator", () => {
+    // REAL_CODE\0: — [A-Z_]+ consumes REAL_CODE, then expects ':' but finds
+    // \0 instead; the match fails and no code is returned.
+    const result = extractErrorCode(
+      new Error("REAL_CODE\0: attempted separator injection"),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null for a message composed entirely of control characters", () => {
+    const result = extractErrorCode(
+      new Error("\x00\x01\x02\x03\x04\x05\x06\x07"),
+    );
+
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getErrorMessage — extraction-only contract (not a sanitizer)
+//
+// getErrorMessage is a pure extraction utility whose sole contract is to
+// return the raw message from any input type.  It is intentionally NOT a
+// sanitizer — callers that surface the result to clients must route it
+// through sanitizeErrorMessage first.  These tests pin that boundary.
+// ---------------------------------------------------------------------------
+
+describe("getErrorMessage — raw extraction contract (not a sanitizer)", () => {
+  it("returns the Error message verbatim, including any embedded null-bytes", () => {
+    // This documents the intentional design: getErrorMessage extracts,
+    // it does not sanitize. Null-bytes are preserved so callers know
+    // exactly what they received before deciding whether to forward it.
+    const raw = "message\0with\0embedded\0nulls";
+    expect(getErrorMessage(new Error(raw))).toBe(raw);
+  });
+
+  it("returns a raw string argument verbatim, including control characters", () => {
+    const raw = "error\x01\x02detail";
+    expect(getErrorMessage(raw)).toBe(raw);
+  });
+});
