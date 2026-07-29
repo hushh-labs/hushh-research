@@ -101,6 +101,16 @@ describe("consent sheet route helpers", () => {
       href: "https://example.com/disclosures/request-123",
     });
   });
+     it("preserves external origin encoding for consent return routes", () => {
+    expect(
+      resolveConsentRequestHref(null, "pending", {
+        requestId: "req_123",
+        from: "https://evil.example/phish",
+      })
+    ).toBe(
+      "/consents?tab=pending&requestId=req_123&from=https%3A%2F%2Fevil.example%2Fphish"
+    );
+  });
 });
 
 // ── Path safety — edge cases, empty inputs, and traversal resistance ──────────
