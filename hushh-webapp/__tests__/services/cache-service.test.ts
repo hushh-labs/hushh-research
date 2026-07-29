@@ -89,4 +89,27 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+    it("continues notifying cache listeners when one listener throws", () => {
+    const cache = CacheService.getInstance();
+    const events: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    cache.subscribe(() => {
+      throw new Error("listener failed");
+    });
+
+    cache.subscribe((event) => {
+      events.push(event.type);
+    });
+
+    cache.set("market-home", { ok: true }, 1_000);
+
+    expect(events).toEqual(["set"]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[CacheService] listener error:",
+      expect.any(Error)
+    );
+
+    warnSpy.mockRestore();
+  });
 });
