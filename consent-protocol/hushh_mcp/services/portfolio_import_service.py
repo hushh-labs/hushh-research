@@ -6,6 +6,11 @@ Supports:
 - CSV files from major brokerages (Schwab, Fidelity, Robinhood, generic)
 - PDF files (via pdfplumber for Fidelity and JPMorgan statements)
 - Enhanced KPI derivation (15+ metrics) for PKM integration
+
+Attach points:
+- PortfolioImportService.import_portfolio
+- PortfolioImportService.parse_csv
+- RichPDFParser.parse_comprehensive
 """
 
 import csv
@@ -557,7 +562,7 @@ class PortfolioParser:
                 total_cost += cost_basis
 
             except Exception as e:
-                logger.warning(f"Error parsing row: {e}")
+                logger.warning("portfolio_import.parse_row.error: %s", e)
                 continue
 
         total_gain_loss = total_value - total_cost
@@ -880,15 +885,17 @@ class PortfolioParser:
                                 portfolio.total_unrealized_gain_loss += gain_loss
 
                             except Exception as e:
-                                logger.warning(f"Error parsing holding row: {e}")
+                                logger.warning("portfolio_import.parse_holding_row.error: %s", e)
                                 continue
 
                 logger.info(
-                    f"Parsed Fidelity PDF: {len(portfolio.holdings)} holdings, ${portfolio.ending_value:,.2f} value"
+                    "portfolio_import.fidelity_pdf.parsed holdings=%d value=%.2f",
+                    len(portfolio.holdings),
+                    portfolio.ending_value,
                 )
 
         except Exception as e:
-            logger.error(f"Error parsing Fidelity PDF: {e}")
+            logger.error("portfolio_import.fidelity_pdf.error: %s", e)
 
         return portfolio
 
@@ -1172,15 +1179,17 @@ class PortfolioParser:
                                 portfolio.total_unrealized_gain_loss += gain_loss
 
                             except Exception as e:
-                                logger.warning(f"Error parsing JPM holding row: {e}")
+                                logger.warning("portfolio_import.jpm_holding_row.error: %s", e)
                                 continue
 
                 logger.info(
-                    f"Parsed JPMorgan PDF: {len(portfolio.holdings)} holdings, ${portfolio.ending_value:,.2f} value"
+                    "portfolio_import.jpmorgan_pdf.parsed holdings=%d value=%.2f",
+                    len(portfolio.holdings),
+                    portfolio.ending_value,
                 )
 
         except Exception as e:
-            logger.error(f"Error parsing JPMorgan PDF: {e}")
+            logger.error("portfolio_import.jpmorgan_pdf.error: %s", e)
 
         return portfolio
 
@@ -1268,7 +1277,7 @@ class PortfolioParser:
                 holdings.append(holding)
 
             except Exception as e:
-                logger.warning(f"Error parsing holding row: {e}")
+                logger.warning("portfolio_import.parse_holding_row.error: %s", e)
                 continue
 
         return holdings
@@ -1332,7 +1341,7 @@ class PortfolioParser:
                 holdings.append(holding)
 
             except Exception as e:
-                logger.warning(f"Error parsing JPM holding row: {e}")
+                logger.warning("portfolio_import.jpm_holding_row.error: %s", e)
                 continue
 
         return holdings
@@ -1431,19 +1440,19 @@ class RichPDFParser:
 
                 # Detect brokerage type
                 brokerage = self._detect_brokerage(text, filename)
-                logger.info(f"Detected brokerage: {brokerage}")
+                logger.info("portfolio_import.detected_brokerage: %s", brokerage)
 
                 # Extract account metadata (always from text)
                 self._extract_metadata(portfolio, text, brokerage)
 
                 # Strategy 1: Enhanced table extraction
                 holdings = self._parse_tables_enhanced(tables, text, brokerage)
-                logger.info(f"Strategy 1 (tables): Found {len(holdings)} holdings")
+                logger.info("portfolio_import.strategy1_tables holdings=%d", len(holdings))
 
                 # Strategy 2: Regex fallback if tables failed or incomplete
                 if len(holdings) < 3:
                     regex_holdings = self._parse_text_regex(text, brokerage)
-                    logger.info(f"Strategy 2 (regex): Found {len(regex_holdings)} holdings")
+                    logger.info("portfolio_import.strategy2_regex holdings=%d", len(regex_holdings))
                     if len(regex_holdings) > len(holdings):
                         holdings = regex_holdings
 
@@ -1451,7 +1460,7 @@ class RichPDFParser:
                 if not holdings:
                     logger.info("Attempting Strategy 3 (Gemini LLM)")
                     holdings = self._parse_with_gemini_sync(text, brokerage)
-                    logger.info(f"Strategy 3 (Gemini): Found {len(holdings)} holdings")
+                    logger.info("portfolio_import.strategy3_gemini holdings=%d", len(holdings))
 
                 portfolio.holdings = holdings
 
@@ -1462,11 +1471,13 @@ class RichPDFParser:
                     portfolio.ending_value += h.market_value
 
                 logger.info(
-                    f"Rich PDF Parser: {len(holdings)} holdings, ${portfolio.ending_value:,.2f} value"
+                    "portfolio_import.rich_pdf_parser.parsed holdings=%d value=%.2f",
+                    len(holdings),
+                    portfolio.ending_value,
                 )
 
         except Exception as e:
-            logger.error(f"Error in RichPDFParser: {e}")
+            logger.error("portfolio_import.rich_pdf_parser.error: %s", e)
 
         return portfolio
 
@@ -1742,7 +1753,7 @@ class RichPDFParser:
             )
 
         except Exception as e:
-            logger.warning(f"Error parsing holding row: {e}")
+            logger.warning("portfolio_import.parse_holding_row.error: %s", e)
             return None
 
     def _parse_text_regex(self, text: str, brokerage: str) -> list:
@@ -1794,7 +1805,7 @@ class RichPDFParser:
                     )
                     holdings.append(holding)
             except Exception as e:
-                logger.warning(f"Regex parse error: {e}")
+                logger.warning("portfolio_import.regex_parse.error: %s", e)
                 continue
 
         # Also look for bond patterns with CUSIP
@@ -1917,7 +1928,7 @@ class RichPDFParser:
             else:
                 return asyncio.run(self._parse_with_gemini(text, brokerage))
         except Exception as e:
-            logger.warning(f"Gemini sync wrapper failed: {e}")
+            logger.warning("portfolio_import.gemini_sync_wrapper.error: %s", e)
             return []
 
     async def _parse_with_gemini(self, text: str, brokerage: str) -> list:
@@ -2014,10 +2025,10 @@ Statement text (first 12000 chars):
 
                 holdings.append(holding)
 
-            logger.info(f"Gemini extracted {len(holdings)} holdings")
+            logger.info("portfolio_import.gemini_extracted holdings=%d", len(holdings))
 
         except Exception as e:
-            logger.error(f"Gemini extraction failed: {e}")
+            logger.error("portfolio_import.gemini_extraction.error: %s", e)
 
         return holdings
 
@@ -2062,15 +2073,17 @@ Statement text (first 12000 chars):
                 portfolio = asyncio.run(self._parse_with_gemini_comprehensive(pdf_bytes, filename))
 
             if portfolio and portfolio.holdings:
-                logger.info(f"Gemini Vision extracted {len(portfolio.holdings)} holdings")
-                logger.info(f"Total value: ${portfolio.total_value:,.2f}")
+                logger.info(
+                    "portfolio_import.gemini_vision_extracted holdings=%d", len(portfolio.holdings)
+                )
+                logger.info("portfolio_import.total_value: $%.2f", portfolio.total_value)
                 portfolio.extraction_method = "gemini_vision"
                 return portfolio
             else:
                 logger.warning("Gemini Vision returned no holdings.")
 
         except Exception as e:
-            logger.error(f"Gemini Vision extraction failed: {e}")
+            logger.error("portfolio_import.gemini_vision.error: %s", e)
             import traceback
 
             logger.error(traceback.format_exc())
@@ -2145,10 +2158,12 @@ Statement text (first 12000 chars):
                     location=location,
                 )
                 model_to_use = GEMINI_MODEL_VERTEX
-                logger.info(f"Using Vertex AI with project: {project_id}, model: {model_to_use}")
+                logger.info(
+                    "portfolio_import.vertex_ai project=%s model=%s", project_id, model_to_use
+                )
 
             except Exception as e:
-                logger.error(f"Vertex AI init failed: {e}")
+                logger.error("portfolio_import.vertex_ai_init.error: %s", e)
                 raise ValueError(f"Could not initialize Gemini client: {e}")
 
         # Encode PDF as base64
@@ -2324,7 +2339,9 @@ Extract data into the following nested objects:
 - Robinhood: Look for "Portfolio", "Holdings", "History"
 """
 
-        logger.info(f"Sending PDF to Gemini Vision ({len(pdf_bytes)} bytes), model: {model_to_use}")
+        logger.info(
+            "portfolio_import.gemini_vision_send bytes=%d model=%s", len(pdf_bytes), model_to_use
+        )
 
         # Create the content with PDF - use simple list format for Vertex AI compatibility
         contents = [
@@ -2356,14 +2373,18 @@ Extract data into the following nested objects:
                     # Log progress every 10 chunks
                     if chunk_count % 10 == 0:
                         logger.info(
-                            f"Streaming progress: {len(full_response)} chars received ({chunk_count} chunks)"
+                            "portfolio_import.streaming_progress chars=%d chunks=%d",
+                            len(full_response),
+                            chunk_count,
                         )
 
             logger.info(
-                f"Streaming complete: {len(full_response)} chars total ({chunk_count} chunks)"
+                "portfolio_import.streaming_complete chars=%d chunks=%d",
+                len(full_response),
+                chunk_count,
             )
         except Exception as stream_error:
-            logger.warning(f"Streaming failed, falling back to non-streaming: {stream_error}")
+            logger.warning("portfolio_import.streaming_fallback: %s", stream_error)
             # Fallback to non-streaming if streaming fails
             response = await client.aio.models.generate_content(
                 model=model_to_use,
@@ -2373,7 +2394,7 @@ Extract data into the following nested objects:
             full_response = response.text
 
         response_text = full_response.strip()
-        logger.info(f"Gemini response length: {len(response_text)} chars")
+        logger.info("portfolio_import.gemini_response_len chars=%d", len(response_text))
 
         # Clean up response - extract JSON
         if "```json" in response_text:
@@ -2389,8 +2410,8 @@ Extract data into the following nested objects:
         try:
             data = json.loads(response_text)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error: {e}")
-            logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+            logger.error("portfolio_import.json_parse.error: %s", e)
+            logger.error("portfolio_import.response_text_snippet: %.500s", response_text)
             raise
 
         # Convert to ComprehensivePortfolio
@@ -2595,12 +2616,13 @@ Extract data into the following nested objects:
         ):
             portfolio.cash_balance = portfolio.asset_allocation.cash_value
 
-        logger.info(f"Parsed {len(portfolio.holdings)} holdings from Gemini response")
+        logger.info("portfolio_import.gemini_parsed holdings=%d", len(portfolio.holdings))
         logger.info(
-            f"Account: {portfolio.account_info.holder_name if portfolio.account_info else 'Unknown'}"
+            "portfolio_import.account_holder_present=%s",
+            bool(portfolio.account_info and portfolio.account_info.holder_name),
         )
-        logger.info(f"Total value: ${portfolio.total_value:,.2f}")
-        logger.info(f"Cash balance: ${portfolio.cash_balance:,.2f}")
+        logger.info("portfolio_import.total_value: $%.2f", portfolio.total_value)
+        logger.info("portfolio_import.cash_balance: $%.2f", portfolio.cash_balance)
 
         return portfolio
 
@@ -3326,7 +3348,7 @@ Content sample:
 
                 # Use LLM-first comprehensive parser for PDFs
                 logger.info("=" * 60)
-                logger.info(f"Parsing PDF with LLM-First Comprehensive Parser: {filename}")
+                logger.info("portfolio_import.llm_first_parser filename=%r", filename)
                 logger.info("=" * 60)
 
                 comprehensive_portfolio = self.rich_parser.parse_comprehensive(
@@ -3335,9 +3357,13 @@ Content sample:
 
                 if comprehensive_portfolio and comprehensive_portfolio.holdings:
                     logger.info(
-                        f"Comprehensive parser extracted {len(comprehensive_portfolio.holdings)} holdings"
+                        "portfolio_import.comprehensive_extracted holdings=%d",
+                        len(comprehensive_portfolio.holdings),
                     )
-                    logger.info(f"Extraction method: {comprehensive_portfolio.extraction_method}")
+                    logger.info(
+                        "portfolio_import.extraction_method: %s",
+                        comprehensive_portfolio.extraction_method,
+                    )
 
                     # Convert to EnhancedPortfolio for backward compatibility
                     enhanced_portfolio = self._convert_comprehensive_to_enhanced(
@@ -3576,7 +3602,7 @@ Content sample:
             )
 
         except Exception as e:
-            logger.error(f"Error importing portfolio: {e}")
+            logger.error("portfolio_import.import_portfolio.error: %s", e)
             import traceback
 
             logger.error(traceback.format_exc())
