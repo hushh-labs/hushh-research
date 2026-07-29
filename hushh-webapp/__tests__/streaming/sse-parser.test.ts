@@ -41,6 +41,18 @@ describe("parseSSEBlocks", () => {
     }
   });
 
+it("preserves partial CRLF-delimited frames as remainder", () => {
+  const input =
+    "event: stage\r\n" +
+    "id: 61\r\n" +
+    'data: {"schema_version":"1.0","stream_id":"strm_partial_crlf","stream_kind":"portfolio_import","seq":61';
+
+  const result = parseSSEBlocks(input);
+
+  expect(result.events).toHaveLength(0);
+  expect(result.remainder).toBe(input.replace(/\r\n/g, "\n"));
+});
+
   it("preserves incomplete frame as remainder", () => {
     const part1 =
       'event: stage\n' +
