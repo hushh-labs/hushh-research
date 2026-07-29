@@ -2788,7 +2788,7 @@ export function DashboardMasterView({
                     : "text-rose-600 dark:text-rose-400"
                 )}
               >
-                <Icon icon={model.hero.netChange >= 0 ? TrendingUp : TrendingDown} size="sm" className="mr-1" />
+                <Icon icon={model.hero.netChange >= 0 ? TrendingUp : TrendingDown} size="sm" className="mr-1" aria-hidden="true" />
                 {model.hero.netChange >= 0 ? "+" : ""}
                 {formatCurrency(model.hero.netChange)} ({model.hero.changePct.toFixed(2)}%)
               </span>
@@ -3070,7 +3070,7 @@ export function DashboardMasterView({
                     onClick={openAddHoldingModal}
                     data-voice-control-id="add_holding"
                   >
-                    <Icon icon={Plus} size="sm" className="mr-1" />
+                    <Icon icon={Plus} size="sm" className="mr-1" aria-hidden="true" />
                     Add Holding
                   </MorphyButton>
                 ) : (
@@ -3148,7 +3148,7 @@ export function DashboardMasterView({
                     className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
                     data-voice-control-id="save_holdings_changes"
                   >
-                    <Icon icon={Save} size="sm" className="mr-2" />
+                    <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
                     {isSavingHoldings ? "Saving Holdings..." : "Save Holdings Changes"}
                   </MorphyButton>
                 </div>
