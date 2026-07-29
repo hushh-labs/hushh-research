@@ -57,7 +57,7 @@ export function KaiControlSurface({
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent className="max-h-[85dvh] rounded-t-[var(--app-card-radius-feature)] border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
           <DrawerHeader className="relative z-10 border-b border-[color:var(--app-card-border-standard)] px-4 py-4 text-left">
             {eyebrow ? (
