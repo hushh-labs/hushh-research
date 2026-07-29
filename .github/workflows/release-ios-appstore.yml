@@ -416,7 +416,7 @@ jobs:
             --pbxproj "${PBXPROJ}" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --release-type MANUAL \
-            "${SUBMIT_ARGS[@]}"
+            "${SUBMIT_ARGS[@]+"${SUBMIT_ARGS[@]}"}"
 
       - name: Upload build artifacts
         if: always()
