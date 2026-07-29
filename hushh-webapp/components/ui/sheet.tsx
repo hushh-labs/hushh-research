@@ -5,12 +5,23 @@ import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { useRestoreFocusOnClose } from "@/lib/a11y/restore-focus-on-close"
 
 function Sheet({
   modal = false,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Root>) {
-  return <SheetPrimitive.Root data-slot="sheet" modal={modal} {...props} />
+  const handleOpenChange = useRestoreFocusOnClose(onOpenChange)
+
+  return (
+    <SheetPrimitive.Root
+      data-slot="sheet"
+      modal={modal}
+      onOpenChange={handleOpenChange}
+      {...props}
+    />
+  )
 }
 
 function SheetTrigger({

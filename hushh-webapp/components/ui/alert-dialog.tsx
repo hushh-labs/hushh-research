@@ -5,11 +5,21 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useRestoreFocusOnClose } from "@/lib/a11y/restore-focus-on-close"
 
 function AlertDialog({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const handleOpenChange = useRestoreFocusOnClose(onOpenChange)
+
+  return (
+    <AlertDialogPrimitive.Root
+      data-slot="alert-dialog"
+      onOpenChange={handleOpenChange}
+      {...props}
+    />
+  )
 }
 
 function AlertDialogTrigger({
