@@ -1,0 +1,67 @@
+{
+  "id": "release-ios-appstore",
+  "role": "spoke",
+  "owner_family": "repo-operations",
+  "primary_scope": "release-ios-appstore-scope",
+  "description": "Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main — Apple-managed signing with an Admin ASC API key, a UAT-backend/UAT-Firebase binary, per-version \"What's New\" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).",
+  "owned_paths": [
+    ".github/workflows/release-ios-appstore.yml",
+    "scripts/release/dispatch-ios-appstore.mjs"
+  ],
+  "non_owned_paths": [
+    "mobile-native",
+    "uat-scoped-deploy",
+    "security-audit",
+    "repo-operations"
+  ],
+  "task_types": [
+    "release-readiness"
+  ],
+  "required_reads": [
+    ".github/workflows/release-ios-appstore.yml",
+    "docs/guides/mobile/release-ios-appstore.md",
+    "scripts/release/dispatch-ios-appstore.mjs",
+    "scripts/ci/submit-appstore-version.py",
+    "scripts/ci/resolve-ios-build-number.py",
+    "deploy/app_store_deployment.md",
+    "docs/reference/operations/branch-governance.md",
+    ".codex/skills/release-ios-appstore/references/release-proof.md"
+  ],
+  "required_commands": [
+    "gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+    "gh workflow view \"Release iOS to App Store\" --ref main",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "release-ios-appstore",
+      "commands": [
+        "gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+        "gh workflow view \"Release iOS to App Store\" --ref main",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "mobile-native",
+    "uat-scoped-deploy",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "mobile-native",
+    "uat-scoped-deploy",
+    "security-audit",
+    "repo-operations"
+  ],
+  "risk_tags": [
+    "public-submission-irreversibility",
+    "version-train-closed",
+    "release-secret-exposure",
+    "uat-backend-in-store-binary",
+    "build-number-collision"
+  ]
+}
