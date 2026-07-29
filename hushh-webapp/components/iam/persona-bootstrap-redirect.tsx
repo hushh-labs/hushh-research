@@ -181,7 +181,7 @@ export function PersonaBootstrapRedirect() {
             disabled={resolving !== null}
             className="w-full"
           >
-            {resolving === "route" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {resolving === "route" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
             {primaryLabel}
           </Button>
           <Button
@@ -191,7 +191,7 @@ export function PersonaBootstrapRedirect() {
             disabled={resolving !== null}
             className="w-full"
           >
-            {resolving === "persona" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {resolving === "persona" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
             {secondaryLabel}
           </Button>
         </AlertDialogFooter>
