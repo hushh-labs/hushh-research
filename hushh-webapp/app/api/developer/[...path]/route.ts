@@ -16,6 +16,18 @@ async function proxyDeveloperRequest(
 ) {
   const requestId = resolveRequestId(request);
   const query = request.nextUrl.search;
+
+  if (
+    params.path.length === 0 ||
+    params.path.length > 8 ||
+    params.path.some((segment) => segment.length > 128)
+  ) {
+    return withRequestIdJson(
+      requestId,
+      { error: "Invalid developer API path" },
+      { status: 400 }
+    );
+  }
   const path = params.path.join("/");
   const isVersionedDeveloperApi = params.path[0] === "v1";
   const upstreamPath = isVersionedDeveloperApi
