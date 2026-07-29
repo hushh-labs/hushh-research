@@ -62,6 +62,16 @@ class TestBuildConsentRequestPath:
         _, params = _parse_path(build_consent_request_path(bundle_id=None))
         assert "bundleId" not in params
 
+    def test_bundle_id_omitted_when_empty(self):
+        _, params = _parse_path(
+            build_consent_request_path(
+                request_id="req-bundle-boundary",
+                bundle_id="",
+            )
+        )
+        assert params["requestId"] == ["req-bundle-boundary"]
+        assert "bundleId" not in params
+
     def test_view_overrides_tab(self):
         _, params = _parse_path(build_consent_request_path(view="approved"))
         assert params["tab"] == ["approved"]
