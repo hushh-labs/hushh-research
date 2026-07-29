@@ -38,6 +38,44 @@ class MemoryStore:
         row["consumed_at"] = now_ms
         return dict(row)
 
+    def consume_and_activate_authorization(
+        self, *, code_hash: str, code_challenge: str, now_ms: int
+    ) -> dict[str, Any] | None:
+        """Mirror the production atomic exchange/replacement contract."""
+        row = self.consume_authorization(
+            code_hash=code_hash,
+            code_challenge=code_challenge,
+            now_ms=now_ms,
+        )
+        if not row:
+            return None
+        replacement_id = row.get("replaces_device_id")
+        if replacement_id:
+            previous = self.get_active_device(
+                user_id=str(row["user_id"]), device_id=str(replacement_id)
+            )
+            if not previous:
+                # The production statement leaves an invalid replacement grant
+                # unconsumed. Restore the in-memory row to preserve that parity.
+                self.authorizations[code_hash]["consumed_at"] = None
+                return None
+            previous.update(status="revoked", revoked_at=now_ms)
+        self.upsert_device(
+            {
+                "device_id": row["device_id"],
+                "user_id": row["user_id"],
+                "device_public_key": row["device_public_key"],
+                "device_name": row["device_name"],
+                "platform": row["platform"],
+                "created_at": now_ms,
+                "last_used_at": now_ms,
+            }
+        )
+        return {
+            **row,
+            "replaced_device_id": replacement_id,
+        }
+
     def upsert_device(self, row: dict[str, Any]) -> None:
         self.devices[row["device_id"]] = {**row, "status": "active", "revoked_at": None}
 
@@ -173,6 +211,29 @@ def test_wrong_pkce_verifier_does_not_consume_code() -> None:
     with pytest.raises(TrustedDeviceError):
         service.exchange_authorization(code=code, code_verifier="b" * 43)
     assert service.exchange_authorization(code=code, code_verifier=verifier)["user_id"] == "user-1"
+
+
+def test_reconnecting_replaces_only_the_active_device_for_the_same_account() -> None:
+    service, store, _private_key, original = _enroll()
+    _next_private, next_public = _keypair()
+    verifier, challenge = _pkce()
+    authorization = service.create_authorization(
+        user_id="user-1",
+        redirect_uri="http://127.0.0.1:43119/callback",
+        code_challenge=challenge,
+        device_public_key=next_public,
+        device_name="Kushal's Mac (repaired)",
+        platform="macos",
+        state="r" * 32,
+        replaces_device_id=original["device_id"],
+    )
+    code = authorization.redirect_url.split("code=", 1)[1].split("&", 1)[0]
+    replacement = service.exchange_authorization(code=code, code_verifier=verifier)
+
+    assert replacement["replaced_device_id"] == original["device_id"]
+    assert store.devices[original["device_id"]]["status"] == "revoked"
+    assert store.devices[replacement["device_id"]]["status"] == "active"
+    assert "device_replaced" in {event["event_type"] for event in store.events}
 
 
 def test_signed_challenge_is_single_use_and_revocation_fails_closed() -> None:
