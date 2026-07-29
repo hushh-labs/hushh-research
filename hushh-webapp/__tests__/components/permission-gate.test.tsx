@@ -71,4 +71,19 @@ describe("PermissionGate", () => {
       buildConsentCenterHref("pending")
     );
   });
+    it("keeps empty vault tokens behind the permission review surface", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: true,
+      vaultOwnerToken: "",
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation">
+        <button type="button">Connect Portfolio</button>
+      </PermissionGate>
+    );
+
+    expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
+    expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+  });
 });
