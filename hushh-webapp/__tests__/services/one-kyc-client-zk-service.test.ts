@@ -841,6 +841,33 @@ describe("ZK preflight — non-compliant and structurally empty payload rejectio
     // NOT "different client connector" — algorithm gate fires first.
   });
 
+  it("uses the canonical wrapping algorithm fallback when the export omits wrapping_alg", async () => {
+    let error: unknown;
+
+    try {
+      await OneKycClientZkService.decryptScopedExport({
+        connector,
+        exportPackage: {
+          encrypted_data: "",
+          iv: "",
+          tag: "",
+          wrapped_key_bundle: {
+            wrapped_export_key: "",
+            wrapped_key_iv: "",
+            wrapped_key_tag: "",
+            sender_public_key: "",
+            connector_key_id: connector.connector_key_id,
+          },
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("Unsupported KYC export wrapping algorithm");
+  });
+
   // ── Structurally empty crypto payload ─────────────────────────────────────
 
   it("rejects a package with empty crypto fields — preflight passes but crypto fails", async () => {
