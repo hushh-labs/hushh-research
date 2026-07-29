@@ -5,9 +5,18 @@ Vault Keys Service
 
 Service layer for vault_keys + vault_key_wrappers operations.
 
+Canonical attach point:
+  hushh_mcp.services.vault_keys_service.VaultKeysService
+  -> api.routes.db_proxy -> POST /api/db-proxy/vault/status
+
 This service stores encrypted wrappers for the same vault DEK across enrolled
 unlock methods (passphrase, biometric, passkey/PRF) plus recovery wrapper.
 The backend never sees plaintext vault key material.
+
+Cache design:
+  _vault_state_cache is a class-level dict so the in-memory cache survives
+  per-request instantiation.  A fresh VaultKeysService() on every request
+  previously meant the cache was always empty and every request hit the DB.
 """
 
 from __future__ import annotations
@@ -39,9 +48,12 @@ class VaultKeysService:
 
     VAULT_STATE_CACHE_TTL_SECONDS = 180
 
+    # Class-level cache shared across all VaultKeysService instances so that
+    # per-request instantiation does not discard previously cached vault state.
+    _vault_state_cache: dict[str, tuple[float, Dict[str, Any]]] = {}
+
     def __init__(self):
         self._supabase = None
-        self._vault_state_cache: dict[str, tuple[float, Dict[str, Any]]] = {}
 
     def _get_supabase(self):
         """Get database client (private - ONLY for internal service use)."""
