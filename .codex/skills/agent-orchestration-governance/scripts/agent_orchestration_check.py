@@ -23,6 +23,7 @@ WORKFLOWS_RELATIVE_PATH = Path(".codex/workflows")
 DELEGATION_ROUTER_RELATIVE_PATH = Path(
     ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py"
 )
+DELEGATION_ROUTER_CONTRACT_PATH = DELEGATION_ROUTER_RELATIVE_PATH.as_posix()
 
 EXPECTED_AGENTS = {
     "analytics_observability_architect",
@@ -255,8 +256,11 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
             continue
         if policy.get("auto_spawn_read_only_evidence_lanes") is not True:
             errors.append(f"{path}: delegation_policy must explicitly enable read-only evidence lanes")
-        if policy.get("router") != str(DELEGATION_ROUTER_RELATIVE_PATH):
-            errors.append(f"{path}: delegation_policy.router must point to {DELEGATION_ROUTER_RELATIVE_PATH}")
+        router = str(policy.get("router") or "").replace("\\", "/")
+        if router != DELEGATION_ROUTER_CONTRACT_PATH:
+            errors.append(
+                f"{path}: delegation_policy.router must point to {DELEGATION_ROUTER_CONTRACT_PATH}"
+            )
         phase_checkpoints = policy.get("phase_checkpoints")
         if phase_checkpoints != ["start", "mid"]:
             errors.append(f"{path}: delegation_policy.phase_checkpoints must equal ['start', 'mid']")

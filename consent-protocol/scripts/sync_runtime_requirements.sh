@@ -64,8 +64,8 @@ prepend_header "$RUNTIME_OUT"
 prepend_header "$DEV_OUT"
 
 if [ "$MODE" = "check" ]; then
-  diff -u requirements.txt "$RUNTIME_OUT"
-  diff -u requirements-dev.txt "$DEV_OUT"
+  diff --strip-trailing-cr -u requirements.txt "$RUNTIME_OUT"
+  diff --strip-trailing-cr -u requirements-dev.txt "$DEV_OUT"
 else
   cp "$RUNTIME_OUT" requirements.txt
   cp "$DEV_OUT" requirements-dev.txt
