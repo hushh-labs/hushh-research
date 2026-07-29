@@ -2422,6 +2422,7 @@ function OneKycWorkspace() {
                     onChange={(event) => setAliasCode(event.target.value)}
                     placeholder="Verification code"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                   />
                 ) : null}
                 {aliasChallenge?.reviewCode ? (
