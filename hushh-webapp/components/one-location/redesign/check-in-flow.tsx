@@ -21,10 +21,22 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, CheckCircle2, RefreshCw, Search, Shield } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  RefreshCw,
+  Search,
+  Shield,
+  UsersRound,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import {
+  mergeRecipientsByUserId,
+  type CircleRecipientSelection,
+} from "@/lib/one-location/circle-recipient-selection";
 
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
@@ -153,7 +165,6 @@ export function CheckInFlow({
   vm: LocationHubViewModel;
   onClose: () => void;
 }) {
-  const contacts = vm.sosRecipients;
   const busy = vm.busy === "share" || vm.busy === "selfLocation";
 
   // Local selection state, seeded once from the trusted (ready) contacts so the
@@ -164,6 +175,52 @@ export function CheckInFlow({
   const [untilStop, setUntilStop] = useState(false);
   const [message, setMessage] = useState(DEFAULT_CHECK_IN_MESSAGE);
   const [seeded, setSeeded] = useState(false);
+  const [circleSelection, setCircleSelection] =
+    useState<CircleRecipientSelection | null>(null);
+  const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
+  const contacts = useMemo(
+    () =>
+      mergeRecipientsByUserId(
+        vm.sosRecipients,
+        (circleSelection?.ready ?? []).map((target) => target.recipient),
+      ),
+    [circleSelection, vm.sosRecipients],
+  );
+
+  const selectCircle = async (circleId: string) => {
+    if (circleLoadingId) return;
+    if (circleSelection?.circle.id === circleId) {
+      setCircleSelection(null);
+      setCheckedIds([]);
+      setSeeded(false);
+      return;
+    }
+    setCircleLoadingId(circleId);
+    try {
+      const selection = await vm.onResolveNamedCircleRecipients(
+        circleId,
+        "location",
+      );
+      setCircleSelection(selection);
+      setCheckedIds(
+        selection.ready.map((target) => target.recipient.userId),
+      );
+      setSeeded(true);
+      if (!selection.ready.length) {
+        toast.error(
+          "No current Circle members are ready to receive encrypted location.",
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not load this Circle.",
+      );
+    } finally {
+      setCircleLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     if (seeded) return;
@@ -283,6 +340,65 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>WHO SHOULD KNOW?</SectionLabel>
+      {vm.circles.length ? (
+        <div className={cn(CARD, "mb-2 overflow-hidden")}>
+          {vm.circles.map((circle, index) => {
+            const selected = circleSelection?.circle.id === circle.id;
+            return (
+              <button
+                key={circle.id}
+                type="button"
+                disabled={Boolean(circleLoadingId) || busy}
+                onClick={() => void selectCircle(circle.id)}
+                aria-pressed={selected}
+                className={cn(
+                  "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
+                  index < vm.circles.length - 1 &&
+                    "border-b border-black/[0.06] dark:border-white/[0.08]",
+                  selected &&
+                    "bg-[color:var(--app-accent-soft)]",
+                )}
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold text-foreground">
+                    {circle.name}
+                  </span>
+                  <span className="block text-[12px] text-muted-foreground">
+                    {selected
+                      ? `${circleSelection.ready.length} ready now`
+                      : `${circle.memberCount} members`}
+                  </span>
+                </span>
+                <span className="text-[12px] font-semibold text-[color:var(--app-accent)]">
+                  {circleLoadingId === circle.id
+                    ? "Loading…"
+                    : selected
+                      ? "Selected"
+                      : "Select all"}
+                </span>
+              </button>
+            );
+          })}
+          {circleSelection ? (
+            <p className="border-t border-black/[0.06] px-4 py-2.5 text-[12px] leading-5 text-muted-foreground dark:border-white/[0.08]">
+              Current ready members only. Future members are not added to this
+              check-in.
+              {circleSelection.excluded.filter(
+                (item) => item.reason !== "self",
+              ).length
+                ? ` ${
+                    circleSelection.excluded.filter(
+                      (item) => item.reason !== "self",
+                    ).length
+                  } not ready.`
+                : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}>
         <Search className="h-3.5 w-3.5 shrink-0 text-black/35 dark:text-white/40" />
         <input
@@ -372,6 +488,7 @@ export function CheckInFlow({
             checkedIds,
             effectiveDuration,
             message.trim() || DEFAULT_CHECK_IN_MESSAGE,
+            circleSelection?.circle.id ?? null,
           )
         }
         disabled={!canSubmit || busy}

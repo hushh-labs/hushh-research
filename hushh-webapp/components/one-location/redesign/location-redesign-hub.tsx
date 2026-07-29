@@ -61,6 +61,7 @@ import type {
   OneLocationRecipient,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 
 import {
   EmptyState,
@@ -144,6 +145,7 @@ export type LocationHubViewModel = {
   /* data lists */
   recipients: OneLocationRecipient[];
   circles: OneLocationCircleSummary[];
+  selectedShareCircleSelection: CircleRecipientSelection | null;
   incomingCircleMemberInvites: OneLocationCircleMemberInvite[];
   incomingCircleMemberInvitesLoading: boolean;
   incomingCircleMemberInvitesError: string | null;
@@ -175,6 +177,11 @@ export type LocationHubViewModel = {
 
   /* selection */
   toggleShareRecipient: (id: string, surface?: string) => void;
+  onSelectShareCircle: (circleId: string) => Promise<void>;
+  onResolveNamedCircleRecipients: (
+    circleId: string,
+    purpose?: "location" | "sms",
+  ) => Promise<CircleRecipientSelection>;
   toggleRequestOwner: (id: string, surface?: string) => void;
 
   /* actions — wired 1:1 to existing handlers */
@@ -220,6 +227,7 @@ export type LocationHubViewModel = {
   ) => Promise<{ circle: OneLocationCircleDetail; joined: boolean }>;
   onGenerateNamedCircleCode: (
     circleId: string,
+    rotate?: boolean,
   ) => Promise<OneLocationCircleInviteCode>;
   onCopyNamedCircleCode: (code: string) => Promise<void>;
   onShareNamedCircleCode: (
@@ -259,6 +267,7 @@ export type LocationHubViewModel = {
   onTriggerSos: (message?: "Come get me" | "I'm not safe" | null) => void;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
+  onAddSmsCircle: (circleId: string) => Promise<void>;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
   /* Check-In (quick action) — reuses the encrypted share pipeline. The message
@@ -268,6 +277,7 @@ export type LocationHubViewModel = {
     recipientIds: string[],
     durationHours: string,
     message?: string,
+    sourceCircleId?: string | null,
   ) => void;
 
   /* label helpers (reuse existing formatting) */
@@ -615,10 +625,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
             recipients={vm.smsContactCandidates}
+            circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             onBack={() => closeFlow("now")}
             onAdd={vm.onAddSmsContact}
+            onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
@@ -1703,6 +1715,7 @@ function ShareFlow({
   // Review screen (consent check) is driven by the existing shareReviewOpen flag.
   if (vm.shareReviewOpen) {
     const primary = selectedReady[0];
+    const selectedCircle = vm.selectedShareCircleSelection;
     return (
       <div className="space-y-5">
         <TaskFlowHeader
@@ -1714,8 +1727,26 @@ function ShareFlow({
           <div className="space-y-3">
             <ReviewRow
               label="Can see"
-              value={primary ? vm.recipientLabel(primary) : "Selected people"}
+              value={
+                selectedCircle
+                  ? `${selectedCircle.circle.name} · ${selectedReady.length} ${
+                      selectedReady.length === 1 ? "person" : "people"
+                    }`
+                  : selectedReady.length > 1
+                    ? `${selectedReady.length} selected people`
+                    : primary
+                      ? vm.recipientLabel(primary)
+                      : "Selected people"
+              }
             />
+            {selectedReady.length > 1 ? (
+              <ReviewRow
+                label="Recipients"
+                value={selectedReady
+                  .map((recipient) => vm.recipientLabel(recipient))
+                  .join(", ")}
+              />
+            ) : null}
             <ReviewRow
               label="Location type"
               value={
@@ -1811,6 +1842,69 @@ function ShareFlow({
         title="Who can see you?"
         description="Only trusted and location-ready people can receive private live location."
       />
+      {vm.circles.length ? (
+        <SectionCard title="Share with a Circle">
+          <div className="grid gap-2">
+            {vm.circles.map((circle) => {
+              const selected =
+                vm.selectedShareCircleSelection?.circle.id === circle.id;
+              return (
+                <button
+                  key={circle.id}
+                  type="button"
+                  disabled={vm.busy === "shareCircle"}
+                  onClick={() => void vm.onSelectShareCircle(circle.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex min-h-14 items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition",
+                    selected
+                      ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-soft)]"
+                      : "border-border/70 bg-background hover:bg-muted/45",
+                  )}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                    <UsersRound className="h-[18px] w-[18px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-foreground">
+                      {circle.name}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {selected
+                        ? `${selectedReady.length} ready now`
+                        : `${circle.memberCount} ${
+                            circle.memberCount === 1 ? "member" : "members"
+                          }`}
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-[color:var(--app-accent)]">
+                    {vm.busy === "shareCircle"
+                      ? "Loading…"
+                      : selected
+                        ? "Selected"
+                        : "Select"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {vm.selectedShareCircleSelection ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Current ready members only; future members are never added
+              automatically.
+              {vm.selectedShareCircleSelection.excluded.filter(
+                (item) => item.reason !== "self",
+              ).length
+                ? ` ${
+                    vm.selectedShareCircleSelection.excluded.filter(
+                      (item) => item.reason !== "self",
+                    ).length
+                  } member(s) need Location setup and are not included.`
+                : ""}
+            </p>
+          ) : null}
+        </SectionCard>
+      ) : null}
       <PersonSearchInput
         value={vm.recipientSearch}
         onChange={vm.setRecipientSearch}

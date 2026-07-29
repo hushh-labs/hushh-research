@@ -248,6 +248,14 @@ export type OneLocationCircleInvite = {
 export type OneLocationCircleKind = "family" | "friends" | "other";
 export type OneLocationCircleRole = "owner" | "member";
 
+export type OneLocationCircleViewerCapabilities = {
+  canInviteMembers: boolean;
+  canViewInviteCode: boolean;
+  canRotateInviteCode: boolean;
+  canManageCircle: boolean;
+  canModerateInvites: boolean;
+};
+
 export type OneLocationCircleSummary = {
   id: string;
   name: string;
@@ -257,6 +265,7 @@ export type OneLocationCircleSummary = {
   memberLimit: number;
   createdAt?: string | null;
   updatedAt?: string | null;
+  viewerCapabilities?: OneLocationCircleViewerCapabilities;
 };
 
 export type OneLocationCircleMember = {
@@ -267,16 +276,24 @@ export type OneLocationCircleMember = {
   joinedAt?: string | null;
   phoneVerified: boolean;
   secureLocationReady: boolean;
+  keyId?: string | null;
+  publicKeyJwk?: JsonWebKey | null;
+  keyAlgorithm?: string | null;
+  keyRegisteredAt?: string | null;
+  canReceiveLocation?: boolean;
 };
 
 export type OneLocationCircleDetail = OneLocationCircleSummary & {
   members: OneLocationCircleMember[];
+  activeInviteCode?: OneLocationCircleInviteCode | null;
+  /** True only for a legacy active code that must be explicitly rotated by the owner. */
+  inviteCodeNeedsOwnerRotation?: boolean;
 };
 
 export type OneLocationCircleInviteCode = {
   id: string;
   circleId: string;
-  /** Returned once after create/rotate; never persisted by the client. */
+  /** Re-readable by active members; never persist it in client storage or URLs. */
   code: string;
   expiresAt: string;
 };
@@ -365,6 +382,8 @@ export type OneLocationMyRecipientKey = {
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   circles?: OneLocationCircleSummary[];
+  /** Pending targeted invitations for this user to join a named Circle. */
+  circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;
   kaiCircleCandidates?: KaiCircleCandidate[];
   viewerCapabilities?: OneLocationViewerCapabilities;

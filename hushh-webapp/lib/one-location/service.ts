@@ -247,11 +247,13 @@ export class OneLocationService {
   static async createNamedCircleInviteCode(params: {
     vaultOwnerToken: string;
     circleId: string;
+    rotate?: boolean;
   }): Promise<OneLocationCircleInviteCode> {
+    const rotateQuery = params.rotate ? "?rotate=true" : "";
     const response = await apiJson<{
       inviteCode: OneLocationCircleInviteCode;
     }>(
-      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/invite-code`,
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/invite-code${rotateQuery}`,
       {
         method: "POST",
         headers: authHeaders(params.vaultOwnerToken),

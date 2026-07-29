@@ -164,12 +164,32 @@ def test_named_circle_create_list_detail_and_code_routes(monkeypatch) -> None:
     listed = client.get("/api/one/location/circles")
     detail = client.get(f"/api/one/location/circles/{CIRCLE_ID}")
     invite = client.post(f"/api/one/location/circles/{CIRCLE_ID}/invite-code")
+    rotated = client.post(f"/api/one/location/circles/{CIRCLE_ID}/invite-code?rotate=true")
 
     assert created.status_code == 200
     assert created.json()["circle"]["name"] == "Meena Family"
     assert listed.json()["circles"][0]["memberCount"] == 1
     assert detail.json()["circle"]["members"][0]["userId"] == "owner-user"
     assert invite.json()["inviteCode"]["code"] == "2345-6789-ABCD"
+    assert detail.headers["cache-control"] == "private, no-store"
+    assert invite.headers["cache-control"] == "private, no-store"
+    assert rotated.headers["cache-control"] == "private, no-store"
+    assert (
+        "create_code",
+        {
+            "actor_user_id": "owner-user",
+            "circle_id": CIRCLE_ID,
+            "rotate": False,
+        },
+    ) in service.calls
+    assert (
+        "create_code",
+        {
+            "actor_user_id": "owner-user",
+            "circle_id": CIRCLE_ID,
+            "rotate": True,
+        },
+    ) in service.calls
     assert (
         "create",
         {
@@ -262,7 +282,7 @@ def test_named_circle_targeted_member_invite_routes(monkeypatch) -> None:
             (
                 "create_member_invites",
                 {
-                    "owner_user_id": "owner-user",
+                    "actor_user_id": "owner-user",
                     "circle_id": CIRCLE_ID,
                     "invitee_user_ids": [MEMBER_ID],
                 },

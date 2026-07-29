@@ -268,7 +268,18 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     service = AccountService()
     conn = MagicMock()
     circle_result = MagicMock()
-    circle_result.mappings.return_value.all.return_value = [{"id": "circle_b"}, {"id": "circle_a"}]
+    circle_result.mappings.return_value.all.return_value = [
+        {
+            "id": "circle_b",
+            "is_owner": True,
+            "has_active_membership": True,
+        },
+        {
+            "id": "circle_a",
+            "is_owner": True,
+            "has_active_membership": True,
+        },
+    ]
     member_result = MagicMock()
     member_result.mappings.return_value.all.return_value = [
         {"user_id": "owner"},
@@ -277,7 +288,11 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     ]
 
     def execute(query, _params=None):
-        if "SELECT id" in str(query) and "FROM one_location_circles" in str(query):
+        if (
+            "circle.id" in str(query)
+            and "FROM one_location_circles circle" in str(query)
+            and "FOR UPDATE OF circle" in str(query)
+        ):
             return circle_result
         if "SELECT DISTINCT membership.user_id" in str(query):
             return member_result
@@ -311,7 +326,17 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     circle_lock_index = next(
         index
         for index, sql in enumerate(executed_sql)
-        if "SELECT id" in sql and "FOR UPDATE" in sql
+        if "FROM one_location_circles circle" in sql and "FOR UPDATE OF circle" in sql
+    )
+    code_revoke_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circle_invite_codes" in sql and "revoked_at = NOW()" in sql
+    )
+    invite_cancel_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circle_member_invites" in sql and "cancelled_at = NOW()" in sql
     )
     event_cleanup_index = next(
         index
@@ -324,7 +349,17 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
     origin_delete_index = next(
         index for index, sql in enumerate(executed_sql) if "DELETE FROM connection_origins" in sql
     )
-    assert circle_lock_index < event_cleanup_index < origin_delete_index < circle_delete_index
+    assert (
+        circle_lock_index
+        < code_revoke_index
+        < invite_cancel_index
+        < event_cleanup_index
+        < origin_delete_index
+        < circle_delete_index
+    )
+    assert "member_invite.inviter_user_id = :user_id" in executed_sql[circle_lock_index]
+    assert "member_invite.invitee_user_id = :user_id" in executed_sql[circle_lock_index]
+    assert "inviter_user_id = :user_id" in executed_sql[invite_cancel_index]
     assert "origin.status = 'revoked'" in executed_sql[origin_delete_index]
     assert [call.kwargs["source_circle_id"] for call in revoke_origins.call_args_list] == [
         "circle_a",

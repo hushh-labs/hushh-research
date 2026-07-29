@@ -30,10 +30,21 @@ const recipients: OneLocationRecipient[] = [
 
 const baseProps = {
   recipients,
+  circles: [
+    {
+      id: "circle-1",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 3,
+      memberLimit: 20,
+    },
+  ],
   selectedUserIds: ["selected"],
   busyKey: null,
   onBack: vi.fn(),
   onAdd: vi.fn(),
+  onAddCircle: vi.fn().mockResolvedValue(undefined),
   onRemove: vi.fn(),
   recipientLabel: (recipient: OneLocationRecipient) => recipient.displayName,
   recipientSubtitle: (recipient: OneLocationRecipient) =>
@@ -58,6 +69,20 @@ describe("SmsContactsFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(onAdd).toHaveBeenCalledWith("available");
+  });
+
+  it("adds the current ready members from an explicitly selected Circle", () => {
+    const onAddCircle = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SmsContactsFlow {...baseProps} onAddCircle={onAddCircle} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Circle" }));
+
+    expect(onAddCircle).toHaveBeenCalledWith("circle-1");
+    expect(
+      screen.getByText(/never added to SMS automatically/i),
+    ).toBeInTheDocument();
   });
 
   it("requires confirmation and waits for successful removal", async () => {

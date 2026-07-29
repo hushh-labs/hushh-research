@@ -719,7 +719,10 @@ export function CircleDetailFlow({
     circleId: string,
     name: string,
   ) => Promise<OneLocationCircleDetail>;
-  onGenerateCode: (circleId: string) => Promise<OneLocationCircleInviteCode>;
+  onGenerateCode: (
+    circleId: string,
+    rotate?: boolean,
+  ) => Promise<OneLocationCircleInviteCode>;
   onCopyCode: (code: string) => Promise<void>;
   onShareCode: (
     circle: OneLocationCircleDetail,
@@ -767,24 +770,34 @@ export function CircleDetailFlow({
   const peopleSubmitInFlightRef = useRef(false);
   const cancelInviteInFlightRef = useRef(false);
 
-  const reload = async () => {
+  const reload = async (): Promise<OneLocationCircleDetail | null> => {
     const requestId = ++loadRequestRef.current;
     setLoadError(null);
     if (!circleId) {
       setCircle(null);
       setLoadError("This Circle link is incomplete.");
-      return;
+      return null;
     }
     try {
       const nextCircle = await onLoad(circleId);
-      if (requestId !== loadRequestRef.current) return;
+      if (requestId !== loadRequestRef.current) return null;
       setCircle(nextCircle);
       setCircleName(nextCircle.name);
+      setInviteCode(nextCircle.activeInviteCode ?? null);
+      const nextCanInvite =
+        nextCircle.viewerCapabilities?.canInviteMembers ??
+        nextCircle.role === "owner";
+      if (!nextCanInvite) {
+        setPeopleSheetOpen(false);
+        peopleRequestRef.current += 1;
+      }
+      return nextCircle;
     } catch (error) {
-      if (requestId !== loadRequestRef.current) return;
+      if (requestId !== loadRequestRef.current) return null;
       setLoadError(
         error instanceof Error ? error.message : "Could not load this Circle.",
       );
+      return null;
     }
   };
 
@@ -808,6 +821,15 @@ export function CircleDetailFlow({
   const circle =
     loadedCircle?.id === circleId ? loadedCircle : null;
   const isOwner = circle?.role === "owner";
+  const canInviteMembers =
+    circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
+  const canViewInviteCode =
+    circle?.viewerCapabilities?.canViewInviteCode ?? Boolean(isOwner);
+  const canRotateInviteCode =
+    circle?.viewerCapabilities?.canRotateInviteCode ?? Boolean(isOwner);
+  const inviteCodeNeedsOwnerRotation = Boolean(
+    circle?.inviteCodeNeedsOwnerRotation,
+  );
   const members = useMemo(() => circle?.members ?? [], [circle?.members]);
   const filteredEligibleConnections = useMemo(() => {
     const query = peopleSearch.trim().toLocaleLowerCase();
@@ -818,7 +840,7 @@ export function CircleDetailFlow({
   }, [eligibleConnections, peopleSearch]);
 
   const loadEligibleConnections = async () => {
-    if (!circle || !isOwner) return;
+    if (!circle || !canInviteMembers) return;
     const requestId = ++peopleRequestRef.current;
     setPeopleLoading(true);
     setPeopleLoadError(null);
@@ -849,7 +871,7 @@ export function CircleDetailFlow({
   };
 
   const openPeopleSheet = () => {
-    if (!circle || !isOwner) return;
+    if (!circle || !canInviteMembers) return;
     setPeopleSheetOpen(true);
     setPeopleSearch("");
     setSelectedConnectionIds(new Set());
@@ -883,7 +905,15 @@ export function CircleDetailFlow({
       // Capacity or eligibility may have changed while the sheet was open.
       // Reconcile against the server before another tap so stale selections
       // are trimmed rather than repeatedly submitting a known conflict.
-      await loadEligibleConnections();
+      const refreshedCircle = await reload();
+      const stillCanInvite =
+        refreshedCircle?.viewerCapabilities?.canInviteMembers ??
+        refreshedCircle?.role === "owner";
+      if (stillCanInvite) {
+        await loadEligibleConnections();
+      } else {
+        setPeopleSheetOpen(false);
+      }
     } finally {
       peopleSubmitInFlightRef.current = false;
       setPeopleSubmitting(false);
@@ -908,10 +938,16 @@ export function CircleDetailFlow({
     }
   };
 
-  const generateCode = async () => {
-    if (!circle) return;
+  const generateCode = async (rotate = false) => {
+    if (
+      !circle ||
+      !canViewInviteCode ||
+      (rotate && !canRotateInviteCode)
+    ) {
+      return;
+    }
     try {
-      setInviteCode(await onGenerateCode(circle.id));
+      setInviteCode(await onGenerateCode(circle.id, rotate));
     } catch (error) {
       toast.error(
         circleFlowErrorMessage(error, "Could not create an invite code."),
@@ -1001,7 +1037,7 @@ export function CircleDetailFlow({
       {circle ? (
         <>
           {isOwner ? (
-            <div className="space-y-4 rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-sm">
+            <div className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-sm">
               <label className="block space-y-2">
                 <span className="text-sm font-semibold text-foreground">
                   Circle name
@@ -1031,8 +1067,14 @@ export function CircleDetailFlow({
                   </Button>
                 </span>
               </label>
+            </div>
+          ) : null}
 
-              <div className="border-t border-border/70 pt-4">
+          {canInviteMembers ? (
+            <div
+              className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-sm"
+              data-testid="one-location-circle-invite-card"
+            >
               <div className="flex items-start gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
                   <KeyRound className="h-5 w-5" />
@@ -1042,8 +1084,8 @@ export function CircleDetailFlow({
                     Invite people
                   </p>
                   <p className="mt-0.5 text-sm text-muted-foreground">
-                    Invite an existing connection directly, or share a code
-                    with someone new.
+                    Every Circle member can invite an existing connection or
+                    share the same Circle code.
                   </p>
                 </div>
               </div>
@@ -1057,12 +1099,16 @@ export function CircleDetailFlow({
                 <Plus className="mr-2 h-4 w-4" />
                 Add people
               </Button>
-              {inviteCode ? (
+              {canViewInviteCode && inviteCode ? (
                 <div className="mt-4 rounded-2xl bg-muted/55 p-4 text-center">
-                  <p className="font-mono text-xl font-bold tracking-[0.12em] text-foreground">
+                  <p className="break-all font-mono text-lg font-bold tracking-[0.08em] text-foreground min-[360px]:text-xl min-[360px]:tracking-[0.12em]">
                     {inviteCode.code}
                   </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Joining connects Circle members. Location and SMS stay
+                    private until each person chooses to share.
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -1086,7 +1132,26 @@ export function CircleDetailFlow({
                     </Button>
                   </div>
                 </div>
-              ) : (
+              ) : canViewInviteCode && inviteCodeNeedsOwnerRotation ? (
+                canRotateInviteCode ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    isLoading={busy}
+                    onClick={() => void generateCode(true)}
+                    className="mt-2 h-11 w-full rounded-full font-semibold"
+                  >
+                    <RotateCw className="mr-2 h-4 w-4" />
+                    Refresh invite code
+                  </Button>
+                ) : (
+                  <p className="mt-3 rounded-2xl bg-muted/55 px-4 py-3 text-sm leading-5 text-muted-foreground">
+                    Ask the Circle owner to refresh the older invite code. It
+                    will appear here for every member as soon as they do.
+                  </p>
+                )
+              ) : canViewInviteCode ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -1098,26 +1163,26 @@ export function CircleDetailFlow({
                   <KeyRound className="mr-2 h-4 w-4" />
                   Generate invite code
                 </Button>
-              )}
-              {inviteCode ? (
+              ) : null}
+              {inviteCode && canRotateInviteCode ? (
                 <Button
                   type="button"
                   variant="ghost"
                   isLoading={busy}
-                  onClick={() => void generateCode()}
+                  onClick={() => void generateCode(true)}
                   className="mt-2 h-11 w-full rounded-full"
                 >
                   <RotateCw className="mr-2 h-4 w-4" />
                   Rotate code
                 </Button>
               ) : null}
-              </div>
             </div>
           ) : null}
 
           <Sheet
             open={peopleSheetOpen}
             onOpenChange={(open) => {
+              if (open && !canInviteMembers) return;
               setPeopleSheetOpen(open);
               if (!open) {
                 peopleRequestRef.current += 1;
@@ -1178,8 +1243,8 @@ export function CircleDetailFlow({
                           title="Your connections"
                           description={
                             remainingCapacity === 1
-                              ? "This Circle has room for 1 more person."
-                              : `This Circle has room for ${remainingCapacity} more people.`
+                              ? "You can invite 1 more person right now."
+                              : `You can invite ${remainingCapacity} more people right now.`
                           }
                           testId="one-location-circle-eligible-connections"
                         >
@@ -1245,14 +1310,14 @@ export function CircleDetailFlow({
                         <EmptyState
                           title={
                             remainingCapacity === 0
-                              ? "This Circle is full"
+                              ? "No invitation slots available"
                               : peopleSearch.trim()
                                 ? "No matching connections"
                                 : "No connections to add"
                           }
                           description={
                             remainingCapacity === 0
-                              ? "Remove a member before inviting someone else."
+                              ? "The Circle is full or your pending-invitation limit is reached. Cancel a pending invitation or try again later."
                               : peopleSearch.trim()
                                 ? "Try a different name."
                                 : "Members and pending invitations are hidden. Add someone in Connect first if this list is empty."

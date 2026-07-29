@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2, UsersRound } from "lucide-react";
 
 import {
   AlertDialog,
@@ -13,7 +13,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
+import type {
+  OneLocationCircleSummary,
+  OneLocationRecipient,
+} from "@/lib/one-location/types";
 
 const AVATAR_TONES = [
   "bg-[#2f80ed]",
@@ -25,10 +28,12 @@ const AVATAR_TONES = [
 
 type SmsContactsFlowProps = {
   recipients: OneLocationRecipient[];
+  circles: OneLocationCircleSummary[];
   selectedUserIds: string[];
   busyKey: string | null;
   onBack: () => void;
   onAdd: (recipientUserId: string) => void;
+  onAddCircle: (circleId: string) => Promise<void>;
   onRemove: (recipientUserId: string) => Promise<boolean>;
   recipientLabel: (recipient: OneLocationRecipient) => string;
   recipientSubtitle: (recipient: OneLocationRecipient) => string;
@@ -122,10 +127,12 @@ function ContactGroup({ children }: { children: ReactNode }) {
 
 export function SmsContactsFlow({
   recipients,
+  circles,
   selectedUserIds,
   busyKey,
   onBack,
   onAdd,
+  onAddCircle,
   onRemove,
   recipientLabel,
   recipientSubtitle,
@@ -179,6 +186,57 @@ export function SmsContactsFlow({
           These people are alerted with your live location the moment you send
           the SMS.
         </p>
+
+        {circles.length ? (
+          <>
+            <p className="mb-2 mt-6 px-1 text-[11px] font-bold uppercase tracking-[0.35px] text-black/40">
+              Add a Circle
+            </p>
+            <ContactGroup>
+              {circles.map((circle, index) => {
+                const circleBusy = busyKey === `sms-circle:${circle.id}`;
+                return (
+                  <div
+                    key={circle.id}
+                    className={cn(
+                      "flex min-h-[64px] items-center gap-3 px-3.5 py-2.5",
+                      index < circles.length - 1 &&
+                        "border-b border-black/[0.055]",
+                    )}
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                      <UsersRound className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] font-semibold text-[#17171c]">
+                        {circle.name}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] text-black/45">
+                        Add current ready members · {circle.memberCount} total
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void onAddCircle(circle.id)}
+                      className="press-scale flex h-8 min-w-[78px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-45"
+                    >
+                      {circleBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Add Circle"
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </ContactGroup>
+            <p className="mt-2 px-1 text-[12px] leading-[1.45] text-black/43">
+              This adds a snapshot of current ready members. Anyone who joins
+              later is never added to SMS automatically.
+            </p>
+          </>
+        ) : null}
 
         <p className="mb-2 mt-6 px-1 text-[11px] font-bold uppercase tracking-[0.35px] text-black/40">
           Alerted on SMS

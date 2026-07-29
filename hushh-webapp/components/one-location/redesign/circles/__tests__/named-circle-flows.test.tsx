@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
@@ -30,6 +37,13 @@ function circle(id: string, name: string): OneLocationCircleDetail {
     role: "owner",
     memberCount: 1,
     memberLimit: 20,
+    viewerCapabilities: {
+      canInviteMembers: true,
+      canViewInviteCode: true,
+      canRotateInviteCode: true,
+      canManageCircle: true,
+      canModerateInvites: true,
+    },
     members: [
       {
         userId: "owner-user",
@@ -503,23 +517,154 @@ describe("named Circle flows", () => {
     );
   });
 
-  it("keeps Add people owner-only", async () => {
+  it("lets a member share the Circle code and invite their own connection", async () => {
+    const inviteCode = {
+      id: "code-1",
+      circleId: "circle-1",
+      code: "2345-6789-ABCD",
+      expiresAt: "2026-08-01T00:00:00Z",
+    };
     const memberCircle = {
       ...circle("circle-1", "Friends"),
       role: "member" as const,
+      activeInviteCode: inviteCode,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: false,
+        canManageCircle: false,
+        canModerateInvites: false,
+      },
     };
+    const onCopyCode = vi.fn(async () => undefined);
+    const onShareCode = vi.fn(async () => undefined);
+    const onInviteConnections = vi.fn(async () => undefined);
 
     render(
       <CircleDetailFlow
         circleId="circle-1"
         {...detailProps(async () => memberCircle)}
+        currentUserId="member-user"
+        onCopyCode={onCopyCode}
+        onShareCode={onShareCode}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            {
+              connectionId: "connection-1",
+              userId: "friend-user",
+              displayName: "Friend User",
+            },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 1,
+        }))}
+        onInviteConnections={onInviteConnections}
       />,
     );
 
     expect(await screen.findByText("Friends")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Add people" }),
-    ).toBeNull();
+    expect(screen.getByText(inviteCode.code)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add people" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rotate code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete circle" })).toBeNull();
+    expect(screen.queryByLabelText("Circle name")).toBeNull();
+    expect(screen.getByRole("button", { name: "Leave circle" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" }).parentElement).toHaveClass(
+      "grid-cols-1",
+      "min-[360px]:grid-cols-2",
+    );
+
+    const inviteCard = screen.getByTestId("one-location-circle-invite-card");
+    fireEvent.click(within(inviteCard).getByRole("button", { name: "Copy" }));
+    fireEvent.click(within(inviteCard).getByRole("button", { name: "Share" }));
+    await waitFor(() => {
+      expect(onCopyCode).toHaveBeenCalledWith(inviteCode.code);
+      expect(onShareCode).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "circle-1", role: "member" }),
+        inviteCode.code,
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add people" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Friend User Connected on One/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    await waitFor(() =>
+      expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
+        "friend-user",
+      ]),
+    );
+  });
+
+  it("keeps shared-code rotation and Circle management owner-only", async () => {
+    const currentCode = {
+      id: "code-1",
+      circleId: "circle-1",
+      code: "2345-6789-ABCD",
+      expiresAt: "2026-08-01T00:00:00Z",
+    };
+    const rotatedCode = {
+      ...currentCode,
+      id: "code-2",
+      code: "BCDE-FGHJ-KMNP",
+    };
+    const ownerCircle = {
+      ...circle("circle-1", "Family"),
+      activeInviteCode: currentCode,
+    };
+    const onGenerateCode = vi.fn(async () => rotatedCode);
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+        onGenerateCode={onGenerateCode}
+      />,
+    );
+
+    expect(await screen.findByText(currentCode.code)).toBeTruthy();
+    expect(screen.getByLabelText("Circle name")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete circle" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Rotate code" }));
+
+    await waitFor(() =>
+      expect(onGenerateCode).toHaveBeenCalledWith("circle-1", true),
+    );
+    expect(await screen.findByText(rotatedCode.code)).toBeTruthy();
+  });
+
+  it("requires an explicit owner refresh for an unreadable legacy code", async () => {
+    const refreshedCode = {
+      id: "code-2",
+      circleId: "circle-1",
+      code: "BCDE-FGHJ-KMNP",
+      expiresAt: "2026-08-01T00:00:00Z",
+    };
+    const ownerCircle = {
+      ...circle("circle-1", "Family"),
+      activeInviteCode: null,
+      inviteCodeNeedsOwnerRotation: true,
+    };
+    const onGenerateCode = vi.fn(async () => refreshedCode);
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+        onGenerateCode={onGenerateCode}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh invite code" }),
+    );
+    await waitFor(() =>
+      expect(onGenerateCode).toHaveBeenCalledWith("circle-1", true),
+    );
+    expect(await screen.findByText(refreshedCode.code)).toBeTruthy();
   });
 
   it("caps selection at the Circle's remaining capacity", async () => {
@@ -549,7 +694,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText(/room for 1 more person/i)).toBeTruthy();
+    expect(await screen.findByText(/invite 1 more person right now/i)).toBeTruthy();
 
     const asha = screen.getByRole("button", {
       name: /Asha Meena Connected on One/i,
@@ -588,7 +733,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText("This Circle is full")).toBeTruthy();
+    expect(await screen.findByText("No invitation slots available")).toBeTruthy();
     expect(screen.queryByText("Stale Candidate")).toBeNull();
   });
 
@@ -647,5 +792,69 @@ describe("named Circle flows", () => {
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     ).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Select people" })).toBeDisabled();
+  });
+
+  it("closes invitation controls when server capability is revoked", async () => {
+    const memberCircle = {
+      ...circle("circle-1", "Friends"),
+      role: "member" as const,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: false,
+        canManageCircle: false,
+        canModerateInvites: false,
+      },
+    };
+    const revokedCircle = {
+      ...memberCircle,
+      viewerCapabilities: {
+        ...memberCircle.viewerCapabilities,
+        canInviteMembers: false,
+        canViewInviteCode: false,
+      },
+    };
+    const onLoad = vi
+      .fn()
+      .mockResolvedValueOnce(memberCircle)
+      .mockResolvedValueOnce(revokedCircle);
+    const onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [
+        {
+          connectionId: "connection-1",
+          userId: "friend-user",
+          displayName: "Friend User",
+        },
+      ],
+      pendingInvites: [],
+      remainingCapacity: 1,
+    }));
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onLoadEligibleConnections={onLoadEligibleConnections}
+        onInviteConnections={vi.fn(async () => {
+          throw new Error("You are no longer allowed to invite people.");
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Add people" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Friend User Connected on One/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Add people" })).toBeNull(),
+    );
+    expect(onLoad).toHaveBeenCalledTimes(2);
+    expect(onLoadEligibleConnections).toHaveBeenCalledTimes(1);
   });
 });

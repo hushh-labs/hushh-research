@@ -106,6 +106,16 @@ def test_schema_guard_still_fails_when_required_tables_are_missing(
         asyncio.run(server.startup_required_schema_guard())
 
 
+def test_named_circle_tables_are_required_runtime_dependencies():
+    assert {
+        "one_location_circles",
+        "one_location_circle_memberships",
+        "one_location_circle_invite_codes",
+        "connection_origins",
+        "one_location_circle_member_invites",
+    } <= set(server.REQUIRED_RUNTIME_TABLES)
+
+
 def test_market_cache_table_startup_warns_and_continues_in_development(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

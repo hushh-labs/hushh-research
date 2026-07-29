@@ -117,15 +117,28 @@ owner/link metadata plus the attached public location snapshot.
   connections with every active Circle member. It creates no
   `trusted_connections` edge, SMS selection, location grant, envelope, or
   capability.
-- Circle owners can invite existing direct connections through
+- Every active Circle member can invite their own existing direct connections through
   `one_location_circle_member_invites`. Creating an invitation grants nothing.
   The invitee must accept before membership and Circle-sourced connection
   origins are created; this avoids a second Connect-tab request while
-  preserving consent to join a group and become visible to its members.
+  preserving consent to join a group and become visible to its members. The
+  actual inviter must remain an active member through acceptance. Non-owners
+  may reserve at most five pending invitations, and a declined, cancelled, or
+  expired invitation has a 12-hour Circle-wide cooldown before another member
+  can contact the same person again.
 - Codes use a 12-character human-safe alphabet, expire after 72 hours, are
-  owner-rotatable, and are stored only as a domain-separated keyed HMAC digest.
-  Raw codes are returned once and must not appear in URLs, logs, analytics, or
+  shared by the Circle, and are stored only as a domain-separated keyed HMAC
+  digest. Active members may re-read and share the current code; ensuring a
+  code is idempotent and does not invalidate one already being shared. Only the
+  canonical `one_location_circles.owner_user_id` may rotate or revoke it.
+  Legacy active codes that cannot be re-read require that explicit owner
+  rotation; a member read never invalidates them. Raw codes are returned with `private,
+  no-store` cache policy and must not appear in URLs, logs, analytics, or
   durable client storage.
+- Owner removal is a governance boundary: ordinary members cannot select,
+  invite, or restore a removed account. The owner may send a new targeted
+  invitation, and only that owner-authored acceptance may reactivate the
+  membership. Code join remains blocked for removed accounts.
 - Active co-membership makes two people connected and eligible to start an
   explicit share, but it is not location or Save My Soul authorization.
   Every share remains per-recipient, encrypted, duration-bounded, and
@@ -133,11 +146,27 @@ owner/link metadata plus the attached public location snapshot.
   removal, deletion, or account cleanup, a grant is reassigned to another
   active shared Circle, converted to direct provenance when a non-Circle
   connection survives, and revoked only when no eligible relationship remains.
+  Account reset/deletion locks affected Circles first, revokes each shared code,
+  and cancels invitations authored by the departing account before its
+  membership rows are erased.
+- Share and Check-In offer an explicit named-Circle target. Selecting one
+  snapshots that Circle's current active, recipient-key-ready members, excludes
+  the owner and setup-incomplete members with visible reasons, and still creates
+  one encrypted grant/envelope per selected person. It does not include people
+  who join after confirmation.
+- Save My Soul keeps the stricter durable `one_location_sms_contacts` boundary.
+  Choosing "Add Circle" in SMS contacts explicitly adds only the Circle's
+  current phone-verified, recipient-key-ready members as individual SMS
+  contacts. It never follows future membership automatically, and the user may
+  remove any person independently.
 - `connection_origins` records each independent direct, imported, legacy, or
   named-Circle source for a canonical connection. Leaving, removal, or Circle
   deletion revokes only the matching named-Circle origins and recomputes the
   canonical connection. A direct connection or another shared Circle keeps the
   pair connected.
+- A member leaving or being removed atomically revokes the shared bearer code
+  and cancels pending targeted invitations authored by that member. Remaining
+  members can ensure a fresh code without gaining any location or SMS authority.
 - Migration 118 backfills the same canonical connection and named-Circle origin
   for every active co-member pair from Circles created under migration 117, so
   rollout does not require members to leave and rejoin.
@@ -227,6 +256,12 @@ safe ids, actor ids, action type, expiry/countdown metadata, and `/one/location`
 navigation. They must not include coordinates, addresses, map previews,
 freshness trails, ciphertext, token values, or debug terminology.
 
+Pending targeted Circle-member invitations are also projected into the shared
+Consent Manager Requests read model as membership invitations with no consent
+scope or location capability. Consent Manager deep-links to the focused
+Location People invitation for Join/Decline; it must never route that row
+through generic location Allow/Don't allow actions.
+
 ## Retention Contract
 
 Expired or revoked One Location work is short-lived. Terminal grants, their
@@ -291,6 +326,13 @@ The implementation must prove:
   trusted edge, SMS selection, location grant, envelope, or capability
 - inviting an existing direct connection requires invitee acceptance before
   Circle membership
+- pending targeted Circle-member invitations appear once in Consent Manager
+  Requests without a location scope, capability, or generic access action
+- explicit Circle targets expand only the confirmed current roster; future
+  members are not auto-added, and every Share/Check-In grant remains
+  recipient-specific with exact Circle provenance
+- Save My Soul Circle bulk-add persists an explicit current-member SMS-contact
+  snapshot rather than treating membership as emergency-delivery authority
 - leave, removal, and deletion preserve direct and other-Circle connection
   origins
 - notification and audit metadata contain no coordinates

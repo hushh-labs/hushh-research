@@ -77,6 +77,7 @@ import {
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
 import {
+  isCircleMemberInviteConsent,
   isLocationConsent,
   locationConsentSummary,
   locationConsentWorkflowHref,
@@ -898,6 +899,7 @@ function ConsentEntryDetail({
   const locationHref = isLocationConsent(entry.metadata, entry.scope)
     ? normalizeInternalAppHref(locationConsentWorkflowHref(entry.metadata))
     : null;
+  const isCircleMemberInvite = isCircleMemberInviteConsent(entry.metadata);
 
   const approvedDurationLabel =
     formatDurationHours(selectedDuration) ||
@@ -1058,11 +1060,17 @@ function ConsentEntryDetail({
         ) : null}
         {locationHref ? (
           <SettingsRow
-            title="Location sharing"
-            description="Review this location request, active access, and expiry in Location."
+            title={isCircleMemberInvite ? "Circle invitation" : "Location sharing"}
+            description={
+              isCircleMemberInvite
+                ? "Open Location to review the Circle and choose Join or Decline. This invitation grants no location access."
+                : "Review this location request, active access, and expiry in Location."
+            }
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={locationHref}>Open Location</Link>
+                <Link href={locationHref}>
+                  {isCircleMemberInvite ? "Open invitation" : "Open Location"}
+                </Link>
               </Button>
             }
           />

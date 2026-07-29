@@ -476,22 +476,117 @@ class AccountService:
             return
 
         params = {"user_id": user_id}
-        circle_rows = (
+        member_invites_exist = self._table_exists(
+            conn,
+            "one_location_circle_member_invites",
+        )
+        # A shared bearer code may already be known by any departing member.
+        # Lock every active Circle in deterministic order, then revoke its code
+        # and cancel invitations authored by this account before membership
+        # rows are removed later in account cleanup. PostgreSQL is the shared
+        # coordination tier; this Circle-first seam can move to a distributed
+        # lock without changing account-deletion semantics.
+        circle_lock_query = (
+            text(
+                """
+                SELECT
+                  circle.id,
+                  circle.owner_user_id = :user_id AS is_owner,
+                  EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = :user_id
+                      AND membership.status = 'active'
+                  ) AS has_active_membership
+                FROM one_location_circles circle
+                WHERE circle.owner_user_id = :user_id
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_memberships membership
+                     WHERE membership.circle_id = circle.id
+                       AND membership.user_id = :user_id
+                       AND membership.status = 'active'
+                   )
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_member_invites member_invite
+                     WHERE member_invite.circle_id = circle.id
+                       AND (
+                         member_invite.inviter_user_id = :user_id
+                         OR member_invite.invitee_user_id = :user_id
+                       )
+                       AND member_invite.status = 'pending'
+                   )
+                ORDER BY circle.id
+                FOR UPDATE OF circle
+                """
+            )
+            if member_invites_exist
+            else text(
+                """
+                SELECT
+                  circle.id,
+                  circle.owner_user_id = :user_id AS is_owner,
+                  EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = :user_id
+                      AND membership.status = 'active'
+                  ) AS has_active_membership
+                FROM one_location_circles circle
+                WHERE circle.owner_user_id = :user_id
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_memberships membership
+                     WHERE membership.circle_id = circle.id
+                       AND membership.user_id = :user_id
+                       AND membership.status = 'active'
+                   )
+                ORDER BY circle.id
+                FOR UPDATE OF circle
+                """
+            )
+        )
+        departing_circle_rows = conn.execute(circle_lock_query, params).mappings().all()
+        departing_circle_ids = [
+            str(row.get("id") or "").strip()
+            for row in departing_circle_rows
+            if str(row.get("id") or "").strip()
+            and (bool(row.get("is_owner")) or bool(row.get("has_active_membership")))
+        ]
+        if departing_circle_ids:
             conn.execute(
                 text(
                     """
-                    SELECT id
-                    FROM one_location_circles
-                    WHERE owner_user_id = :user_id
-                    ORDER BY id
-                    FOR UPDATE
+                    UPDATE one_location_circle_invite_codes
+                    SET status = 'revoked', revoked_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id =
+                          ANY(CAST(:departing_circle_ids AS UUID[]))
+                      AND status = 'active'
+                    """
+                ),
+                {
+                    **params,
+                    "departing_circle_ids": departing_circle_ids,
+                },
+            )
+        if member_invites_exist:
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_member_invites
+                    SET status = 'cancelled', cancelled_at = NOW(),
+                        updated_at = NOW()
+                    WHERE inviter_user_id = :user_id
+                      AND status = 'pending'
                     """
                 ),
                 params,
             )
-            .mappings()
-            .all()
-        )
+        circle_rows = [row for row in departing_circle_rows if bool(row.get("is_owner"))]
         circle_ids = {
             str(row.get("id") or "").strip()
             for row in circle_rows

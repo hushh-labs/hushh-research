@@ -12,7 +12,7 @@ import os
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -373,9 +373,11 @@ def create_named_location_circle(
 @router.get("/location/circles/{circle_id}")
 def get_named_location_circle(
     circle_id: _CircleId,
+    response: Response,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
+        response.headers["Cache-Control"] = "private, no-store"
         return {
             "circle": _circle_service().get_circle(
                 user_id=_user_id(token_data),
@@ -392,20 +394,20 @@ def list_named_circle_eligible_connections(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        owner_user_id = _user_id(token_data)
+        actor_user_id = _user_id(token_data)
         service = _circle_service()
         return {
             "eligibleConnections": service.list_eligible_direct_connections(
-                owner_user_id=owner_user_id,
+                actor_user_id=actor_user_id,
                 circle_id=circle_id,
             ),
             "pendingInvites": service.list_member_invites(
-                user_id=owner_user_id,
+                user_id=actor_user_id,
                 circle_id=circle_id,
                 direction="outgoing",
             ),
             "remainingCapacity": service.get_remaining_invite_capacity(
-                owner_user_id=owner_user_id,
+                actor_user_id=actor_user_id,
                 circle_id=circle_id,
             ),
         }
@@ -458,14 +460,18 @@ def delete_named_location_circle(
 def create_named_location_circle_code(
     request: Request,
     circle_id: _CircleId,
+    response: Response,
+    rotate: bool = Query(default=False),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
     try:
+        response.headers["Cache-Control"] = "private, no-store"
         return {
             "inviteCode": _circle_service().create_invite_code(
-                owner_user_id=_user_id(token_data),
+                actor_user_id=_user_id(token_data),
                 circle_id=circle_id,
+                rotate=rotate,
             )
         }
     except Exception as exc:
@@ -573,12 +579,12 @@ def create_named_circle_member_invites(
 ):
     del request
     try:
-        owner_user_id = _user_id(token_data)
+        actor_user_id = _user_id(token_data)
         service = _circle_service()
         invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
         return {
             "invites": service.create_member_invites(
-                owner_user_id=owner_user_id,
+                actor_user_id=actor_user_id,
                 circle_id=str(payload.circle_id),
                 invitee_user_ids=invitee_user_ids,
             )["invites"]
@@ -652,7 +658,7 @@ def cancel_named_circle_member_invite(
     del request
     try:
         _circle_service().cancel_member_invite(
-            owner_user_id=_user_id(token_data),
+            actor_user_id=_user_id(token_data),
             invite_id=invite_id,
         )
         return {"cancelled": True}

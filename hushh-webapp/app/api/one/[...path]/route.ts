@@ -61,7 +61,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       signal: AbortSignal.timeout(ONE_API_TIMEOUT_MS),
     });
     const data = await response.json().catch(() => ({}));
-    return withRequestIdJson(requestId, data, { status: response.status });
+    const cacheControl = response.headers.get("cache-control");
+    return withRequestIdJson(requestId, data, {
+      status: response.status,
+      headers: cacheControl ? { "Cache-Control": cacheControl } : undefined,
+    });
   } catch (error) {
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(

@@ -30,6 +30,10 @@ import {
   emailHelperConsentSummary,
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
+import {
+  isCircleMemberInviteConsent,
+  locationConsentSummary,
+} from "@/lib/consent/location-consent";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -46,6 +50,8 @@ function entrySummary(entry: ConsentCenterEntry) {
   if (isEmailHelperConsent(entry.metadata))
     return emailHelperConsentSummary(entry.metadata);
   if (entry.kind === "connection_request") return "Wants to connect with you.";
+  if (isCircleMemberInviteConsent(entry.metadata))
+    return locationConsentSummary(entry.metadata);
   if (entry.kind === "invite")
     return "Invitation waiting for investor approval.";
   if (entry.additional_access_summary) return entry.additional_access_summary;

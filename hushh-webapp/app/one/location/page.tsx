@@ -186,6 +186,11 @@ import type {
 } from "@/lib/one-location/types";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
+  mergeRecipientsByUserId,
+  resolveCircleRecipientSelection,
+  type CircleRecipientSelection,
+} from "@/lib/one-location/circle-recipient-selection";
+import {
   addRecentDestination,
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
@@ -201,7 +206,10 @@ import {
   type ConnectionSummaryEntry,
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
+} from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
@@ -292,7 +300,9 @@ type BusyState =
   | "circleRevoke"
   | "namedCircle"
   | "circleMemberInvite"
+  | "shareCircle"
   | `sms-contact:${string}`
+  | `sms-circle:${string}`
   | null;
 
 type OneLocationSelectionSurface =
@@ -1770,8 +1780,13 @@ export function OneLocationAgentPageContent({
   const circleMemberInviteRequestRef = useRef(0);
   const [namedCircleShareContext, setNamedCircleShareContext] = useState<{
     circleId: string;
-    recipientUserId: string;
+    circleName: string;
+    recipientUserIds: string[];
   } | null>(null);
+  const [
+    selectedShareCircleSelection,
+    setSelectedShareCircleSelection,
+  ] = useState<CircleRecipientSelection | null>(null);
   const [locationWorkspace, setLocationWorkspace] =
     useState<LocationWorkspaceMemory>(() =>
       readLocationWorkspaceMemory(auth.userId),
@@ -1941,6 +1956,16 @@ export function OneLocationAgentPageContent({
       ),
     [contactMatchedUserIds, contactSignalRecipients],
   );
+  const shareRecipientPool = useMemo(
+    () =>
+      mergeRecipientsByUserId(
+        rankedRecipients,
+        (selectedShareCircleSelection?.ready ?? []).map(
+          (target) => target.recipient,
+        ),
+      ),
+    [rankedRecipients, selectedShareCircleSelection],
+  );
   const visibleRecipients = useMemo(() => {
     const query = recipientSearch.trim().toLowerCase();
     if (!query) return rankedRecipients;
@@ -1965,8 +1990,8 @@ export function OneLocationAgentPageContent({
   }, [recipientSearch]);
   const selectedShareRecipients = useMemo(
     () =>
-      recipientSelectionFromIds(contactSignalRecipients, selectedRecipientIds),
-    [contactSignalRecipients, selectedRecipientIds],
+      recipientSelectionFromIds(shareRecipientPool, selectedRecipientIds),
+    [selectedRecipientIds, shareRecipientPool],
   );
   const shareReadySelectedRecipients = useMemo(
     () => selectedShareRecipients.filter(isShareReadyRecipient),
@@ -2949,6 +2974,7 @@ export function OneLocationAgentPageContent({
     setSelectedRecipientIds([]);
     setShareReviewOpen(false);
     setNamedCircleShareContext(null);
+    setSelectedShareCircleSelection(null);
   }, []);
   const resetRequestComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
@@ -2967,6 +2993,8 @@ export function OneLocationAgentPageContent({
       return;
     setBusy("share");
     let successCount = 0;
+    let recipientFailureCount = 0;
+    let lastRecipientError: unknown = null;
     try {
       const readiness = await ensureForegroundLocationReady({
         capturePoint: true,
@@ -2977,35 +3005,48 @@ export function OneLocationAgentPageContent({
       }
       const point = readiness.point;
       for (const recipient of shareReadySelectedRecipients) {
-        const grant = await OneLocationService.createGrant({
-          vaultOwnerToken,
-          recipientUserId: recipient.userId,
-          recipientKeyId: recipient.keyId,
-          durationHours: Number(durationHours),
-          sourceCircleId:
-            namedCircleShareContext &&
-            shareReadySelectedRecipients.length === 1 &&
-            namedCircleShareContext.recipientUserId === recipient.userId
-              ? namedCircleShareContext.circleId
-              : undefined,
-        });
-        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-        successCount += 1;
+        try {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: Number(durationHours),
+            sourceCircleId:
+              namedCircleShareContext &&
+              namedCircleShareContext.recipientUserIds.includes(recipient.userId)
+                ? namedCircleShareContext.circleId
+                : undefined,
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          successCount += 1;
+        } catch (error) {
+          recipientFailureCount += 1;
+          lastRecipientError = error;
+        }
+      }
+      if (!successCount && lastRecipientError) {
+        throw lastRecipientError;
       }
       trackEvent("one_location_share_confirmed", {
         route_id: "one_location",
-        result: oneLocationEventResult(successCount, 0),
+        result: oneLocationEventResult(successCount, recipientFailureCount),
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
-        failure_count: 0,
+        failure_count: recipientFailureCount,
         duration_bucket: oneLocationDurationBucket(durationHours),
         review_required: shareReviewOpen,
       });
-      toast.success(
-        `Location shared with ${peopleCountLabel(
-          shareReadySelectedRecipients.length,
-        )}.`,
-      );
+      if (recipientFailureCount) {
+        toast.warning(
+          `Location shared with ${peopleCountLabel(successCount)}. ${recipientFailureCount} ${
+            recipientFailureCount === 1 ? "person was" : "people were"
+          } no longer ready.`,
+        );
+      } else {
+        toast.success(
+          `Location shared with ${peopleCountLabel(successCount)}.`,
+        );
+      }
       resetShareComposer();
       // Signal the redesign hub to close the 3-step share flow and return to
       // the main One Location screen now that sharing finished.
@@ -3013,7 +3054,9 @@ export function OneLocationAgentPageContent({
       await refresh();
     } catch (error) {
       const failureCount =
-        shareReadySelectedRecipients.length - successCount || 1;
+        recipientFailureCount ||
+        shareReadySelectedRecipients.length - successCount ||
+        1;
       trackEvent("one_location_share_confirmed", {
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
@@ -3142,6 +3185,89 @@ export function OneLocationAgentPageContent({
       }
     },
     [auth.userId, busy, refresh, vaultOwnerToken],
+  );
+
+  const handleAddSmsCircle = useCallback(
+    async (circleId: string) => {
+      if (!auth.userId || !vaultOwnerToken || busy) return;
+      setBusy(`sms-circle:${circleId}`);
+      try {
+        const circle = await OneLocationService.getCircle({
+          vaultOwnerToken,
+          circleId,
+        });
+        const selection = resolveCircleRecipientSelection({
+          circle,
+          currentUserId: auth.userId,
+          requirePhoneVerified: true,
+        });
+        const alreadySelected = new Set(smsContactUserIds);
+        const targets = selection.ready.filter(
+          (target) => !alreadySelected.has(target.recipient.userId),
+        );
+        if (!targets.length) {
+          toast.message(
+            selection.ready.length
+              ? `${selection.circle.name} is already in your SMS contacts.`
+              : `${selection.circle.name} has no members ready for SMS yet.`,
+          );
+          return;
+        }
+
+        const results = await Promise.allSettled(
+          targets.map((target) =>
+            OneLocationService.addSmsContact({
+              vaultOwnerToken,
+              recipientUserId: target.recipient.userId,
+            }),
+          ),
+        );
+        const addedUserIds = targets
+          .filter((_, index) => results[index]?.status === "fulfilled")
+          .map((target) => target.recipient.userId);
+        const failedCount = targets.length - addedUserIds.length;
+
+        if (addedUserIds.length) {
+          OneLocationStateResource.replaceSmsContactUserIds(auth.userId, [
+            ...new Set([...smsContactUserIds, ...addedUserIds]),
+          ]);
+        }
+        await refresh({ background: true });
+
+        const unavailableCount = selection.excluded.filter(
+          (item) => item.reason !== "self",
+        ).length;
+        if (failedCount) {
+          toast.error(
+            `Added ${addedUserIds.length} of ${targets.length} Circle members. ${failedCount} could not be added.`,
+          );
+        } else {
+          toast.success(
+            `Added ${peopleCountLabel(addedUserIds.length)} from ${selection.circle.name}${
+              unavailableCount
+                ? `; ${unavailableCount} not ready and left out`
+                : ""
+            }.`,
+          );
+        }
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not add this Circle to SMS contacts.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      auth.userId,
+      busy,
+      refresh,
+      smsContactUserIds,
+      vaultOwnerToken,
+    ],
   );
 
   const handleRemoveSmsContact = useCallback(
@@ -4265,6 +4391,72 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
+  const handleResolveNamedCircleRecipients = useCallback(
+    async (
+      circleId: string,
+      purpose: "location" | "sms" = "location",
+    ): Promise<CircleRecipientSelection> => {
+      const circle = await handleLoadNamedCircle(circleId);
+      return resolveCircleRecipientSelection({
+        circle,
+        currentUserId: auth.userId,
+        requirePhoneVerified: purpose === "sms",
+      });
+    },
+    [auth.userId, handleLoadNamedCircle],
+  );
+
+  const handleSelectNamedCircleForShare = useCallback(
+    async (circleId: string) => {
+      if (
+        selectedShareCircleSelection?.circle.id === circleId
+      ) {
+        setSelectedShareCircleSelection(null);
+        setNamedCircleShareContext(null);
+        setSelectedRecipientId("");
+        setSelectedRecipientIds([]);
+        setShareReviewOpen(false);
+        return;
+      }
+
+      setBusy("shareCircle");
+      try {
+        const selection =
+          await handleResolveNamedCircleRecipients(circleId, "location");
+        const recipientUserIds = selection.ready.map(
+          (target) => target.recipient.userId,
+        );
+        if (!recipientUserIds.length) {
+          throw new Error(
+            "No current Circle members are ready to receive encrypted location.",
+          );
+        }
+        setSelectedShareCircleSelection(selection);
+        setNamedCircleShareContext({
+          circleId: selection.circle.id,
+          circleName: selection.circle.name,
+          recipientUserIds,
+        });
+        setSelectedRecipientId(recipientUserIds[0] ?? "");
+        setSelectedRecipientIds(recipientUserIds);
+        setShareReviewOpen(false);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not load this Circle for sharing.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      handleResolveNamedCircleRecipients,
+      selectedShareCircleSelection?.circle.id,
+    ],
+  );
+
   const handleCreateNamedCircle = useCallback(
     async (
       name: string,
@@ -4374,7 +4566,10 @@ export function OneLocationAgentPageContent({
   );
 
   const handleGenerateNamedCircleCode = useCallback(
-    async (circleId: string): Promise<OneLocationCircleInviteCode> => {
+    async (
+      circleId: string,
+      rotate = false,
+    ): Promise<OneLocationCircleInviteCode> => {
       if (!vaultOwnerToken) throw new Error("Unlock One before inviting people.");
       setBusy("namedCircle");
       try {
@@ -4382,8 +4577,9 @@ export function OneLocationAgentPageContent({
           await OneLocationService.createNamedCircleInviteCode({
             vaultOwnerToken,
             circleId,
+            rotate,
           });
-        toast.success("Invite code ready.");
+        toast.success(rotate ? "Invite code rotated." : "Invite code ready.");
         return inviteCode;
       } catch (error) {
         throw new Error(
@@ -4510,6 +4706,11 @@ export function OneLocationAgentPageContent({
         setIncomingCircleMemberInvites((current) =>
           current.filter((invite) => invite.id !== inviteId),
         );
+        dispatchConsentStateChanged({
+          action: "circle_member_invite_accepted",
+          inviteId,
+          source: "one_location_circle_member_invite",
+        });
         scheduleNamedCircleStateRefresh();
         toast.success(`Joined ${circle.name}.`);
       } catch (error) {
@@ -4542,6 +4743,11 @@ export function OneLocationAgentPageContent({
         setIncomingCircleMemberInvites((current) =>
           current.filter((invite) => invite.id !== inviteId),
         );
+        dispatchConsentStateChanged({
+          action: "circle_member_invite_declined",
+          inviteId,
+          source: "one_location_circle_member_invite",
+        });
         toast.success("Circle invitation declined.");
       } catch (error) {
         throw new Error(
@@ -4629,16 +4835,24 @@ export function OneLocationAgentPageContent({
 
   const prepareNamedCircleShare = useCallback(
     (circleId: string, recipientUserId: string) => {
-      setNamedCircleShareContext({ circleId, recipientUserId });
+      setSelectedShareCircleSelection(null);
+      setNamedCircleShareContext({
+        circleId,
+        circleName:
+          namedCircles.find((circle) => circle.id === circleId)?.name ??
+          "Circle",
+        recipientUserIds: [recipientUserId],
+      });
       setSelectedRecipientId(recipientUserId);
       setSelectedRecipientIds([recipientUserId]);
       setShareReviewOpen(false);
     },
-    [],
+    [namedCircles],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
     setNamedCircleShareContext(null);
+    setSelectedShareCircleSelection(null);
   }, []);
 
   const handleRevokePublicInvite = useCallback(
@@ -4905,18 +5119,10 @@ export function OneLocationAgentPageContent({
       recipientIds: string[],
       durationHoursValue: string,
       messageValue?: string,
+      sourceCircleId?: string | null,
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to check in.");
-        return;
-      }
-      const selected = sosActionRecipients
-        .filter((recipient) => recipientIds.includes(recipient.userId))
-        .filter(isShareReadyRecipient);
-      if (!selected.length) {
-        toast.error(
-          "Select at least one trusted contact who is ready to receive your location.",
-        );
         return;
       }
       // The check-in note rides along as the grant reason so it surfaces in the
@@ -4926,7 +5132,35 @@ export function OneLocationAgentPageContent({
         (messageValue || "").trim().slice(0, 160) || undefined;
       setBusy("share");
       let successCount = 0;
+      let recipientFailureCount = 0;
+      let lastRecipientError: unknown = null;
+      let selected: ShareReadyRecipient[] = [];
       try {
+        const circleSelection = sourceCircleId
+          ? await handleResolveNamedCircleRecipients(
+              sourceCircleId,
+              "location",
+            )
+          : null;
+        const circleRecipientIds = new Set(
+          (circleSelection?.ready ?? []).map(
+            (target) => target.recipient.userId,
+          ),
+        );
+        selected = mergeRecipientsByUserId(
+          sosActionRecipients,
+          (circleSelection?.ready ?? []).map(
+            (target) => target.recipient,
+          ),
+        )
+          .filter((recipient) => recipientIds.includes(recipient.userId))
+          .filter(isShareReadyRecipient);
+        if (!selected.length) {
+          toast.error(
+            "Select at least one trusted contact who is ready to receive your location.",
+          );
+          return;
+        }
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
@@ -4938,32 +5172,53 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const durationHoursNum = Number(durationHoursValue) || 1;
         for (const recipient of selected) {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
-            durationHours: durationHoursNum,
-            reason: checkInMessage,
-          });
-          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-          successCount += 1;
+          try {
+            const grant = await OneLocationService.createGrant({
+              vaultOwnerToken,
+              recipientUserId: recipient.userId,
+              recipientKeyId: recipient.keyId,
+              durationHours: durationHoursNum,
+              reason: checkInMessage,
+              sourceCircleId:
+                sourceCircleId && circleRecipientIds.has(recipient.userId)
+                  ? sourceCircleId
+                  : undefined,
+            });
+            await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+            successCount += 1;
+          } catch (error) {
+            recipientFailureCount += 1;
+            lastRecipientError = error;
+          }
+        }
+        if (!successCount && lastRecipientError) {
+          throw lastRecipientError;
         }
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",
-          result: oneLocationEventResult(successCount, 0),
+          result: oneLocationEventResult(successCount, recipientFailureCount),
           selected_count: selected.length,
           success_count: successCount,
-          failure_count: 0,
+          failure_count: recipientFailureCount,
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
         });
-        toast.success(`Checked in with ${peopleCountLabel(selected.length)}.`);
+        if (recipientFailureCount) {
+          toast.warning(
+            `Checked in with ${peopleCountLabel(successCount)}. ${recipientFailureCount} ${
+              recipientFailureCount === 1 ? "person was" : "people were"
+            } no longer ready.`,
+          );
+        } else {
+          toast.success(`Checked in with ${peopleCountLabel(successCount)}.`);
+        }
         // Closes the Check-In flow and returns to the hub (same signal the
         // share flow uses).
         setShareCompletedTick((value) => value + 1);
         await refresh();
       } catch (error) {
-        const failureCount = selected.length - successCount || 1;
+        const failureCount =
+          recipientFailureCount || selected.length - successCount || 1;
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
@@ -4985,6 +5240,7 @@ export function OneLocationAgentPageContent({
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
+      handleResolveNamedCircleRecipients,
       publishEnvelopeWithRetry,
       refresh,
     ],
@@ -5917,8 +6173,9 @@ export function OneLocationAgentPageContent({
     permissionIsPrompt: permission?.state === "prompt",
     myLocationPoint,
     myLocationError,
-    recipients: rankedRecipients,
+    recipients: shareRecipientPool,
     circles: namedCircles,
+    selectedShareCircleSelection,
     incomingCircleMemberInvites,
     incomingCircleMemberInvitesLoading,
     incomingCircleMemberInvitesError,
@@ -5952,6 +6209,8 @@ export function OneLocationAgentPageContent({
     setRequestMessage,
     setShareReviewOpen,
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
+    onSelectShareCircle: handleSelectNamedCircleForShare,
+    onResolveNamedCircleRecipients: handleResolveNamedCircleRecipients,
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
     onRefresh: () => void refresh(),
     onShowMyLocation: () => void handleShowMyLiveLocation(),
@@ -6028,9 +6287,20 @@ export function OneLocationAgentPageContent({
     onStopSos: handleStopSos,
     onAddSmsContact: (recipientUserId) =>
       void handleAddSmsContact(recipientUserId),
+    onAddSmsCircle: handleAddSmsCircle,
     onRemoveSmsContact: handleRemoveSmsContact,
-    onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
-      void handleCheckIn(recipientIds, durationHoursValue, messageValue),
+    onCheckIn: (
+      recipientIds,
+      durationHoursValue,
+      messageValue,
+      sourceCircleId,
+    ) =>
+      void handleCheckIn(
+        recipientIds,
+        durationHoursValue,
+        messageValue,
+        sourceCircleId,
+      ),
   };
 
   // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in

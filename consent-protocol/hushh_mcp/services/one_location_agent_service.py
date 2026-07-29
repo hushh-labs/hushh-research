@@ -4553,12 +4553,14 @@ class OneLocationAgentService:
                 exc,
             )
             recipients = []
+        circle_service = None
         try:
             from hushh_mcp.services.one_location_circle_service import (
                 OneLocationCircleService,
             )
 
-            named_circles = OneLocationCircleService().list_circles(user_id=user_id)
+            circle_service = OneLocationCircleService()
+            named_circles = circle_service.list_circles(user_id=user_id)
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
             logger.warning(
                 "one_location.list_state.named_circles_failed user=%s error=%s",
@@ -4566,6 +4568,21 @@ class OneLocationAgentService:
                 exc,
             )
             named_circles = []
+        try:
+            circle_member_invites = (
+                circle_service or OneLocationCircleService()
+            ).list_member_invites(
+                user_id=user_id,
+                direction="incoming",
+                expire_stale=not read_only_state,
+            )
+        except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            logger.warning(
+                "one_location.list_state.circle_member_invites_failed user=%s error=%s",
+                redact_log_field("user_id", user_id),
+                exc,
+            )
+            circle_member_invites = []
         owner_grants = _safe_many(
             "owner_grants",
             """
@@ -4783,6 +4800,7 @@ class OneLocationAgentService:
                     )
                 )
             ],
+            "circleMemberInvites": circle_member_invites,
             "networkConnections": [
                 payload
                 for row in network_connections

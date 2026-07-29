@@ -64,6 +64,11 @@ REQUIRED_RUNTIME_TABLES = (
     "runtime_persona_state",
     "ria_pick_uploads",
     "ria_pick_upload_rows",
+    "one_location_circles",
+    "one_location_circle_memberships",
+    "one_location_circle_invite_codes",
+    "connection_origins",
+    "one_location_circle_member_invites",
 )
 
 
