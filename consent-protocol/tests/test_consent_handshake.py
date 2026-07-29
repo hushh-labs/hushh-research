@@ -685,6 +685,48 @@ def test_cancel_consent_records_event(monkeypatch):
     assert len(cancelled) == 1
 
 
+def test_cancel_consent_route_rolls_back_pending_without_active_token(monkeypatch):
+    """POST /api/consent/cancel reaches the canonical route and closes the request."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    fake_db._add_pending(
+        "req_cancel_boundary",
+        {
+            "request_id": "req_cancel_boundary",
+            "agent_id": "ria:profile_cancel",
+            "scope": "attr.financial.*",
+            "metadata": {
+                "requester_actor_type": "ria",
+                "requester_entity_id": "profile_cancel",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/cancel",
+        json={"userId": "investor_1", "requestId": "req_cancel_boundary"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
+    assert "req_cancel_boundary" not in fake_db.pending
+    assert fake_db.active == {}
+
+    cancelled = [e for e in fake_db.events if e["action"] == "CANCELLED"]
+    assert len(cancelled) == 1
+    assert cancelled[0]["request_id"] == "req_cancel_boundary"
+
+    retry = client.post(
+        "/api/consent/pending/approve",
+        json={"userId": "investor_1", "requestId": "req_cancel_boundary"},
+    )
+    assert retry.status_code == 404
+
+
 def test_no_data_access_before_approved_consent(monkeypatch):
     """
     Core invariant: consent/data endpoint rejects requests with no valid token.
