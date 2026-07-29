@@ -31,7 +31,7 @@ export async function GET(
         return NextResponse.json(errorJson, { status: response.status });
       } catch (_e) {
         return NextResponse.json(
-          { error: "Backend error", details: errorText },
+          { error: "Backend error" },
           { status: response.status }
         );
       }
@@ -42,7 +42,7 @@ export async function GET(
   } catch (error) {
     console.error("[Investors Proxy] Get error:", error);
     return NextResponse.json(
-      { error: "Failed to get investor", details: String(error) },
+      { error: "Failed to get investor" },
       { status: 500 }
     );
   }
