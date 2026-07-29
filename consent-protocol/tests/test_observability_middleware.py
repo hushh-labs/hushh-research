@@ -156,3 +156,34 @@ def test_malformed_request_id_header_is_replaced_with_fresh_id():
 )
 def test_status_bucket_parametrized(method, route, status, expected_bucket):
     assert _status_bucket(method, route, status) == expected_bucket
+
+
+def test_untrusted_user_agent_headers_do_not_change_trace_metadata_contract():
+    client = TestClient(_build_app())
+    untrusted_user_agent_headers = [
+        {"User-Agent": '{"profile":{"browser":{"name":"nested","tags":["bad"]}}}'},
+        {"User-Agent": '["unterminated-json-array"'},
+        {"User-Agent": ""},
+        {"User-Agent": "   "},
+        {},
+    ]
+
+    for headers in untrusted_user_agent_headers:
+        response = client.get(
+            "/metadata",
+            headers={
+                **headers,
+                REQUEST_ID_HEADER: "req_safe_telemetry_123",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["request_id"] == "req_safe_telemetry_123"
+        assert body["method"] == "GET"
+        assert body["route_template"] == "/metadata"
+
+        assert "user_agent" not in body
+        assert "profile" not in body
+        assert "browser" not in body
+        assert get_request_trace_metadata() is None
