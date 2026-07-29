@@ -181,11 +181,12 @@ function AppShellFrame({ children }: ProvidersProps) {
           "calc(var(--top-shell-reserved-height) + var(--top-fade-active))",
         "--top-shell-h": "var(--top-shell-reserved-height)",
         "--top-glass-h": "var(--top-shell-visual-height)",
-        // The mask owns the entire resolved shell plus a context-sensitive tail.
-        // Contextual tabs need a longer dissolve below their underline than a
-        // bar-only route, otherwise the tab row reads as a hard crop on scroll.
-        "--top-fade-active": topShellMetrics.hasTabs ? "64px" : "42px",
-        "--top-ambient-tab-tail-midpoint": "32px",
+        // The mask owns the entire resolved shell plus a short,
+        // context-sensitive tail. Tabs stay fully solid through their
+        // underline, but the dissolve must finish before the first bounded
+        // route surface so its text remains readable.
+        "--top-fade-active": topShellMetrics.hasTabs ? "24px" : "42px",
+        "--top-ambient-tab-tail-midpoint": "12px",
         "--top-content-pad":
           "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",

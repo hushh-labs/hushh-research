@@ -188,9 +188,12 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
-    The top mask height is the currently visible shell height plus a
+    The top mask height is the currently visible shell height plus a short,
     mode-specific tail: `bar-with-tabs` stays solid through the visible tab
-    underline and its dissolve moves with partial or full header collapse.
+    underline and its dissolve moves with partial or full header collapse,
+    then ends before the first bounded route surface. Tabbed managers may use
+    a positive route-local body offset when they need additional reading space;
+    they must not compensate with a second mask or route-local gradient.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
     by the live hidden navigation travel while retaining the Agent Bar tail, then renders the

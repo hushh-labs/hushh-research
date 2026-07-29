@@ -44,13 +44,13 @@ describe("navigation routes", () => {
     );
   });
 
-  it("keeps runtime-configured CRM selection on the static connected-systems route", () => {
+  it("uses the canonical nested route for a selected CRM", () => {
     expect(buildConnectedSystemRoute("customer crm")).toBe(
-      "/one/connected-systems?system=customer+crm",
+      "/one/connected-systems/customer%20crm",
     );
     expect(
       buildConnectedSystemRoute("customer-crm", { agentActionId: "crm_123" }),
-    ).toBe("/one/connected-systems?system=customer-crm&agentActionId=crm_123");
+    ).toBe("/one/connected-systems/customer-crm?agentActionId=crm_123");
   });
 
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
@@ -69,7 +69,9 @@ describe("navigation routes", () => {
       panel: "security",
     });
 
-    expect(buildProfileRoute({ panel: "account" })).toBe("/one/profile/account");
+    expect(buildProfileRoute({ panel: "account" })).toBe(
+      "/one/profile/account",
+    );
     expect(buildProfileRoute({ panel: "account", detail: "phone" })).toBe(
       "/one/profile/account/phone",
     );
@@ -120,7 +122,10 @@ describe("navigation routes", () => {
       resolveProfileRouteState("/one/profile/my-data/domain", "key=finance"),
     ).toEqual({ panel: "my-data", detail: "domain:finance" });
     expect(
-      resolveProfileRouteState("/one/profile", "tab=privacy&detail=connection:abc"),
+      resolveProfileRouteState(
+        "/one/profile",
+        "tab=privacy&detail=connection:abc",
+      ),
     ).toEqual({ panel: "access", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
       panel: "regulatory",
@@ -133,7 +138,10 @@ describe("navigation routes", () => {
       ),
     ).toBe("/one/profile/support/routing");
     expect(
-      buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=regulatory"),
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=regulatory",
+      ),
     ).toBe("/one/profile/regulatory");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
@@ -325,18 +333,16 @@ describe("navigation routes", () => {
     expect(
       isCompletedLocationWorkspaceRoute(["location"], "/one/location/invite"),
     ).toBe(true);
-    expect(
-      isCompletedLocationWorkspaceRoute(["gmail"], "/one/location"),
-    ).toBe(false);
-    expect(
-      isCompletedLocationWorkspaceRoute(["unknown"], "/one/location"),
-    ).toBe(false);
-    expect(isCompletedLocationWorkspaceRoute([], "/one/location")).toBe(
+    expect(isCompletedLocationWorkspaceRoute(["gmail"], "/one/location")).toBe(
       false,
     );
     expect(
-      isCompletedLocationWorkspaceRoute(["gmail"], "/one/gmail"),
+      isCompletedLocationWorkspaceRoute(["unknown"], "/one/location"),
     ).toBe(false);
+    expect(isCompletedLocationWorkspaceRoute([], "/one/location")).toBe(false);
+    expect(isCompletedLocationWorkspaceRoute(["gmail"], "/one/gmail")).toBe(
+      false,
+    );
   });
 
   it("reopens completed Location setup on the main Location workspace", () => {

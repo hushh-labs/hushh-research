@@ -879,7 +879,7 @@
   {
     "route": "/one/consent",
     "mode": "standard",
-    "pageTopLocalOffset": "-38px",
+    "pageTopLocalOffset": "16px",
     "shellVerification": {
       "file": "app/one/consent/page.tsx",
       "includes": [

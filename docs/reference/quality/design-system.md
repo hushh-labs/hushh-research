@@ -270,3 +270,11 @@ Counterparty identity media uses the supplied image when available; the fallback
 is a compact type-specific glyph with initials inside a token-based, theme-safe
 well. Do not use light-only hard-coded brand hues, favicon inference, or status
 color as the sole identifier.
+
+CRM field editors use one responsive table surface beneath a `SectionHeader`;
+do not wrap that table in a second settings card. Its field/value columns must
+fit the route width without horizontal action-column scrolling, and editable
+rows use a compact trailing edit control. While an explicit record refresh is
+in flight, withhold the editable values until the read settles. A destructive
+record action is one red control beside its concise section heading—never a
+second leading trash icon or a wrapping raw record identifier.

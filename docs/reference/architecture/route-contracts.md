@@ -77,6 +77,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/access`
 - `/one/profile/access/connection?id=<connection_id>`
 - `/one/profile/connected-systems`
+- `/one/connected-systems`
+- `/one/connected-systems/[systemId]`
 - `/one/profile/gmail`
 - `/one/profile/gmail/connection`
 - `/one/profile/gmail/actions`

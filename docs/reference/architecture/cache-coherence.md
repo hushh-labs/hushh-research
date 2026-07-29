@@ -180,7 +180,9 @@ Do:
   current-session record immediately, then re-read it silently after binding and
   schema authority settle. Record values, binding IDs, and staged changes never
   enter the device cache; only safe registry and normalized schema metadata may
-  provide a cold-start render.
+  provide a cold-start render. An explicit CRM record refresh may keep the
+  route ready, but its editable field table stays withheld until that read
+  settles so a person never edits values known to be in flight.
 - FCM consent request, resolution, and connection events must invalidate the
   canonical in-memory consent cache and trigger one retained-data background
   refresh for an open Consent Center. When push is unavailable, the visible

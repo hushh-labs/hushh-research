@@ -22,12 +22,27 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
     expect(styles).toContain("--ambient-chrome-top-visible-height");
     expect(styles).toContain("var(--top-fade-active)");
+    expect(providers).toContain(
+      '"--top-fade-active": topShellMetrics.hasTabs ? "24px" : "42px"',
+    );
+    expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "12px"');
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
     );
     expect(providers).toContain('"--top-shell-reserved-height":');
     expect(providers).toContain('"--top-shell-visual-height":');
     expect(providers).toContain('"--top-tabs-total",');
+  });
+
+  it("keeps the Consent bounded manager clear of the tab-mask tail", () => {
+    const routeLayout = JSON.parse(
+      read("lib/navigation/app-route-layout.contract.json"),
+    ) as Array<{ route?: string; pageTopLocalOffset?: string }>;
+    const consentRoute = routeLayout.find(
+      (entry) => entry.route === "/one/consent",
+    );
+
+    expect(consentRoute?.pageTopLocalOffset).toBe("16px");
   });
 
   it("samples past the content-facing mask edge instead of sampling chrome", () => {
