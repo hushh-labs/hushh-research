@@ -99,14 +99,28 @@ export async function consumeCanonicalKaiStream(
     buffer = parsed.remainder;
 
     for (const frame of parsed.events) {
-      const raw = JSON.parse(frame.data) as unknown;
+      let raw: unknown;
+
+      try {
+        raw = JSON.parse(frame.data);
+      } catch (err) {
+        console.warn(
+          "[kai-stream] Skipping malformed SSE frame — JSON.parse failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+        continue;
+      }
+
       if (!isKaiStreamEnvelope(raw)) {
         throw new Error("Invalid stream envelope received");
       }
+
       if (raw.event !== frame.event) {
         throw new Error("SSE event mismatch between frame and envelope");
       }
+
       onEnvelope(raw);
+
       if (raw.terminal) {
         sawTerminal = true;
       }
@@ -115,15 +129,30 @@ export async function consumeCanonicalKaiStream(
 
   if (buffer.trim()) {
     const parsed = parseSSEBlocks("\n\n", buffer);
+
     for (const frame of parsed.events) {
-      const raw = JSON.parse(frame.data) as unknown;
+      let raw: unknown;
+
+      try {
+        raw = JSON.parse(frame.data);
+      } catch (err) {
+        console.warn(
+          "[kai-stream] Skipping malformed SSE frame (flush) — JSON.parse failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+        continue;
+      }
+
       if (!isKaiStreamEnvelope(raw)) {
         throw new Error("Invalid stream envelope received");
       }
+
       if (raw.event !== frame.event) {
         throw new Error("SSE event mismatch between frame and envelope");
       }
+
       onEnvelope(raw);
+
       if (raw.terminal) {
         sawTerminal = true;
       }
