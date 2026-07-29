@@ -40,9 +40,9 @@ describe("resolveSlowRequestTimeoutMs", () => {
     expect(resolveSlowRequestTimeoutMs(20_000)).toBe(20_000);
   });
 
-  it("honors explicit timeout overrides", () => {
+    it("honors timeout overrides with surrounding whitespace", () => {
     process.env.NEXT_PUBLIC_APP_ENV = "development";
-    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = "33000";
+    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = " 33000 ";
 
     expect(resolveSlowRequestTimeoutMs(20_000)).toBe(33_000);
   });
