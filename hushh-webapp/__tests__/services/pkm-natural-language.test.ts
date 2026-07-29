@@ -90,4 +90,24 @@ describe("pkm natural-language helpers", () => {
       }),
     ]);
   });
+
+  it("normalizes primaryJsonPath casing when building readable metadata sections", () => {
+    const upperCasePath = buildReadablePkmMetadata({
+      domainKey: "profile",
+      domainDisplayName: "Profile",
+      primaryJsonPath: "USER_ID",
+      createdAt: "2026-06-11T00:00:00Z",
+    });
+
+    const lowerCasePath = buildReadablePkmMetadata({
+      domainKey: "profile",
+      domainDisplayName: "Profile",
+      primaryJsonPath: "user_id",
+      createdAt: "2026-06-11T00:00:00Z",
+    });
+
+    expect(upperCasePath).toEqual(lowerCasePath);
+    expect(upperCasePath.readable_highlights).toContain("User Id");
+    expect(upperCasePath.readable_event_summary).toBe("Updated Profile across User Id.");
+  });
 });
