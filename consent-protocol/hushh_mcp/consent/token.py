@@ -189,7 +189,21 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
 # ========== Token Verifier ==========
 
 
-def validate_token(
+def validate_token(allowed_scopes = payload.get(
+    "allowed_scopes",
+    [],
+)
+
+if (
+    expected_scope is not None
+    and str(expected_scope)
+    not in allowed_scopes
+):
+    return (
+        False,
+        "Requested scope not allowed",
+        None,
+    )
     token_str: str,
     expected_scope: Optional[Union[str, ConsentScope]] = None,
     *,
