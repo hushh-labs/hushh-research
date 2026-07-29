@@ -160,10 +160,34 @@ vi.mock("@/lib/services/consent-center-service", () => ({
 }));
 
 function installDesktopMediaQuery() {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 1024,
+  });
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
       matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
+function installMobileMediaQuery() {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 390,
+  });
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("max-width"),
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -515,13 +539,29 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.getByText("Shopping receipts")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
-    const requestDetails = screen.getByText("Request details");
-    const decision = screen.getByText("Your decision");
-    expect(
-      requestDetails.compareDocumentPosition(decision) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.getByText("Contact")).toBeTruthy();
+    expect(screen.queryByText("Request details")).toBeNull();
+    expect(screen.queryByLabelText("Close detail panel")).toBeNull();
     expect(screen.queryByText("Technical details")).toBeNull();
+  });
+
+  it("uses the canonical no-X mobile decision sheet", async () => {
+    installMobileMediaQuery();
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findByRole("dialog", { name: "Macy's CRM" }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-slot="sheet-drag-handle"]'),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByLabelText("Close detail panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("uses connection actions without showing an ignored access duration", async () => {
@@ -550,7 +590,8 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Connection request")).toBeTruthy();
+    await screen.findByText("Relationship");
+    expect(screen.queryByText("Connection request")).toBeNull();
     expect(screen.getByText("Relationship")).toBeTruthy();
     expect(screen.getAllByText("Trusted connection").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
@@ -624,9 +665,8 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     await screen.findByText("Access history");
 
-    const closeButton = screen.getByRole("button", { name: /close/i });
     await act(async () => {
-      closeButton.click();
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     });
 
     await waitFor(() => {

@@ -100,7 +100,9 @@
     "119_preference_subscription_fabric.sql",
     "120_fabric_consent_requests.sql",
     "121_trusted_devices.sql",
-    "122_trusted_device_repair.sql"
+    "122_trusted_device_repair.sql",
+    "123_pkm_device_sync.sql",
+    "124_trusted_device_vault_handoff.sql"
   ],
   "groups": {
     "iam": [
@@ -157,7 +159,8 @@
       "116_one_location_sms_contacts.sql",
       "117_feed_events.sql",
       "121_trusted_devices.sql",
-      "122_trusted_device_repair.sql"
+      "122_trusted_device_repair.sql",
+      "124_trusted_device_vault_handoff.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -177,7 +180,8 @@
       "091_public_profile_projection_cutover.sql",
       "096_atomic_pkm_mutation_v3_scope_posture.sql",
       "097_redact_legacy_pkm_message_excerpts.sql",
-      "098_pkm_v7_recovery_foundation.sql"
+      "098_pkm_v7_recovery_foundation.sql",
+      "123_pkm_device_sync.sql"
     ],
     "developer": [
       "070_developer_registry.sql",

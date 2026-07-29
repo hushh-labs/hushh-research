@@ -44,15 +44,16 @@ describe("tabbed ambient chrome contract", () => {
     );
   });
 
-  it("uses the shared Search Console dissolve curve at the bottom edge", () => {
+  it("uses the shared dissolve curve and bounded readability blur at both edges", () => {
     const styles = read("app/globals.css");
     const mask = read("components/app-ui/ambient-chrome-mask.tsx");
 
     expect(mask).toContain('"ambient-chrome-mask"');
-    expect(mask).not.toContain("backdrop-blur");
-    expect(mask).not.toContain("backdrop-saturate");
-    expect(styles).toMatch(
-      /\.ambient-chrome-mask\s*\{[^}]*--tw-backdrop-blur: blur\(0px\);/s,
+    expect(styles).toContain("--ambient-chrome-mask-blur");
+    expect(styles).toContain("--app-shared-chrome-mask-blur");
+    expect(styles).toContain("--ambient-chrome-backdrop-filter");
+    expect(styles).toContain(
+      "backdrop-filter: var(--ambient-chrome-backdrop-filter)",
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain(
@@ -84,5 +85,13 @@ describe("tabbed ambient chrome contract", () => {
     expect(ambient).not.toContain("writeBottomBase");
     expect(ambient).toContain('background: "--ambient-chrome-bottom-bg"');
     expect(ambient).toContain('foreground: "--ambient-chrome-bottom-fg"');
+  });
+
+  it("contracts the bottom mask with the scroll-hidden navigation slot", () => {
+    const bottomShell = read("components/app-ui/app-bottom-shell.tsx");
+
+    expect(bottomShell).toContain("var(--bottom-chrome-progress, 0)");
+    expect(bottomShell).toContain("var(--bottom-nav-travel, 0px)");
+    expect(bottomShell).toContain("var(--bottom-chrome-fade-tail)");
   });
 });

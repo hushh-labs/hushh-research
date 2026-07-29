@@ -28,14 +28,18 @@ export function getCompanyLogoUrl({
     return null;
   }
 
-  const normalized = String(symbol || "").trim().toUpperCase();
+  const normalized = String(symbol || "")
+    .trim()
+    .toUpperCase();
   if (!normalized) return null;
   return `https://financialmodelingprep.com/image-stock/${encodeURIComponent(normalized)}.png`;
 }
 
 function getMarkerGlyph(symbol: string, isCash: boolean): string {
   if (isCash) return "$";
-  const cleaned = String(symbol || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const cleaned = String(symbol || "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toUpperCase();
   return cleaned.length > 0 ? cleaned.charAt(0) : "•";
 }
 
@@ -92,6 +96,7 @@ export function SymbolAvatar({
 
   return (
     <span
+      data-symbol-avatar="true"
       className={cn(
         "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border",
         logoUrl && !logoFailed
@@ -99,8 +104,10 @@ export function SymbolAvatar({
           : "text-white/85 shadow-[inset_0_1px_1px_rgba(255,255,255,0.18)]",
         sizeClasses.shell,
         sizeClasses.text,
-        !logoUrl || logoFailed ? "font-bold uppercase tracking-wide" : undefined,
-        className
+        !logoUrl || logoFailed
+          ? "font-bold uppercase tracking-wide"
+          : undefined,
+        className,
       )}
       style={logoUrl && !logoFailed ? undefined : iconStyle}
       aria-hidden="true"

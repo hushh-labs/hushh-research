@@ -43,6 +43,9 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 7. Device owner capabilities require Firebase identity plus a fresh P-256 signature.
 8. Device revocation rejects challenges and subsequent owner-capability issuance.
 9. Developer tokens cannot mint `VAULT_OWNER`, unwrap the vault, or write PKM.
+10. Connected Systems never unlinks on timeout, authorization failure, MCP
+    error, or malformed response; owner-confirmed recovery disconnects only the
+    server-resolved active binding and preserves workflow/audit history.
 
 ## Ecosystem Checks
 

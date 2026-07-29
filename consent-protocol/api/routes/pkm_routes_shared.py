@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
 from pydantic import BaseModel, Field, ValidationError
@@ -1175,6 +1175,34 @@ class DeleteDomainResponse(BaseModel):
 
     success: bool
     message: Optional[str] = Field(default=None, max_length=512)
+    conflict: bool = False
+    deleted: bool = False
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+
+
+class DeleteDomainRequest(BaseModel):
+    """Revision-bound, owner-confirmed whole-domain deletion."""
+
+    user_id: str = Field(..., min_length=1, max_length=256)
+    domain: str = Field(..., min_length=1, max_length=128)
+    expected_data_version: int = Field(..., ge=1, le=1000000)
+    mutation_plan: PkmMutationPlanV2
+
+
+class PkmDeviceSyncEventResponse(BaseModel):
+    cursor: int = Field(..., ge=0)
+    domain: str = Field(..., min_length=1, max_length=128)
+    operation: Literal["upsert", "delete"]
+    content_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    created_at: Optional[str] = Field(default=None, max_length=64)
+
+
+class PkmDeviceSyncResponse(BaseModel):
+    events: List[PkmDeviceSyncEventResponse] = Field(default_factory=list, max_length=500)
+    next_cursor: int = Field(..., ge=0)
+    has_more: bool = False
 
 
 class ReconcilePkmResponse(BaseModel):
@@ -1214,7 +1242,129 @@ async def delete_domain_data(
             detail=f"Failed to delete {domain} domain data",
         )
 
-    return DeleteDomainResponse(success=True, message=f"Successfully deleted {domain} domain data")
+    return DeleteDomainResponse(
+        success=True,
+        message=f"Successfully deleted {domain} domain data",
+        deleted=True,
+    )
+
+
+@router.post("/delete-domain", response_model=DeleteDomainResponse)
+async def delete_domain_data_confirmed(
+    request: DeleteDomainRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Delete one encrypted domain with owner review and optimistic concurrency."""
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    try:
+        canonical_domain = validate_dynamic_top_level_domain(
+            request.domain,
+            allow_internal=True,
+        )
+        validate_mutation_plan_for_write(
+            plan=request.mutation_plan,
+            authenticated_user_id=request.user_id,
+            domain=canonical_domain,
+        )
+        if request.mutation_plan.operation != "delete":
+            raise ValueError("domain_delete_requires_delete_mutation_plan")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_MUTATION_PLAN_INVALID",
+                "message": "The PKM mutation plan does not authorize this deletion.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+    pkm_service = get_pkm_service()
+    server_impact = await pkm_service.get_mutation_sharing_impact(
+        user_id=request.user_id,
+        domain=canonical_domain,
+        scope_path=request.mutation_plan.proposed_scope,
+    )
+    client_impact = request.mutation_plan.sharing_impact
+    if (
+        client_impact.active_recipient_count
+        != int(server_impact.get("active_recipient_count") or 0)
+        or sorted(client_impact.recipient_labels)
+        != sorted(server_impact.get("recipient_labels") or [])
+        or client_impact.enters_next_export_revision
+        != bool(server_impact.get("enters_next_export_revision"))
+        or sorted(request.mutation_plan.affected_grant_ids)
+        != sorted(server_impact.get("affected_grant_ids") or [])
+        or sorted(request.mutation_plan.affected_export_ids)
+        != sorted(server_impact.get("affected_export_ids") or [])
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PKM_SHARING_IMPACT_CHANGED",
+                "message": (
+                    "Sharing changed while this deletion was being reviewed. "
+                    "Review the current recipients and confirm again."
+                ),
+                "sharing_impact": server_impact,
+            },
+        )
+
+    result = await pkm_service.delete_domain_data(
+        request.user_id,
+        canonical_domain,
+        expected_data_version=request.expected_data_version,
+        mutation_plan=request.mutation_plan.model_dump(mode="json"),
+        return_result=True,
+    )
+    if result.get("conflict"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PKM_VERSION_CONFLICT",
+                "message": "PKM changed on another device. Refresh latest data and retry.",
+                "current_data_version": result.get("data_version"),
+            },
+        )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": result.get("code") or "PKM_DELETE_DOMAIN_FAILED",
+                "message": "Failed to delete encrypted PKM domain data.",
+            },
+        )
+    return DeleteDomainResponse(
+        success=True,
+        message=f"Successfully deleted {canonical_domain} domain data",
+        deleted=bool(result.get("deleted")),
+        data_version=result.get("data_version"),
+        updated_at=_isoformat_or_none(result.get("updated_at")),
+    )
+
+
+@router.get("/device-sync/{user_id}", response_model=PkmDeviceSyncResponse)
+async def get_device_sync_events(
+    user_id: _UserId,
+    after_cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """List metadata-only changes; clients fetch ciphertext through snapshots."""
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    payload = await get_pkm_service().list_device_sync_events(
+        user_id=user_id,
+        after_cursor=after_cursor,
+        limit=limit,
+    )
+    return PkmDeviceSyncResponse.model_validate(payload)
 
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)

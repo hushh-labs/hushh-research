@@ -25,6 +25,14 @@ export async function POST(
   return proxyRequest(request, params);
 }
 
+export async function DELETE(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  const params = await props.params;
+  return proxyRequest(request, params);
+}
+
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
@@ -41,7 +49,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET") {
+    if (request.method === "POST") {
       headers.set("Content-Type", contentType.includes("application/json") ? contentType : "application/json");
       body = await request.text();
     }

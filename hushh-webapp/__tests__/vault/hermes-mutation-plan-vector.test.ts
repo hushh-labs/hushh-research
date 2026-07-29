@@ -66,4 +66,38 @@ describe("Hermes mutation plan v2 golden vector", () => {
       sharing_impact_acknowledged: true,
     });
   });
+
+  it("matches the shared delete-plan shape", async () => {
+    const currentManifest = manifest();
+    const plan = await buildConfirmedPkmMutationPlanV2({
+      userId: vector.user_id,
+      domain: vector.domain,
+      currentManifest,
+      targetManifest: null,
+      scopePath: vector.scope_path,
+      operation: "delete",
+      confidence: 1,
+      explanation: "Delete the synthetic profile marker.",
+      sourceRevision: vector.source_revision,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "hussh_one_hermes",
+        sharingImpactAcknowledged: true,
+        sharingImpact: {
+          activeRecipientCount: vector.sharing_impact.active_recipient_count,
+          recipientLabels: vector.sharing_impact.recipient_labels,
+          entersNextExportRevision:
+            vector.sharing_impact.enters_next_export_revision,
+          summary: vector.sharing_impact.summary,
+          affectedGrantIds: vector.sharing_impact.affected_grant_ids,
+          affectedExportIds: vector.sharing_impact.affected_export_ids,
+        },
+      },
+    });
+
+    expect(plan.operation).toBe("delete");
+    expect(plan.source_scope_handle).toBe(vector.scope_handle);
+    expect(plan).not.toHaveProperty("target_scope_handle");
+  });
 });

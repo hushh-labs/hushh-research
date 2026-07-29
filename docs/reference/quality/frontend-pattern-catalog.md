@@ -337,3 +337,20 @@ Rules:
 1. The whole row owns hover, press, and ripple.
 2. Inner text blocks must not create a second hover state.
 3. Use `asChild` for link rows so anchors inherit the same interaction contract.
+
+## Pattern: Identity-First Detail Surfaces
+
+Use `AdaptiveDetailSurface` (or an existing compatibility adapter such as
+`KaiControlSurface`) for entity drill-ins.
+
+Rules:
+
+1. Put the supplied logo, avatar, or semantic glyph in the shared `leading`
+   header slot.
+2. Follow it with one entity title and one concise metadata line.
+3. Start the body with new evidence such as price, status, or the primary
+   decision—not another identity card.
+4. Do not repeat the title, subtitle, thesis, or the same badges in multiple
+   body sections.
+5. Hide repair flags, provider diagnostics, and other implementation state from
+   consumer details; expose only actionable freshness or availability states.
