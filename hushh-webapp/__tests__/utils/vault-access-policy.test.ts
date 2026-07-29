@@ -55,4 +55,20 @@ describe("vault access policy", () => {
       needsUnlock: false,
     });
   });
+
+  it("treats null vault availability as unknown without requiring creation or unlock", () => {
+    expect(
+      resolveVaultAvailabilityState({
+        hasVault: null,
+        isVaultUnlocked: false,
+        vaultKey: null,
+        vaultOwnerToken: null,
+      })
+    ).toMatchObject({
+      hasVault: false,
+      vaultUnknown: true,
+      needsVaultCreation: false,
+      needsUnlock: false,
+    });
+  });
 });
