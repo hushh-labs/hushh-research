@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import JSONResponse
 
@@ -13,6 +15,25 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 router = APIRouter(prefix="/api/invites", tags=["RIA Invites"])
+
+# Fields that must never appear in the unauthenticated public invite response.
+# target_* fields are personal contact details supplied by the inviting RIA.
+# accepted_by_user_id / accepted_request_id are internal database identifiers
+# that give away whether and by whom an invite has been claimed.
+_PUBLIC_INVITE_OMIT = frozenset(
+    {
+        "target_display_name",
+        "target_email",
+        "target_phone",
+        "accepted_by_user_id",
+        "accepted_request_id",
+    }
+)
+
+
+def _public_invite_projection(invite: dict[str, Any]) -> dict[str, Any]:
+    """Return only the fields safe for an unauthenticated landing-page response."""
+    return {k: v for k, v in invite.items() if k not in _PUBLIC_INVITE_OMIT}
 
 
 def _iam_schema_not_ready_response() -> JSONResponse:
