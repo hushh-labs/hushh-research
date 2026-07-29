@@ -38,9 +38,13 @@ _AGENT_REALTIME_INSTRUCTIONS = (
 )
 
 
+_USER_ID_MAX_LEN = 256
+_VOICE_MAX_LEN = 128
+
+
 class AgentRealtimeSessionRequest(BaseModel):
-    user_id: str = Field(..., min_length=1, max_length=256)
-    voice: str | None = Field(default=None, max_length=128)
+    user_id: str = Field(..., min_length=1, max_length=_USER_ID_MAX_LEN)
+    voice: str | None = Field(default=None, max_length=_VOICE_MAX_LEN)
 
 
 class AgentRealtimeSessionResponse(BaseModel):
