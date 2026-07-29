@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isObservabilityDebugEnabled,
+  isObservabilityEnabled,
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
   shouldLoadWebAnalyticsScripts,
@@ -124,5 +126,164 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       }
     );
+  });
+});
+
+// ── String-to-boolean coercion — fringe env string values ─────────────────────
+//
+// isObservabilityEnabled and isObservabilityDebugEnabled both pipe their env
+// var through normalizeValue() which trims whitespace and lowercases before
+// the final list comparison.  The tests below pin the exact coercion contract
+// for strings that callers (env files, CI configs, platform secrets) are known
+// to supply in non-canonical forms.
+//
+// Production module: lib/observability/env.ts
+// Coercion logic:    normalizeValue(raw) = String(raw||"").trim().toLowerCase()
+//
+//   isObservabilityEnabled  → false only for {"0","false","no","off"}; everything
+//                             else including empty/unset defaults to true.
+//   isObservabilityDebugEnabled → true only for {"1","true","yes","on"}.
+
+describe("string-to-boolean coercion — fringe env string values", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // ── isObservabilityEnabled ─────────────────────────────────────────────────
+
+  describe("isObservabilityEnabled", () => {
+    // Falsy signals — the explicit opt-out list
+    it.each([
+      ["0"],
+      ["false"],
+      ["no"],
+      ["off"],
+      ["FALSE"],   // uppercase — lowercased by normalizeValue
+      ["NO"],
+      ["OFF"],
+      [" false "], // leading/trailing whitespace — trimmed by normalizeValue
+      [" 0 "],
+    ])('returns false for "%s"', (value: string) => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", value);
+      expect(isObservabilityEnabled()).toBe(false);
+    });
+
+    // Truthy signals — anything outside the opt-out list is treated as enabled
+    it.each([
+      ["true"],
+      ["1"],
+      ["yes"],
+      ["on"],
+      ["TRUE"],    // uppercase → lowercased to "true", not in opt-out list
+      ["True"],
+      ["YES"],
+      ["ON"],
+      ["true "],   // trailing space → trimmed to "true"
+      [" true"],   // leading space
+    ])('returns true for "%s"', (value: string) => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", value);
+      expect(isObservabilityEnabled()).toBe(true);
+    });
+
+    // Ambiguous / unexpected strings — not in the opt-out list → enabled
+    it('treats "disabled" as enabled (not in the opt-out list)', () => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "disabled");
+      // "disabled" is not one of {"0","false","no","off"} → returns true
+      expect(isObservabilityEnabled()).toBe(true);
+    });
+
+    it('treats "enabled" as enabled', () => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "enabled");
+      expect(isObservabilityEnabled()).toBe(true);
+    });
+
+    it("returns true when env var is absent (default-on posture)", () => {
+      // No stubEnv call → process.env value is undefined → normalizeValue → ""
+      // → !raw branch fires → returns true
+      expect(isObservabilityEnabled()).toBe(true);
+    });
+
+    it('returns true for empty string (default-on posture)', () => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "");
+      expect(isObservabilityEnabled()).toBe(true);
+    });
+  });
+
+  // ── isObservabilityDebugEnabled ────────────────────────────────────────────
+
+  describe("isObservabilityDebugEnabled", () => {
+    // Enabled signals — the explicit opt-in list
+    it.each([
+      ["1"],
+      ["true"],
+      ["yes"],
+      ["on"],
+      ["TRUE"],    // uppercase → lowercased to "true"
+      ["YES"],
+      ["ON"],
+      ["True"],
+      ["true "],   // trailing space → trimmed to "true"
+      [" 1"],      // leading space → trimmed to "1"
+    ])('returns true for "%s"', (value: string) => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", value);
+      expect(isObservabilityDebugEnabled()).toBe(true);
+    });
+
+    // Disabled signals — anything outside the opt-in list
+    it.each([
+      ["0"],
+      ["false"],
+      ["no"],
+      ["off"],
+      ["FALSE"],
+      ["disabled"],
+      ["enabled"],  // truthy-sounding word, but not in the opt-in list
+      [""],
+    ])('returns false for "%s"', (value: string) => {
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", value);
+      expect(isObservabilityDebugEnabled()).toBe(false);
+    });
+
+    it("returns false when env var is absent", () => {
+      // No stub → undefined → normalizeValue → "" → not in opt-in list
+      expect(isObservabilityDebugEnabled()).toBe(false);
+    });
+  });
+
+  // ── shouldLoadWebAnalyticsScripts ──────────────────────────────────────────
+
+  describe("shouldLoadWebAnalyticsScripts — coercion interop with isObservabilityEnabled", () => {
+    it('respects "YES" as a valid load-in-dev signal', () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "YES");
+      expect(shouldLoadWebAnalyticsScripts()).toBe(true);
+    });
+
+    it('respects "ON" as a valid load-in-dev signal', () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "ON");
+      expect(shouldLoadWebAnalyticsScripts()).toBe(true);
+    });
+
+    it('respects "true " (trailing space) as a valid load-in-dev signal', () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "true ");
+      expect(shouldLoadWebAnalyticsScripts()).toBe(true);
+    });
+
+    it('returns false when observability is disabled via "0" even if load-in-dev is "1"', () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "0");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "1");
+      // isObservabilityEnabled() returns false → short-circuits to false
+      expect(shouldLoadWebAnalyticsScripts()).toBe(false);
+    });
+
+    it('returns false when observability is disabled via "FALSE" (uppercase)', () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "FALSE");
+      vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "true");
+      expect(shouldLoadWebAnalyticsScripts()).toBe(false);
+    });
   });
 });
