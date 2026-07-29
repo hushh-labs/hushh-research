@@ -810,6 +810,27 @@ describe("OneKycClientZkService", () => {
       })
     ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
   });
+
+  it("rejects export wrapping algorithm values with trailing punctuation marks before decrypting", async () => {
+    await expect(
+      OneKycClientZkService.decryptScopedExport({
+        connector,
+        exportPackage: {
+          encrypted_data: "",
+          iv: "",
+          tag: "",
+          wrapped_key_bundle: {
+            wrapped_export_key: "",
+            wrapped_key_iv: "",
+            wrapped_key_tag: "",
+            sender_public_key: "",
+            wrapping_alg: "aes-256-gcm!!",
+            connector_key_id: connector.connector_key_id,
+          },
+        },
+      })
+    ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
+  });
 });
 
 // ── ZK preflight — structurally invalid payload rejection ──────────────────────
