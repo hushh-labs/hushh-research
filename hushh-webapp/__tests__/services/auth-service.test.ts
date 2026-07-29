@@ -626,4 +626,15 @@ describe("AuthService.restoreNativeSession", () => {
     expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
     expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
   });
+      it("rejects UAT verification ids from local dev confirmation", async () => {
+    enableLocalDevPhoneTest();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+
+    await expect(
+      AuthService.confirmLocalDevPhoneVerification({
+        verificationCode: "000000",
+        verificationId: "uat-test-phone:abc123",
+      })
+    ).rejects.toBeInstanceOf(Error);
+  });
 });
