@@ -2343,6 +2343,11 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            if (!isVoiceTurn) {
+              window.requestAnimationFrame(() => {
+                composerTextareaRef.current?.focus();
+              });
+            }
           },
         },
       });
@@ -2404,6 +2409,11 @@ export function AgentChatWorkspace({
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      if (!isVoiceTurn) {
+        window.requestAnimationFrame(() => {
+          composerTextareaRef.current?.focus();
+        });
+      }
     } finally {
       clearVoiceStreamWatchdog();
       cancelAssistantFlush();
