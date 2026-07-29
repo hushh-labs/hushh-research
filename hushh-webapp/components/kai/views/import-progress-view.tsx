@@ -243,9 +243,9 @@ export function ImportProgressView({
           )}
         </div>
 
-        <p className="text-sm text-muted-foreground">{displayStatusMessage}</p>
+        <p className="min-w-0 break-words text-sm text-muted-foreground">{displayStatusMessage}</p>
         {latestStreamUpdate && stage !== "complete" ? (
-          <p className="text-xs text-muted-foreground/80">
+          <p className="min-w-0 break-words text-xs text-muted-foreground/80">
             {(() => {
               const { tag, message } = splitTaggedLine(latestStreamUpdate);
               return tag ? `${tag}: ${message}` : message;
