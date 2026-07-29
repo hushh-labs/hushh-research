@@ -776,6 +776,51 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps the location preview switch and refresh action grouped in the header", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    const headerActions = screen.getByRole("group", {
+      name: "Location preview controls",
+    });
+    expect(headerActions.className).toContain("ml-auto");
+    expect(headerActions.className).toContain("justify-end");
+
+    const refreshCallsBeforeClick = mockGetState.mock.calls.length;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh location" }),
+    );
+    await waitFor(() =>
+      expect(mockGetState.mock.calls.length).toBeGreaterThan(
+        refreshCallsBeforeClick,
+      ),
+    );
+
+    mockCaptureCurrentPosition.mockClear();
+    const locationOffSwitch = screen.getByRole("switch", {
+      name: "Turn location on",
+    });
+    expect(locationOffSwitch).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(locationOffSwitch);
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    const locationOnSwitch = screen.getByRole("switch", {
+      name: "Turn location off",
+    });
+    expect(locationOnSwitch).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Location on")).toBeTruthy();
+
+    fireEvent.click(locationOnSwitch);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location on" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
+    expect(screen.getByText("Location off")).toBeTruthy();
+    expect(mockRevokeGrant).not.toHaveBeenCalled();
+  });
+
   it("renders a focused, validated share flow with a 15-minute default", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();

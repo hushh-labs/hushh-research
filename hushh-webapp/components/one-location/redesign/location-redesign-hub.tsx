@@ -36,6 +36,7 @@ import {
   MapPin,
   Navigation,
   Plus,
+  RefreshCw,
   Send,
   Shield,
   ShieldCheck,
@@ -45,6 +46,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import type {
   OneLocationAccessRequest,
@@ -295,6 +297,62 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
 };
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
+
+function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
+  const locationOn = Boolean(vm.myLocationPoint);
+  const toggling = BUSY(vm, "selfLocation");
+  const refreshing = BUSY(vm, "load");
+
+  const handleLocationChange = (checked: boolean) => {
+    if (checked === locationOn) return;
+    if (checked) {
+      vm.onShowMyLocation();
+      return;
+    }
+    vm.onHideMyLocation();
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Location preview controls"
+      className="ml-auto flex shrink-0 items-center justify-end gap-2"
+      data-testid="one-location-header-actions"
+    >
+      <div className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-black/[0.05] px-3 text-[13px] font-semibold text-foreground dark:bg-white/[0.07]">
+        <span aria-live="polite">
+          {locationOn ? "Location on" : "Location off"}
+        </span>
+        <Switch
+          checked={locationOn}
+          onCheckedChange={handleLocationChange}
+          disabled={toggling || refreshing}
+          aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          className={cn(
+            "data-[state=checked]:bg-emerald-500 dark:data-[state=checked]:bg-emerald-400",
+            toggling && "animate-pulse",
+          )}
+        />
+      </div>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Refresh location"
+        onClick={vm.onRefresh}
+        disabled={refreshing}
+        className="h-9 shrink-0 gap-2 rounded-full bg-black/[0.05] px-3 text-[13px] font-semibold text-foreground hover:bg-black/[0.08] hover:text-foreground dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
+      >
+        <RefreshCw
+          className={cn("h-4 w-4", refreshing && "animate-spin")}
+          aria-hidden="true"
+        />
+        <span className="hidden sm:inline">Refresh</span>
+      </Button>
+    </div>
+  );
+}
 
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
@@ -598,47 +656,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         title="Location Agent"
         icon={MapPin}
         accent="neutral"
-        actionsInlineMobile
-        actions={
-          (() => {
-            const locationOn = Boolean(vm.myLocationPoint);
-            const toggling = BUSY(vm, "selfLocation");
-            return (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                role="switch"
-                aria-checked={locationOn}
-                aria-label={
-                  locationOn ? "Turn location off" : "Turn location on"
-                }
-                onClick={
-                  locationOn ? vm.onHideMyLocation : vm.onShowMyLocation
-                }
-                disabled={toggling || BUSY(vm, "load")}
-                className={cn(
-                  "gap-2 rounded-full font-semibold transition-colors",
-                  locationOn
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200"
-                    : "border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted/60",
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-2 w-2 rounded-full transition-colors",
-                    locationOn
-                      ? "bg-emerald-500 dark:bg-emerald-400"
-                      : "bg-muted-foreground/40",
-                    toggling && "animate-pulse",
-                  )}
-                  aria-hidden="true"
-                />
-                {locationOn ? "Location on" : "Location off"}
-              </Button>
-            );
-          })()
-        }
+        actions={<LocationHeaderActions vm={vm} />}
       />
 
 
