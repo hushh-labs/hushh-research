@@ -1050,13 +1050,13 @@ export default function MarketplacePage() {
       }
     }
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
+    addEventListener("pointermove", handlePointerMove);
+    addEventListener("pointerup", handlePointerUp);
+    addEventListener("pointercancel", handlePointerUp);
     return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
+      removeEventListener("pointermove", handlePointerMove);
+      removeEventListener("pointerup", handlePointerUp);
+      removeEventListener("pointercancel", handlePointerUp);
     };
   }, [dragOffset.x, passCurrentCard, performPrimaryCardAction, swipeCard]);
 
