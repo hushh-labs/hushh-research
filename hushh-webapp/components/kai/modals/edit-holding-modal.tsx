@@ -131,6 +131,7 @@ export function EditHoldingModal({
 }: EditHoldingModalProps) {
   const maxAcquisitionDate = getLocalDateIso();
   const acquisitionDateInputRef = useRef<HTMLInputElement | null>(null);
+  const symbolInputRef = useRef<HTMLInputElement | null>(null);
   const symbolInputWrapRef = useRef<HTMLDivElement | null>(null);
   const nameInputWrapRef = useRef<HTMLDivElement | null>(null);
   const [formData, setFormData] = useState<Holding>({
@@ -360,6 +361,9 @@ export function EditHoldingModal({
     }
 
     setErrors(newErrors);
+    if (newErrors.symbol) {
+      symbolInputRef.current?.focus({ preventScroll: true });
+    }
     return Object.keys(newErrors).length === 0;
   }, [formData, maxAcquisitionDate]);
 
@@ -417,6 +421,7 @@ export function EditHoldingModal({
             </label>
             <div ref={symbolInputWrapRef} className="relative">
               <input
+                ref={symbolInputRef}
                 id="holding-symbol"
                 type="text"
                 value={formData.symbol}
