@@ -764,7 +764,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               ) : null
                             }
                           >
-                            <Shield className="h-5 w-5" />
+                            <Shield className="h-5 w-5" aria-hidden="true" />
                           </ShellActionSurface>
                         )}
                       />
