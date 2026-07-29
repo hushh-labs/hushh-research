@@ -86,32 +86,39 @@ the `uat` runtime identity for behavior parity, and **never promotes** to uat/pr
 - **Docs cadence:** update the relevant `docs/reference/**` runbook with any infra
   change (founder-brief + changelog cadence per `.codex/skills/docs-governance`).
 
-## Response signature — PERMANENT, NON-NEGOTIABLE (founder directive, 2026-07-28)
+## Attribution + response signature — PERMANENT, NON-NEGOTIABLE (founder directive, 2026-07-28)
 
-**Every response written in this repo MUST end with a signature block listing the
-skills and agents available.** This is a compulsion, not a suggestion, and it does not
-expire when a session is compacted or a context window rolls over. If you are reading
-this file, the rule is in force.
+**Name every skill, agent, and component at the moment you use it, and close each
+response with a signature listing only what was actually used or evolved.** This is a
+compulsion, not a suggestion, and it does not expire when a session is compacted or a
+context window rolls over. If you are reading this file, the rule is in force.
 
-Purpose: the founder must always see which lanes exist, so routing is never invisible
-and no capability is silently forgotten as a session grows.
+Two halves, both required:
 
-Format — append to the end of every response:
+1. **On the fly.** When you invoke a lane, say so inline as you invoke it — "applying
+   `verify-before-claim`…", "routing through **codex-bridge**…", "dispatching the
+   `security_consent_auditor` agent…". Routing must be visible while it happens, not
+   reconstructed afterwards.
+2. **At sign-off.** End the response with a short block naming **only the lanes actually
+   leveraged or changed in that response**, and what each was used for.
+
+**Never dump the full inventory.** A signature that lists every available lane carries no
+information — it reads identically whether a lane was used or not, which is the same
+failure mode as a status code that says `200` on an empty page. Attribution is only
+meaningful when it is selective. If a response used nothing, say so or omit the block.
+
+Format:
 
 ```
 ---
-**Skills** (`.claude/skills/`): codex-bridge · mobile-bug-log · morphy-pdf ·
-run-ios-sim · senior-engineering · ship-ios-testflight · verify-before-claim
-**Agents** (`.claude/agents/`): analytics_observability_architect · backend_architect ·
-data_model_architect · frontend_architect · governor · mobile_native_architect ·
-product_docs_architect · rca_investigator · repo_operator · reviewer ·
-security_consent_auditor · voice_systems_architect
-**Routing:** 46 `.codex/skills/` reached live via **codex-bridge**
+**Used:** `verify-before-claim` (live-artifact verification) · `repo_operator` (deploy-lane evidence)
+**Evolved:** `verify-before-claim` — added the fallback-classification lesson
 ```
 
-Keep the list accurate: if a skill or agent is added or removed, update this block in
-the same change. Verify with `ls .claude/skills/ .claude/agents/` rather than memory —
-the `verify-before-claim` rule applies to this list too.
+Evolve the lanes as you use them: when a session teaches a durable lesson, fold it into
+the relevant skill or agent definition in the same change, grounded in real repository
+findings and the north stars. Per `AGENTS.md`, lanes **inherit the kernel by pointer** —
+cite `AGENTS.md` rather than copying its doctrine into a skill prompt.
 
 ## Where to look
 
