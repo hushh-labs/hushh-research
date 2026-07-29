@@ -22,7 +22,10 @@ const {
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
   mockReverseGeocode,
+  mockPlacesAutocomplete,
+  mockPlaceDetails,
   mockAddSavedLocation,
+  mockLoadSavedLocations,
   mockCreateGrant,
   mockStoreEnvelope,
   mockViewEnvelope,
@@ -57,7 +60,10 @@ const {
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
   mockReverseGeocode: vi.fn(),
+  mockPlacesAutocomplete: vi.fn(),
+  mockPlaceDetails: vi.fn(),
   mockAddSavedLocation: vi.fn(),
+  mockLoadSavedLocations: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
@@ -192,6 +198,8 @@ vi.mock("@/lib/one-location/service", () => ({
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
     reverseGeocode: mockReverseGeocode,
+    placesAutocomplete: mockPlacesAutocomplete,
+    placeDetails: mockPlaceDetails,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
     clearLocationWatch: vi.fn().mockResolvedValue(undefined),
@@ -215,6 +223,7 @@ vi.mock("@/lib/one-location/service", () => ({
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
   addSavedLocation: mockAddSavedLocation,
+  loadSavedLocations: mockLoadSavedLocations,
 }));
 
 vi.mock("@/lib/one-location/contact-signals", () => ({
@@ -252,6 +261,7 @@ vi.mock("sonner", () => {
 });
 
 import OneLocationAgentPage from "@/app/one/location/page";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { toast } from "sonner";
 
 if (!window.localStorage) {
@@ -450,7 +460,24 @@ async function openLocationFeatureStep() {
 
 async function openLocationPeopleStep() {
   await openLocationFeatureStep();
-  const continueButton = screen.getByRole("button", {
+  await waitFor(() => {
+    const savePrompt = screen.queryByRole("dialog", {
+      name: "Save this place",
+    });
+    const continueButton = screen.queryByRole("button", {
+      name: /Continue|Allow location/,
+    });
+    expect(savePrompt || continueButton).toBeTruthy();
+  });
+  const savePrompt = screen.queryByRole("dialog", {
+    name: "Save this place",
+  });
+  if (savePrompt) {
+    fireEvent.click(
+      within(savePrompt).getByRole("button", { name: "Skip for now" }),
+    );
+  }
+  const continueButton = await screen.findByRole("button", {
     name: /Continue|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
@@ -560,11 +587,15 @@ describe("OneLocationAgentPage", () => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
-    // Legacy page-flow tests are not about the optional saved-place prompt.
-    // A dedicated integration test below clears this flag and proves that flow.
+    // Most page-flow tests are not about the optional saved-place prompt.
+    // A dedicated integration test below clears this outcome and proves it.
     window.localStorage.setItem(
       "one_location_saved_location_prompt_v1:user_a",
       "1",
+    );
+    window.localStorage.setItem(
+      "one_location_saved_location_prompt_v2:user_a",
+      "skipped",
     );
     // The workspace now seeds from the memory-only OneLocationStateResource
     // (CacheService singleton); clear it so a prior test's server-state
@@ -629,7 +660,30 @@ describe("OneLocationAgentPage", () => {
       formattedAddress: "Kartavya Path, New Delhi, Delhi 110001, India",
       countryCode: "IN",
     });
+    mockPlacesAutocomplete.mockResolvedValue([
+      {
+        placeId: "hushh-office",
+        text: "Hushh Office, Bengaluru",
+      },
+    ]);
+    mockPlaceDetails.mockResolvedValue({
+      placeId: "hushh-office",
+      label: "Hushh Office, Bengaluru, Karnataka, India",
+      latitude: 12.9716,
+      longitude: 77.5946,
+    });
     mockAddSavedLocation.mockResolvedValue([
+      {
+        id: "home",
+        category: "home",
+        label: "Home",
+        latitude: 28.6139,
+        longitude: 77.209,
+        address: "Kartavya Path, New Delhi, Delhi 110001, India",
+        savedAt: "2026-05-20T07:30:00.000Z",
+      },
+    ]);
+    mockLoadSavedLocations.mockResolvedValue([
       {
         id: "home",
         category: "home",
@@ -1187,6 +1241,43 @@ describe("OneLocationAgentPage", () => {
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
+  it("refreshes Location after returning from Settings and opens the saved-place prompt", async () => {
+    const deniedPermission = {
+      state: "denied" as const,
+      precise: false,
+      background: "restricted" as const,
+      locationServicesEnabled: true,
+    };
+    const grantedPermission = {
+      state: "granted" as const,
+      precise: true,
+      background: "foreground-only" as const,
+      locationServicesEnabled: true,
+    };
+    mockGetPermissionState.mockResolvedValue(deniedPermission);
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    await openLocationPermissionsStep();
+    await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+
+    mockGetPermissionState.mockResolvedValue(grantedPermission);
+    act(() => {
+      appInteractionCoordinator.handleLifecycle("background");
+      appInteractionCoordinator.handleLifecycle("active");
+    });
+
+    expect(
+      await screen.findByRole("dialog", { name: "Save this place" }),
+    ).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
     mockGetState.mockRejectedValue(new Error("Workspace state unavailable"));
 
@@ -1361,6 +1452,7 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       ownerGrants: [],
     });
+    mockLoadSavedLocations.mockResolvedValue([]);
     mockGetPermissionState
       .mockResolvedValueOnce({
         state: "prompt",
@@ -1415,6 +1507,10 @@ describe("OneLocationAgentPage", () => {
     window.localStorage.removeItem(
       "one_location_saved_location_prompt_v1:user_a",
     );
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1482,12 +1578,76 @@ describe("OneLocationAgentPage", () => {
       window.localStorage.getItem(
         "one_location_saved_location_prompt_v1:user_a",
       ),
-    ).toBe("1");
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "one_location_saved_location_prompt_v2:user_a",
+      ),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
+  });
+
+  it("retries current-location capture before allowing setup to continue", async () => {
+    mockCaptureCurrentPosition.mockRejectedValueOnce(
+      new Error("Position unavailable"),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+    expect(
+      await screen.findByRole("button", { name: "Try again" }),
+    ).toBeEnabled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "We could not read your current location. Check permission and try again.",
+    );
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Save this place" }),
+    ).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
+  });
+
+  it("reoffers the workspace prompt when legacy state says answered but encrypted PKM is empty", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+
+    expect(
+      await screen.findByRole("dialog", { name: "Save this place" }),
+    ).toBeTruthy();
+    expect(mockLoadSavedLocations).toHaveBeenCalledWith({
+      userId: "user_a",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-token",
+    });
+    expect(
+      window.localStorage.getItem(
+        "one_location_saved_location_prompt_v1:user_a",
+      ),
+    ).toBeNull();
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {
@@ -1519,6 +1679,85 @@ describe("OneLocationAgentPage", () => {
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
+  });
+
+  it("reoffers the encrypted saved-place prompt during setup replay when Location is already granted", async () => {
+    expect(
+      window.localStorage.getItem(
+        "one_location_saved_location_prompt_v1:user_a",
+      ),
+    ).toBe("1");
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+
+    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("dialog", { name: "Save this place" }),
+    ).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Change captured location",
+      }),
+    );
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Search for another place",
+      }),
+      { target: { value: "Hushh Office" } },
+    );
+    await waitFor(() =>
+      expect(mockPlacesAutocomplete).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        input: "Hushh Office",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Hushh Office, Bengaluru",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockPlaceDetails).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        placeId: "hushh-office",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Hushh Office, Bengaluru, Karnataka, India",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/12\.9716|77\.5946/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+    await waitFor(() =>
+      expect(mockAddSavedLocation).toHaveBeenCalledWith({
+        context: {
+          userId: "user_a",
+          vaultKey: "vault-key",
+          vaultOwnerToken: "vault-token",
+        },
+        input: {
+          category: "work",
+          label: "",
+          latitude: 12.9716,
+          longitude: 77.5946,
+          address: "Hushh Office, Bengaluru, Karnataka, India",
+        },
+      }),
+    );
   });
 
   it.each(["v1", "v2"])(

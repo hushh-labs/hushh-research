@@ -18,7 +18,10 @@ import {
 import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
-import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  PreVaultUserStateService,
+  type PreVaultUserState,
+} from "@/lib/services/pre-vault-user-state-service";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -55,6 +58,12 @@ export function resolveSetupCapabilityJourneyMode(
 ): Exclude<SetupCapabilityJourneyMode, "auto"> {
   if (requestedMode !== "auto") return requestedMode;
   return setupResolved ? "individual" : "root";
+}
+
+export function hasUnresolvedRootSetup(
+  journey: PreVaultUserState | null | undefined,
+): boolean {
+  return !PreVaultUserStateService.isSetupResolved(journey);
 }
 
 export function resolveSetupCapabilityReturnTarget({
@@ -206,10 +215,12 @@ export function useSetupCapabilityCoordinator({
   const cachedJourney = user?.uid
     ? PreVaultUserStateService.getCachedBootstrapState?.(user.uid) ?? null
     : null;
-  const cachedCompletedTarget =
-    cachedJourney?.setupCapabilityIds.includes(capabilityId) === true
-      ? resolveCompletedSetupCapabilityTarget(capabilityId)
-      : null;
+  const cachedCompletedTarget = resolveCompletedSetupCapabilityTarget({
+    capabilityId,
+    completedCapabilityIds: cachedJourney?.setupCapabilityIds ?? [],
+    rootSetupResolved:
+      PreVaultUserStateService.isSetupResolved(cachedJourney),
+  });
   const hasUsableCachedJourney = Boolean(
     enabled &&
       cachedJourney &&
@@ -252,11 +263,12 @@ export function useSetupCapabilityCoordinator({
         const initialJourney =
           cachedJourney ??
           (await PreVaultUserStateService.bootstrapState(user.uid));
-        const completedTarget = initialJourney.setupCapabilityIds.includes(
+        const completedTarget = resolveCompletedSetupCapabilityTarget({
           capabilityId,
-        )
-          ? resolveCompletedSetupCapabilityTarget(capabilityId)
-          : null;
+          completedCapabilityIds: initialJourney.setupCapabilityIds,
+          rootSetupResolved:
+            PreVaultUserStateService.isSetupResolved(initialJourney),
+        });
         if (completedTarget) {
           replaceRoute(completedTarget);
           return;
@@ -414,13 +426,7 @@ export function useSetupCapabilityCoordinator({
           });
         }
 
-        const hasExplicitIncompleteSetup =
-          !PreVaultUserStateService.isSetupResolved(journey) &&
-          !PreVaultUserStateService.isNavSetupResolved(journey) &&
-          journey.setupCompleted === false &&
-          journey.onboardingJourneyVersion === 1 &&
-          journey.onboardingPhase !== null &&
-          journey.onboardingPhase !== "root_completion";
+        const hasExplicitIncompleteSetup = hasUnresolvedRootSetup(journey);
 
         // If the user already completed onboarding, always send them to their landing target instead of the setup hub.
         const targetRoute = resolveSetupCapabilityTerminalTarget({

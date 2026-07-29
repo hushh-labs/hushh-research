@@ -339,10 +339,34 @@ describe("navigation routes", () => {
     ).toBe(false);
   });
 
-  it("reopens completed Location setup on the main Location workspace", () => {
-    expect(resolveCompletedSetupCapabilityTarget("location")).toBe(
-      "/one/location",
-    );
-    expect(resolveCompletedSetupCapabilityTarget("gmail")).toBeNull();
+  it("keeps completed Location setup replayable until root setup resolves", () => {
+    expect(
+      resolveCompletedSetupCapabilityTarget({
+        capabilityId: "location",
+        completedCapabilityIds: ["location"],
+        rootSetupResolved: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveCompletedSetupCapabilityTarget({
+        capabilityId: "location",
+        completedCapabilityIds: [],
+        rootSetupResolved: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveCompletedSetupCapabilityTarget({
+        capabilityId: "location",
+        completedCapabilityIds: ["location"],
+        rootSetupResolved: true,
+      }),
+    ).toBe("/one/location");
+    expect(
+      resolveCompletedSetupCapabilityTarget({
+        capabilityId: "gmail",
+        completedCapabilityIds: ["gmail"],
+        rootSetupResolved: true,
+      }),
+    ).toBeNull();
   });
 });
