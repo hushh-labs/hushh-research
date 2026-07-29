@@ -23,6 +23,26 @@ describe("observability schema", () => {
     expect(result.sanitized.endpoint_template).toBe("/api/kai/analyze/run/start");
   });
 
+  it("drops a nested array endpoint template from api request events", () => {
+    const result = validateAndSanitizeEvent("api_request_completed", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      route_id: "kai_dashboard",
+      endpoint_template: [[[["deep_nested_structural_token"]]]],
+      http_method: "POST",
+      result: "success",
+      status_bucket: "2xx",
+      duration_ms_bucket: "100ms_300ms",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("endpoint_template");
+    expect(result.sanitized.endpoint_template).toBeUndefined();
+    expect(result.sanitized.route_id).toBe("kai_dashboard");
+  });
+
   it("preserves endpoint template sanitization", () => {
   const result = validateAndSanitizeEvent("api_request_completed", {
     env: "uat",
