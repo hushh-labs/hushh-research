@@ -128,6 +128,25 @@ describe("ApiService.apiFetch", () => {
     nowSpy.mockRestore();
   });
 
+  it("normalizes whitespace-padded request timestamp headers before fetch", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const validTimestamp = 1_716_499_999_750;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_716_500_000_000);
+
+    await ApiService.apiFetch("/api/ping", {
+      method: "GET",
+      headers: {
+        [REQUEST_TIMESTAMP_HEADER]: ` \t ${validTimestamp} \n `,
+      },
+    });
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = fetchOptions.headers as Record<string, string>;
+    expect(headers[REQUEST_TIMESTAMP_HEADER]).toBe(String(validTimestamp));
+
+    nowSpy.mockRestore();
+  });
+
   it("retries with a fresh Firebase token on 401 and adds X-Hushh-Auth-Refresh-Retry header", async () => {
     const freshToken = "fresh-firebase-token-xyz";
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(freshToken);
