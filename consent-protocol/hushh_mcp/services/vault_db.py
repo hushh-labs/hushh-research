@@ -112,7 +112,7 @@ class VaultDBService:
         valid, reason, token_obj = await validate_token_with_db(consent_token)
 
         if not valid:
-            logger.warning(f"Invalid consent token for {operation}: {reason}")
+            logger.warning("Invalid consent token for %s: %s", operation, reason)
             raise ConsentValidationError(f"Invalid consent token: {reason}", reason="invalid_token")
 
         # Check scope
@@ -121,7 +121,7 @@ class VaultDBService:
         )
         if token_scope not in required_scopes:
             logger.warning(
-                f"Insufficient scope for {operation}: {token_scope} not in {required_scopes}"
+                "Insufficient scope for %s: %s not in %s", operation, token_scope, required_scopes
             )
             raise ConsentValidationError(
                 f"Insufficient scope: {token_scope}. Required one of: {required_scopes}",
@@ -155,7 +155,7 @@ class VaultDBService:
             ).execute()
         except Exception as e:
             # Don't fail the operation if audit logging fails
-            logger.error(f"Failed to log audit: {e}")
+            logger.error("Failed to log audit: %s", e)
 
     # =========================================================================
     # Read Operations
