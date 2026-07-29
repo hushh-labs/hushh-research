@@ -2079,6 +2079,9 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Name"
+                  autoComplete="name"
+                  autoCapitalize="words"
+                  spellCheck={false}
                   className="mt-1 truncate"
                   title={accountInfo.holder_name || ""}
                 />
@@ -2095,6 +2098,9 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="XXX-XXXX"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="mt-1 truncate"
                   title={accountInfo.account_number || ""}
                 />
@@ -2111,6 +2117,8 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Brokerage name"
+                  autoComplete="organization"
+                  autoCapitalize="words"
                   className="mt-1 truncate"
                   title={accountInfo.brokerage || ""}
                 />
@@ -2127,6 +2135,7 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Individual, IRA, etc."
+                  autoCapitalize="words"
                   className="mt-1 truncate"
                   title={accountInfo.account_type || ""}
                 />
