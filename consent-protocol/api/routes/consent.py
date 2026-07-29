@@ -598,6 +598,27 @@ async def approve_consent(
     if token_data["user_id"] != userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
+    # Contextual rule validation — Integrated by Abdul Gaffar
+    # Use an alias so this import never shadows the module-level ConsentApprovalPayload
+    # class (defined in this file from PR 1103). Starlette caches request.json() so
+    # the second read is free even when model_validate() already consumed it.
+    from hushh_mcp.consent.approval import ConsentApprovalPayload as _ConsentContextRules
+    _ctx = await request.json()
+    _approval = _ConsentContextRules(
+        user_id=str(_ctx.get("userId") or userId or ""),
+        request_id=str(_ctx.get("requestId") or requestId or ""),
+        requester_age=_ctx.get("requesterAge"),
+        requester_location=_ctx.get("requesterLocation"),
+    )
+    _violations = _approval.validate_contextual_rules(
+        {"age": _ctx.get("requesterAge"), "location": _ctx.get("requesterLocation")}
+    )
+    if _violations:
+        raise HTTPException(
+            status_code=422,
+            detail={"violations": _violations, "code": "CONTEXTUAL_RULE_VIOLATION"},
+        )
+
     logger.info("consent.approve_requested")
     logger.info("consent.approve_export_attached=%s", bool(encryptedData))
 
