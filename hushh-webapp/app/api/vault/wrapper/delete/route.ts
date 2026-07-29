@@ -84,10 +84,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorPayload = await response
-        .json()
-        .catch(async () => ({ error: await response.text().catch(() => "") }));
-      return NextResponse.json(errorPayload, { status: response.status });
+      return NextResponse.json(
+        { error: "Backend error" },
+        { status: response.status }
+      );
     }
 
     const result = await response.json();
