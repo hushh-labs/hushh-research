@@ -1760,9 +1760,9 @@ function OneKycWorkspace() {
                           }}
                         >
                           {archivingWorkflowId === workflow.workflow_id ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                           ) : (
-                            <Trash2 className="size-4" />
+                            <Trash2 className="size-4" aria-hidden="true" />
                           )}
                         </Button>
                       </div>
@@ -1787,9 +1787,9 @@ function OneKycWorkspace() {
                   disabled={loadingMore}
                 >
                   {loadingMore ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RefreshCw className="size-4" />
+                    <RefreshCw className="size-4" aria-hidden="true" />
                   )}
                   {loadingMore ? "Loading..." : "Load more"}
                 </Button>
