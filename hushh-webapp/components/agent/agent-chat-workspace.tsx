@@ -1499,6 +1499,7 @@ export function AgentChatWorkspace({
     const userId = user.uid;
     const token = getVaultOwnerToken();
     const isVoiceTurn = options.source === "voice";
+    const shouldRestoreTypedInput = options.source === "typed";
     const appendUserMessage = options.appendUserMessage ?? true;
     const voiceTurnEpoch = isVoiceTurn ? voiceSessionEpochRef.current : null;
     let voiceAssistantMarkdown = "";
@@ -2121,6 +2122,9 @@ export function AgentChatWorkspace({
         text: "Vault access expired. Unlock again to continue.",
         status: "error",
       }));
+      if (shouldRestoreTypedInput) {
+        setInput(text);
+      }
       setIsChatLoading(false);
       setIsStreaming(false);
       return;
@@ -2397,6 +2401,9 @@ export function AgentChatWorkspace({
         text: current.text || message,
         status: "error",
       }));
+      if (shouldRestoreTypedInput && !assistantHasToken) {
+        setInput(text);
+      }
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
         voiceTtsQueueRef.current?.speakNow(message);
