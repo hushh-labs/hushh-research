@@ -36,10 +36,12 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const url = `${getPythonApiUrl()}/api/account/${path}${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
   const contentType = request.headers.get("content-type") || "";
+  const cookieHeader = request.headers.get("cookie");
 
   try {
     const headers = createUpstreamHeaders(requestId);
     if (authHeader) headers.set("Authorization", authHeader);
+    if (cookieHeader) headers.set("Cookie", cookieHeader);
 
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
