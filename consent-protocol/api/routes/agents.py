@@ -4,11 +4,6 @@ Agent chat endpoints for Kai Financial agent.
 
 Note: Food & Dining and Professional Profile agents have been deprecated
 in favor of the dynamic world model architecture.
-
-Canonical attach points
------------------------
-api.routes.agents.validate_token_endpoint -> POST /api/validate-token
-api.routes.agents.kai_chat                -> POST /api/agents/kai/chat
 """
 
 import logging
@@ -17,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.models import ChatRequest, ChatResponse, ValidateTokenRequest
 from hushh_mcp.agents.kai.agent import get_kai_agent
+from hushh_mcp.consent.token import validate_token_with_db
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +29,20 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
     """
     Validate a consent token.
     Used by frontend to verify tokens before performing privileged actions.
-    """
-    from hushh_mcp.consent.token import validate_token
 
+    SECURITY: Uses validate_token_with_db so that tokens revoked on any Cloud
+    Run instance are rejected here too.  The weaker in-memory-only
+    validate_token does not check DB-backed revocation and would return
+    {"valid": True} for a token that was revoked on a different instance.
+    """
     try:
-        # Validate signature and expiration
-        valid, reason, token_obj = validate_token(request.token)
+        # validate_token_with_db checks both the HMAC signature / expiry and
+        # the DB-backed revocation table, ensuring cross-instance consistency.
+        valid, reason, token_obj = await validate_token_with_db(request.token)
 
         if not valid:
-            # SECURITY: Return generic message, log detailed reason server-side
-            logger.warning("agents.validate_token.failed: %s", reason)
+            # SECURITY: return generic message; log detailed reason server-side
+            logger.warning("Token validation failed: %s", reason)
             return {"valid": False, "reason": "Token validation failed"}
 
         if token_obj is None:
@@ -56,8 +56,8 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
             "scope": token_obj.scope.value,
         }
     except Exception as e:
-        # SECURITY: Never expose exception details to client (CodeQL fix)
-        logger.error("agents.validate_token.error: %s", e)
+        # SECURITY: never expose exception details to client
+        logger.error("Token validation error: %s", e)
         return {"valid": False, "reason": "Token validation failed"}
 
 
@@ -78,7 +78,7 @@ async def kai_chat(request: ChatRequest):
 
     Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
-    logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
+    logger.info("Kai Agent: user=%.8s..., msg='%.50s...'", request.userId, request.message)
 
     try:
         result = get_kai_agent().handle_message(
@@ -99,11 +99,8 @@ async def kai_chat(request: ChatRequest):
             options=[],
         )
     except Exception as e:
-        # SECURITY: Never expose internal exception details to the client.
-        # str(e) from a Gemini/DB call can leak model IDs, internal endpoints,
-        # API key fragments, table/column names, or file paths with user IDs.
-        logger.error("kai_chat.error user=%s: %s", request.userId, e)
-        raise HTTPException(status_code=500, detail="Internal error processing chat")
+        logger.error("kai_chat.error user=%s error=%s", request.userId, e)
+        raise HTTPException(status_code=500, detail="Agent is temporarily unavailable.")
 
 
 @router.get("/agents/kai/info")
