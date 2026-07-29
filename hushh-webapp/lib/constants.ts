@@ -61,13 +61,14 @@ export const API_CONFIG = {
   /** Backend base URL */
   BASE_URL:
     typeof window !== "undefined" &&
-    /Android/i.test(navigator.userAgent) &&
-    (process.env.NEXT_PUBLIC_BACKEND_URL || "").includes("localhost")
+    typeof navigator !== "undefined" &&
+     /Android/i.test(navigator.userAgent) &&
+      (process.env.NEXT_PUBLIC_BACKEND_URL || "").includes("localhost")
       ? (process.env.NEXT_PUBLIC_BACKEND_URL || "").replace("localhost", "10.0.2.2")
       : process.env.NEXT_PUBLIC_BACKEND_URL ||
-        (process.env.NEXT_PUBLIC_APP_ENV === "development"
-          ? "http://127.0.0.1:8000"
-          : ""),
+      (process.env.NEXT_PUBLIC_APP_ENV === "development"
+        ? "http://127.0.0.1:8000"
+        : ""),
   /** SSE endpoint for consent notifications */
   SSE_CONSENT_EVENTS: "/api/consent/events",
 } as const;
