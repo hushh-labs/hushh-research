@@ -79,6 +79,17 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("parses parameter assignments containing multiple adjacent question mark tokens", () => {
+    const multiQuestionMarkInput = "/consents/auth??token=abc??hash=xyz";
+    const result = resolveConsentNavigationTarget(multiQuestionMarkInput);
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: multiQuestionMarkInput,
+      pathname: "/consents/auth",
+    });
+  });
+
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
