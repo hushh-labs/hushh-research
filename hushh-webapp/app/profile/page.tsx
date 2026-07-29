@@ -4490,6 +4490,7 @@ function ProfilePageContent() {
           <div className="space-y-3 pt-2">
             <Input
               type="password"
+              autoComplete="new-password"
               placeholder="New passphrase (min 8 characters)"
               autoComplete="new-password"
               value={newPassphrase}
@@ -4497,6 +4498,7 @@ function ProfilePageContent() {
             />
             <Input
               type="password"
+              autoComplete="new-password"
               placeholder="Confirm passphrase"
               autoComplete="new-password"
               value={confirmPassphrase}
