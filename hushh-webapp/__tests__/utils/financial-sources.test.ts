@@ -188,4 +188,11 @@ describe("financial statement snapshots", () => {
       })
     ).toBe("plaid");
   });
+  it("returns null portfolio when portfolio data is missing", () => {
+  expect(
+    getStatementPortfolio({
+      portfolio: null,
+    })
+  ).toBeNull();
+});
 });
