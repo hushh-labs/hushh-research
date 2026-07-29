@@ -1,0 +1,12 @@
+{
+  "memory-agent": [
+    "read_memory",
+    "write_memory"
+  ],
+  "search-agent": [
+    "semantic_search"
+  ],
+  "kyc-agent": [
+    "verify_identity"
+  ]
+}
