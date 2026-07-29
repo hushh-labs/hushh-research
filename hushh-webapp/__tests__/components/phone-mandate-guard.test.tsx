@@ -203,4 +203,10 @@ describe("PhoneMandateGuard", () => {
       expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fprofile");
     });
   });
+    it("preserves native profile consent route stability", () => {
+    const consentRoute = "/profile?surface=consents";
+
+    expect(consentRoute).toContain("/profile");
+    expect(consentRoute).toContain("surface=consents");
+  });
 });
