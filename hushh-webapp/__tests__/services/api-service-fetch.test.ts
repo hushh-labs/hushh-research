@@ -79,19 +79,19 @@ describe("ApiService.apiFetch", () => {
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+  mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
-    await ApiService.apiFetch("/api/test", {
-      method: "GET",
-      headers: { Authorization: "Bearer firebase-token-abc" },
-    });
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-
-    const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
-    // On web the URL should be the path itself (relative), no hostname prefix
-    expect(calledUrl).toBe("/api/test");
+  await ApiService.apiFetch("/api/test", {
+    method: "GET",
   });
+
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+
+  const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
+
+  // On web the URL should be the path itself (relative), no hostname prefix
+  expect(calledUrl).toBe("/api/test");
+});
 
   // 2 – Every request includes X-Request-Id header
   it("includes an x-request-id header in every request", async () => {
@@ -177,6 +177,7 @@ describe("ApiService.apiFetch", () => {
 
     // fetch was only called once – no retry because the token didn't change
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
 
     // The auth-session-invalidated event should have been dispatched
     const invalidatedEvents = dispatchSpy.mock.calls.filter(
