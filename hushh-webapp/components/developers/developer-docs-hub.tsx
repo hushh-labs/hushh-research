@@ -1099,6 +1099,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   }
 
   async function handleSaveProfile() {
+    if (profileSaving) {
+      return;
+    }
     if (!user) {
       toast.error("Sign in before updating your app profile");
       return;
