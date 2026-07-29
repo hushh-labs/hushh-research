@@ -89,14 +89,14 @@ export const getColumns = ({
                   onClick={(event) => event.stopPropagation()}
                 >
                   <span className="sr-only">Open menu</span>
-                  <Icon icon={MoreHorizontal} size="sm" />
+                  <Icon icon={MoreHorizontal} size="sm" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
             {onViewVersions && (
               <DropdownMenuItem onSelect={() => onViewVersions(entry.ticker)}>
-                <Icon icon={ArrowRight} size="sm" className="mr-2" />
+                <Icon icon={ArrowRight} size="sm" className="mr-2" aria-hidden="true" />
                 View Previous Versions
               </DropdownMenuItem>
             )}
@@ -105,14 +105,14 @@ export const getColumns = ({
               onSelect={() => onDelete(entry)}
               className="text-red-600 dark:text-red-400 focus:text-red-600 focus:bg-red-500/10"
             >
-              <Icon icon={Trash2} size="sm" className="mr-2" />
+              <Icon icon={Trash2} size="sm" className="mr-2" aria-hidden="true" />
               Delete Entry
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => onDeleteTicker(entry.ticker)}
               className="text-red-600 dark:text-red-400 focus:text-red-600 focus:bg-red-500/10"
             >
-              <Icon icon={Trash2} size="sm" className="mr-2" />
+              <Icon icon={Trash2} size="sm" className="mr-2" aria-hidden="true" />
               Delete All {entry.ticker}
             </DropdownMenuItem>
           </DropdownMenuContent>
