@@ -246,7 +246,7 @@ class ConsentScope(str, Enum):
 # Port assignments for agent-to-agent communication
 AGENT_PORTS = {
     "agent_orchestrator": 10000,
-    "agent_one": 10000,  # One top personal agent / orchestration layer
+    "agent_one": 10001,  # One top personal agent / orchestration layer
     "agent_kai": 10005,  # Kai investment analysis agent
     "agent_nav": 10006,  # Nav privacy and consent guardian
     "agent_kyc": 10007,  # KYC identity workflow specialist
