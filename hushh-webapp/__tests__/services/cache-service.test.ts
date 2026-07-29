@@ -47,6 +47,14 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+  it("preserves expired cache behavior for negative ttl values", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("negative-ttl", { ok: true }, -1);
+
+    expect(cache.get("negative-ttl")).toBeNull();
+  });
+
   it("preserves cache clear idempotency", () => {
     const cache = CacheService.getInstance();
 
