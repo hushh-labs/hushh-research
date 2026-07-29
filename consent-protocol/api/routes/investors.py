@@ -163,7 +163,7 @@ async def get_investor(investor_id: int):
 
 @router.get("/cik/{cik}", response_model=InvestorProfile)
 async def get_investor_by_cik(
-    cik: str = Path(..., max_length=20, description="SEC CIK number"),
+    cik: str = Path(..., min_length=1, max_length=20, description="SEC CIK number"),
 ):
     """Get investor profile by SEC CIK number."""
     # Use service layer (no consent required for public investor data)

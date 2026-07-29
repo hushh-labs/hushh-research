@@ -82,7 +82,7 @@ async def ticker_cache_status():
 @router.post("/sync-holdings/{user_id}", response_model=dict)
 async def sync_tickers_from_holdings(
     request: SyncHoldingsRequest,
-    user_id: str = Path(..., max_length=128),
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """

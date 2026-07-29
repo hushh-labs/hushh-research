@@ -40,7 +40,7 @@ def _public_invite_payload(invite: dict) -> dict:
 
 
 @router.get("/{invite_token}")
-async def get_invite(invite_token: str = Path(..., max_length=512)):
+async def get_invite(invite_token: str = Path(..., min_length=1, max_length=512)):
     service = RIAIAMService()
     try:
         return _public_invite_payload(await service.get_ria_invite(invite_token))
@@ -52,7 +52,7 @@ async def get_invite(invite_token: str = Path(..., max_length=512)):
 
 @router.post("/{invite_token}/accept")
 async def accept_invite(
-    invite_token: str = Path(..., max_length=512),
+    invite_token: str = Path(..., min_length=1, max_length=512),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = RIAIAMService()
