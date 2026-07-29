@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "test:immutable-profile": "node tests/immutableProfile.test.js"
+  }
+}
