@@ -743,11 +743,13 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
 
     if token_obj.scope != ConsentScope.VAULT_OWNER:
         logger.warning(
-            f"Insufficient scope: {token_obj.scope.value} (requires {ConsentScope.VAULT_OWNER.value})"
+            "vault.scope_mismatch token_scope=%s required=%s",
+            token_obj.scope.value,
+            ConsentScope.VAULT_OWNER.value,
         )
         raise HTTPException(
             status_code=403,
-            detail=f"Insufficient scope: {token_obj.scope.value}. VAULT_OWNER scope required.",
+            detail="Insufficient permissions.",
         )
 
     if str(token_obj.user_id) != user_id:
