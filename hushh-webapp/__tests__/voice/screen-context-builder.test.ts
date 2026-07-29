@@ -92,6 +92,15 @@ describe("enforceArrayDimensionCap — structured input array bounds", () => {
     expect(result.errorLabel).toBeNull();
   });
 
+  it("preserves elements when processing an array with multi-byte emoji string entries", () => {
+    const emojiPayload = ["🚀", "🔥", "🛡️"];
+    const result = enforceArrayDimensionCap(emojiPayload);
+
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toEqual(emojiPayload);
+    expect(result.errorLabel).toBeNull();
+  });
+
   it("accepts an array whose length equals the default cap exactly", () => {
     const atCap = Array.from({ length: STRUCTURED_CONTEXT_ARRAY_CAP }, (_, i) => i);
     const result = enforceArrayDimensionCap(atCap);
