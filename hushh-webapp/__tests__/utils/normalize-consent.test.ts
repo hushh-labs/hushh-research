@@ -258,3 +258,163 @@ describe("normalizeConsentResponse — malformed payload defaults to strict deny
   });
 });
 // ── End malformed payload coverage ───────────────────────────────────────────
+
+// ── Mixed-primitive deduplication ────────────────────────────────────────────
+//
+// The consent permissions pipeline enforces two sequential contracts before
+// any string ever reaches the caller:
+//
+//   1. TYPE FILTER — .filter(item => typeof item === "string" && item.trim().length > 0)
+//      Evicts every non-string primitive (number, boolean, null, undefined) as
+//      well as empty / whitespace-only strings.
+//
+//   2. SET DEDUPLICATION — Array.from(new Set(filtered))
+//      Uses JavaScript's strict-equality semantics: the string "1" and the
+//      number 1 have already been separated at step 1, so no cross-type
+//      coercion can occur here.  Duplicate strings are collapsed to one entry.
+//
+// The tests below pass arrays that mix stringified numbers, literal numbers,
+// booleans, null, undefined, and genuine duplicate strings through both the
+// permissions and scopes fields, then assert that only distinct, non-empty
+// strings survive in the output.
+
+describe("normalizeConsentResponse — mixed-primitive deduplication", () => {
+  // ── Type isolation: numbers must not survive the string filter ────────────
+
+  it("ejects numeric values that share a character representation with a valid permission string", () => {
+    // '1' (string) and 1 (number) are distinct at the type-filter step.
+    // Only the string survives; the number is evicted before Set deduplication.
+    const result = normalizeConsentResponse({
+      permissions: ["profile:read", "1", 2, 1, "2"] as never,
+    });
+
+    expect(result.permissions).toEqual(["profile:read", "1", "2"]);
+    // The numeric 1 and 2 must never appear — no type coercion.
+    expect(result.permissions).not.toContain(1);
+    expect(result.permissions).not.toContain(2);
+  });
+
+  it("ejects boolean values — true and false are never valid permission strings", () => {
+    const result = normalizeConsentResponse({
+      permissions: ["vault:read", true, false, "vault:read"] as never,
+    });
+
+    expect(result.permissions).toEqual(["vault:read"]);
+    expect(result.permissions).not.toContain(true);
+    expect(result.permissions).not.toContain(false);
+  });
+
+  it("ejects null values — null is never a valid permission string", () => {
+    const result = normalizeConsentResponse({
+      permissions: ["profile:read", null, "profile:write", null] as never,
+    });
+
+    expect(result.permissions).toEqual(["profile:read", "profile:write"]);
+    expect(result.permissions).not.toContain(null);
+  });
+
+  it("ejects undefined values — undefined is never a valid permission string", () => {
+    const result = normalizeConsentResponse({
+      permissions: [undefined, "vault:read", undefined] as never,
+    });
+
+    expect(result.permissions).toEqual(["vault:read"]);
+    // Falsy-value guard: no undefined entry in the output array.
+    expect(result.permissions.some((p) => p === undefined)).toBe(false);
+  });
+
+  // ── Full mixed-primitive dataset ──────────────────────────────────────────
+
+  it("isolates only distinct non-empty strings from a fully mixed-primitive permissions array", () => {
+    // This is the canonical mixed-dataset case the contract is built for:
+    // stringified numbers, literal numbers, booleans, null, undefined, and
+    // genuine duplicate strings all arrive in the same array.
+    const result = normalizeConsentResponse({
+      permissions: [
+        "profile:read",
+        "profile:read",  // duplicate string → deduplicated
+        "1",
+        1,               // number ≡ string coercion trap → evicted
+        "2",
+        2,               // same
+        true,            // boolean → evicted
+        false,           // boolean → evicted
+        null,            // null → evicted
+        undefined,       // undefined → evicted
+        "",              // empty string → evicted
+        "   ",           // whitespace-only → evicted
+        "vault:read",
+      ] as never,
+    });
+
+    // Exact output — strict ordering preserved, duplicates collapsed.
+    expect(result.permissions).toEqual([
+      "profile:read",
+      "1",
+      "2",
+      "vault:read",
+    ]);
+    // No non-string primitive must survive.
+    expect(result.permissions.every((p) => typeof p === "string")).toBe(true);
+    // Set semantics: every surviving entry is unique.
+    expect(result.permissions.length).toBe(new Set(result.permissions).size);
+  });
+
+  // ── Cross-field deduplication (permissions ∪ scopes) ─────────────────────
+
+  it("deduplicates across permissions and scopes fields — same string in both yields one entry", () => {
+    // The pipeline spreads both arrays into one list before filtering and
+    // deduplicating.  A string appearing in both fields must appear once.
+    const result = normalizeConsentResponse({
+      permissions: ["vault:read", "1", true, null] as never,
+      scopes:       ["vault:read", "1", "profile:read", 99] as never,
+    });
+
+    expect(result.permissions).toEqual(["vault:read", "1", "profile:read"]);
+    // "vault:read" and "1" each appear exactly once despite existing in both arrays.
+    expect(result.permissions.filter((p) => p === "vault:read")).toHaveLength(1);
+    expect(result.permissions.filter((p) => p === "1")).toHaveLength(1);
+    // The numeric 99 is evicted.
+    expect(result.permissions).not.toContain(99);
+    // The boolean true and null are evicted.
+    expect(result.permissions).not.toContain(true);
+    expect(result.permissions).not.toContain(null);
+  });
+
+  it("produces an empty permissions list when every entry in both arrays is a non-string primitive", () => {
+    const result = normalizeConsentResponse({
+      permissions: [1, 2, 3, true, null] as never,
+      scopes:       [false, undefined, 0] as never,
+    });
+
+    // All primitives are evicted; no coerced string representation leaks through.
+    expect(result.permissions).toEqual([]);
+    expect(result.permissions).toHaveLength(0);
+  });
+
+  // ── Strict-equality semantics of Set deduplication ───────────────────────
+
+  it("preserves case-sensitive distinctness — 'Read' and 'read' are different keys", () => {
+    // JavaScript Set uses SameValueZero (≈ strict equality) for string keys.
+    // 'Read' !== 'read', so both survive as separate permissions.
+    const result = normalizeConsentResponse({
+      permissions: ["read", "Read", "READ", "read", "Read"] as never,
+    });
+
+    expect(result.permissions).toEqual(["read", "Read", "READ"]);
+    expect(result.permissions).toHaveLength(3);
+  });
+
+  it("does not coerce object entries that stringify to valid permission names", () => {
+    // An object whose .toString() would produce a valid permission string must
+    // still be evicted — the filter checks typeof, not the coerced value.
+    const sneakyObject = { toString: () => "vault:read" };
+    const result = normalizeConsentResponse({
+      permissions: [sneakyObject, "vault:read"] as never,
+    });
+
+    // Only the real string survives.
+    expect(result.permissions).toEqual(["vault:read"]);
+    expect(result.permissions).not.toContain(sneakyObject);
+  });
+});
