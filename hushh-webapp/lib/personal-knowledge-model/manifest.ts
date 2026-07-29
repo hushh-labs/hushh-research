@@ -69,6 +69,33 @@ export type DomainManifest = {
   }>;
 };
 
+export const DATA_TOKEN_BUNDLE_ARRAY_ERROR =
+  "CONSTRAINT_VIOLATION_INVALID_TYPE_EXPECTED_ARRAY";
+
+export type DataTokenBundleExtractionResult = {
+  isExtractedSuccessfully: boolean;
+  processedRecordCount: number;
+  errorLabel: typeof DATA_TOKEN_BUNDLE_ARRAY_ERROR | null;
+};
+
+export function extractDataTokenBundle(
+  rawPayloadBundle: unknown
+): DataTokenBundleExtractionResult {
+  if (!Array.isArray(rawPayloadBundle)) {
+    return {
+      isExtractedSuccessfully: false,
+      processedRecordCount: 0,
+      errorLabel: DATA_TOKEN_BUNDLE_ARRAY_ERROR,
+    };
+  }
+
+  return {
+    isExtractedSuccessfully: true,
+    processedRecordCount: rawPayloadBundle.length,
+    errorLabel: null,
+  };
+}
+
 function normalizePathSegment(segment: string): string {
   return String(segment)
     .trim()
