@@ -688,9 +688,10 @@ export function ManagePortfolioView() {
                     <Pagination>
                       <PaginationContent>
                         <PaginationItem>
-                          <PaginationPrevious 
+                          <PaginationPrevious
                             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                             className={cn("cursor-pointer", currentPage === 1 && "pointer-events-none opacity-50")}
+                            aria-label="Previous page"
                           />
                         </PaginationItem>
                         
@@ -710,6 +711,7 @@ export function ManagePortfolioView() {
                           <PaginationNext 
                             onClick={() => setCurrentPage(prev => Math.min(Math.ceil(holdings.length / itemsPerPage), prev + 1))}
                             className={cn("cursor-pointer", currentPage === Math.ceil(holdings.length / itemsPerPage) && "pointer-events-none opacity-50")}
+                            aria-label="Next page"
                           />
                         </PaginationItem>
                       </PaginationContent>
