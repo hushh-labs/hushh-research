@@ -163,6 +163,7 @@ export default function RiaOnboardingPage() {
     lastKey: string | null;
   }>({ inFlight: false, lastKey: null });
   const submitInFlightRef = useRef(false);
+  const continueInFlightRef = useRef(false);
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -369,12 +370,18 @@ export default function RiaOnboardingPage() {
   }
 
   function handleContinue() {
-    if (!canContinue || saving) return;
+    if (!canContinue || saving || continueInFlightRef.current) return;
+    continueInFlightRef.current = true;
     if (currentStep.id === "review") {
-      void handleSubmit();
+      void handleSubmit().finally(() => {
+        continueInFlightRef.current = false;
+      });
       return;
     }
     moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
+    window.setTimeout(() => {
+      continueInFlightRef.current = false;
+    }, 0);
   }
 
   const startScrapePolling = useCallback(
