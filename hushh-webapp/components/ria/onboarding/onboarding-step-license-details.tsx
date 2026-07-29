@@ -101,6 +101,7 @@ export function OnboardingStepLicenseDetails({
   pinZip,
   crdNumber,
   onAdvisorNameChange,
+  onFirmNameChange,
   onCityChange,
   onPinZipChange,
   isEnriching,
@@ -115,6 +116,7 @@ export function OnboardingStepLicenseDetails({
   pinZip: string;
   crdNumber: string;
   onAdvisorNameChange: (value: string) => void;
+  onFirmNameChange: (value: string) => void;
   onCityChange: (value: string) => void;
   onPinZipChange: (value: string) => void;
   isEnriching: boolean;
@@ -141,7 +143,12 @@ export function OnboardingStepLicenseDetails({
           onChange={onAdvisorNameChange}
         />
         <Divider />
-        <InfoRow label="Firm" value={firmName} loading={isEnriching && !firmName} />
+        <EditableRow
+          label="Firm"
+          value={firmName}
+          onChange={onFirmNameChange}
+          loading={isEnriching && !firmName}
+        />
         <Divider />
         <InfoRow label="CRD" value={crdNumber} />
       </GroupShell>

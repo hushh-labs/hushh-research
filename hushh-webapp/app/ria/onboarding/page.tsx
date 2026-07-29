@@ -841,6 +841,9 @@ export default function RiaOnboardingPage() {
             onAdvisorNameChange={(value: string) =>
               updateDraft({ advisorName: value, displayName: value })
             }
+            onFirmNameChange={(value: string) =>
+              updateDraft({ firmName: value, advisoryFirmName: value })
+            }
             onCityChange={(value: string) => updateDraft({ city: value })}
             onPinZipChange={(value: string) => updateDraft({ pinZip: value })}
             isEnriching={isEnriching}
