@@ -63,6 +63,7 @@ export function StepProgressBar() {
 
   return (
     <div
+      aria-live="polite"
       className={cn(
         "fixed left-0 right-0 top-0 flex justify-center pointer-events-none transform-gpu",
         "z-[100] transition-opacity duration-300 ease-in-out",
@@ -81,6 +82,7 @@ export function StepProgressBar() {
         {displayProgress >= 100 ? "Page loaded." : ""}
       </span>
       <Progress
+        aria-label="Page loading progress"
         value={displayProgress}
         className="h-1 w-full rounded-none bg-transparent"
         aria-label="Page loading"
