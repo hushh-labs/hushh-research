@@ -731,6 +731,7 @@ export function VaultFlow({
                   id="passphrase"
                   type="password"
                   placeholder="Enter your passphrase"
+                  autoComplete="new-password"
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                   autoFocus
@@ -743,6 +744,7 @@ export function VaultFlow({
                   id="confirm"
                   type="password"
                   placeholder="Confirm your passphrase"
+                  autoComplete="new-password"
                   value={confirmPassphrase}
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
                   className="h-11 rounded-[17px] px-4 text-[15px] shadow-sm"
@@ -820,6 +822,7 @@ export function VaultFlow({
                     id="unlock-passphrase"
                     type="password"
                     placeholder="Enter vault key"
+                    autoComplete="current-password"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
                     onKeyDown={(e) =>
