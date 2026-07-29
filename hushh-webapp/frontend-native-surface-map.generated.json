@@ -2333,7 +2333,7 @@
       },
       "shell": {
         "app_page_shell": true,
-        "page_header": true,
+        "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
@@ -7742,5 +7742,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5f87fa447ef4e4597022a9de422679f61aa9f2a094fd8c09030933ea29a08ffe"
+  "content_sha256": "a6fea86368712ce21c3cf13364d5f3521af5dff0f50e5cfbd4c5fb0aad6a088f"
 }
