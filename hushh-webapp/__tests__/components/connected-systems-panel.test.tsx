@@ -39,6 +39,7 @@ vi.mock("@/lib/services/connected-systems-service", () => ({
     getRegistry: vi.fn(),
     getSchema: vi.fn(),
     getRecordBinding: vi.fn(),
+    disconnectRecordBinding: vi.fn(),
     listRecordBindingStatuses: vi.fn(),
     readRecord: vi.fn(),
     searchRecord: vi.fn(),
@@ -121,6 +122,18 @@ describe("ConnectedSystemsPanel", () => {
       objectType: system.objectTypeDefault,
       status: "unbound",
       binding: null,
+    });
+    vi.mocked(ConnectedSystemsService.disconnectRecordBinding).mockResolvedValue({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      status: "disconnected",
+      binding: {
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        recordId: "person-gone",
+        status: "disconnected",
+      },
     });
     vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValue({
       systemId: system.systemId,
@@ -325,7 +338,7 @@ describe("ConnectedSystemsPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Find my record" }));
 
     expect(
-      await screen.findByText("Update my Customer CRM information"),
+      await screen.findByText("Information"),
     ).toBeTruthy();
     expect(await screen.findByText("person@example.test")).toBeTruthy();
     expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
@@ -370,7 +383,7 @@ describe("ConnectedSystemsPanel", () => {
       />,
     );
 
-    expect(await screen.findByText("Update my Customer CRM information")).toBeTruthy();
+    expect(await screen.findByText("Information")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Field view"), { target: { value: "all" } });
     const preferredLanguage = await screen.findByText("Preferred language");
     expect(preferredLanguage.closest("tr")?.textContent).toContain("English");
@@ -390,5 +403,100 @@ describe("ConnectedSystemsPanel", () => {
     });
     expect(await screen.findByText("Review update request")).toBeTruthy();
     expect(screen.getByText("PreferredLanguage")).toBeTruthy();
+  });
+
+  it("retires a missing remote record and offers a clean create recovery", async () => {
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      status: "active",
+      binding: {
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        recordId: "person-gone",
+        status: "active",
+      },
+    });
+    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValueOnce({
+      systemId: system.systemId,
+      target: system.target,
+      objectType: system.objectTypeDefault,
+      resultClass: "succeeded",
+      recordId: null,
+      records: [],
+      bindingStatus: "remote_record_missing",
+      binding: {
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+        recordId: "person-gone",
+        status: "disconnected",
+      },
+      recoveryAction: "create_or_relink",
+    });
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockResolvedValueOnce({
+      intentId: "intent-recovery",
+      systemId: system.systemId,
+      action: "create",
+      status: "pending",
+      fieldNames: ["Email"],
+    });
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+        profile={{ email: "person@example.test" }}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "The linked record no longer exists in this CRM. Unlink it to prepare a new profile.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Create a new profile")).toBeTruthy();
+    expect(screen.queryByText("No record returned")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unlink and create profile" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Unlink and continue" }),
+    );
+    await waitFor(() =>
+      expect(
+        ConnectedSystemsService.disconnectRecordBinding,
+      ).toHaveBeenCalledWith({
+        vaultOwnerToken: "HCT:test",
+        systemId: system.systemId,
+        objectType: system.objectTypeDefault,
+      }),
+    );
+    await waitFor(() =>
+      expect(ConnectedSystemsService.createRecordIntent).toHaveBeenCalledWith(
+        "HCT:test",
+        expect.objectContaining({ systemId: system.systemId }),
+      ),
+    );
+  });
+
+  it("reports the CRM name to the route shell and keeps it out of body headings", async () => {
+    const onSystemResolved = vi.fn();
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(readySchema);
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+        onSystemResolved={onSystemResolved}
+      />,
+    );
+
+    await waitFor(() => expect(onSystemResolved).toHaveBeenCalledWith(system));
+    expect(await screen.findByText("Find my profile")).toBeTruthy();
+    expect(screen.queryByText("Find my Customer CRM profile")).toBeNull();
   });
 });

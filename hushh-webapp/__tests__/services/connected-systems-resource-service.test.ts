@@ -24,6 +24,7 @@ vi.mock("@/lib/services/device-resource-cache-service", () => ({
 describe("ConnectedSystemsResourceService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ConnectedSystemsResourceService.clearProtected("user-1");
     CacheService.getInstance().clear();
     vi.mocked(DeviceResourceCacheService.read).mockResolvedValue(null);
     vi.mocked(DeviceResourceCacheService.write).mockResolvedValue(undefined);
@@ -128,5 +129,52 @@ describe("ConnectedSystemsResourceService", () => {
     expect(
       ConnectedSystemsResourceService.getLiveRecordSnapshot("user-1", "crm-1"),
     ).toBeNull();
+  });
+
+  it("removes only the recovered CRM record and updates its list status", async () => {
+    vi.mocked(ConnectedSystemsService.listRecordBindingStatuses).mockResolvedValue({
+      bindings: [
+        { systemId: "crm-1", objectType: "Person", status: "active" },
+        { systemId: "crm-2", objectType: "Contact", status: "active" },
+      ],
+    });
+    await ConnectedSystemsResourceService.warmBindingStatuses({
+      userId: "user-1",
+      vaultOwnerToken: "owner-token",
+    });
+    ConnectedSystemsResourceService.rememberLiveRecord("user-1", "crm-1", {
+      systemId: "crm-1",
+      target: "CRM 1",
+      objectType: "Person",
+      resultClass: "succeeded",
+      records: [],
+    });
+    ConnectedSystemsResourceService.rememberLiveRecord("user-1", "crm-2", {
+      systemId: "crm-2",
+      target: "CRM 2",
+      objectType: "Contact",
+      resultClass: "succeeded",
+      records: [],
+    });
+
+    ConnectedSystemsResourceService.forgetLiveRecord("user-1", "crm-1");
+    ConnectedSystemsResourceService.rememberBindingStatus("user-1", {
+      systemId: "crm-1",
+      objectType: "Person",
+      status: "unbound",
+    });
+
+    expect(
+      ConnectedSystemsResourceService.getLiveRecord("user-1", "crm-1"),
+    ).toBeNull();
+    expect(
+      ConnectedSystemsResourceService.getLiveRecord("user-1", "crm-2"),
+    ).not.toBeNull();
+    expect(
+      ConnectedSystemsResourceService.getBindingStatuses("user-1"),
+    ).toEqual([
+      { systemId: "crm-2", objectType: "Contact", status: "active" },
+      { systemId: "crm-1", objectType: "Person", status: "unbound" },
+    ]);
   });
 });

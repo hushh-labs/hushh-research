@@ -76,6 +76,8 @@ type ConnectedSystemsPanelProps = {
   setupRouteBase?: string | null;
   /** Removes post-setup administration while preserving secure CRM contracts. */
   presentation?: "workspace" | "setup";
+  /** Lets the route shell own the single CRM title without a body duplicate. */
+  onSystemResolved?: (system: ConnectedSystemSummary) => void;
 };
 
 export type ConnectedSystemAgentInstruction = {
@@ -259,11 +261,7 @@ function selectRecordForId(
   if (records.length === 0) return null;
   const cleanRecordId = cleanFieldValue(recordId);
   if (!cleanRecordId) return records[0] || null;
-  return (
-    records.find((record) => recordIdFromRecord(record) === cleanRecordId) ||
-    records[0] ||
-    null
-  );
+  return records.find((record) => recordIdFromRecord(record) === cleanRecordId) || null;
 }
 
 function extractFirstRecordId(
@@ -451,6 +449,7 @@ export function ConnectedSystemsPanel({
   onSetupReadinessChange,
   setupRouteBase,
   presentation = "workspace",
+  onSystemResolved,
 }: ConnectedSystemsPanelProps) {
   const router = useRouter();
   const [binding, setBinding] = useState<ConnectedSystemRecordBinding | null>(
@@ -483,7 +482,7 @@ export function ConnectedSystemsPanel({
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
   const [cachedRecordRefreshPending, setCachedRecordRefreshPending] = useState(false);
   const [unboundLookupState, setUnboundLookupState] = useState<
-    "idle" | "checking" | "no_match" | "failed"
+    "idle" | "checking" | "no_match" | "remote_missing" | "failed"
   >("idle");
   const consumedAgentInstructionRef = useRef<string | null>(null);
   // Tracks which systems (by systemId) have an active record binding, across
@@ -519,6 +518,9 @@ export function ConnectedSystemsPanel({
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
     (!systemId ? systems[0] || null : null);
+  useEffect(() => {
+    if (selectedSystem) onSystemResolved?.(selectedSystem);
+  }, [onSystemResolved, selectedSystem]);
   const selectedSystemKey = selectedSystem
     ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
     : "";
@@ -607,16 +609,19 @@ export function ConnectedSystemsPanel({
     [crmBaselineValues, crmFieldValues, visibleProfileFields],
   );
   const boundRecordId = cleanFieldValue(activeBinding?.recordId);
+  const recordIsMissing = unboundLookupState === "remote_missing";
   const currentRecordId = useMemo(
     () => boundRecordId || updateId.trim(),
     [boundRecordId, updateId],
   );
-  const hasBoundRecord = Boolean(currentRecordId);
+  const hasBoundRecord = Boolean(currentRecordId) && !recordIsMissing;
   const currentReadRecord = useMemo(
     () => selectRecordForId(readResult, currentRecordId),
     [currentRecordId, readResult],
   );
-  const primaryCrmRecord = currentReadRecord || crmRecords[0] || null;
+  const primaryCrmRecord = currentRecordId
+    ? currentReadRecord
+    : crmRecords[0] || null;
   // Schema metadata and the linked record can hydrate from different cache
   // tiers. Reconcile the editable working copy whenever both are available so
   // a record that arrived first does not leave later-discovered fields blank.
@@ -665,7 +670,9 @@ export function ConnectedSystemsPanel({
     schemaReady &&
     visibleProfileFields.length > 0 &&
     (supportsAction("read") || supportsAction("create"));
-  const hasCompletedUnboundLookup = unboundLookupState === "no_match";
+  const hasCompletedUnboundLookup =
+    unboundLookupState === "no_match" ||
+    unboundLookupState === "remote_missing";
   const canCreateUnboundRecord = supportsAction("create");
   const shouldOfferCreate =
     canCreateUnboundRecord &&
@@ -913,7 +920,11 @@ export function ConnectedSystemsPanel({
   const applyReadResult = (result: ConnectedSystemMcpResponse) => {
     setReadResult(result);
     setCachedRecordRefreshPending(false);
-    if (cacheUserId && selectedSystem) {
+    if (
+      cacheUserId &&
+      selectedSystem &&
+      result.bindingStatus !== "remote_record_missing"
+    ) {
       ConnectedSystemsResourceService.rememberLiveRecord(
         cacheUserId,
         selectedSystem.systemId,
@@ -922,6 +933,17 @@ export function ConnectedSystemsPanel({
     }
     const nextBinding =
       result.binding?.status === "active" ? result.binding : null;
+    if (result.bindingStatus === "remote_record_missing") {
+      setCrmFieldValues({});
+      setCrmBaselineValues({});
+      setUnboundLookupState("remote_missing");
+      if (cacheUserId && selectedSystem) {
+        ConnectedSystemsResourceService.forgetLiveRecord(
+          cacheUserId,
+          selectedSystem.systemId,
+        );
+      }
+    }
     if (nextBinding) {
       setBinding(nextBinding);
       if (nextBinding.recordId) {
@@ -1008,6 +1030,8 @@ export function ConnectedSystemsPanel({
         const recordLoaded = extractRecords(result).length > 0;
         if (recordLoaded) {
           toast.success(`${customerName} record refreshed.`);
+        } else if (result.bindingStatus === "remote_record_missing") {
+          toast.info("The saved CRM link was removed because the record no longer exists.");
         } else if (currentRecordId) {
           toast.info(
             `${customerName} record is linked, but the CRM did not return field values.`,
@@ -1117,6 +1141,40 @@ export function ConnectedSystemsPanel({
       setPendingIntent(result);
     }
     return result;
+  };
+
+  const recoverMissingRecord = async () => {
+    if (!selectedSystem || unboundLookupState !== "remote_missing") return;
+    const disconnected = await runAction("binding", () =>
+      ConnectedSystemsService.disconnectRecordBinding({
+        vaultOwnerToken: vaultOwnerToken || "",
+        systemId: selectedSystem.systemId,
+        objectType: selectedSystem.objectTypeDefault,
+      }),
+    );
+    if (!disconnected) return;
+    setBinding(null);
+    setReadResult(null);
+    setUpdateId("");
+    setDeleteId("");
+    setUnboundLookupState("no_match");
+    setBoundSystemIds((current) => {
+      const next = new Set(current);
+      next.delete(selectedSystem.systemId);
+      return next;
+    });
+    if (cacheUserId) {
+      ConnectedSystemsResourceService.forgetLiveRecord(
+        cacheUserId,
+        selectedSystem.systemId,
+      );
+      ConnectedSystemsResourceService.rememberBindingStatus(cacheUserId, {
+        systemId: selectedSystem.systemId,
+        objectType: selectedSystem.objectTypeDefault || "Contact",
+        status: "unbound",
+      });
+    }
+    await createRecordFromSchema();
   };
 
   const findExistingProfile = async () => {
@@ -1483,7 +1541,7 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {isRecordStateLoading ? (
-        <SettingsGroup title={`Checking ${customerName} record`}>
+        <SettingsGroup title="Checking record">
           <SettingsRow
             icon={RefreshCw}
             title="Looking for your saved CRM record"
@@ -1497,7 +1555,7 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {showCatalogueOnly ? (
-        <SettingsGroup title={`${customerName} profile`}>
+        <SettingsGroup title="Profile fields">
           <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex justify-end">
               <Button
@@ -1527,8 +1585,8 @@ export function ConnectedSystemsPanel({
         <SettingsGroup
           title={
             shouldOfferCreate
-              ? `Create a ${customerName} profile`
-              : `Find my ${customerName} profile`
+              ? "Create a new profile"
+              : "Find my profile"
           }
         >
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
@@ -1538,46 +1596,81 @@ export function ConnectedSystemsPanel({
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                {unboundLookupState === "no_match"
+                {unboundLookupState === "remote_missing"
+                  ? "The linked record no longer exists in this CRM. Unlink it to prepare a new profile."
+                  : unboundLookupState === "no_match"
                   ? "No matching profile was found."
                   : unboundLookupState === "failed"
                     ? "We couldn’t complete that search. Try again."
                     : "You’ll review any new profile before it is created."}
               </p>
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy !== null}
-                onClick={() =>
-                  void (supportsAction("read") && !shouldOfferCreate
-                    ? findExistingProfile()
-                    : createRecordFromSchema())
-                }
-              >
-                <Icon
-                  icon={SendHorizontal}
+              {unboundLookupState === "remote_missing" ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" size="sm" disabled={busy !== null}>
+                      <Icon icon={SendHorizontal} size="sm" className="mr-2" />
+                      Unlink and create profile
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent size="sm">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Replace the missing CRM record?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes the stale One link and prepares a new profile
+                        for your review. It does not delete anything in the CRM.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={busy !== null}>
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={busy !== null}
+                        onClick={() => void recoverMissingRecord()}
+                      >
+                        Unlink and continue
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : (
+                <Button
+                  type="button"
                   size="sm"
-                  className={
-                    busy === "lookup" || busy === "create"
-                      ? "mr-2 animate-pulse"
-                      : "mr-2"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void (supportsAction("read") && !shouldOfferCreate
+                      ? findExistingProfile()
+                      : createRecordFromSchema())
                   }
-                />
-                {busy === "lookup"
-                  ? "Finding your record..."
-                  : busy === "create"
-                    ? "Preparing review..."
-                    : supportsAction("read") && !shouldOfferCreate
-                      ? "Find my record"
-                      : "Create profile"}
-              </Button>
+                >
+                  <Icon
+                    icon={SendHorizontal}
+                    size="sm"
+                    className={
+                      busy === "lookup" || busy === "create"
+                        ? "mr-2 animate-pulse"
+                        : "mr-2"
+                    }
+                  />
+                  {busy === "lookup"
+                    ? "Finding your record..."
+                    : busy === "create"
+                      ? "Preparing review..."
+                      : supportsAction("read") && !shouldOfferCreate
+                        ? "Find my record"
+                        : "Create profile"}
+                </Button>
+              )}
             </div>
           </div>
         </SettingsGroup>
       ) : null}
 
       {!hasBoundRecord && !isRecordStateLoading && schema && !canShowUnboundRecordActions ? (
-        <SettingsGroup title={`${customerName} profile`}>
+        <SettingsGroup title="Profile">
           <SettingsRow
             icon={Database}
             title="Profile setup is temporarily unavailable"
@@ -1603,7 +1696,7 @@ export function ConnectedSystemsPanel({
         <SettingsGroup title="CRM ready">
           <SettingsRow
             icon={Database}
-            title={`${customerName} record connected`}
+            title="Record connected"
             description="Your verified CRM record is ready for approved reads and writes."
             trailing={
               <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
@@ -1615,7 +1708,7 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {canShowBoundRecordActions ? (
-        <SettingsGroup title={`Update my ${customerName} information`}>
+        <SettingsGroup title="Information">
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">

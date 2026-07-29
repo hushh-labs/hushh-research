@@ -647,7 +647,7 @@
       "id": "connected_system_audit",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification"
+      "primary_access_path": "Connected Systems read/create/update approval audit, owner-confirmed local disconnect, and CRM readback result classification"
     },
     {
       "data_class": "workflow_state",
@@ -4340,7 +4340,7 @@
     "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
-    "data_plane": "88c984eead2fd6e0b350b5f5d14194c78b34d87c5b1825d0490508c6d6df66e5",
+    "data_plane": "0a8cd55eee9579c9fbc8c4d20499b118dd048789ee281d8640bc1e0842bc4f04",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "f293d17e7d739acf3052aba9436829df846d059e980395de733596bb23b95338",

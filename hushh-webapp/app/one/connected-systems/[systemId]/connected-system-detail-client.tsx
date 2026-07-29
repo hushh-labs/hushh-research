@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AppPageContentRegion,
@@ -26,6 +26,13 @@ export function ConnectedSystemDetailClient({
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
+  const [systemTitle, setSystemTitle] = useState("CRM");
+  const handleSystemResolved = useCallback(
+    (system: { displayName?: string; customerDisplayName?: string }) => {
+      setSystemTitle(system.displayName || system.customerDisplayName || "CRM");
+    },
+    [],
+  );
   const [agentInstruction] = useState<ConnectedSystemAgentInstruction | null>(() => {
     if (typeof window === "undefined") return null;
     const instructionId = searchParams.get("agentActionId");
@@ -64,7 +71,7 @@ export function ConnectedSystemDetailClient({
       />
       <AppPageHeaderRegion>
         <PageHeader
-          title="Connected system"
+          title={systemTitle}
           description="Find, create, and manage the profile linked to this CRM."
           accent="neutral"
         />
@@ -76,6 +83,7 @@ export function ConnectedSystemDetailClient({
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
           systemId={systemId}
+          onSystemResolved={handleSystemResolved}
           agentInstruction={agentInstruction}
           profile={{
             displayName: user?.displayName,

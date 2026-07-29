@@ -4,11 +4,9 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { ConnectedSystemDetailClient } from "@/app/one/connected-systems/[systemId]/connected-system-detail-client";
@@ -49,13 +47,6 @@ export default function ConnectedSystemsPage() {
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="Connected systems"
-          description="Set up and manage profiles with your connected CRM systems."
-          accent="neutral"
-        />
-      </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
           cacheUserId={user?.uid}
