@@ -528,7 +528,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   onClick={() => void createFundAndTrade()}
                 >
                   {isSubmitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <BadgeDollarSign className="mr-2 h-4 w-4" />
                   )}
