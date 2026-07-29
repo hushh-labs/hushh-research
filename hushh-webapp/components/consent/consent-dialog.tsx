@@ -114,6 +114,8 @@ export function ConsentDialog({
     }
   };
 
+  const scopeInfoRef = useRef<HTMLDivElement>(null);
+
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onDeny()}>
       <DialogContent
