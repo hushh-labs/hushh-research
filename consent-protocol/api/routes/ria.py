@@ -126,7 +126,7 @@ class RIAPicksParseRequest(BaseModel):
     csv_content: str = Field(..., min_length=1, max_length=5_242_880)  # 5 MiB
     source_filename: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
-    avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
+    avoid_rows: list[dict] = Field(default_factory=list, max_length=1000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
 
 
@@ -134,7 +134,7 @@ class RIAPicksSyncRequest(BaseModel):
     label: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
     top_picks: list[dict] = Field(default_factory=list, max_length=5000)
-    avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
+    avoid_rows: list[dict] = Field(default_factory=list, max_length=1000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
     source_data_version: int | None = None
     source_manifest_revision: int | None = None
@@ -156,7 +156,7 @@ class RIAInviteCreateRequest(BaseModel):
     duration_hours: int | None = None
     firm_id: str | None = Field(None, max_length=128)
     reason: str | None = Field(None, max_length=1000)
-    targets: list[RIAInviteTarget] = Field(default_factory=list, max_length=500)
+    targets: list[RIAInviteTarget] = Field(default_factory=list, max_length=200)
 
 
 class RIAMarketplaceDiscoverabilityRequest(BaseModel):
