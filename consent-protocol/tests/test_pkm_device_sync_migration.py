@@ -11,7 +11,7 @@ def test_device_sync_migration_is_release_ordered_and_revision_safe() -> None:
     manifest = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
     sql = MIGRATION.read_text()
 
-    assert manifest["ordered_migrations"][-1] == MIGRATION.name
+    assert MIGRATION.name in manifest["ordered_migrations"]
     assert MIGRATION.name in manifest["groups"]["pkm"]
     assert "delete_pkm_domain_v3" in sql
     assert "pg_advisory_xact_lock" in sql
@@ -30,5 +30,5 @@ def test_schema_contracts_require_the_sync_delete_function() -> None:
         "prod_core_schema.json",
     ):
         contract = json.loads((ROOT / "db/contracts" / contract_name).read_text())
-        assert contract["expected_migration_version"] == 123
+        assert contract["expected_migration_version"] == 124
         assert "delete_pkm_domain_v3" in contract["required_functions"]

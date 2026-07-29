@@ -1487,12 +1487,16 @@ export class ApiService {
     platform: string;
     state: string;
     replaces_device_id?: string;
+    vault_handoff_public_key?: string;
   }): Promise<Response> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) {
-      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
-        status: 401,
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
     }
     return apiFetch("/api/account/trusted-device-authorizations", {
       method: "POST",
@@ -1504,12 +1508,50 @@ export class ApiService {
     });
   }
 
+  static async attachTrustedDeviceVaultHandoff(
+    authorizationId: string,
+    data: {
+      vault_handoff_wrapped_key: string;
+      vault_handoff_iv: string;
+      vault_handoff_tag: string;
+      vault_handoff_sender_public_key: string;
+      vault_handoff_alg: "X25519-AES256-GCM";
+      vault_handoff_vault_key_hash: string;
+      vault_handoff_wrapper_id: string;
+      vault_handoff_rp_id: string;
+    },
+  ): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch(
+      `/api/account/trusted-device-authorizations/${encodeURIComponent(authorizationId)}/vault-handoff`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      },
+    );
+  }
+
   static async listTrustedDevices(): Promise<Response> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) {
-      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
-        status: 401,
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
     }
     return apiFetch("/api/account/trusted-devices", {
       method: "GET",

@@ -10,11 +10,14 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     manifest = json.loads(
         (ROOT / "db" / "release_migration_manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["ordered_migrations"][-1] == "123_pkm_device_sync.sql"
+    assert manifest["ordered_migrations"][-1] == "124_trusted_device_vault_handoff.sql"
     assert "122_trusted_device_repair.sql" in manifest["groups"]["iam"]
 
     sql = (ROOT / "db" / "migrations" / "121_trusted_devices.sql").read_text(encoding="utf-8")
     repair_sql = (ROOT / "db" / "migrations" / "122_trusted_device_repair.sql").read_text(
+        encoding="utf-8"
+    )
+    handoff_sql = (ROOT / "db" / "migrations" / "124_trusted_device_vault_handoff.sql").read_text(
         encoding="utf-8"
     )
     for table in (
@@ -29,6 +32,7 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     assert "vault_passphrase" not in lowered
     assert "vault_key " not in lowered
     assert "add column if not exists replaces_device_id" in repair_sql.lower()
+    assert "add column if not exists vault_handoff" in handoff_sql.lower()
 
     expected_columns = {
         "trusted_device_authorizations": {
@@ -45,6 +49,8 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
             "expires_at",
             "consumed_at",
             "replaces_device_id",
+            "oauth_state",
+            "vault_handoff",
         },
         "trusted_devices": {
             "device_id",
@@ -83,6 +89,6 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
         contract = json.loads(
             (ROOT / "db" / "contracts" / contract_name).read_text(encoding="utf-8")
         )
-        assert contract["expected_migration_version"] == 123
+        assert contract["expected_migration_version"] == 124
         for table, columns in expected_columns.items():
             assert set(contract["required_tables"][table]) == columns
