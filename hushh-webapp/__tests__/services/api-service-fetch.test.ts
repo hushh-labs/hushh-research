@@ -107,6 +107,7 @@ describe("ApiService.apiFetch", () => {
     const headers = fetchOptions.headers as Record<string, string>;
     expect(headers).toHaveProperty("x-request-id");
     expect(headers["x-request-id"]).toBeTruthy();
+    expect(headers["x-request-id"]).toMatch(/\S+/);
   });
 
   // 3 – 401 response triggers Firebase token refresh + retry
