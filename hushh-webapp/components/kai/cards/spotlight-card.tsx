@@ -1,7 +1,8 @@
+// components/kai/cards/spotlight-card.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LineChart } from "lucide-react";
+import { LineChart, Image as ImageIcon } from "lucide-react";
 
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Card as MorphyCard, CardContent as MorphyCardContent } from "@/lib/morphy-ux/card";
@@ -9,6 +10,9 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
+
+// HARVESTED PROGRESSIVE IMAGE LOADER
+import { ProgressiveImage } from "@/components/app-ui/progressive-image";
 
 type SpotlightDecision = "BUY" | "HOLD" | "WATCH" | "REDUCE";
 
@@ -23,6 +27,9 @@ export function SpotlightCard(props: {
   context: string;
   contextHref?: string | null;
   fallbackHref?: string | null;
+  // Added properties to support the new image handling pipeline
+  imageUrl?: string | null;
+  imageAlt?: string | null;
 }) {
   const router = useRouter();
   const decisionTone =
@@ -30,9 +37,9 @@ export function SpotlightCard(props: {
       ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
       : props.decision === "WATCH"
         ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
-      : props.decision === "HOLD"
-        ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
-        : "bg-orange-500/10 text-orange-700 dark:text-orange-300";
+        : props.decision === "HOLD"
+          ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
+          : "bg-orange-500/10 text-orange-700 dark:text-orange-300";
 
   const primaryHref = props.contextHref || props.fallbackHref || null;
   const isExternal = Boolean(props.contextHref);
@@ -80,6 +87,19 @@ export function SpotlightCard(props: {
                 : "bg-linear-to-br from-sky-500/[0.06] via-transparent to-violet-500/[0.04] group-hover:opacity-100"
           )}
         />
+
+        {/* HERO BANNER: Using the new ProgressiveImage component */}
+        {props.imageUrl && (
+          <div className="relative z-[1] w-full h-36 overflow-hidden border-b border-border/20 bg-muted/30">
+            <ProgressiveImage
+              src={props.imageUrl}
+              alt={props.imageAlt || `${props.companyName || props.symbol} spotlight image`}
+              className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-105"
+              fallbackIcon={<ImageIcon className="text-muted-foreground/40" size={32} />}
+            />
+          </div>
+        )}
+
         <MorphyCardContent className="relative z-[1] space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
