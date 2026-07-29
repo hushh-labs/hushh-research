@@ -129,4 +129,21 @@ describe("DataTable", () => {
     expect(searchInput.getAttribute("placeholder")).toBe("Search records");
     expect(searchInput.getAttribute("aria-hidden")).toBeNull();
   });
+
+  it("reserves table height from the configured page size", () => {
+    const { container } = render(
+      <DataTable
+        columns={columns}
+        data={makeRows(3)}
+        enableSearch={false}
+        initialPageSize={5}
+      />
+    );
+
+    expect(
+      container
+        .querySelector('[data-slot="surface-data-table-shell"]')
+        ?.getAttribute("style")
+    ).toContain("min-height: 330px");
+  });
 });

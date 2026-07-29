@@ -200,6 +200,7 @@ export function DataTable<TData, TValue>({
 
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
+  const reservedTableHeight = (compact ? 37 : 45) + initialPageSize * (compact ? 41 : 57);
 
   return (
     <div className="space-y-[var(--data-table-controls-gap)]">
@@ -257,6 +258,7 @@ export function DataTable<TData, TValue>({
       <div
         className={cn(surfaceDataTableShellClassName, resolvedTableShellClassName)}
         data-slot="surface-data-table-shell"
+        style={{ minHeight: reservedTableHeight }}
       >
         <Table className={tableClassName}>
           <TableHeader
