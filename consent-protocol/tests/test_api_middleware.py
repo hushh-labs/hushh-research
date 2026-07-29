@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
+from starlette.datastructures import Headers
 
 import api.middleware as middleware
 
@@ -151,3 +152,74 @@ async def test_require_consent_scope_cache_is_scope_specific(monkeypatch):
         ("consent-token", "attr.financial.*"),
         ("consent-token", "attr.health.*"),
     ]
+
+
+# ── GPC opt-out guard proof ───────────────────────────────────────────────────
+
+
+def _make_request(headers: list[tuple[str, str]]) -> SimpleNamespace:
+    """Build a minimal request stand-in with a real Starlette Headers object."""
+    return SimpleNamespace(
+        state=SimpleNamespace(),
+        headers=Headers(headers=headers),
+    )
+
+
+def test_gpc_opt_out_header_sets_privacy_deny_flags():
+    """Sec-GPC: 1 must set gpc_opt_out=True, tracking_allowed=False,
+    analytics_allowed=False on request.state before any downstream logic."""
+    request = _make_request([("sec-gpc", "1")])
+
+    middleware._apply_gpc_flag(request)
+
+    assert request.state.gpc_opt_out is True
+    assert request.state.tracking_allowed is False
+    assert request.state.analytics_allowed is False
+
+
+def test_gpc_header_absent_leaves_request_state_untouched():
+    """No Sec-GPC header → _apply_gpc_flag is a no-op; state is never written."""
+    request = _make_request([])
+
+    middleware._apply_gpc_flag(request)
+
+    assert not hasattr(request.state, "gpc_opt_out")
+    assert not hasattr(request.state, "tracking_allowed")
+    assert not hasattr(request.state, "analytics_allowed")
+
+
+def test_gpc_header_value_zero_leaves_request_state_untouched():
+    """Sec-GPC: 0 is an explicit opt-in; state must not be modified."""
+    request = _make_request([("sec-gpc", "0")])
+
+    middleware._apply_gpc_flag(request)
+
+    assert not hasattr(request.state, "gpc_opt_out")
+    assert not hasattr(request.state, "tracking_allowed")
+
+
+@pytest.mark.asyncio
+async def test_require_vault_owner_token_applies_gpc_flag_before_token_validation(monkeypatch):
+    """When Sec-GPC: 1 is present, require_vault_owner_token must stamp privacy
+    deny flags on request.state before token validation completes."""
+
+    async def _fake_validate(token: str, scope):
+        return (
+            True,
+            None,
+            SimpleNamespace(user_id="user-123", agent_id="kai", scope=scope, scope_str=None),
+        )
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    request = _make_request([("sec-gpc", "1")])
+
+    await middleware.require_vault_owner_token(
+        request=request,
+        authorization="Bearer test-token",
+    )
+
+    # GPC flag must be set even though token validation also succeeded.
+    assert request.state.gpc_opt_out is True
+    assert request.state.tracking_allowed is False
+    assert request.state.analytics_allowed is False
