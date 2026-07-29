@@ -95,8 +95,25 @@ def test_explicit_null_is_returned_but_absent_is_omitted():
 def test_favorites_family_resolves_so_the_archetypes_are_not_vapour():
     # advertising / targeting / shopping / personalization / publishing all
     # depend on these. Before this change every one of them resolved to nothing.
+    #
+    # This asserted `== 6` and broke when the registry grew to v0.5.0, which was
+    # the assertion's fault rather than the registry's: the property that matters
+    # is that the six the archetypes name still resolve, not that nobody ever
+    # publishes a seventh. Pinned by name, with a floor so the family cannot
+    # shrink back.
+    ARCHETYPE_REQUIRED = [
+        "favorites.brands",
+        "favorites.artists",
+        "favorites.teams",
+        "favorites.creators",
+        "favorites.places",
+        "favorites.things",
+    ]
     favorites = [s for s in cat.all_scopes() if s.startswith("favorites.")]
-    assert len(favorites) == 6
+    assert len(favorites) >= len(ARCHETYPE_REQUIRED)
+    for scope in ARCHETYPE_REQUIRED:
+        assert scope in favorites, scope
+
     fields, unmapped = resolve_fields(favorites)
     assert unmapped == []
     assert sorted(fields) == sorted(favorites)

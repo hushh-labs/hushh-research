@@ -29,12 +29,26 @@ _CATALOGUE_PATH = Path(__file__).resolve().parent.parent / "data" / "pchp_scopes
 # Pin the exact bytes of the vendored catalogue. If this fails, the copy has been
 # hand-edited or has drifted from the published file - fix the copy, do not
 # update the constant to match a mystery.
-EXPECTED_SHA256 = "dbab75e651323ed5b2ea51a325a4f75ab73021cdbba5935aad07394272e36a60"
+EXPECTED_SHA256 = "be7108f415a7ea25ff5a9d0d5eac823cf26b91b8b5a4a75b82af9fafe9f531c5"
 
 # Roots the fabric will resolve. `profile` is the coarse qualifying bundle
 # disclosed free on a first handshake; `connect` predates the catalogue and is
 # kept because the shipped connect-the-dots flow writes it.
-KNOWN_ROOTS = frozenset({"profile", "privacy", "prefs", "wants", "favorites", "connect"})
+#
+# `life` (substantive fact - health, money, work, family) and `story` (the
+# person's own words) arrived with registry v0.5.0. Both are tier 3+: never
+# bundled, and `story` is never auctionable at any price.
+#
+# READ THIS BEFORE ADDING A WRITE PATH FOR THEM. These resolve out of the PWM,
+# which is a PLAINTEXT store - `pwm_documents.doc` is JSONB and pwm_service says
+# so deliberately. That is fine for a shoe size and wrong for a medication list.
+# Tier 3+ belongs in the PKM's BYOK aes-256-gcm path, which is the architecture
+# this repo enforces down to `is_strict_zero_knowledge` on every consent export.
+# The frontend currently refuses tier-3+ writes at /api/pwm for exactly this
+# reason; do not defeat that guard by opening a write path here.
+KNOWN_ROOTS = frozenset(
+    {"profile", "privacy", "prefs", "wants", "favorites", "life", "story", "connect"}
+)
 
 
 @lru_cache(maxsize=1)
