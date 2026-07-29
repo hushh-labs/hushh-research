@@ -89,4 +89,19 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+  it("does not emit invalidation events when invalidate receives a missing key", () => {
+  const cache = CacheService.getInstance();
+  const events: string[] = [];
+
+  cache.set("market-home", { ok: true }, 1_000);
+
+  cache.subscribe((event) => {
+    events.push(event.type);
+  });
+
+  cache.invalidate("missing-key");
+
+  expect(cache.get("market-home")).toEqual({ ok: true });
+  expect(events).toEqual([]);
+});
 });
