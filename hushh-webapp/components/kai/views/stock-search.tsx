@@ -301,8 +301,13 @@ export function StockSearch({
         items={filteredItems}
       >
         <ComboboxInput
+          type="search"
           placeholder="Analyze a stock..."
           value={search}
+          spellCheck={false}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          autoComplete="off"
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             const next = e.target.value;
             if (hasInvalidChars(next)) return;
