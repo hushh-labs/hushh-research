@@ -638,7 +638,6 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
-
   it("preserves unavailable execution mode for blocked planner actions", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
@@ -655,11 +654,31 @@ describe("resolveGroundedVoicePlan", () => {
 
     expect(plan.status).toBe("manual_only");
     expect(plan.execution.mode).toBe("manual_only");
-
     expect(plan.execution.steps).toHaveLength(1);
     expect(plan.execution.steps[0]).toMatchObject({
       type: "prompt",
       reason: "destructive_action_policy",
     });
+  });
+
+  it("ignores empty canonical action ids without heuristic fallback", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening profile.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open profile",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "",
+      allowCompatibilityFallback: false,
+    });
+
+    expect(plan.status).toBe("none");
+    expect(plan.actionId).toBeNull();
+    expect(plan.resolutionSource).toBe("none");
+    expect(plan.execution.steps).toHaveLength(0);
   });
 });
