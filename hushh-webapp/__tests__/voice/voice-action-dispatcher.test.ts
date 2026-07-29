@@ -250,4 +250,11 @@ describe("dispatchVoiceToolCall", () => {
       });
     }
   });
+    it("preserves voice context array bounds", () => {
+    const context = ["one", "two", "three"];
+
+    expect(context.at(0)).toBe("one");
+    expect(context.at(-1)).toBe("three");
+    expect(context.length).toBe(3);
+  });
 });
