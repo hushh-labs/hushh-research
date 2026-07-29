@@ -263,7 +263,11 @@ export function HoldingsMobileList({
 
         {filteredHoldings.length > 0 ? (
           <>
-            <p className="app-label-text text-muted-foreground text-right">
+            <p
+              aria-live="polite"
+              aria-atomic="true"
+              className="app-label-text text-muted-foreground text-right"
+            >
               {filteredHoldings.length} holding{filteredHoldings.length !== 1 ? "s" : ""}
             </p>
             <div
