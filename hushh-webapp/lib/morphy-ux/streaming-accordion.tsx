@@ -478,18 +478,19 @@ export function StreamingAccordion({
             </div>
 
             {/* Scroll to bottom button */}
-            {userScrolledUp && isStreaming && isOpen && (
-              <button
-                onClick={handleScrollToBottom}
-                className={cn(
-                  "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
-                  "px-3 py-1.5 rounded-full",
-                  "bg-primary text-primary-foreground text-xs font-medium",
-                  "shadow-lg hover:shadow-xl transition-all",
-                  "animate-in fade-in slide-in-from-bottom-2",
-                  "flex items-center gap-1.5"
-                )}
-              >
+{userScrolledUp && isStreaming && isOpen && (
+  <button
+    type="button"
+    onClick={handleScrollToBottom}
+    className={cn(
+      "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
+      "px-3 py-1.5 rounded-full",
+      "bg-primary text-primary-foreground text-xs font-medium",
+      "shadow-lg hover:shadow-xl transition-all",
+      "animate-in fade-in slide-in-from-bottom-2",
+      "flex items-center gap-1.5"
+    )}
+  >
                 <svg
                   className="w-3 h-3"
                   fill="none"
