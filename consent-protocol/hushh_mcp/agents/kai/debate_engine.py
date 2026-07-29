@@ -1061,6 +1061,52 @@ class DebateEngine:
             if conflict_summary:
                 dissenting_opinions.append(conflict_summary)
 
+        # False consensus guard: all agents agree but individual confidence is weak.
+        if consensus_reached:
+            insights_map = {
+                "fundamental": fundamental,
+                "sentiment": sentiment,
+                "valuation": valuation,
+            }
+            weak_agents = [
+                agent_id
+                for agent_id, insight in insights_map.items()
+                if insight.confidence < 0.65
+            ]
+
+            # FIX: Initialize variables outside the inner conditional to protect unit tests
+            evidence_scores = {}
+            thin_evidence_agents = []
+
+            if len(weak_agents) >= 2:
+                pre_calibration_confidence = confidence
+                confidence = round(confidence * 0.88, 4)
+                logger.info(
+                    "[Confidence Calibration] Weak consensus detected. "
+                    "Agents with low confidence (<0.65): %s. "
+                    "Deflating confidence: %.2f → %.2f",
+                    weak_agents,
+                    pre_calibration_confidence,
+                    confidence,
+                )
+                
+                # Now safely mutating the pre-defined variables
+                evidence_scores = self._score_evidence_quality(
+                    fundamental, sentiment, valuation
+                )
+                thin_evidence_agents = [
+                    f"{agent_id} (evidence: {score:.0%})"
+                    for agent_id, score in evidence_scores.items()
+                    if score < 0.75
+                ]
+
+                dissenting_opinions.append(
+                    f"Weak consensus warning: all agents agree on {decision.upper()} "
+                    f"but evidence is thin for: {', '.join(thin_evidence_agents) if thin_evidence_agents else ', '.join(weak_agents)}. "
+                    f"Confidence adjusted from {pre_calibration_confidence:.0%} to {confidence:.0%}. "
+                    f"Verify key metrics before acting."
+                )
+
         final_statement = self._generate_final_statement(
             decision, confidence, consensus_reached, dissenting_opinions
         )
@@ -1229,6 +1275,43 @@ class DebateEngine:
             f"{first_summary} {second_summary} "
             "Kai is preserving lower confidence until the source evidence converges."
         )
+    def _score_evidence_quality(
+        self,
+        fundamental: FundamentalInsight,
+        sentiment: SentimentInsight,
+        valuation: ValuationInsight,
+    ) -> Dict[str, float]:
+        """
+        Return per-agent evidence quality scores based on
+        what data was actually available during analysis.
+        Used by confidence calibration to explain WHY confidence is weak.
+        """
+        scores = {}
+
+        # Fundamental: check if key fields are populated
+        f_fields = [
+            fundamental.business_moat,
+            fundamental.bull_case,
+            fundamental.bear_case,
+            fundamental.summary,
+        ]
+        scores["fundamental"] = sum(
+            1 for f in f_fields if f and str(f).strip()
+        ) / len(f_fields)
+
+        # Sentiment: check catalysts and summary
+        catalysts = getattr(sentiment, "key_catalysts", None) or []
+        has_catalysts = isinstance(catalysts, list) and len(catalysts) > 0
+        has_summary = bool(sentiment.summary and str(sentiment.summary).strip())
+        scores["sentiment"] = (int(has_catalysts) + int(has_summary)) / 2
+
+        # Valuation: check price targets and summary
+        price_targets = getattr(valuation, "price_targets", None) or {}
+        has_targets = isinstance(price_targets, dict) and len(price_targets) > 0
+        has_summary = bool(valuation.summary and str(valuation.summary).strip())
+        scores["valuation"] = (int(has_targets) + int(has_summary)) / 2
+
+        return scores
 
     def _summarize_conflict_evidence(
         self,
