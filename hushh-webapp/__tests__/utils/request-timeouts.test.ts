@@ -46,6 +46,12 @@ describe("resolveSlowRequestTimeoutMs", () => {
 
     expect(resolveSlowRequestTimeoutMs(20_000)).toBe(33_000);
   });
+    it("ignores invalid explicit timeout overrides", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = "not-a-number";
+
+    expect(resolveSlowRequestTimeoutMs(20_000)).toBe(20_000);
+  });
 });
 
 // ── Fringe-input boundary fallbacks ──────────────────────────────────────────
