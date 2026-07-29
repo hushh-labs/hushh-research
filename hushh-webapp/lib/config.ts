@@ -110,8 +110,10 @@ export function logSecurityEvent(
 ) {
   const timestamp = new Date().toISOString();
   const mode = getEnvironmentMode();
+  if (mode !== "production") {
   console.log(
     `[SECURITY ${mode.toUpperCase()}] ${timestamp} - ${event}`,
     details
   );
+  }
 }
