@@ -183,6 +183,12 @@ describe("ApiService.apiFetch", () => {
       ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
     );
     expect(invalidatedEvents.length).toBeGreaterThanOrEqual(1);
+        expect(
+      invalidatedEvents.some(
+        ([event]) =>
+          event instanceof CustomEvent && event.type === "auth-session-invalidated"
+      )
+    ).toBe(true);
 
     // The original 401 is returned since retry bailed out
     expect(response.status).toBe(401);
