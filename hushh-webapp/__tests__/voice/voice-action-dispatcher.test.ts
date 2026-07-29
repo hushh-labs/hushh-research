@@ -250,4 +250,27 @@ describe("dispatchVoiceToolCall", () => {
       });
     }
   });
+
+  it("returns invalid without throwing when switch_persona callback is absent (null handler failover)", async () => {
+    // The dispatcher reaches the switch_persona branch before the vault-token
+    // guard, so it must intercept the missing handler and return a structured
+    // failure �� not throw a TypeError on `await switchPersona(...)`.
+    // baseInput() deliberately omits switchPersona, leaving it undefined.
+    const result = await dispatchVoiceToolCall({
+      ...baseInput(),
+      toolCall: {
+        tool_name: "switch_persona",
+        args: { target_persona: "investor" },
+      },
+    });
+
+    // Must not throw — the guard returns before any call-site.
+    expect(result.status).toBe("invalid");
+    expect(result.toolName).toBe("switch_persona");
+    expect(result.reason).toBe("missing_persona_switch_handler");
+    expect(result.actionResult.status).toBe("failed");
+    expect(result.actionResult.resultSummary).toBe(
+      "Persona switch is not available in this Kai runtime."
+    );
+  });
 });
