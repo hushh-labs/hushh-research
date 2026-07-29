@@ -666,6 +666,29 @@ describe("buildStructuredScreenContext", () => {
     expect(control?.voice_aliases).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
   });
 
+  it("preserves multi-byte unicode action aliases from published voice surface metadata", () => {
+    const unicodeAlias = "🎙️✨🚀_voice_frame_𝓤𝓝𝓘𝓒𝓞𝓓𝓔";
+
+    publishVoiceSurfaceMetadata("test_surface", {
+      actions: [
+        {
+          id: "unicode-action",
+          label: "Unicode Action",
+          voiceAliases: [unicodeAlias],
+        },
+      ],
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {},
+    });
+
+    const action = context.surface.actions.find((item) => item.id === "unicode-action");
+    expect(action).toBeDefined();
+    expect(action?.voice_aliases).toContain(unicodeAlias);
+  });
+
   it("clamps oversized concept aliases in nested concept definitions", () => {
     publishVoiceSurfaceMetadata("test_surface", {
       concepts: [
