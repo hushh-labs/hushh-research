@@ -89,4 +89,23 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+    it("only emits deleted keys when invalidateMany includes missing entries", () => {
+    const cache = CacheService.getInstance();
+    const events: Array<{ type: string; keys?: string[] }> = [];
+
+    cache.set("market-home", { ok: true }, 1_000);
+    cache.subscribe((event) => {
+      events.push(event);
+    });
+
+    cache.invalidateMany(["missing-key", "market-home"]);
+
+    expect(cache.get("market-home")).toBeNull();
+    expect(events).toEqual([
+      {
+        type: "invalidate",
+        keys: ["market-home"],
+      },
+    ]);
+  });
 });
