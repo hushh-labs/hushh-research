@@ -29,7 +29,8 @@ export async function GET(_request: NextRequest) {
     return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
     clearTimeout(timeout);
-    console.warn("[app-config/review-mode] fallback disabled:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[app-config/review-mode] fallback disabled:", error);}
     return NextResponse.json(
       { enabled: false },
       { status: 200, headers: NO_STORE_HEADERS },
