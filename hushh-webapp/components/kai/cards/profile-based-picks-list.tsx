@@ -65,6 +65,7 @@ export function ProfileBasedPicksList({
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [picks, setPicks] = useState<KaiDashboardProfilePick[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAddSymbol, setPendingAddSymbol] = useState<string | null>(null);
 
   const normalizedSymbols = useMemo(
     () =>
@@ -148,6 +149,17 @@ export function ProfileBasedPicksList({
     };
   }, [limit, normalizedSymbols, userId, vaultOwnerToken]);
 
+  function handleAddSymbol(symbol: string) {
+    if (pendingAddSymbol) return;
+    setPendingAddSymbol(symbol);
+    try {
+      onAdd(symbol);
+    } catch (addError) {
+      setPendingAddSymbol(null);
+      throw addError;
+    }
+  }
+
   return (
     <div className="space-y-2">
       <div className="space-y-0.5">
@@ -210,7 +222,9 @@ export function ProfileBasedPicksList({
                   effect="fade"
                   size="icon-sm"
                   aria-label={`Add ${pick.symbol}`}
-                  onClick={() => onAdd(pick.symbol)}
+                  aria-busy={pendingAddSymbol === pick.symbol}
+                  disabled={Boolean(pendingAddSymbol)}
+                  onClick={() => handleAddSymbol(pick.symbol)}
                 >
                   <Icon icon={Plus} size="sm" />
                 </Button>
