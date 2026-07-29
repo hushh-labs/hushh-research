@@ -309,6 +309,44 @@ describe("SettingsDetailPanel", () => {
     expect(screen.getByText("Settings dialog")).toBeTruthy();
   });
 
+  it("places supplied identity media before the detail title", () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        leading={<span data-testid="detail-identity">Logo</span>}
+        title="Nvidia"
+        description="NVDA • Semiconductors"
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Nvidia" });
+    const identity = screen.getByTestId("detail-identity");
+    const title = screen.getByRole("heading", { name: "Nvidia" });
+
+    expect(
+      identity.compareDocumentPosition(title) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(dialog.textContent).toContain("NVDA • Semiconductors");
+  });
+
   it("closes from the explicit close button", () => {
     Object.defineProperty(window, "matchMedia", {
       writable: true,

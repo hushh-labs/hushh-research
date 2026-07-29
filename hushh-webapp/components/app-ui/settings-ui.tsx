@@ -520,6 +520,7 @@ export function SettingsRow({
 export type AdaptiveDetailSurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  leading?: ReactNode;
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -540,6 +541,7 @@ export type AdaptiveDetailSurfaceProps = {
 export function AdaptiveDetailSurface({
   open,
   onOpenChange,
+  leading,
   eyebrow,
   title,
   description,
@@ -600,19 +602,27 @@ export function AdaptiveDetailSurface({
             }}
           >
             <SheetHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left">
-              {eyebrow ? (
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  {eyebrow}
-                </p>
-              ) : null}
-              <SheetTitle className="text-base font-semibold tracking-tight">
-                {title}
-              </SheetTitle>
-              <SheetDescription
-                className={cn("text-sm leading-5", !description && "sr-only")}
-              >
-                {description ?? "Settings"}
-              </SheetDescription>
+              <div className="flex min-w-0 items-center gap-3 pr-10">
+                {leading ? <div className="shrink-0">{leading}</div> : null}
+                <div className="min-w-0">
+                  {eyebrow ? (
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      {eyebrow}
+                    </p>
+                  ) : null}
+                  <SheetTitle className="truncate text-base font-semibold tracking-tight">
+                    {title}
+                  </SheetTitle>
+                  <SheetDescription
+                    className={cn(
+                      "line-clamp-2 text-sm leading-5",
+                      !description && "sr-only",
+                    )}
+                  >
+                    {description ?? "Details"}
+                  </SheetDescription>
+                </div>
+              </div>
             </SheetHeader>
             <div
               className={cn(
@@ -649,22 +659,27 @@ export function AdaptiveDetailSurface({
           }}
         >
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 pr-14 text-left sm:px-5 sm:py-4 sm:pr-14">
-            {eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                {eyebrow}
-              </p>
-            ) : null}
-            <DrawerTitle className="text-base font-semibold tracking-tight">
-              {title}
-            </DrawerTitle>
-            <DrawerDescription
-              className={cn(
-                "text-sm leading-5 sm:leading-6",
-                !description && "sr-only",
-              )}
-            >
-              {description ?? "Settings"}
-            </DrawerDescription>
+            <div className="flex min-w-0 items-center gap-3">
+              {leading ? <div className="shrink-0">{leading}</div> : null}
+              <div className="min-w-0">
+                {eyebrow ? (
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    {eyebrow}
+                  </p>
+                ) : null}
+                <DrawerTitle className="truncate text-base font-semibold tracking-tight">
+                  {title}
+                </DrawerTitle>
+                <DrawerDescription
+                  className={cn(
+                    "line-clamp-2 text-sm leading-5 sm:leading-6",
+                    !description && "sr-only",
+                  )}
+                >
+                  {description ?? "Details"}
+                </DrawerDescription>
+              </div>
+            </div>
             {showCloseButton ? closeButton : null}
           </DrawerHeader>
           <div
@@ -703,19 +718,27 @@ export function AdaptiveDetailSurface({
         }}
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 pr-16 text-left">
-          {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              {eyebrow}
-            </p>
-          ) : null}
-          <DialogTitle className="text-base font-semibold tracking-tight">
-            {title}
-          </DialogTitle>
-          <DialogDescription
-            className={cn("text-sm leading-6", !description && "sr-only")}
-          >
-            {description ?? "Settings"}
-          </DialogDescription>
+          <div className="flex min-w-0 items-center gap-3">
+            {leading ? <div className="shrink-0">{leading}</div> : null}
+            <div className="min-w-0">
+              {eyebrow ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  {eyebrow}
+                </p>
+              ) : null}
+              <DialogTitle className="truncate text-base font-semibold tracking-tight">
+                {title}
+              </DialogTitle>
+              <DialogDescription
+                className={cn(
+                  "line-clamp-2 text-sm leading-6",
+                  !description && "sr-only",
+                )}
+              >
+                {description ?? "Details"}
+              </DialogDescription>
+            </div>
+          </div>
           {showCloseButton ? closeButton : null}
         </DialogHeader>
         <div

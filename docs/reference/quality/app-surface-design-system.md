@@ -502,7 +502,11 @@ Rules:
    Kai-, CRM-, consent-, or route-local detail shell. Activity is the deliberate
    exception in transport only: its desktop view remains a non-modal anchored
    dropdown and its mobile view remains the shared Sheet, while both retain the
-   same surface tokens and compact header/body anatomy.
+   same surface tokens and compact header/body anatomy. Entity details place
+   supplied identity media in the shared `leading` header slot, followed by one
+   entity title and one concise metadata line. The body begins with new evidence;
+   it must not repeat that identity block, title, subtitle, or implementation
+   diagnostics in a nested card.
 
 ## Activity And Notification Contract
 
