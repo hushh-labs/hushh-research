@@ -3386,6 +3386,18 @@ class PKMAgentLabService:
             requested_scope=requested_scope,
             manifest_paths=decision["json_paths"],
         )
+        normalized_requested_scope = cls._normalize_path(raw_requested_scope or requested_scope)
+        if (
+            normalized_requested_scope
+            and target_entity_scope
+            and normalized_requested_scope != cls._normalize_path(target_entity_scope)
+            and not any(
+                path == normalized_requested_scope
+                or path.startswith(f"{normalized_requested_scope}.")
+                for path in decision["json_paths"]
+            )
+        ):
+            validation_hints.append("memory_scope_validation_failed")
 
         write_mode = str(raw_structure.get("write_mode") or "").strip().lower()
         if write_mode not in _WRITE_MODES:
@@ -3822,17 +3834,41 @@ class PKMAgentLabService:
             for segment_id in (manifest_draft.get("segment_ids") or [])
             if cls._normalize_segment(str(segment_id))
         ]
-        current_snapshot = cls._current_snapshot_for_card(
-            simulated_state=simulated_state,
-            target_domain=target_domain,
-            target_entity_id=target_entity_id,
-            target_entity_scope=target_entity_scope,
-        )
+        validation_hints = deepcopy(preview.get("validation_hints") or [])
+        scope_validation_failed = "memory_scope_validation_failed" in {
+            cls._normalize_segment(str(hint)) for hint in validation_hints if hint
+        }
+        current_snapshot = None
+        if not scope_validation_failed:
+            current_snapshot = cls._current_snapshot_for_card(
+                simulated_state=simulated_state,
+                target_domain=target_domain,
+                target_entity_id=target_entity_id,
+                target_entity_scope=target_entity_scope,
+            )
         candidate_payload = (
             preview.get("candidate_payload")
             if isinstance(preview.get("candidate_payload"), dict)
             else {}
         )
+        proposed_entity_patch = None
+        resulting_domain_patch: dict[str, Any] | None = None
+        scope_projection: dict[str, Any] | None = None
+        if not scope_validation_failed:
+            proposed_entity_patch = cls._extract_patch_value(
+                candidate_payload,
+                target_entity_scope or primary_json_path,
+            )
+            resulting_domain_patch = (
+                {target_domain: deepcopy(candidate_payload)}
+                if target_domain
+                else deepcopy(candidate_payload)
+            )
+            scope_projection = cls._scope_projection_for_card(
+                target_domain=target_domain,
+                manifest_draft=manifest_draft,
+                primary_json_path=primary_json_path or None,
+            )
         return {
             "card_id": card_id,
             "source_text": source_text,
@@ -3852,20 +3888,11 @@ class PKMAgentLabService:
                 intent_frame.get("candidate_domain_choices") or []
             ),
             "current_entity_snapshot": current_snapshot,
-            "proposed_entity_patch": cls._extract_patch_value(
-                candidate_payload,
-                target_entity_scope or primary_json_path,
-            ),
-            "resulting_domain_patch": {target_domain: deepcopy(candidate_payload)}
-            if target_domain
-            else deepcopy(candidate_payload),
-            "scope_projection": cls._scope_projection_for_card(
-                target_domain=target_domain,
-                manifest_draft=manifest_draft,
-                primary_json_path=primary_json_path or None,
-            ),
+            "proposed_entity_patch": proposed_entity_patch,
+            "resulting_domain_patch": resulting_domain_patch,
+            "scope_projection": scope_projection,
             "candidate_segment_ids": manifest_segment_ids,
-            "validation_hints": deepcopy(preview.get("validation_hints") or []),
+            "validation_hints": validation_hints,
             "drift_flags": deepcopy(
                 preview.get("drift_flags")
                 or cls._drift_flags_from_preview(

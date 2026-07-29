@@ -476,12 +476,28 @@ async def test_generate_structure_preview_defaults_primary_path_to_root_scope(mo
         user_id="user-5",
         message="Cantonese menus are usually where I start",
         current_domains=[],
+        simulated_state={
+            "domains": ["food"],
+            "memories": [
+                {
+                    "domain": "food",
+                    "entity_id": "mem_food_pref",
+                    "entity_scope": "preferences",
+                    "message": "Prefers Cantonese menus.",
+                    "active": True,
+                }
+            ],
+        },
     )
 
     assert result["primary_json_path"] == "preferences"
     assert "primary_path_defaulted_to_root_scope" in result["validation_hints"]
+    assert "memory_scope_validation_failed" in result["validation_hints"]
     assert run_agent_contract.await_count == 5
     assert result["preview_cards"][0]["primary_json_path"] == "preferences"
+    assert result["preview_cards"][0]["current_entity_snapshot"] is None
+    assert result["preview_cards"][0]["proposed_entity_patch"] is None
+    assert result["preview_cards"][0]["scope_projection"] is None
 
 
 @pytest.mark.asyncio
