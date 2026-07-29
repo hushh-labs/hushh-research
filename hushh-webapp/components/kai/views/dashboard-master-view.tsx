@@ -501,7 +501,15 @@ export function DashboardMasterView({
   const [isReconcilingFunding, setIsReconcilingFunding] = useState(false);
   const [isSharingPortfolioPdf, setIsSharingPortfolioPdf] = useState(false);
   const [preferencesSheetOpen, setPreferencesSheetOpen] = useState(false);
-  const [dashboardMainTab, setDashboardMainTab] = useState<DashboardMainTab>("overview");
+  const [dashboardMainTab, setDashboardMainTab] = useState<DashboardMainTab>(() => {
+    if (typeof window === "undefined") return "overview";
+    try {
+      const storedTab = window.sessionStorage.getItem("kai-portfolio-dashboard-tab");
+      return storedTab && isDashboardMainTab(storedTab) ? storedTab : "overview";
+    } catch {
+      return "overview";
+    }
+  });
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -526,6 +534,14 @@ export function DashboardMasterView({
   );
   const canDeletePlaid = isPlaidView && activePlaidItemIds.length > 0;
   const canDeletePortfolio = canEditStatement || canDeletePlaid;
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem("kai-portfolio-dashboard-tab", dashboardMainTab);
+    } catch {
+      // Session storage can be unavailable in private or restricted contexts.
+    }
+  }, [dashboardMainTab]);
 
   useEffect(() => {
     const holdingsCount = displayedPortfolio?.holdings?.length || 0;
