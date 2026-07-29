@@ -40,6 +40,14 @@ describe("observability log redactor", () => {
     expect(result.droppedKeys).toContain("user_email");
     expect(result.sanitized).not.toHaveProperty("user_email");
   });
+    it("preserves bearer token redaction regardless of token casing", () => {
+    const redacted = redactObservabilityLog(
+      "authorization: bearer super-secret-token-123456789"
+    );
+
+    expect(redacted.toLowerCase()).toContain("[redacted_token]".toLowerCase());
+    expect(redacted).not.toContain("super-secret-token-123456789");
+  });
 });
 
 // ── Parameter truncation mechanics ────────────────────────────────────────────
