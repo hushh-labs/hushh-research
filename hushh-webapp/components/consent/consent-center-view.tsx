@@ -630,6 +630,8 @@ export function ConsentCenterView({
                   <img
                     src={requesterImage}
                     alt={bundle.counterpartLabel}
+                    loading="lazy"
+                    decoding="async"
                     className="size-full object-cover"
                     loading="lazy"
                     decoding="async"
@@ -906,6 +908,8 @@ export function ConsentCenterView({
                   <img
                     src={requesterImage}
                     alt={entryHeadline(entry)}
+                    loading="lazy"
+                    decoding="async"
                     className="size-full object-cover"
                     loading="lazy"
                     decoding="async"

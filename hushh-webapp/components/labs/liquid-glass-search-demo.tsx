@@ -411,6 +411,7 @@ function LiquidGlassSearchBar({
               type="search"
               autoComplete="off"
               spellCheck={false}
+              autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
               value={value}
