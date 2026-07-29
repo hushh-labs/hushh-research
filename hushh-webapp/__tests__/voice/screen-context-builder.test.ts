@@ -92,6 +92,15 @@ describe("enforceArrayDimensionCap — structured input array bounds", () => {
     expect(result.errorLabel).toBeNull();
   });
 
+  it("evaluates array allocation constraints cleanly when the payload sequence includes multi-byte emoji string entries", () => {
+    const emojiVectorInput = ["🚀", "🔥", "🛡️"];
+    const result = enforceArrayDimensionCap(emojiVectorInput);
+
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toEqual(emojiVectorInput);
+    expect(result.errorLabel).toBeNull();
+  });
+
   it("accepts an array whose length equals the default cap exactly", () => {
     const atCap = Array.from({ length: STRUCTURED_CONTEXT_ARRAY_CAP }, (_, i) => i);
     const result = enforceArrayDimensionCap(atCap);
