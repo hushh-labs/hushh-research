@@ -211,11 +211,12 @@ export function DataTable<TData, TValue>({
               <Input
                 type="search"
                 spellCheck={false}
-                autoComplete="off"
+                
                 autoCorrect="off"
                 autoCapitalize="off"
                 placeholder={searchPlaceholder}
                 value={searchTerm}
+                autoComplete="off"
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 cursor-text"
                 aria-label="Search table"

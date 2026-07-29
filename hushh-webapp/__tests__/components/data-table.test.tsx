@@ -129,4 +129,19 @@ describe("DataTable", () => {
     expect(searchInput.getAttribute("placeholder")).toBe("Search records");
     expect(searchInput.getAttribute("aria-hidden")).toBeNull();
   });
+  it("disables browser autocomplete on the search input", () => {
+  render(
+    <DataTable
+      columns={columns}
+      data={makeRows(3)}
+      searchPlaceholder="Search records"
+    />
+  );
+
+  const searchInput = screen.getByRole("textbox", {
+    name: "Search table",
+  });
+
+  expect(searchInput.getAttribute("autocomplete")).toBe("off");
+});
 });
