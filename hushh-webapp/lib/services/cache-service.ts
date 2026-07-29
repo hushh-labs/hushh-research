@@ -310,6 +310,7 @@ export const CACHE_KEYS = {
   RIA_WORKSPACE: (userId: string, investorUserId: string) =>
     `ria_workspace_${userId}_${investorUserId}`,
   RIA_PICKS: (userId: string) => `ria_picks_${userId}`,
+  RIA_REQUEST_BUNDLES: (userId: string) => `ria_request_bundles_${userId}`,
   KAI_PROFILE: (userId: string) => `kai_profile_${userId}`,
   ANALYSIS_HISTORY: (userId: string) => `analysis_history_${userId}`,
   PKM_UPGRADE_STATUS: (userId: string) => `pkm_upgrade_status_${userId}`,

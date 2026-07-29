@@ -64,6 +64,7 @@ describe("CacheSyncService mutation cascades", () => {
     );
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_REQUEST_BUNDLES(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
 
     const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
@@ -84,6 +85,7 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_REQUEST_BUNDLES(userId));
     const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
     expect(patternArgs).toContain(`consent_center_${userId}_`);
     expect(patternArgs).toContain(`consent_center_summary_${userId}_`);
@@ -102,6 +104,7 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_REQUEST_BUNDLES(userId));
   });
 
   // ---------- 4. onAuthSignedOut(userId) ----------

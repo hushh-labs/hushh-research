@@ -522,6 +522,7 @@ export class CacheSyncService {
     cache.invalidatePattern(`ria_clients_${userId}_`);
     cache.invalidatePattern(`ria_client_detail_${userId}_`);
     cache.invalidatePattern(`ria_workspace_${userId}_`);
+    cache.invalidate(CACHE_KEYS.RIA_REQUEST_BUNDLES(userId));
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
     this.onKaiMarketContextChanged(userId);
   }
@@ -550,6 +551,7 @@ export class CacheSyncService {
     cache.invalidatePattern(`ria_clients_${userId}_`);
     cache.invalidatePattern(`ria_client_detail_${userId}_`);
     cache.invalidatePattern(`ria_workspace_${userId}_`);
+    cache.invalidate(CACHE_KEYS.RIA_REQUEST_BUNDLES(userId));
     this.onKaiMarketContextChanged(userId);
   }
 
