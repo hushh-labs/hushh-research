@@ -255,6 +255,7 @@ export function HoldingsMobileList({
             className="app-body-text h-10 rounded-full border-border/60 bg-background/70 pl-9 pr-4 text-sm"
             autoComplete="off"
             autoCapitalize="off"
+            autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             aria-label="Search holdings"
