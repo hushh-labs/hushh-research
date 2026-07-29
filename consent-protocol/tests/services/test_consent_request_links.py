@@ -390,3 +390,48 @@ class TestTrackingParameterAbsence:
 
         leaked = _TRACKING_PARAMS & _query_keys(url)
         assert not leaked, f"Tracking params leaked into connection URL: {leaked}"
+
+
+class TestConsentRequestActorQueryBoundary:
+    def test_actor_query_delimiters_do_not_inject_consent_link_params(self):
+        actor_query_delimiter_payloads = [
+            "ria&tab=approved&actor=admin",
+            "investor&view=outgoing",
+            "ria?requestId=req-other",
+            "investor=1&actor=ria",
+        ]
+
+        for actor in actor_query_delimiter_payloads:
+            path = build_consent_request_path(
+                request_id="req-actor-query-boundary",
+                view="pending",
+                actor=actor,
+            )
+
+            with patch(
+                "hushh_mcp.services.consent_request_links.frontend_origin",
+                return_value=_ORIGIN,
+            ):
+                url = build_consent_request_url(
+                    request_id="req-actor-query-boundary",
+                    view="pending",
+                    actor=actor,
+                )
+
+            assert path is not None
+            assert url is not None
+            assert "requestId=req-actor-query-boundary" in path
+            assert "requestId=req-actor-query-boundary" in url
+            assert "tab=pending" in path
+            assert "tab=pending" in url
+
+            path_params = parse_qs(urlparse(path).query)
+            url_params = parse_qs(urlparse(url).query)
+            assert path_params["requestId"] == ["req-actor-query-boundary"]
+            assert url_params["requestId"] == ["req-actor-query-boundary"]
+            assert path_params["tab"] == ["pending"]
+            assert url_params["tab"] == ["pending"]
+            assert "actor" not in path_params
+            assert "actor" not in url_params
+            assert "view" not in path_params
+            assert "view" not in url_params
