@@ -101,6 +101,12 @@ describe("consent sheet route helpers", () => {
       href: "https://example.com/disclosures/request-123",
     });
   });
+ it("does not classify protocol-relative external consent links as internal routes", () => {
+    expect(resolveConsentNavigationTarget("//evil.example.com/consents?tab=pending")).toEqual({
+      kind: "external",
+      href: "//evil.example.com/consents?tab=pending",
+    });
+  });
 });
 
 // ── Path safety — edge cases, empty inputs, and traversal resistance ──────────
