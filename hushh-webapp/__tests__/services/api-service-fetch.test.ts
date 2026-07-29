@@ -296,4 +296,19 @@ describe("ApiService.apiFetch", () => {
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
+  it("preserves a caller supplied x-request-id header", async () => {
+  mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+  await ApiService.apiFetch("/api/ping", {
+    method: "GET",
+    headers: {
+      "x-request-id": "req_test_123",
+    },
+  });
+
+  const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+  const headers = fetchOptions.headers as Record<string, string>;
+
+  expect(headers["x-request-id"]).toBe("req_test_123");
+});
 });
