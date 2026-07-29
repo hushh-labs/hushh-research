@@ -71,4 +71,20 @@ describe("PermissionGate", () => {
       buildConsentCenterHref("pending")
     );
   });
+    it("preserves permission review link in locked state", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: true,
+      vaultOwnerToken: "",
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation">
+        <button type="button">Connect Portfolio</button>
+      </PermissionGate>
+    );
+
+    expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
+      "/consents"
+    );
+  });
 });
