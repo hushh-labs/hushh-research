@@ -19,6 +19,7 @@ export function SessionExpiryRecovery({
     <div
       role="status"
       aria-live="polite"
+      aria-atomic="true"
       className="rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 p-4"
     >
       <div className="flex items-start gap-3">
