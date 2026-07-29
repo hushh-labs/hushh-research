@@ -40,6 +40,14 @@ describe("observability log redactor", () => {
     expect(result.droppedKeys).toContain("user_email");
     expect(result.sanitized).not.toHaveProperty("user_email");
   });
+    it("preserves vault key redaction contract", () => {
+    const redacted = redactObservabilityLog(
+      "secret vault_key_super_sensitive_123"
+    );
+
+    expect(redacted).toContain("[REDACTED_VAULT_KEY]");
+    expect(redacted).not.toContain("vault_key_super_sensitive_123");
+  });
 });
 
 // ── Parameter truncation mechanics ────────────────────────────────────────────
