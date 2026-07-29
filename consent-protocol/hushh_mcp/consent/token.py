@@ -296,8 +296,8 @@ def validate_token(
         )
         return True, None, token
 
-    except (ValueError, UnicodeDecodeError, binascii.Error) as e:
-        return False, f"Malformed token: {str(e)}", None
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return False, "Malformed token", None
     except Exception as e:
         logger.error("Unexpected error during token validation: %s", e, exc_info=True)
         raise
