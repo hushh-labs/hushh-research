@@ -1103,6 +1103,11 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       toast.error("Sign in before updating your app profile");
       return;
     }
+    if (!profileDraft.display_name.trim()) {
+      toast.error("Add a display name before saving your app profile.");
+      document.getElementById("developer-display-name")?.focus();
+      return;
+    }
 
     setProfileSaving(true);
     try {
