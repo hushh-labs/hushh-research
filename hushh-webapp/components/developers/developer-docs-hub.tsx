@@ -921,6 +921,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(EMPTY_PROFILE_DRAFT);
+  const [profileDraftDirty, setProfileDraftDirty] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
   const initialHashHandledRef = useRef(false);
@@ -965,6 +966,11 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   useEffect(() => {
     if (!access?.app) {
       setProfileDraft(EMPTY_PROFILE_DRAFT);
+      setProfileDraftDirty(false);
+      return;
+    }
+
+    if (profileDraftDirty) {
       return;
     }
 
@@ -975,7 +981,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       support_url: access.app.support_url || "",
       policy_url: access.app.policy_url || "",
     });
-  }, [access?.app]);
+  }, [access?.app, profileDraftDirty]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -1111,6 +1117,14 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
         userId: user.uid,
       });
       setAccess(payload);
+      setProfileDraft({
+        display_name: payload.app?.display_name || "",
+        website_url: payload.app?.website_url || "",
+        brand_image_url: payload.app?.brand_image_url || "",
+        support_url: payload.app?.support_url || "",
+        policy_url: payload.app?.policy_url || "",
+      });
+      setProfileDraftDirty(false);
       setAccessError(null);
       toast.success("Developer app profile updated");
     } catch (error) {
@@ -1137,6 +1151,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   }
 
   function updateProfileDraft(field: keyof ProfileDraft, value: string) {
+    setProfileDraftDirty(true);
     setProfileDraft((current) => ({
       ...current,
       [field]: value,
