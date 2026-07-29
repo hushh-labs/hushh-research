@@ -138,6 +138,24 @@ describe("observability schema", () => {
     expect(result.sanitized.result).toBe("success");
   });
 
+  it("preserves status bucket sanitization", () => {
+  const result = validateAndSanitizeEvent("api_request_completed", {
+    env: "uat",
+    platform: "web",
+    event_category: "system",
+    app_version: "2.1.0",
+    route_id: "kai_dashboard",
+    endpoint_template: "/api/kai/analyze/run/start",
+    http_method: "POST",
+    result: "error",
+    status_bucket: "5xx",
+    duration_ms_bucket: "300ms_1s",
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.sanitized.status_bucket).toBe("5xx");
+});
+
   it("accepts route cache performance metadata without user payloads", () => {
     const result = validateAndSanitizeEvent("route_readiness_completed", {
       env: "uat",
