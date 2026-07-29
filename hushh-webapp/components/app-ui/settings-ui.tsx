@@ -214,7 +214,7 @@ export function SettingsRow({
             tone === "destructive" && "bg-destructive/10 text-destructive"
           )}
         >
-          <Icon icon={icon} size="md" />
+          <Icon icon={icon} size="md" aria-hidden="true" />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
