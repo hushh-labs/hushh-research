@@ -40,7 +40,7 @@ describe("vault access policy", () => {
     });
   });
 
-  it("treats accounts without a vault as creation-required", () => {
+    it("treats accounts without a vault as creation-required", () => {
     expect(
       resolveVaultAvailabilityState({
         hasVault: false,
@@ -53,6 +53,19 @@ describe("vault access policy", () => {
       vaultUnknown: false,
       needsVaultCreation: true,
       needsUnlock: false,
+    });
+  });
+
+  it("treats whitespace-only owner token as unavailable", () => {
+    expect(
+      resolveVaultCapabilityState({
+        isVaultUnlocked: false,
+        vaultKey: "   ",
+        vaultOwnerToken: "   ",
+      })
+    ).toMatchObject({
+      hasVaultKey: false,
+      hasVaultOwnerToken: false,
     });
   });
 });
