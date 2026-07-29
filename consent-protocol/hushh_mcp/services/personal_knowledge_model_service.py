@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from db.db_client import get_db
+from hushh_mcp.agents.summary_reducer.agent import SummaryReducerAgent
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
@@ -1152,7 +1153,10 @@ class PersonalKnowledgeModelService:
             ):
                 sanitized[normalized_key] = value
 
-        return sanitized
+        # Structural PII guardrail: strip any key that encodes a monetary amount
+        # or a banned semantic word into its name (issue #586 attack vector).
+        # This is the canonical attach point for SummaryReducerAgent.scrub_dict_keys().
+        return SummaryReducerAgent.scrub_dict_keys(sanitized)
 
     @staticmethod
     def _merge_financial_summary_from_retired_contracts(
