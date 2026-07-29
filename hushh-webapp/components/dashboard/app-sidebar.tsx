@@ -32,7 +32,7 @@ export function AppSidebar() {
   const pendingCount = useConsentPendingSummaryCount();
 
   return (
-    <Sidebar>
+    <Sidebar aria-label="Application navigation">
       <SidebarHeader className="h-16 flex items-center justify-start border-b px-4">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🤫</span>

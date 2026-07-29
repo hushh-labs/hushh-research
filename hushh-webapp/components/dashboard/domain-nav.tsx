@@ -23,7 +23,7 @@ export function DomainNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="space-y-1">
+    <nav className="space-y-1" aria-label="Domain navigation">
       {domains.map((domain) => {
         const Lucide = domain.icon;
         const isActive = pathname?.startsWith(domain.href);
@@ -32,6 +32,7 @@ export function DomainNav() {
           <Link
             key={domain.name}
             href={domain.href}
+            aria-current={isActive ? "page" : undefined}
             className={cn(
               "flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               isActive
