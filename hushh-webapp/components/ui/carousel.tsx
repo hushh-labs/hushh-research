@@ -133,6 +133,7 @@ function Carousel({
         onKeyDownCapture={handleKeyDown}
         className={cn("relative", className)}
         role="region"
+        aria-label="Slideshow"
         aria-roledescription="carousel"
         data-slot="carousel"
         {...props}
