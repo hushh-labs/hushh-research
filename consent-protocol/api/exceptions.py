@@ -112,7 +112,7 @@ class AgentNotFoundError(AgentError):
     error_code = "AGENT_NOT_FOUND"
 
     def __init__(self, agent_id: str):
-        super().__init__(message=f"Agent not found: {agent_id}", details={"agent_id": agent_id})
+        super().__init__(message="Agent not found")
 
 
 class ValidationError(HushhBaseException):
