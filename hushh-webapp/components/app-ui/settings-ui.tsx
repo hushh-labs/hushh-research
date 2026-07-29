@@ -22,6 +22,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -145,6 +152,8 @@ export function SettingsGroup({
   embedded = false,
   separatorInset,
   className,
+  shellClassName,
+  contentClassName,
   testId = "settings-group",
 }: {
   eyebrow?: string;
@@ -159,6 +168,10 @@ export function SettingsGroup({
    */
   separatorInset?: boolean;
   className?: string;
+  /** Lets a bounded manager make the shared group shell a flex viewport. */
+  shellClassName?: string;
+  /** Lets a bounded manager make the shared row stack the scroll owner. */
+  contentClassName?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -174,6 +187,7 @@ export function SettingsGroup({
         "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--app-card-radius-compact)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[var(--app-card-radius-compact)]",
+        shellClassName,
       )}
     >
       <div
@@ -182,6 +196,7 @@ export function SettingsGroup({
           resolvedSeparatorInset
             ? "group/settings-list"
             : "divide-y divide-border/60",
+          contentClassName,
         )}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
       >
@@ -515,6 +530,8 @@ export type AdaptiveDetailSurfaceProps = {
   surfaceClassName?: string;
   contentClassName?: string;
   mobilePresentation?: "fullscreen" | "sheet";
+  /** Direct-decision sheets may omit a redundant visual X. */
+  showCloseButton?: boolean;
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
 };
@@ -532,6 +549,7 @@ export function AdaptiveDetailSurface({
   surfaceClassName,
   contentClassName,
   mobilePresentation = "fullscreen",
+  showCloseButton = true,
   desktopMaxWidthClassName,
   desktopMaxWidth,
 }: AdaptiveDetailSurfaceProps) {
@@ -569,6 +587,51 @@ export function AdaptiveDetailSurface({
   );
 
   if (isMobile) {
+    if (mobilePresentation === "sheet") {
+      return (
+        <Sheet open={open} onOpenChange={onOpenChange} modal>
+          <SheetContent
+            side="bottom"
+            showCloseButton={showCloseButton}
+            className={cn("gap-0", surfaceClassName, contentClassName)}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              (event.currentTarget as HTMLElement).focus();
+            }}
+          >
+            <SheetHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left">
+              {eyebrow ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  {eyebrow}
+                </p>
+              ) : null}
+              <SheetTitle className="text-base font-semibold tracking-tight">
+                {title}
+              </SheetTitle>
+              <SheetDescription
+                className={cn("text-sm leading-5", !description && "sr-only")}
+              >
+                {description ?? "Settings"}
+              </SheetDescription>
+            </SheetHeader>
+            <div
+              className={cn(
+                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-3 sm:px-4 sm:pt-4",
+                bodyClassName,
+              )}
+            >
+              {children}
+            </div>
+            {footer ? (
+              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+                {footer}
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      );
+    }
+
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
@@ -602,7 +665,7 @@ export function AdaptiveDetailSurface({
             >
               {description ?? "Settings"}
             </DrawerDescription>
-            {closeButton}
+            {showCloseButton ? closeButton : null}
           </DrawerHeader>
           <div
             className={cn(
@@ -653,7 +716,7 @@ export function AdaptiveDetailSurface({
           >
             {description ?? "Settings"}
           </DialogDescription>
-          {closeButton}
+          {showCloseButton ? closeButton : null}
         </DialogHeader>
         <div
           className={cn(

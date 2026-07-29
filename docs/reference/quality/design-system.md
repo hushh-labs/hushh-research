@@ -202,10 +202,13 @@ canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
 Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a blur-free neutral
-theme feather; the top mask keeps the shell legible through its visible tab
-stack and moves its dissolve with header collapse. Those edges must remain
-present on mobile and desktop wherever the signed-in top/bottom shell is present.
+`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
+feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
+filter; the top mask keeps the shell legible through its visible tab stack and
+moves its dissolve with header collapse. The bottom mask contracts with the
+scroll-hidden navigation slot while retaining the Agent Bar tail. Those edges
+must remain present on mobile and desktop wherever the signed-in top/bottom
+shell is present.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
@@ -246,3 +249,24 @@ fallback into a separate motion language. High-churn rails and tables opt out
 of automatic enters and may animate a stable inner layout root only.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
+
+## Bounded Managers And Decision Sheets
+
+Tabbed managers with a dense row rail (including Consent Center) keep their list
+surface within the available viewport between the shared top tabs and bottom
+chrome. The toolbar and pagination are fixed inside that surface; only the row
+rail scrolls with `overscroll-contain`. Keep server pagination authoritative and
+reachable, rather than expanding a page of rows beyond a mobile viewport.
+
+Consent request review uses `AdaptiveDetailSurface`/`SettingsDetailPanel` as the
+single record-detail owner. On mobile, a direct decision may opt into the
+canonical bottom `SheetContent` transport: it retains the drag handle, scroll
+handoff, velocity dismissal, focus, Escape, and outside-click behavior. Such a
+sheet may omit the redundant X only when those paths remain available. Its body
+is a flat key/value definition list followed by the decision controls—never a
+second `Request details` heading, explanatory subheader, or nested detail card.
+
+Counterparty identity media uses the supplied image when available; the fallback
+is a compact type-specific glyph with initials inside a token-based, theme-safe
+well. Do not use light-only hard-coded brand hues, favicon inference, or status
+color as the sole identifier.

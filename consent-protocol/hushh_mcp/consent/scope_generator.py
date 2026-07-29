@@ -414,7 +414,10 @@ class DynamicScopeGenerator:
             )
             manifest_result = (
                 self.db.table("pkm_manifests")
-                .select("domain,top_level_scope_paths,externalizable_paths,manifest_version")
+                .select(
+                    "domain,top_level_scope_paths,externalizable_paths,"
+                    "manifest_version,summary_projection"
+                )
                 .eq("user_id", user_id)
                 .execute()
             )
@@ -498,9 +501,38 @@ class DynamicScopeGenerator:
         registry_rows = registry_result.data or []
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
+        materialization_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
         enabled_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         all_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         known_domains = set(index_domains)
+        for row in manifest_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if not domain:
+                continue
+            summary_projection = self._coerce_json_dict(row.get("summary_projection"))
+            raw_materialization = summary_projection.get("scope_materialization")
+            if not isinstance(raw_materialization, dict):
+                continue
+            for raw_path, raw_entry in raw_materialization.items():
+                top_level_path = self._normalize_scope_path(raw_path)
+                if not top_level_path or "." in top_level_path or not isinstance(raw_entry, dict):
+                    continue
+                state = str(raw_entry.get("state") or "").strip().lower()
+                if state not in {"materialized", "empty", "unknown"}:
+                    continue
+                try:
+                    leaf_count = max(0, int(raw_entry.get("materialized_leaf_count") or 0))
+                except (TypeError, ValueError):
+                    continue
+                if (state == "materialized") != (leaf_count > 0):
+                    continue
+                materialization_by_top_level[(domain, top_level_path)] = {
+                    "materialization_state": state,
+                    "materialized_leaf_count": leaf_count,
+                    "source_manifest_revision": row.get("manifest_version"),
+                }
         for row in manifest_rows:
             if not isinstance(row, dict):
                 continue
@@ -531,10 +563,35 @@ class DynamicScopeGenerator:
             )
             top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
             if domain and top_level_path:
+                materialization = materialization_by_top_level.get((domain, top_level_path), {})
+                registry_state = (
+                    str(summary_projection.get("materialization_state") or "").strip().lower()
+                )
+                if registry_state in {"materialized", "empty", "unknown"}:
+                    try:
+                        registry_count = max(
+                            0,
+                            int(summary_projection.get("materialized_leaf_count") or 0),
+                        )
+                    except (TypeError, ValueError):
+                        registry_count = 0
+                    if (registry_state == "materialized") != (registry_count > 0):
+                        registry_state = "unknown"
+                        registry_count = 0
+                    materialization = {
+                        "materialization_state": registry_state,
+                        "materialized_leaf_count": registry_count,
+                        "source_manifest_revision": summary_projection.get(
+                            "source_manifest_revision"
+                        )
+                        or row.get("manifest_version"),
+                    }
+                    materialization_by_top_level[(domain, top_level_path)] = materialization
                 if (
                     visibility.get("consumer_visible") is not False
                     and visibility.get("internal_only") is not True
                     and visibility.get("visibility_posture") != "private"
+                    and materialization.get("materialization_state") != "empty"
                 ):
                     all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
                     if visibility.get("visibility_posture") != "private":
@@ -556,6 +613,7 @@ class DynamicScopeGenerator:
                     "internal_only": visibility.get("internal_only") is True,
                     "visibility_reason": visibility.get("visibility_reason"),
                     "top_level_scope_path": top_level_path,
+                    **materialization,
                 }
 
         for domain in sorted(known_domains):
@@ -568,6 +626,19 @@ class DynamicScopeGenerator:
                 and enabled_top_levels != domain_top_levels
             ):
                 continue
+            domain_materialization = [
+                entry
+                for (entry_domain, _), entry in materialization_by_top_level.items()
+                if entry_domain == domain
+            ]
+            if domain_materialization and all(
+                entry.get("materialization_state") == "empty" for entry in domain_materialization
+            ):
+                continue
+            domain_leaf_count = sum(
+                int(entry.get("materialized_leaf_count") or 0) for entry in domain_materialization
+            )
+            domain_state = "materialized" if domain_leaf_count > 0 else "unknown"
             _upsert_scope_entry(
                 {
                     "scope": self.generate_domain_wildcard(domain),
@@ -588,6 +659,16 @@ class DynamicScopeGenerator:
                     "visibility_posture": "private" if domain_internal else "consent_required",
                     "default_projection_ready": False,
                     "default_projection_updated_at": None,
+                    "materialization_state": domain_state,
+                    "materialized_leaf_count": domain_leaf_count,
+                    "source_manifest_revision": max(
+                        (
+                            int(entry.get("source_manifest_revision") or 0)
+                            for entry in domain_materialization
+                        ),
+                        default=0,
+                    )
+                    or None,
                 }
             )
 
@@ -606,6 +687,9 @@ class DynamicScopeGenerator:
             ]
             for path in [path for path in top_level_paths if path]:
                 registry_meta = registry_by_top_level.get((domain, path), {})
+                materialization = materialization_by_top_level.get((domain, path), {})
+                if materialization.get("materialization_state") == "empty":
+                    continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
@@ -638,6 +722,7 @@ class DynamicScopeGenerator:
                         "default_projection_updated_at": registry_meta.get(
                             "default_projection_updated_at"
                         ),
+                        **materialization,
                     }
                 )
             for raw_path in row.get("externalizable_paths") or []:
@@ -647,6 +732,9 @@ class DynamicScopeGenerator:
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
+                materialization = materialization_by_top_level.get((domain, top_level), {})
+                if materialization.get("materialization_state") == "empty":
+                    continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
@@ -679,6 +767,7 @@ class DynamicScopeGenerator:
                         "default_projection_updated_at": registry_meta.get(
                             "default_projection_updated_at"
                         ),
+                        **materialization,
                     }
                 )
 
@@ -694,6 +783,9 @@ class DynamicScopeGenerator:
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
+            materialization = materialization_by_top_level.get((domain, top_level), {})
+            if materialization.get("materialization_state") == "empty":
+                continue
             if registry_meta.get("visibility_posture") == "private":
                 continue
             _upsert_scope_entry(
@@ -728,6 +820,7 @@ class DynamicScopeGenerator:
                     "default_projection_updated_at": registry_meta.get(
                         "default_projection_updated_at"
                     ),
+                    **materialization,
                 }
             )
 

@@ -116,9 +116,9 @@ flowchart TB
 | GET | `/api/v1` | Developer API root summary (`410` when developer API disabled) |
 | GET | `/api/v1/list-scopes` | Generic dynamic scope catalog (`410` when developer API disabled) |
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
-| GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `Authorization: Bearer <developer-token>`) |
+| GET | `/api/v1/user-scopes/{user_id}` | Discover materialized dynamic user scopes for one user; reserved empty PKM shapes are omitted (requires `Authorization: Bearer <developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved capability such as `cap.one.invoke` (requires `Authorization: Bearer <developer-token>`) |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one currently materialized/discovered `attr.*` scope or approved capability such as `cap.one.invoke`; empty dynamic scopes fail before pending/active reuse while static capabilities are unaffected (requires `Authorization: Bearer <developer-token>`) |
 | POST | `/api/v1/public-profile-export` | Read an owner-published public-profile resource by opaque handle; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
@@ -336,7 +336,9 @@ RIA relationship bundle note:
 | POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index; accepts optional non-sensitive `write_projections[]` for derived read models such as decision history |
 | GET | `/api/pkm/data/{user_id}` | Get full encrypted PKM payload |
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
-| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
+| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Compatibility deletion path for existing first-party callers |
+| POST | `/api/pkm/delete-domain` | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision |
+| GET | `/api/pkm/device-sync/{user_id}` | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
 | POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private or consent-required |
 | POST | `/api/pkm/domains/{domain}/public-profile-projection` | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture |

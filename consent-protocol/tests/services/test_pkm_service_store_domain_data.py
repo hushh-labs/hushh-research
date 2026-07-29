@@ -64,12 +64,72 @@ def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio
     }
 
 
+def _confirmed_delete_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
+    plan = _confirmed_create_plan(user_id=user_id, domain=domain, scope=scope)
+    plan["operation"] = "delete"
+    plan["source_scope_handle"] = plan.pop("target_scope_handle")
+    return plan
+
+
 class _StubDomainRegistry:
     async def ensure_canonical_domains(self):
         return None
 
     async def register_domain(self, _domain: str):
         return None
+
+
+@pytest.mark.asyncio
+async def test_confirmed_domain_delete_uses_atomic_revision_and_refresh_rpc() -> None:
+    service = PersonalKnowledgeModelService()
+    service.get_domain_manifest = AsyncMock(
+        return_value={
+            "manifest_version": 3,
+            "top_level_scope_paths": ["portfolio"],
+            "externalizable_paths": ["portfolio.holdings"],
+        }
+    )
+    service._continuous_refresh_tokens_for_domain_write = AsyncMock(return_value=["token-1"])
+    service._run_rpc = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                {
+                    "delete_pkm_domain_v3": {
+                        "success": True,
+                        "conflict": False,
+                        "deleted": True,
+                        "data_version": 8,
+                    }
+                }
+            ]
+        )
+    )
+
+    result = await service.delete_domain_data(
+        "owner-1",
+        "financial",
+        expected_data_version=7,
+        mutation_plan=_confirmed_delete_plan(
+            user_id="owner-1",
+            domain="financial",
+        ),
+        return_result=True,
+    )
+
+    assert result == {
+        "success": True,
+        "conflict": False,
+        "deleted": True,
+        "data_version": 8,
+    }
+    rpc_name, rpc_params = service._run_rpc.await_args.args
+    assert rpc_name == "delete_pkm_domain_v3"
+    assert rpc_params["p_expected_content_revision"] == 7
+    assert rpc_params["p_refresh_tokens"] == ["token-1"]
+    assert _unwrap(rpc_params["p_trigger_paths"]) == [
+        "portfolio",
+        "portfolio.holdings",
+    ]
 
 
 class _StubDbTable:

@@ -183,7 +183,8 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     runs over a modal surface. Android preserves platform system-back behavior.
 30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
     compositor. Both edges paint a neutral `--background` to transparent
-    feather with `--foreground` ink; route colors must not tint either bar.
+    feather with `--foreground` ink and the shared subtle readability blur;
+    route colors must not tint either bar.
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
@@ -191,7 +192,8 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     mode-specific tail: `bar-with-tabs` stays solid through the visible tab
     underline and its dissolve moves with partial or full header collapse.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
-    bottom mask, safe-area stack, and scroll-hide transform, then renders the
+    bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
+    by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
     bottom navigation and Agent Bar as separate accessible slots. Keep route
     visibility in its route-derived model; never recreate fixed bottom wrappers
     or move either slot inside a page Suspense boundary.
@@ -326,7 +328,7 @@ Rules:
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
-11. Top and bottom shell material uses the same blur-free sampled-tint,
+11. Top and bottom shell material uses the same subtle-blur sampled-tint,
     feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
     contract. A dark or gradient surface must not acquire a milky light chrome
     band.
@@ -350,6 +352,12 @@ Rules:
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
+9. A browse-heavy manager with top-shell tabs must bound its grouped list to the
+   visible workspace. Keep the toolbar and pagination pinned within the group;
+   the row rail, not the document, owns vertical scrolling. Consent request
+   review uses the canonical adaptive detail surface with a flat definition
+   list and decision controls—no duplicate request heading, supporting copy,
+   or nested detail card.
 
 ## Route Loading Contract
 

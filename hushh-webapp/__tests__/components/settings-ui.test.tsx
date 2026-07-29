@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LogOut, Phone } from "lucide-react";
@@ -341,5 +341,47 @@ describe("SettingsDetailPanel", () => {
     );
 
     expect(handleOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("uses the shared physics-enabled bottom sheet when requested", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        title="Decision"
+        mobilePresentation="sheet"
+        showCloseButton={false}
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-slot="sheet-drag-handle"]'),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 });

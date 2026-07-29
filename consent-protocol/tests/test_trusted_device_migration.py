@@ -10,7 +10,7 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     manifest = json.loads(
         (ROOT / "db" / "release_migration_manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["ordered_migrations"][-1] == "122_trusted_device_repair.sql"
+    assert manifest["ordered_migrations"][-1] == "123_pkm_device_sync.sql"
     assert "122_trusted_device_repair.sql" in manifest["groups"]["iam"]
 
     sql = (ROOT / "db" / "migrations" / "121_trusted_devices.sql").read_text(encoding="utf-8")
@@ -83,6 +83,6 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
         contract = json.loads(
             (ROOT / "db" / "contracts" / contract_name).read_text(encoding="utf-8")
         )
-        assert contract["expected_migration_version"] == 122
+        assert contract["expected_migration_version"] == 123
         for table, columns in expected_columns.items():
             assert set(contract["required_tables"][table]) == columns

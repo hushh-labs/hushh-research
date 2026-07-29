@@ -135,6 +135,16 @@ elevation:
 6. Developer tokens remain application identity only. They never map to
    `VAULT_OWNER`, PKM write, vault unwrap, or a trusted-device credential.
 
+The 15-minute capability is an automatically renewable in-memory lease, not
+the trusted-device lifetime. Device registration and Keychain-bound local
+custody remain durable until lock, disconnect, or revocation. Hermes uses the
+native connector for owner writes; the hosted MCP handshake is unchanged.
+
+Postgres `pkm_events.id` is the metadata-only encrypted-replica cursor today.
+Trusted devices fetch current ciphertext through the existing snapshot
+contract, and revision-safe domain deletion leaves a durable tombstone. This is
+the replaceable outbox seam for future Redis/Memorystore fan-out.
+
 Postgres owns one-time codes, nonce replay protection, device state, and
 metadata-only audit today. `TrustedDeviceStore` is the replaceable seam for a
 future Redis/Memorystore replay and revocation fan-out adapter.

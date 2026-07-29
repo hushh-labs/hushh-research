@@ -2740,18 +2740,18 @@ md-ripple.morphy-md-ripple {
      route color across either app edge. */
   --ambient-chrome-material-bg: var(--background);
   --ambient-chrome-material-fg: var(--foreground);
-  --tw-backdrop-blur: blur(0px);
-  --tw-backdrop-saturate: saturate(1);
+  --ambient-chrome-mask-blur: var(--app-shared-chrome-mask-blur);
+  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur));
   --ambient-chrome-wash: 58%;
   --ambient-chrome-ramp-hold: 42%;
   --ambient-chrome-ramp-mid: 72%;
   --ambient-chrome-ramp-mid-alpha: 0.44;
-  will-change: background-color;
+  -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
+  backdrop-filter: var(--ambient-chrome-backdrop-filter);
+  will-change: background-color, backdrop-filter;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
-  --tw-backdrop-blur: blur(0px);
-  --tw-backdrop-saturate: saturate(1);
   --ambient-chrome-wash: 0%;
 }
 
