@@ -179,11 +179,11 @@ class DeveloperConsentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: str = Field(..., min_length=1, max_length=128)
-    scope: str = Field(..., min_length=1, max_length=200)
+    scope: str = Field(..., min_length=1, max_length=256)
     reason: str | None = Field(default=None, max_length=1000)
-    expiry_hours: int = 24
-    approval_timeout_minutes: int = 24 * 60
-    connector_public_key: str = Field(min_length=16)
+    expiry_hours: int = Field(24, ge=24, le=2160)
+    approval_timeout_minutes: int = Field(1440, ge=5, le=1440)
+    connector_public_key: str = Field(..., min_length=16, max_length=8192)
     connector_key_id: str = Field(min_length=1, max_length=128)
     connector_wrapping_alg: str = Field(min_length=1, max_length=128)
     offer: DeveloperConsentOffer | None = None
@@ -193,8 +193,8 @@ class DeveloperScopedExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: str = Field(..., min_length=1, max_length=128)
-    consent_token: str = Field(min_length=16, max_length=2048)
-    expected_scope: str | None = Field(default=None, max_length=200)
+    consent_token: str = Field(..., min_length=16, max_length=1024)
+    expected_scope: str | None = Field(default=None, max_length=256)
 
 
 class DeveloperDefaultAvailableExportRequest(BaseModel):
