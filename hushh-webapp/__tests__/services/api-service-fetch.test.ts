@@ -229,6 +229,29 @@ describe("ApiService.apiFetch", () => {
     expect(payload.meta?.market_mode).toBe("baseline");
   });
 
+  it("preserves baseline insights market mode contract", async () => {
+  (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+    "firebase-id-token"
+  );
+
+  mockFetch.mockResolvedValueOnce(
+    jsonResponse({
+      generated_at: "2026-03-30T00:00:00Z",
+      meta: {
+        market_mode: "baseline",
+      },
+    })
+  );
+
+  const payload = await ApiService.getKaiMarketBaselineInsights({
+    userId: "user_123",
+    daysBack: 30,
+  });
+
+  expect(payload.meta).toBeDefined();
+  expect(payload.meta?.market_mode).toBe("baseline");
+});
+
   it("starts UAT phone test verification through the account proxy", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({
