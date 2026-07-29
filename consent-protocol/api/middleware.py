@@ -8,6 +8,7 @@ Provides reusable dependency functions for route protection:
 
 import logging
 from typing import Any, Optional, cast
+from urllib.parse import urlencode
 
 from fastapi import BackgroundTasks, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -21,6 +22,46 @@ logger = logging.getLogger(__name__)
 
 _CONSENT_SCOPE_CACHE_ATTR = "_hushh_validated_consent_scopes"
 _NO_REQUEST = cast(Request, None)
+
+# Tracking/telemetry query parameters to strip before downstream processing.
+_TRACKING_PARAMS: frozenset[str] = frozenset({
+    "fbclid",       # Facebook Click ID
+    "gclid",        # Google Ads Click ID
+    "utm_source",   # UTM campaign source
+    "utm_medium",   # UTM campaign medium
+    "utm_campaign", # UTM campaign name
+    "utm_term",     # UTM campaign search term
+    "utm_content",  # UTM campaign content variant
+    "msclkid",      # Microsoft Advertising Click ID
+    "twclid",       # Twitter Click ID
+    "ttclid",       # TikTok Click ID
+    "mc_eid",       # Mailchimp Email ID
+    "igshid",       # Instagram Share ID
+})
+
+
+def _sanitize_request_url(request: "Request | None") -> None:
+    """Strip tracking/telemetry query parameters and expose the sanitized
+    URL on ``request.state.sanitized_url`` before any downstream handler runs.
+
+    ``request.url`` is immutable in Starlette/FastAPI; ``sanitized_url`` is
+    the clean reference route handlers should use for logging and URL
+    forwarding.  Original ASGI routing is completely unaffected — this is a
+    read-annotate operation, not a mutation.
+
+    No-op when ``request`` is ``None``.
+    """
+    if request is None:
+        return
+    clean_pairs = [
+        (k, v)
+        for k, v in request.query_params.multi_items()
+        if k not in _TRACKING_PARAMS
+    ]
+    base = str(request.url).partition("?")[0]
+    request.state.sanitized_url = (
+        f"{base}?{urlencode(clean_pairs)}" if clean_pairs else base
+    )
 
 
 def _auth_error(detail: str) -> HTTPException:
@@ -204,6 +245,9 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
+    # Strip tracking parameters before any downstream logic reads the URL.
+    _sanitize_request_url(request)
+
     header_value = (
         hushh_consent if isinstance(hushh_consent, str) and hushh_consent.strip() else authorization
     )
@@ -219,7 +263,11 @@ async def require_vault_owner_token(
     )
 
     if not valid or not token_obj:
-        logger.warning("Token validation failed: %s", reason)
+        # Log only the sanitized path so tracking params never appear in log output.
+        _sanitized_path = (
+            getattr(request.state, "sanitized_url", None) if request is not None else None
+        )
+        logger.warning("Token validation failed: %s path=%s", reason, _sanitized_path)
         raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
@@ -238,13 +286,25 @@ def require_consent_scope(required_scope: str | ConsentScope):
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
+        # Strip tracking parameters before any downstream logic reads the URL.
+        _sanitize_request_url(request)
+
         token = _extract_token(authorization, allow_raw=False)
         valid, reason, token_obj = await _validate_token_with_scope_cache(
             token, required_scope, request
         )
 
         if not valid or not token_obj:
-            logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
+            # Log only the sanitized path so tracking params never appear in log output.
+            _sanitized_path = (
+                getattr(request.state, "sanitized_url", None) if request is not None else None
+            )
+            logger.warning(
+                "Scoped token validation failed for %s: %s path=%s",
+                required_scope,
+                reason,
+                _sanitized_path,
+            )
             raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)
