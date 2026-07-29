@@ -41,13 +41,16 @@ describe("backend runtime resolution", () => {
     expect(helper.getDeveloperApiUrl()).toBe("http://127.0.0.1:8000");
   });
 
-  it("prefers explicit runtime BACKEND_URL in hosted runtimes", async () => {
-    process.env.K_SERVICE = "hushh-webapp";
-    process.env.NEXT_PUBLIC_APP_ENV = "uat";
-    process.env.BACKEND_URL = "https://consent-protocol-uat.example.com";
-    const helper = await loadHelper();
-    expect(helper.getPythonApiUrl()).toBe("https://consent-protocol-uat.example.com");
-  });
+  it("prefers PYTHON_API_URL over BACKEND_URL when both are configured", async () => {
+  process.env.K_SERVICE = "hushh-webapp";
+  process.env.NEXT_PUBLIC_APP_ENV = "uat";
+  process.env.PYTHON_API_URL = "https://python-api.example.com";
+  process.env.BACKEND_URL = "https://backend-api.example.com";
+
+  const helper = await loadHelper();
+
+  expect(helper.getPythonApiUrl()).toBe("https://python-api.example.com");
+});
 
   it("throws when a hosted runtime is missing an explicit backend origin", async () => {
     process.env.K_SERVICE = "hushh-webapp";
