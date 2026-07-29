@@ -51,7 +51,7 @@ export function PaginatedListFooter({
         className
       )}
     >
-      <span>
+      <span role="status" aria-live="polite" aria-label={`Page ${safePage} of ${pageCount}`}>
         Page {safePage} of {pageCount}
       </span>
       <div className="flex gap-2">
