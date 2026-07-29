@@ -258,9 +258,9 @@ function PriceTargets({ targets }: { targets: Record<string, any> }) {
       </p>
       <div className="grid grid-cols-3 gap-1.5">
         {entries.map(([key, value]) => (
-          <div key={key} className="text-center p-1.5 rounded-md bg-muted/20">
-            <p className="text-[10px] text-muted-foreground capitalize">{key.replace(/_/g, " ")}</p>
-            <p className="text-xs font-bold">${typeof value === "number" ? value.toFixed(2) : value}</p>
+          <div key={key} className="min-w-0 rounded-md bg-muted/20 p-1.5 text-center">
+            <p className="truncate text-[10px] capitalize text-muted-foreground">{key.replace(/_/g, " ")}</p>
+            <p className="truncate text-xs font-bold">${typeof value === "number" ? value.toFixed(2) : value}</p>
           </div>
         ))}
       </div>
