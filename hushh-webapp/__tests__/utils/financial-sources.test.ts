@@ -188,4 +188,11 @@ describe("financial statement snapshots", () => {
       })
     ).toBe("plaid");
   });
+it("returns no statement options when statement source is missing", () => {
+  expect(
+    getStatementSnapshotOptions({
+      sources: {},
+    }),
+  ).toEqual([]);
+});
 });
