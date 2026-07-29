@@ -67,6 +67,18 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("processes reference calculations when the configuration options parameter contains a multi-token string", () => {
+    const multiTokenOptions = {
+      requestId: "req_123",
+      from: "/kai/identity credentials tracking",
+    };
+    const result = resolveConsentRequestHref(null, "pending", multiTokenOptions);
+
+    expect(result).toBe(
+      "/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fidentity+credentials+tracking"
+    );
+  });
+
   it("classifies internal consent links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
