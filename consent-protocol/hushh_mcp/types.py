@@ -37,6 +37,11 @@ class TrustLink(BaseModel):
     expires_at: int
     signed_by_user: UserID
     signature: str
+    session_id: str = ""  # Binds HMAC to a specific stream context.
+                          # Prevents cross-stream replay: a signature from
+                          # Stream A is invalid on Stream B even if all other
+                          # fields match. Empty string preserves backward
+                          # compatibility with pre-fix TrustLinks.
 
 
 # ==================== Vault Structures ====================
