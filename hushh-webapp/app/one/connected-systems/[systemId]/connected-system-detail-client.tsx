@@ -9,11 +9,17 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import {
+  ConnectedSystemLogo,
+  ConnectedSystemsPanel,
+  crmTypeDisplayLabel,
+} from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import type { ConnectedSystemAgentInstruction } from "@/components/profile/connected-systems-panel";
+import type { ConnectedSystemSummary } from "@/lib/services/connected-systems-service";
+import { publishConnectedSystemPresentation } from "@/lib/navigation/connected-system-presentation";
 
 export function ConnectedSystemDetailClient({
   systemId,
@@ -26,10 +32,17 @@ export function ConnectedSystemDetailClient({
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
-  const [systemTitle, setSystemTitle] = useState("CRM");
+  const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
   const handleSystemResolved = useCallback(
-    (system: { displayName?: string; customerDisplayName?: string }) => {
-      setSystemTitle(system.displayName || system.customerDisplayName || "CRM");
+    (resolvedSystem: ConnectedSystemSummary) => {
+      setSystem(resolvedSystem);
+      publishConnectedSystemPresentation({
+        systemId: resolvedSystem.systemId,
+        label:
+          resolvedSystem.displayName ||
+          resolvedSystem.customerDisplayName ||
+          "CRM",
+      });
     },
     [],
   );
@@ -71,8 +84,12 @@ export function ConnectedSystemDetailClient({
       />
       <AppPageHeaderRegion>
         <PageHeader
-          title={systemTitle}
-          description="Find, create, and manage the profile linked to this CRM."
+          title={system?.displayName || system?.customerDisplayName || "CRM"}
+          description={crmTypeDisplayLabel(system) || "CRM"}
+          actions={
+            system ? <ConnectedSystemLogo system={system} size="hero" /> : null
+          }
+          actionsInlineMobile
           accent="neutral"
         />
       </AppPageHeaderRegion>

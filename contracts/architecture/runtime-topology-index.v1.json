@@ -2300,10 +2300,16 @@
       "native_surface_id": "native-route-kai-analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
       "pathname": "/one/kai/analysis",
-      "route_mode": "redirect",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "analysis.cancel_active",
+          "analysis.resume_active",
+          "analysis.start",
+          "route.analysis_history",
+          "route.kai_analysis"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.analysis"
       }
@@ -2925,12 +2931,10 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "ria.profile.edit_services",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
-          "route.profile_regulatory",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3354,15 +3358,12 @@
       "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/regulatory/page.tsx",
       "pathname": "/one/profile/regulatory",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "ria.profile.edit_services",
-          "route.profile_regulatory"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.profile.regulatory"
+        "playbook_id": "route.profile.regulatory_compat"
       }
     },
     {
@@ -4199,10 +4200,13 @@
       "native_surface_id": "native-route-profile",
       "page_file": "app/ria/profile/page.tsx",
       "pathname": "/ria/profile",
-      "route_mode": "redirect",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "ria.profile.edit_services",
+          "route.ria_profile"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.ria.profile"
       }
@@ -4337,15 +4341,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "147e4b3faab35a337714f4aa191e57c453645f1f03e656f7e75b7d7a9c3ed014",
+    "action_gateway": "2e25991c576b00e05b242b6e107f2c665a7b846ab80e53161ce474b6c87095c0",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
     "data_plane": "0a8cd55eee9579c9fbc8c4d20499b118dd048789ee281d8640bc1e0842bc4f04",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "f293d17e7d739acf3052aba9436829df846d059e980395de733596bb23b95338",
-    "route_layout": "ec5c36519d39337986cd72767030ef180b36d7b7216fcca515d8fe971f365b47",
-    "surface_map": "27d7e06920b7f714373dd6e49ec3db747c66ced4822299d3525979ff863e6b35",
+    "route_index": "84b06798ab53d7cc9c89f18464965db18d109e789f926f293d21dc6bbca4c274",
+    "route_layout": "079e52f558cf36f1f446c10d456523237a04359b0ff81f22a2e98117120130ac",
+    "surface_map": "899502fe9e9e39f9bce4fcad859973836f9b45bffa0f4074dbaaed261c29c79b",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

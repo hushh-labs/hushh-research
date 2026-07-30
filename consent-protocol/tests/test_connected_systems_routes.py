@@ -450,6 +450,7 @@ def test_update_intent_route_resolves_bound_record_id(monkeypatch):
         "record_id": None,
         "record_fields": {"MailingCity": "New York"},
         "readback_locator": None,
+        "locked_field_names": {"Email", "Phone", "FirstName", "LastName"},
     }
 
 

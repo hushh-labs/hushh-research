@@ -91,19 +91,14 @@ describe("app bottom navigation", () => {
       type: "command",
       mode: "search",
     });
-    // Profile is unified across scopes — the RIA advisor profile now lives inside
-    // the global /one/profile section (Regulatory profile panel), so every scope opens it.
+    // General Profile is shared across scopes; advisor management keeps its own RIA route.
     expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "one")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "investor")).toBe(ROUTES.PROFILE);
   });
 
-  it("highlights the Profile tab on unified Profile routes in RIA scope", () => {
+  it("highlights the Profile tab on general Profile routes in RIA scope", () => {
     expect(resolveRiaActiveNav(ROUTES.PROFILE)).toBe("profile");
-    expect(resolveRiaActiveNav(ROUTES.PROFILE_REGULATORY)).toBe("profile");
-    expect(
-      resolveRiaActiveNav(`${ROUTES.PROFILE_REGULATORY}?tab=services`),
-    ).toBe("profile");
     // RIA home stays on its own tab.
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });

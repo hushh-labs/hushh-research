@@ -1,6 +1,5 @@
 "use client";
 
-import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -1004,10 +1003,6 @@ function ConsentEntryDetail({
             }
           : null;
 
-  const refreshPolicy =
-    entry.metadata?.refresh_policy === "continuous_until_expiry"
-      ? "continuous_until_expiry"
-      : "snapshot";
   const hasGroupedHistory =
     entry.kind === "history" && Boolean(entry.consent_trails?.length);
   const entryRequestId = entry.request_id || entry.id;
@@ -1054,11 +1049,6 @@ function ConsentEntryDetail({
     (requestedDurationDays
       ? formatDurationHours(Number(requestedDurationDays) * 24)
       : "");
-  const updatesDescription = entry.scope?.startsWith("attr.")
-    ? refreshPolicy === "continuous_until_expiry"
-      ? "Includes approved updates until access ends."
-      : "Shares a one-time copy; later changes are not included."
-    : null;
   const isReceivedLocationGrant =
     isLocationEntry && entry.metadata?.section === "shared";
   const canRevokeActive =
@@ -1145,93 +1135,75 @@ function ConsentEntryDetail({
       ) : null}
 
       {isPendingDecision ? (
-        <SettingsGroup
-          embedded
-          title="Your decision"
-          description={
-            isConnectionDecision
-              ? "Accept or decline this trusted-connection request."
-              : updatesDescription || undefined
-          }
+        <section
+          className="flex flex-wrap items-center justify-end gap-2 pt-1"
+          aria-label="Consent decision"
         >
           {showDurationChoice ? (
-            <SettingsRow
-              title="Access duration"
-              description={
-                requestedDurationLabel
-                  ? `Requested for ${requestedDurationLabel}. You can choose a shorter window.`
-                  : isLocationEntry
-                    ? "Choose how long location sharing should stay active."
-                    : "Choose how long this access should stay active."
-              }
-              trailing={
-                <Select
-                  value={selectedDuration}
-                  onValueChange={setSelectedDuration}
-                  disabled={requestBusy}
+            <div className="min-w-[150px]">
+              <Select
+                value={selectedDuration}
+                onValueChange={setSelectedDuration}
+                disabled={requestBusy}
+              >
+                <SelectTrigger
+                  className="w-[150px]"
+                  aria-label="Access duration"
                 >
-                  <SelectTrigger
-                    className="w-[150px]"
-                    aria-label="Access duration"
-                  >
-                    <SelectValue placeholder="Duration" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {durationOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              }
-              stackTrailingOnMobile
-            />
+                  <SelectValue placeholder="Duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {durationOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           ) : null}
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--app-card-border-standard)]/45 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            <Button
-              variant="blue-gradient"
-              effect="fill"
-              size="sm"
-              className="min-h-11"
-              disabled={requestBusy}
-              onClick={() =>
-                onApprove(
-                  entry,
-                  isConnectionDecision || isMarketplaceDecision
-                    ? undefined
-                    : effectiveDurationHours,
-                )
-              }
-              data-voice-control-id="consent_approve"
-            >
-              {approveBusy
-                ? isConnectionDecision
-                  ? "Accepting..."
-                  : "Allowing..."
-                : isConnectionDecision
-                  ? "Accept"
-                  : "Allow"}
-            </Button>
-            <Button
-              variant="none"
-              effect="fade"
-              size="sm"
-              className="min-h-11"
-              disabled={requestBusy}
-              onClick={() => onDeny(entry)}
-              data-voice-control-id="consent_deny"
-            >
-              {denyBusy
-                ? isConnectionDecision
-                  ? "Declining..."
-                  : "Rejecting..."
-                : isConnectionDecision
-                  ? "Decline"
-                  : "Don't allow"}
-            </Button>
-          </div>
-        </SettingsGroup>
+          <Button
+            variant="blue-gradient"
+            effect="fill"
+            size="sm"
+            className="min-h-11"
+            disabled={requestBusy}
+            onClick={() =>
+              onApprove(
+                entry,
+                isConnectionDecision || isMarketplaceDecision
+                  ? undefined
+                  : effectiveDurationHours,
+              )
+            }
+            data-voice-control-id="consent_approve"
+          >
+            {approveBusy
+              ? isConnectionDecision
+                ? "Accepting..."
+                : "Allowing..."
+              : isConnectionDecision
+                ? "Accept"
+                : "Allow"}
+          </Button>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            className="min-h-11"
+            disabled={requestBusy}
+            onClick={() => onDeny(entry)}
+            data-voice-control-id="consent_deny"
+          >
+            {denyBusy
+              ? isConnectionDecision
+                ? "Declining..."
+                : "Rejecting..."
+              : isConnectionDecision
+                ? "Decline"
+                : "Don't allow"}
+          </Button>
+        </section>
       ) : null}
 
       {canRevokeActive ? (
@@ -1816,6 +1788,7 @@ export function ConsentCenterPage() {
     cacheKey: summaryCacheKey,
     refreshKey: `${consentScopeKey}:${mode}`,
     enabled: Boolean(user?.uid),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1837,6 +1810,7 @@ export function ConsentCenterPage() {
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1869,6 +1843,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_pending",
     refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1900,6 +1875,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_active",
     refreshKey: `${consentScopeKey}:${mode}:active:${deferredQuery}:${activePage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("active"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1931,6 +1907,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_previous",
     refreshKey: `${consentScopeKey}:${mode}:previous:${deferredQuery}:${previousPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("history"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1971,13 +1948,13 @@ export function ConsentCenterPage() {
     if (!user?.uid || tab === "connections") return;
     if (
       !listResource ||
-      listResource.data ||
+      (!listResource.invalidated && listResource.data) ||
       listResource.loading ||
       listResource.refreshing
     ) {
       return;
     }
-    void listResource.refresh();
+    void listResource.refresh({ force: listResource.invalidated });
     // This is intentionally a tab-entry effect. Watching the resource's
     // transition-backed data/loading fields can observe the brief state where
     // loading has settled before React commits data, causing a redundant fetch
@@ -2730,14 +2707,6 @@ export function ConsentCenterPage() {
               />
 
               {showSessionRecovery ? <SessionExpiryRecovery /> : null}
-
-              {isConsentActionRefreshing && items.length > 0 ? (
-                <AsyncActionStatus
-                  state="loading"
-                  label="Refreshing consent state..."
-                  compact
-                />
-              ) : null}
 
               {showCompactRetryState ? (
                 <ApiRetryState

@@ -98,6 +98,10 @@ import {
   type TopShellBreadcrumbConfig,
   type TopShellBreadcrumbItem,
 } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  getConnectedSystemPresentationLabel,
+  subscribeConnectedSystemPresentation,
+} from "@/lib/navigation/connected-system-presentation";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -445,6 +449,35 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         : model.navigation.pathname,
     [model, pathname],
   );
+  const connectedSystemId = useMemo(() => {
+    const detailPrefix = `${ROUTES.CONNECTED_SYSTEMS}/`;
+    if (normalizedPathname.startsWith(detailPrefix)) {
+      const segment = normalizedPathname
+        .slice(detailPrefix.length)
+        .split("/", 1)[0] || "";
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    }
+    return normalizedPathname === ROUTES.CONNECTED_SYSTEMS
+      ? searchParams?.get("system") || ""
+      : "";
+  }, [normalizedPathname, searchParams]);
+  const [connectedSystemLabel, setConnectedSystemLabel] = useState<
+    string | null
+  >(() => getConnectedSystemPresentationLabel(connectedSystemId));
+  useEffect(() => {
+    setConnectedSystemLabel(
+      getConnectedSystemPresentationLabel(connectedSystemId),
+    );
+    return subscribeConnectedSystemPresentation((presentation) => {
+      if (presentation.systemId === connectedSystemId) {
+        setConnectedSystemLabel(presentation.label);
+      }
+    });
+  }, [connectedSystemId]);
   const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
@@ -461,9 +494,16 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     return (
       resolveTopShellBreadcrumb(normalizedPathname, searchParams, {
         setupDismissed,
+        connectedSystemLabel,
       }) ?? resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId)
     );
-  }, [lastAgentSectionId, normalizedPathname, searchParams, user?.uid]);
+  }, [
+    connectedSystemLabel,
+    lastAgentSectionId,
+    normalizedPathname,
+    searchParams,
+    user?.uid,
+  ]);
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
     [normalizedPathname],
@@ -834,7 +874,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           style={{
             height:
               model.mode === "bar" || model.mode === "bar-with-tabs"
-                ? "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))"
+                ? "var(--top-shell-mask-visible-height)"
                 : "var(--top-shell-visual-height)",
           }}
         >
@@ -857,7 +897,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         >
           <div
             data-testid="top-app-bar-header"
-            className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu transition-[max-height,opacity,transform,padding] duration-200 ease-out will-change-transform"
+            className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
               maxHeight: tabsOnlyChrome
                 ? "0px"
@@ -1128,7 +1168,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           {model.mode === "bar-with-tabs" ? (
             <div
               data-testid="top-app-bar-tabs"
-              className="pointer-events-auto relative w-full shrink-0 transition-[height,padding] duration-200 ease-out"
+              className="pointer-events-auto relative w-full shrink-0"
               style={{
                 height: tabsOnlyChrome
                   ? "calc(var(--top-inset) + var(--top-tabs-h))"

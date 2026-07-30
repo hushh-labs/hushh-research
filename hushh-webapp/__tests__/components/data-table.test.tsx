@@ -33,13 +33,41 @@ describe("DataTable", () => {
         enableSearch={false}
         initialPageSize={8}
         pageSizeOptions={[8, 16, 24]}
-      />
+      />,
     );
 
     expect(screen.getByText("Row 1")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "2" }));
     expect(screen.getByText("Row 9")).toBeTruthy();
     expect(screen.queryByText("Row 1")).toBeNull();
+  });
+
+  it("keeps range and page navigation in their paired footer control groups", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(30)}
+        enableSearch={false}
+        initialPageSize={8}
+        pageSizeOptions={[8, 16, 24]}
+      />,
+    );
+
+    const rangeControls = document.querySelector(
+      '[data-slot="data-table-range-controls"]',
+    );
+    const pageControls = document.querySelector(
+      '[data-slot="data-table-page-controls"]',
+    );
+
+    expect(rangeControls?.textContent).toContain("8");
+    expect(rangeControls?.textContent).toContain("Showing 1-8 of 30");
+    expect(rangeControls).toHaveClass("w-full", "justify-between");
+    expect(pageControls?.textContent).toContain("Page 1 of 4");
+    expect(pageControls).toHaveClass("w-full", "justify-between");
+    const pagination = pageControls?.querySelector('[data-slot="pagination"]');
+    expect(pagination).toBeTruthy();
+    expect(pageControls?.firstElementChild).toBe(pagination);
   });
 
   it("hides pagination chrome for a single page", () => {
@@ -50,7 +78,7 @@ describe("DataTable", () => {
         enableSearch={false}
         initialPageSize={8}
         pageSizeOptions={[8, 16, 24]}
-      />
+      />,
     );
 
     expect(screen.queryByRole("navigation", { name: "pagination" })).toBeNull();
@@ -66,7 +94,7 @@ describe("DataTable", () => {
         searchPlaceholder="Search rows"
         initialPageSize={8}
         pageSizeOptions={[8, 16, 24]}
-      />
+      />,
     );
 
     const search = screen.getByPlaceholderText("Search rows");
@@ -84,7 +112,7 @@ describe("DataTable", () => {
         columns={columns}
         data={makeRows(3)}
         searchPlaceholder="Search records"
-      />
+      />,
     );
 
     const searchInput = screen.getByRole("searchbox", {

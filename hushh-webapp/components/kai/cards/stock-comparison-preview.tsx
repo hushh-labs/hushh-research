@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, GitCompareArrows, Loader2, SearchCheck } from "lucide-react";
+import { BarChart3, GitCompareArrows, Loader2, Search, SearchCheck } from "lucide-react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
@@ -70,6 +70,8 @@ export function StockComparisonPreview({
   loading = false,
   error,
   onStartDebate,
+  onBrowseRecommendations,
+  onChangeStock,
   activePickSource,
   onPickSourceChange,
   compact = false,
@@ -79,6 +81,8 @@ export function StockComparisonPreview({
   loading?: boolean;
   error?: string | null;
   onStartDebate: () => void;
+  onBrowseRecommendations?: () => void;
+  onChangeStock?: () => void;
   activePickSource?: string;
   onPickSourceChange?: (sourceId: string) => void;
   compact?: boolean;
@@ -105,6 +109,35 @@ export function StockComparisonPreview({
             }
             icon={GitCompareArrows}
             accent="default"
+            actions={
+              onBrowseRecommendations || onChangeStock ? (
+                <div className="flex items-center gap-1">
+                  {onBrowseRecommendations ? (
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={onBrowseRecommendations}
+                    >
+                      Recommendations
+                    </Button>
+                  ) : null}
+                  {onChangeStock ? (
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={onChangeStock}
+                    >
+                      <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      Change stock
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null
+            }
           />
 
           {loading ? (

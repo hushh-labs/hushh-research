@@ -179,13 +179,26 @@ function AppShellFrame({ children }: ProvidersProps) {
           "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total))",
         "--top-shell-visual-height":
           "calc(var(--top-shell-reserved-height) + var(--top-fade-active))",
+        "--top-shell-live-height":
+          "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))",
+        // The route-body tab gap is deliberate reading space, not a chrome
+        // extension. Keep it out of the mask so dark mode cannot form a band
+        // beneath the tab underline.
+        "--top-shell-mask-tabs-gap": topShellMetrics.hasTabs
+          ? "var(--top-tabs-gap)"
+          : "0px",
+        "--top-shell-mask-solid-height":
+          "calc(var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) - var(--top-chrome-collapse-px, 0px))",
+        "--top-shell-mask-visible-height":
+          "calc(var(--top-shell-mask-solid-height) + var(--top-fade-active))",
         "--top-shell-h": "var(--top-shell-reserved-height)",
         "--top-glass-h": "var(--top-shell-visual-height)",
-        // The mask owns the entire resolved shell plus a context-sensitive tail.
-        // Contextual tabs need a longer dissolve below their underline than a
-        // bar-only route, otherwise the tab row reads as a hard crop on scroll.
-        "--top-fade-active": topShellMetrics.hasTabs ? "64px" : "42px",
-        "--top-ambient-tab-tail-midpoint": "32px",
+        // The mask owns the entire resolved shell plus a short,
+        // context-sensitive tail. Tabs stay fully solid through their
+        // underline, but the dissolve must finish before the first bounded
+        // route surface so its text remains readable.
+        "--top-fade-active": topShellMetrics.hasTabs ? "12px" : "14px",
+        "--top-ambient-tab-tail-midpoint": "8px",
         "--top-content-pad":
           "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
@@ -206,9 +219,6 @@ function AppShellFrame({ children }: ProvidersProps) {
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
-        "--bottom-chrome-fade-tail": chromeState.hideCommandBar
-          ? "28px"
-          : "64px",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         // Hidden-shell routes deliberately omit the app navigation, but many
         // of them still render the fixed onboarding Agent Bar. The scroll root
@@ -348,6 +358,10 @@ function AppShellFrame({ children }: ProvidersProps) {
       "--top-ambient-tab-tail-midpoint",
       "--top-shell-reserved-height",
       "--top-shell-visual-height",
+      "--top-shell-live-height",
+      "--top-shell-mask-tabs-gap",
+      "--top-shell-mask-solid-height",
+      "--top-shell-mask-visible-height",
       "--top-shell-h",
       "--top-glass-h",
       "--page-top-start",

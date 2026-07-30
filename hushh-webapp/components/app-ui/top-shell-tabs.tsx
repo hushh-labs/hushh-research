@@ -108,15 +108,6 @@ export function TopShellTabs({
         className="relative flex h-full w-full"
         role="tablist"
       >
-        {/* Full-width baseline hairline the accent underline rides along, so
-            the moving indicator reads as travelling a track rather than a
-            floating blue stick. */}
-        {showIndicators ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-current/[0.12]"
-          />
-        ) : null}
         {tabSet.tabs.map((tab, index) => {
           const isActive = tab.value === selectedValue;
           return (

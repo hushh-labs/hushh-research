@@ -21,6 +21,7 @@ import {
   type AllocationSlice,
 } from "@/lib/services/one-kyc-financial-consolidation";
 import { bytesToBase64 } from "@/lib/vault/base64";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import {
   canonicalConsentExportAad,
   canonicalConsentExportJson,
@@ -263,13 +264,10 @@ function formatNumberValue(value: unknown): string | null {
 function formatDateTimeValue(value: string): string | null {
   const text = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(text)) return null;
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en-US", {
+  return formatLocalDateTime(text, {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC",
-  }).format(date);
+  });
 }
 
 function shouldHumanizeScalarString(key: string | undefined, value: string): boolean {

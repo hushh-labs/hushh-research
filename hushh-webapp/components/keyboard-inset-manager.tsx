@@ -71,6 +71,10 @@ export function KeyboardInsetManager() {
         el.tagName === "TEXTAREA" ||
         el.isContentEditable;
       if (!editable) return;
+      // Fixed keyboard-anchored layers already track visualViewport through
+      // --kb-height. Scrolling their autofocus target feeds viewport movement
+      // back into that same measurement and makes the command palette jump.
+      if (el.closest('[data-keyboard-anchor="bottom"]')) return;
       cancelAnimationFrame(rafId);
       // Defer past the layout that --kb-height triggers, then center.
       rafId = requestAnimationFrame(() => {

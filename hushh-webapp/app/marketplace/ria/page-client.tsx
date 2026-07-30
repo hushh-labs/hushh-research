@@ -10,7 +10,6 @@ import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { ROUTES, buildMarketplaceConnectionsRoute } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import {
   RiaService,
   type MarketplaceRia,
@@ -291,7 +290,7 @@ export default function MarketplaceRiaProfilePageClient() {
               ) : null}
               {activePersona === "ria" ? (
                 <Link
-                  href={buildProfileRoute({ panel: "regulatory" })}
+                  href={ROUTES.RIA_PROFILE}
                   data-voice-control-id="marketplace_ria_manage_profile"
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
                 >

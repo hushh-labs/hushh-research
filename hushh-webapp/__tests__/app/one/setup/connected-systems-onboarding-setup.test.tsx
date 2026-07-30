@@ -8,7 +8,9 @@ let setupResolved = false;
 const routerReplaceMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => ({ get: (key: string) => (key === "system" ? params.system : null) }),
+  useSearchParams: () => ({
+    get: (key: string) => (key === "system" ? params.system : null),
+  }),
   useRouter: () => ({ replace: routerReplaceMock }),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -19,7 +21,8 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => (setupResolved ? { setupCompleted: true } : null),
+    getCachedBootstrapState: () =>
+      setupResolved ? { setupCompleted: true } : null,
     isSetupResolved: () => setupResolved,
   },
 }));
@@ -41,13 +44,17 @@ vi.mock("@/components/profile/connected-systems-panel", () => ({
 }));
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: () => <div>loading</div>,
-  useSetupCapabilityCoordinator: (input: { isOperationallyReady: boolean }) => ({
+  useSetupCapabilityCoordinator: (input: {
+    isOperationallyReady: boolean;
+  }) => ({
     isReady: true,
     input,
   }),
-  SetupCapabilityTerminalFooter: ({ isOperationallyReady }: { isOperationallyReady: boolean }) => (
-    <div>Finish CRM setup {String(isOperationallyReady)}</div>
-  ),
+  SetupCapabilityTerminalFooter: ({
+    isOperationallyReady,
+  }: {
+    isOperationallyReady: boolean;
+  }) => <div>Finish CRM setup {String(isOperationallyReady)}</div>,
 }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: () => null,
@@ -85,7 +92,7 @@ describe("Connected Systems onboarding", () => {
     render(<ConnectedSystemsOnboardingSetupClient />);
 
     expect(routerReplaceMock).toHaveBeenCalledWith(
-      "/one/connected-systems?system=crm-1",
+      "/one/connected-systems/crm-1",
     );
     expect(screen.getByText("loading")).toBeTruthy();
   });

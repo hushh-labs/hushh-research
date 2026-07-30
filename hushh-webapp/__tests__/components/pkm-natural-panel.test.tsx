@@ -137,6 +137,18 @@ describe("PkmNaturalPanel", () => {
     expect(await screen.findByText("Exact category preview")).toBeTruthy();
   });
 
+  it("uses the canonical settings-row geometry for the automatic-memory control", async () => {
+    render(<PkmNaturalPanel />);
+
+    await screen.findByRole("button", { name: "Open Financial" });
+
+    expect(screen.getByTestId("memory-auto-save-group")).toBeTruthy();
+    expect(screen.getByTestId("memory-auto-save-row")).toBeTruthy();
+    expect(
+      screen.getByRole("switch", { name: "Automatically save eligible memories" }),
+    ).toBeTruthy();
+  });
+
   it("renders saved categories without waiting for the slower sharing request", async () => {
     let resolveSharing: ((value: {
       pending_requests: never[];

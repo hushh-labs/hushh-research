@@ -45,7 +45,21 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Connected Systems", href: "/one/connected-systems" },
-        { label: "System detail" },
+        { label: "CRM" },
+      ],
+    });
+  });
+
+  it("uses a loaded CRM registry label for a connected-system detail", () => {
+    expect(
+      resolveTopShellBreadcrumb("/one/connected-systems/crm_002", undefined, {
+        connectedSystemLabel: "Chase",
+      }),
+    ).toMatchObject({
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Connected Systems", href: "/one/connected-systems" },
+        { label: "Chase" },
       ],
     });
   });
@@ -55,10 +69,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Consent Center" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -70,10 +81,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/kai/analysis?tab=history",
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Consent Center" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -441,15 +449,17 @@ describe("top shell breadcrumbs", () => {
     const regulatoryParams = new URLSearchParams();
     regulatoryParams.set("panel", "regulatory");
 
-    expect(resolveTopShellBreadcrumb("/one/profile", regulatoryParams)).toEqual({
-      backHref: "/one/profile",
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: "/one/profile" },
-        { label: "Regulatory profile", href: undefined },
-      ],
-    });
+    expect(resolveTopShellBreadcrumb("/one/profile", regulatoryParams)).toEqual(
+      {
+        backHref: "/one/profile",
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "Profile", href: "/one/profile" },
+          { label: "Regulatory profile", href: undefined },
+        ],
+      },
+    );
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {

@@ -168,13 +168,11 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
   });
 
-  it("ejects a dismissed user who reaches a setup surface without a deliberate open", async () => {
-    // Post-onboarding, a setup surface reached via the browser/OS back button,
-    // a stale history entry, or a direct URL (no deliberate open) must send the
-    // user home — setup is one-time.
+  it("ejects a dismissed user who reaches a setup surface", async () => {
+    // Post-onboarding, any setup arrival is ejected — the root flow is one-time.
     pathnameValue = "/one/setup";
     isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
-    clearSetupIntent(); // not a deliberate open
+    clearSetupIntent();
 
     render(
       <OnboardingJourneyGuard>
@@ -188,10 +186,10 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.queryByText("hub")).toBeNull();
   });
 
-  it("admits a deliberate setup open (Profile → Set Up One) for a dismissed user", () => {
+  it("ejects a stale deliberate setup intent after onboarding resolves", async () => {
     pathnameValue = "/one/setup";
     isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
-    markSetupIntent(); // deliberate open
+    markSetupIntent();
 
     render(
       <OnboardingJourneyGuard>
@@ -199,8 +197,10 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    expect(screen.getByText("hub")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one");
+    });
+    expect(screen.queryByText("hub")).toBeNull();
   });
 
   it("admits a setup surface during first onboarding (not dismissed)", async () => {

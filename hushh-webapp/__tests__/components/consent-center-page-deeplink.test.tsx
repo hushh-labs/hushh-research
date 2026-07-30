@@ -386,13 +386,13 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.queryByText("Requested duration")).toBeNull();
     expect(screen.queryByText("Future updates")).toBeNull();
     expect(
-      screen.getByText("Includes approved updates until access ends."),
-    ).toBeTruthy();
+      screen.queryByText("Includes approved updates until access ends."),
+    ).toBeNull();
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Requested for 2 days. You can choose a shorter window.",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("combobox", { name: "Access duration" }));
     expect(
@@ -432,10 +432,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(await screen.findByText("Requested duration")).toBeTruthy();
     expect(screen.getAllByText("1 day")).toHaveLength(1);
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Shares a one-time copy; later changes are not included.",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
@@ -474,7 +474,9 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Your decision")).toBeTruthy();
+    expect(
+      await screen.findByRole("dialog", { name: "Travel Agent" }),
+    ).toBeTruthy();
     expect(screen.queryByText("Requested duration")).toBeNull();
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
@@ -630,8 +632,7 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Your decision")).toBeTruthy();
-    expect(screen.getByText("Requested duration")).toBeTruthy();
+    expect(await screen.findByText("Requested duration")).toBeTruthy();
     expect(screen.getAllByText("3 days").length).toBeGreaterThan(0);
     expect(screen.getByText("Decision due")).toBeTruthy();
     expect(screen.queryByText("Access duration")).toBeNull();

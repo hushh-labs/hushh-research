@@ -821,6 +821,15 @@ export function KaiAnalysisPageContent() {
     userId,
     vaultOwnerToken,
   ]);
+  const handleBrowseRecommendations = useCallback(() => {
+    setAnalysisParams(null);
+    setHistoryFallbackEntry(null);
+    setShowHistoryWhileActive(false);
+    router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
+  }, [router, setAnalysisParams]);
+  const handleChangePreviewStock = useCallback(() => {
+    openKaiCommandBar();
+  }, []);
   useLocalOnboardingActionHandler("analysis.back_to_history", () => {
     setAnalysisParams(null);
     setFocusedRunId(null);
@@ -1322,6 +1331,8 @@ export function KaiAnalysisPageContent() {
               loading={stockPreviewLoading}
               error={stockPreviewError}
               onStartDebate={handleStartDebateFromPreview}
+              onBrowseRecommendations={handleBrowseRecommendations}
+              onChangeStock={handleChangePreviewStock}
               activePickSource={previewPickSource}
               onPickSourceChange={setPreviewPickSource}
               compact

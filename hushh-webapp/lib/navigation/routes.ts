@@ -441,13 +441,12 @@ export function buildConnectedSystemRoute(
 ) {
   const normalized = String(systemId ?? "").trim();
   if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
-  // Connected systems are runtime-configured. Keep their selection on the
-  // statically exported workspace route so every registered CRM works in
-  // Capacitor without a cold navigation to an unbuilt dynamic path.
-  return withQuery(ROUTES.CONNECTED_SYSTEMS, {
-    system: normalized,
-    agentActionId: entries?.agentActionId,
-  });
+  return withQuery(
+    `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`,
+    {
+      agentActionId: entries?.agentActionId,
+    },
+  );
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(

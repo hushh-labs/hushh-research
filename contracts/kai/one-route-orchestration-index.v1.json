@@ -1745,10 +1745,10 @@
     {
       "route_pattern": "/one/kai/analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.analysis",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.kai.analysis",
         "purpose": "Help the person understand and use the analysis screen through its generated controls.",
@@ -1776,13 +1776,19 @@
       },
       "canonical_screen": "kai_analysis",
       "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
-      "action_ids": [],
-      "action_coverage": "local",
+      "action_ids": [
+        "analysis.cancel_active",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.kai_analysis"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-kai-analysis"
     },
     {
@@ -2707,12 +2713,10 @@
       "canonical_screen": "profile_account",
       "voice_contract_file": "app/one/profile/page.voice-action-contract.json",
       "action_ids": [
-        "ria.profile.edit_services",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
-        "route.profile_regulatory",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3459,21 +3463,18 @@
     {
       "route_pattern": "/one/profile/regulatory",
       "page_file": "app/one/profile/regulatory/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
-      "instruction_id": "route.profile.regulatory",
-      "context_policy": "publish",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.regulatory_compat",
+      "context_policy": "suppress",
       "voice_playbook": {
-        "playbook_id": "route.profile.regulatory",
-        "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+        "playbook_id": "route.profile.regulatory_compat",
+        "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
         "screen": "profile_regulatory",
-        "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.profile_regulatory",
-        "happy_path_action_ids": [
-          "route.profile_regulatory",
-          "ria.profile.edit_services"
-        ],
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -3483,9 +3484,9 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
-        "return_policy": "stay",
+        "completion_boundary": "The compatibility redirect has no completion authority.",
+        "next_route": "/ria/profile",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -3493,16 +3494,13 @@
       },
       "canonical_screen": "profile_regulatory",
       "voice_contract_file": null,
-      "action_ids": [
-        "ria.profile.edit_services",
-        "route.profile_regulatory"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "block_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -4967,18 +4965,21 @@
     {
       "route_pattern": "/ria/profile",
       "page_file": "app/ria/profile/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
       "instruction_id": "route.ria.profile",
-      "context_policy": "suppress",
+      "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.ria.profile",
-        "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+        "purpose": "Help the advisor view and manage their RIA profile.",
         "screen": "profile_regulatory",
-        "entry_cue": "",
-        "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "entry_cue": "You can say “Open RIA Profile” to return here.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.ria_profile",
+        "happy_path_action_ids": [
+          "route.ria_profile",
+          "ria.profile.edit_services"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -4988,23 +4989,26 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The compatibility redirect has no completion authority.",
-        "next_route": "/one/profile/regulatory",
-        "return_policy": "navigate",
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
       "canonical_screen": "profile_regulatory",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "voice_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "action_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {

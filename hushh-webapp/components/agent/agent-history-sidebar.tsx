@@ -330,7 +330,7 @@ export function AgentHistorySidebar({
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
           isMobileMode
             ? "chrome-glass-surface rounded-r-[28px] border-r border-border/60 bg-background/88 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-background/88"
-            : "border-r border-border bg-background shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:shadow-none",
+            : "border-r border-border/70 bg-foreground/[0.025] backdrop-blur-xl dark:bg-white/[0.03]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
