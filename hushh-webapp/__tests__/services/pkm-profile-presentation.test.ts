@@ -79,7 +79,7 @@ describe("pkm profile presentation", () => {
         exposureEnabled: true,
         visibilityPosture: "consent_required",
         defaultProjectionReady: false,
-        stateLabel: "Ask first",
+        stateLabel: "Approved for sharing",
         requesterLabels: ["Planner Pro"],
         includesBroadAccess: true,
       }),
@@ -127,10 +127,43 @@ describe("pkm profile presentation", () => {
         visibilityPosture: "consent_required",
         defaultProjectionReady: true,
         defaultProjectionUpdatedAt: "2026-05-21T10:00:00Z",
-        stateLabel: "Ask first",
+        stateLabel: "Consent required to share",
       }),
     ]);
     expect(permissions[0]?.stateDescription).not.toMatch(/scope|manifest|registry|PKM/i);
+  });
+
+  it("describes private sections as available to the owner-unlocked private agent", () => {
+    const permissions = buildPkmDomainPermissionPresentation({
+      domain,
+      manifest: {
+        domain: "financial",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+        summary_projection: {},
+        top_level_scope_paths: ["portfolio"],
+        externalizable_paths: [],
+        paths: [],
+        scope_registry: [
+          {
+            scope_handle: "financial.portfolio",
+            scope_label: "Portfolio",
+            segment_ids: ["portfolio"],
+            exposure_enabled: false,
+            visibility_posture: "private",
+            summary_projection: { top_level_scope_path: "portfolio" },
+          },
+        ],
+      },
+      activeGrants: [],
+      upgradeState: null,
+    });
+
+    expect(permissions[0]).toMatchObject({
+      stateLabel: "Private to your private agent",
+      counterpartSummary: "Sharing disabled",
+    });
   });
 
   it("keeps upgrade compatibility separate from manifest concurrency", () => {

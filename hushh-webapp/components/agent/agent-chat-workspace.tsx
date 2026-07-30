@@ -70,6 +70,7 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
+  getPkmAutoSaveCards,
   getPkmConfirmationCards,
   getIgnoredPkmCards,
   loadAgentPkmContext,
@@ -80,6 +81,11 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import {
+  DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
+  loadAgentPkmAutoSavePolicy,
+  type AgentPkmAutoSavePolicy,
+} from "@/lib/agent/agent-pkm-auto-save-policy";
+import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
@@ -88,6 +94,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import {
   isAgentGeminiVoiceEnabled,
@@ -243,6 +250,19 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
+
+function toPkmFactCountBucket(count: number):
+  | "none"
+  | "1_9"
+  | "10_49"
+  | "50_249"
+  | "250_plus" {
+  if (count <= 0) return "none";
+  if (count < 10) return "1_9";
+  if (count < 50) return "10_49";
+  if (count < 250) return "50_249";
+  return "250_plus";
+}
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 function getConsentRequiredPayload(
@@ -503,25 +523,6 @@ function markConsentDirectiveItemRevoked(
 }
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-async function withDeadline<T>(
-  promise: Promise<T>,
-  timeoutMs: number
-): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      promise.then((value) => ({ timedOut: false as const, value })),
-      new Promise<{ timedOut: true }>((resolve) => {
-        timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
 
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -1197,6 +1198,9 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  const [pkmAutoSavePolicy, setPkmAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
+    DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY
+  );
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1227,6 +1231,7 @@ export function AgentChatWorkspace({
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const agentTurnSubmitLockRef = useRef(false);
+  const savingPkmReviewIdsRef = useRef<Set<string>>(new Set());
   const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
@@ -1278,6 +1283,28 @@ export function AgentChatWorkspace({
     }
     clearAgentPkmContext(user?.uid);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      return undefined;
+    }
+    void loadAgentPkmAutoSavePolicy({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((policy) => {
+        if (!cancelled) setPkmAutoSavePolicy(policy);
+      })
+      .catch(() => {
+        if (!cancelled) setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -2060,7 +2087,8 @@ export function AgentChatWorkspace({
   );
 
   const handleSavePkmReview = useCallback(
-    async (reviewId: string) => {
+    (reviewId: string) => {
+      if (savingPkmReviewIdsRef.current.has(reviewId)) return;
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
@@ -2068,6 +2096,7 @@ export function AgentChatWorkspace({
         return;
       }
 
+      savingPkmReviewIdsRef.current.add(reviewId);
       setPkmReviews((current) =>
         current.map((item) => (item.id === reviewId ? { ...item, saving: true } : item))
       );
@@ -2077,63 +2106,203 @@ export function AgentChatWorkspace({
         candidate_count: review.cards.length,
       });
 
-      try {
-        const result = await addToPKM({
-          userId: user.uid,
-          cards: review.cards,
-          sourceMessage: review.sourceMessage,
-          vaultKey,
-          vaultOwnerToken: token,
-          source: "agent_chat_review",
-          confirmation: {
-            confirmedByUser: true,
-            surface: "chat",
-            source: "agent_chat_review_button",
-            sharingImpactAcknowledged: review.cards.some(
+      const saveInBackground = async () => {
+        try {
+          const result = await addToPKM({
+            userId: user.uid,
+            cards: review.cards,
+            sourceMessage: review.sourceMessage,
+            vaultKey,
+            vaultOwnerToken: token,
+            source: "agent_chat_review",
+            confirmation: {
+              confirmedByUser: true,
+              surface: "chat",
+              source: "agent_chat_review_button",
+              sharingImpactAcknowledged: review.cards.some(
+                (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+              ),
+            },
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", result);
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent",
+            result: result.saved > 0 ? "success" : "expected_error",
+            saved_count_bucket: toPkmFactCountBucket(result.saved),
+            failed_count_bucket: toPkmFactCountBucket(result.failed),
+            has_active_recipients: review.cards.some(
               (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
             ),
-          },
-        });
-        appendDebugEvent(review.turnId, "pkm_review_save_result", result);
-        if (result.saved > 0) {
-          setPkmActivity((current) => [
-            ...current.slice(-4),
-            {
-              id: `pkm-review-saved-${Date.now()}`,
-              text: formatAgentPkmSaveSummary(result),
-              status: "done",
-            },
-          ]);
-          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
-          void loadAgentPkmContext({
-            userId: user.uid,
-            vaultOwnerToken: token!,
-            vaultKey,
-            forceRefresh: true,
-          }).catch(() => undefined);
-          toast.success("Saved to PKM.");
-          return;
-        }
+          });
+          if (result.saved > 0) {
+            const saveReceipt = formatAgentPkmSaveSummary(result);
+            setMessages((current) => [
+              ...current,
+              {
+                id: `pkm-save-receipt-${Date.now()}`,
+                role: "assistant",
+                text: saveReceipt,
+                timestamp: formatNow(),
+                status: "done",
+              },
+            ]);
+            setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+            void loadAgentPkmContext({
+              userId: user.uid,
+              vaultOwnerToken: token,
+              vaultKey,
+              forceRefresh: true,
+            }).catch(() => undefined);
+            toast.success("Saved to PKM.");
+            return;
+          }
 
-        setPkmReviews((current) =>
-          current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
-        );
-        toast.error(formatAgentPkmSaveSummary(result));
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Failed to save PKM memory.";
-        appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
-        setPkmReviews((current) =>
-          current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
-        );
-        toast.error(message);
-      } finally {
-        setActivePkmToolCount((count) => Math.max(0, count - 1));
-      }
+          setPkmReviews((current) =>
+            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+          );
+          toast.error(formatAgentPkmSaveSummary(result));
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Failed to save PKM memory.";
+          appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent",
+            result: "error",
+            saved_count_bucket: "none",
+            failed_count_bucket: toPkmFactCountBucket(review.cards.length),
+            has_active_recipients: review.cards.some(
+              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+            ),
+          });
+          setPkmReviews((current) =>
+            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+          );
+          toast.error(message);
+        } finally {
+          savingPkmReviewIdsRef.current.delete(reviewId);
+          setActivePkmToolCount((count) => Math.max(0, count - 1));
+        }
+      };
+
+      window.setTimeout(() => {
+        void saveInBackground();
+      }, 0);
     },
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey]
+  );
+
+  const saveEligiblePkmCardsInBackground = useCallback(
+    (params: {
+      turnId: string;
+      sourceMessage: string;
+      cards: AgentPkmPreviewCard[];
+      policy: AgentPkmAutoSavePolicy;
+    }) => {
+      const token = getVaultOwnerToken();
+      const autoSavePolicyEnabledAt = params.policy.enabledAt;
+      if (
+        !user?.uid ||
+        !vaultKey ||
+        !token ||
+        !params.policy.enabled ||
+        !autoSavePolicyEnabledAt ||
+        params.cards.length === 0
+      ) {
+        return;
+      }
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(params.turnId, "pkm_auto_save_start", {
+        candidate_count: params.cards.length,
+        policy_version: params.policy.version,
+      });
+
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            const result = await addToPKM({
+              userId: user.uid,
+              cards: params.cards,
+              sourceMessage: params.sourceMessage,
+              vaultKey,
+              vaultOwnerToken: token,
+              source: "agent_chat_auto_save",
+              confirmation: {
+                authorizationMode: "owner_auto_save_policy",
+                surface: "chat",
+                source: "agent_chat_auto_save_policy",
+                autoSavePolicyVersion: params.policy.version,
+                autoSavePolicyEnabledAt,
+              },
+            });
+            appendDebugEvent(params.turnId, "pkm_auto_save_result", result);
+            trackEvent("agent_pkm_save_confirmation_completed", {
+              route_id: "agent",
+              result: result.saved > 0 ? "success" : "expected_error",
+              saved_count_bucket: toPkmFactCountBucket(result.saved),
+              failed_count_bucket: toPkmFactCountBucket(result.failed),
+              has_active_recipients: false,
+            });
+            if (result.saved > 0) {
+              setMessages((current) => [
+                ...current,
+                {
+                  id: `pkm-auto-save-receipt-${Date.now()}`,
+                  role: "assistant",
+                  text: formatAgentPkmSaveSummary(result),
+                  timestamp: formatNow(),
+                  status: "done",
+                },
+              ]);
+              void loadAgentPkmContext({
+                userId: user.uid,
+                vaultOwnerToken: token,
+                vaultKey,
+                forceRefresh: true,
+              }).catch(() => undefined);
+            }
+            if (result.failed > 0) {
+              const failedIds = new Set(
+                result.results.filter((item) => !item.success).map((item) => item.cardId)
+              );
+              const failedCards = params.cards.filter((card) => failedIds.has(card.card_id));
+              if (failedCards.length > 0) {
+                setPkmReviews((current) => {
+                  const existing = current.find((review) => review.turnId === params.turnId);
+                  if (!existing) {
+                    return [
+                      ...current,
+                      {
+                        id: `${params.turnId}-pkm-review`,
+                        turnId: params.turnId,
+                        sourceMessage: params.sourceMessage,
+                        cards: failedCards,
+                        saving: false,
+                      },
+                    ];
+                  }
+                  const cards = [...existing.cards, ...failedCards].filter(
+                    (card, index, all) =>
+                      all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+                  );
+                  return current.map((review) =>
+                    review.id === existing.id ? { ...review, cards } : review
+                  );
+                });
+              }
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Automatic memory saving failed.";
+            appendDebugEvent(params.turnId, "pkm_auto_save_failed", { message });
+          } finally {
+            setActivePkmToolCount((count) => Math.max(0, count - 1));
+          }
+        })();
+      }, 0);
+    },
+    [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey]
   );
 
   const runAgentTurn = async (
@@ -2551,13 +2720,22 @@ export function AgentChatWorkspace({
         });
         if (signal.aborted) return;
         const cards = preview.cards;
-        const confirmationCards = getPkmConfirmationCards(cards);
+        const autoSaveCards = getPkmAutoSaveCards(cards);
+        const confirmationCards = [
+          ...getPkmConfirmationCards(cards),
+          ...(pkmAutoSavePolicy.enabled ? [] : autoSaveCards),
+        ].filter(
+          (card, index, all) =>
+            all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+        );
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
           model: preview.model,
           used_fallback: preview.used_fallback,
           total_cards: cards.length,
+          auto_save_count: autoSaveCards.length,
+          auto_save_enabled: pkmAutoSavePolicy.enabled,
           confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
           preview_summary: preview.preview_summary || null,
@@ -2588,6 +2766,14 @@ export function AgentChatWorkspace({
 
         if (confirmationCards.length === 0) {
           upsertPkmStatusMessage("", "done");
+        }
+        if (pkmAutoSavePolicy.enabled && autoSaveCards.length > 0) {
+          saveEligiblePkmCardsInBackground({
+            turnId: debugTurnId,
+            sourceMessage: text,
+            cards: autoSaveCards,
+            policy: pkmAutoSavePolicy,
+          });
         }
       } catch (error) {
         if (signal.aborted) return;
@@ -2639,6 +2825,11 @@ export function AgentChatWorkspace({
     setIsStreaming(true);
 
     if (!token) {
+      trackEvent("agent_pkm_context_unavailable", {
+        route_id: "agent",
+        result: "expected_error",
+        reason: "vault_locked",
+      });
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: "Vault access expired. Unlock again to continue.",
@@ -2654,9 +2845,12 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
     let specialistDirectiveReceived = false;
+    const pkmContextStartedAt = performance.now();
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
-      if (!vaultKey) return EMPTY_PKM_CONTEXT;
+      if (!vaultKey) {
+        throw new Error("Your vault must remain unlocked while One prepares your private memory.");
+      }
 
       const cachedContext = peekAgentPkmContext({
         userId,
@@ -2672,52 +2866,19 @@ export function AgentChatWorkspace({
         return cachedContext;
       }
 
-      // Do not hold the first user turn behind a full encrypted PKM blob. The
-      // unlock warmer continues loading the richer memory-only working set;
-      // an interactive turn may use compact metadata when it arrives inside a
-      // short budget. PKM capture/review remains semantic and confirmation
-      // gated after the response, never a lexical action shortcut.
-      const fullWarmup = warmAgentPkmContext({
+      // A warm cache returns immediately. A cold unlocked turn waits for the
+      // local decrypted inventory instead of substituting metadata or sending
+      // an empty prompt to One.
+      const context = await loadAgentPkmContext({
         userId,
         vaultOwnerToken: token,
         vaultKey,
-      });
-      const metadataPreflight = loadAgentPkmContext({
-        userId,
-        vaultOwnerToken: token,
         message: text,
-        metadataOnly: true,
       });
-      const deadlineMs = 100;
-      const result = await withDeadline(metadataPreflight, deadlineMs);
-      if (!result.timedOut) {
-        appendDebugEvent(debugTurnId, "pkm_context_metadata_preflight", {
-          deadline_ms: deadlineMs,
-          domain_count: result.value.domains.length,
-          total_attributes: result.value.totalAttributes,
-        });
-        return result.value;
+      if (!context.text) {
+        throw new Error("One could not prepare your private memory for this turn. Please try again.");
       }
-
-      appendDebugEvent(debugTurnId, "pkm_context_deferred_for_turn_latency", {
-        deadline_ms: deadlineMs,
-        turn_source: options.source,
-      });
-      void fullWarmup
-        .then(() => {
-          appendDebugEvent(debugTurnId, "pkm_context_background_warm_ready", {
-            turn_source: options.source,
-          });
-        })
-        .catch((error) => {
-          appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
-            message:
-              error instanceof Error && error.message
-                ? error.message
-                : "Failed to refresh PKM context in the background.",
-          });
-        });
-      return EMPTY_PKM_CONTEXT;
+      return context;
     };
 
     try {
@@ -2730,6 +2891,18 @@ export function AgentChatWorkspace({
           return;
         }
         if (agentPkmContext.text) {
+          const coverage = agentPkmContext.coverage;
+          trackEvent("agent_pkm_context_resolved", {
+            route_id: "agent",
+            result: "success",
+            context_mode: agentPkmContext.mode === "broad" ? "broad" : "relevant",
+            total_fact_count_bucket: toPkmFactCountBucket(coverage?.totalFactCount || 0),
+            selected_fact_count_bucket: toPkmFactCountBucket(coverage?.selectedFactCount || 0),
+            context_clipped: coverage?.clipped === true,
+            inventory_only: coverage?.inventoryOnly === true,
+            safety_omitted: (coverage?.safetyOmittedNodeCount || 0) > 0,
+            duration_ms_bucket: toDurationBucket(performance.now() - pkmContextStartedAt),
+          });
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
             domain_count: agentPkmContext.domains.length,
             total_attributes: agentPkmContext.totalAttributes,
@@ -2737,15 +2910,30 @@ export function AgentChatWorkspace({
             source: agentPkmContext.source || "metadata",
             mode: agentPkmContext.mode || "summary",
             updated_at: agentPkmContext.updatedAt,
+            coverage: agentPkmContext.coverage,
           });
         }
       } catch (error) {
+        trackEvent("agent_pkm_context_unavailable", {
+          route_id: "agent",
+          result: "error",
+          reason: vaultKey ? "load_failed" : "vault_locked",
+        });
         appendDebugEvent(debugTurnId, "pkm_context_load_failed", {
           message:
             error instanceof Error && error.message
               ? error.message
-              : "Failed to load compact PKM context.",
+              : "Failed to load private PKM context.",
         });
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
+          status: "error",
+          streamEvents: [],
+        }));
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        return;
       }
 
       const runtimeConnection = await resolveGeminiRuntimeConnection({

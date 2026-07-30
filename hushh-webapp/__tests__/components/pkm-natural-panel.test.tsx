@@ -112,13 +112,15 @@ describe("PkmNaturalPanel", () => {
     });
   });
 
-  it("loads metadata on the category home and decrypts only after a category is opened", async () => {
+  it("loads metadata and the private memory preference before decrypting a category", async () => {
     render(<PkmNaturalPanel />);
 
     const openFinancial = await screen.findByRole("button", { name: "Open Financial" });
     expect(PersonalKnowledgeModelService.getMetadata).toHaveBeenCalledTimes(1);
     expect(PersonalKnowledgeModelService.getDomainManifest).not.toHaveBeenCalled();
-    expect(PersonalKnowledgeModelService.loadDomainData).not.toHaveBeenCalled();
+    expect(PersonalKnowledgeModelService.loadDomainData).not.toHaveBeenCalledWith(
+      expect.objectContaining({ domain: "financial" })
+    );
 
     fireEvent.click(openFinancial);
 
