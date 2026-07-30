@@ -73,7 +73,10 @@ jobs:
 
       - name: Publish package
         working-directory: ${{ env.PACKAGE_DIR }}
-        # OIDC is selected by npm automatically. Do not add NODE_AUTH_TOKEN.
+        # The granular npm token is held only in the protected npm-publish
+        # environment. OIDC remains available for provenance generation.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --tag "${{ inputs.dist_tag }}" --provenance
 
       - name: Verify exact published package from a clean npm cache
