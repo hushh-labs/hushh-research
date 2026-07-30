@@ -54,6 +54,11 @@ jobs:
 
       - name: Verify release artifact
         working-directory: ${{ env.PACKAGE_DIR }}
+        env:
+          # Gateway manifest generation imports the canonical Python MCP
+          # contract. Use the dependency-complete uv environment rather than
+          # the runner's bare system Python.
+          HUSHH_MCP_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
         run: npm run verify:package
 
       - name: Guard against duplicate npm version
