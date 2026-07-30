@@ -97,6 +97,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken="owner-token"
         captureCurrentPosition={capture}
         onOpenChange={vi.fn()}
+        onPrivateShare={vi.fn()}
       />,
     );
 
@@ -125,6 +126,9 @@ describe("NearbyCheckInSheet", () => {
       name: "Check in and see people",
     });
     expect(submit).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Choose trusted people" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Let nearby checked-in users see me/,
@@ -218,6 +222,7 @@ describe("NearbyCheckInSheet", () => {
       relationship: "pending_outgoing",
     });
 
+    const onPrivateShare = vi.fn();
     render(
       <NearbyCheckInSheet
         open
@@ -225,11 +230,16 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken="owner-token"
         captureCurrentPosition={vi.fn().mockResolvedValue(point)}
         onOpenChange={vi.fn()}
+        onPrivateShare={onPrivateShare}
       />,
     );
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
     expect(screen.getByTestId("nearby-attendee-roster")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose trusted people" }),
+    );
+    expect(onPrivateShare).toHaveBeenCalledTimes(1);
     fireEvent.click(
       screen.getByRole("button", { name: "Connect with Maya Chen" }),
     );

@@ -47,7 +47,14 @@ const navigationHarness = vi.hoisted(() => ({
   beginRouteTransition: vi.fn((_href: string, navigate: () => void) =>
     navigate(),
   ),
+  push: vi.fn(),
   replace: vi.fn(),
+}));
+
+const experienceHarness = vi.hoisted(() => ({
+  demoMode: true,
+  nearbyAvailable: false,
+  query: "demo=people",
 }));
 
 vi.mock("@capacitor/google-maps", () => ({
@@ -58,8 +65,11 @@ vi.mock("@capacitor/google-maps", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: navigationHarness.replace }),
-  useSearchParams: () => new URLSearchParams("demo=people"),
+  useRouter: () => ({
+    push: navigationHarness.push,
+    replace: navigationHarness.replace,
+  }),
+  useSearchParams: () => new URLSearchParams(experienceHarness.query),
 }));
 
 vi.mock("@/lib/morphy-ux/hooks/use-route-transition", () => ({
@@ -90,7 +100,7 @@ vi.mock("@/lib/one-location/service", () => ({
 
 vi.mock("@/lib/testing/location-map-demo", () => ({
   isLocationMapDemoAvailable: () => true,
-  isLocationMapDemoEnabled: () => true,
+  isLocationMapDemoEnabled: () => experienceHarness.demoMode,
   locationMapDemoPeople: () => [
     {
       key: "demo-maya",
@@ -128,6 +138,61 @@ vi.mock("@/lib/testing/location-map-demo", () => ({
   ],
 }));
 
+vi.mock("@/lib/one-location/nearby-check-in-availability", () => ({
+  isOneLocationNearbyCheckInAvailable: () => experienceHarness.nearbyAvailable,
+}));
+
+vi.mock(
+  "@/components/one-location/nearby-check-in/nearby-check-in-sheet",
+  () => ({
+    NearbyCheckInSheet: ({
+      onPrivateShare,
+      onStateChange,
+    }: {
+      onPrivateShare: () => void;
+      onStateChange: (state: unknown) => void;
+    }) => (
+      <div>
+        <button
+          type="button"
+          data-testid="publish-nearby-state"
+          onClick={() =>
+            onStateChange({
+              presence: {
+                status: "active",
+                audience: "all_opted_in",
+                radiusMeters: 500,
+                allowConnectionRequests: true,
+                consentVersion: "one-location-nearby-presence-v1",
+                checkedInAt: "2026-07-31T00:00:00.000Z",
+                expiresAt: "2026-07-31T01:00:00.000Z",
+                placeLabel: "Event venue",
+              },
+              attendees: [
+                {
+                  participantAlias: "rotating-neelesh",
+                  displayName: "Neelesh Meena",
+                  relationship: "connected",
+                  canConnect: false,
+                },
+              ],
+            })
+          }
+        >
+          Publish nearby state
+        </button>
+        <button
+          type="button"
+          data-testid="open-private-check-in"
+          onClick={onPrivateShare}
+        >
+          Open private check-in
+        </button>
+      </div>
+    ),
+  }),
+);
+
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -137,8 +202,14 @@ vi.mock("sonner", () => ({
 }));
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
+import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
 
 beforeEach(() => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, "", "/one/location/map");
+  experienceHarness.demoMode = true;
+  experienceHarness.nearbyAvailable = false;
+  experienceHarness.query = "demo=people";
   class ResizeObserverStub {
     observe() {}
     disconnect() {}
@@ -160,16 +231,22 @@ beforeEach(() => {
     ownerGrants: [],
   });
   serviceHarness.storeEnvelope.mockResolvedValue(undefined);
+  serviceHarness.updateMapPreferences.mockResolvedValue({
+    presenceMode: "ghost",
+    rendererConsentVersion: "google-maps-renderer-v1",
+  });
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   for (const value of Object.values(mapHarness.map)) {
-    if ("mockReset" in value) value.mockReset();
+    if ("mockClear" in value) value.mockClear();
   }
   mapHarness.create.mockClear();
   navigationHarness.beginRouteTransition.mockClear();
+  navigationHarness.push.mockClear();
   navigationHarness.replace.mockClear();
   for (const value of Object.values(serviceHarness)) value.mockReset();
 });
@@ -303,5 +380,74 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
       scroll: false,
     });
+  });
+
+  it("shows nearby attendees in the map drawer without creating peer markers", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+
+    expect(
+      await screen.findByTestId("one-location-map-nearby-people"),
+    ).toHaveTextContent("Within 500 m");
+    expect(screen.getByText("Neelesh Meena")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Precise locations are not pinned/i),
+    ).toBeInTheDocument();
+    expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(
+      "Neelesh Meena",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open nearby actions for Neelesh Meena",
+      }),
+    );
+    expect(navigationHarness.push).toHaveBeenCalledWith(
+      "/one/location/map?action=check-in",
+      { scroll: false },
+    );
+
+    fireEvent.click(screen.getByTestId("open-private-check-in"));
+    expect(navigationHarness.replace).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^\/one\/location\?action=private-check-in&source=nearby&returnToken=[A-Za-z0-9-]+$/,
+      ),
+      { scroll: false },
+    );
+  });
+
+  it("resumes the existing nearby history boundary without pushing another sheet entry", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    const returnToken = beginNearbyPrivateReturn();
+    experienceHarness.query = `action=check-in&resume=${returnToken}`;
+    window.history.replaceState(
+      {},
+      "",
+      `/one/location/map?action=check-in&resume=${returnToken}`,
+    );
+    const pushState = vi.spyOn(window.history, "pushState");
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?action=check-in");
+    });
+    expect(pushState).not.toHaveBeenCalled();
   });
 });

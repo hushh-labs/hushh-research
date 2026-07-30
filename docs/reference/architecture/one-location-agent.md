@@ -200,6 +200,23 @@ grants nearby or live-location visibility.
    Connect opt-in before creating the canonical pending request. It does not
    auto-connect, create a location grant, or retain co-presence context.
 
+An active nearby presence may hand off to the existing recipient-scoped private
+Check-In as a second, explicit consent. The client shows the precise point first
+and requires it to have been captured within 60 seconds of confirmation. Partial
+retries retain that exact point, confirmation timestamp, operation id, and
+recipient ciphertext. The optional Check-In message is inside that ciphertext;
+grant, audit, URL, and push-notification metadata retain only the fixed
+`check_in` reason code. For each selected connection,
+`POST /api/one/location/grants/with-envelope` serializes replacement by
+recipient key and owner/recipient, stores the new grant, first encrypted
+envelope, latest-envelope pointer, and both audit events in one locked database
+transaction, and only then emits the metadata-only notification. Recipient-key
+rotation uses the same first lock and atomically revokes grants bound to the
+replaced key. An identical retry returns the original publication; a reused
+operation id with different details, expired publication, or rotated recipient
+key fails closed. Nearby presence itself still creates no grant and exposes no
+precise coordinate.
+
 This is a visibly labelled local/UAT simulation. Its routes are rate limited per
 signed principal and fail closed in production; Check out remains available as
 a privacy/recovery action. Browser/device GPS is forgeable. Production requires

@@ -90,6 +90,47 @@ def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
     assert service.connections
 
 
+def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
+    class AtomicRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant_with_initial_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "grant": {"id": "grant-1", "status": "active"},
+                "envelope": {"id": "envelope-1", "ciphertext": "ciphertext"},
+                "idempotentReplay": False,
+            }
+
+    service = AtomicRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    captured_at = datetime.now(timezone.utc).isoformat()
+
+    response = client.post(
+        "/api/one/location/grants/with-envelope",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 1,
+            "clientOperationId": "123e4567-e89b-12d3-a456-426614174000",
+            "confirmedAt": captured_at,
+            "shareKind": "check_in",
+            "envelope": {
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": captured_at,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["idempotentReplay"] is False
+    assert service.calls[0]["owner_user_id"] == "owner-from-token"
+    assert service.calls[0]["recipient_user_id"] == "recipient"
+    assert service.calls[0]["enforce_connection"] is True
+
+
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}

@@ -71,6 +71,24 @@ class CreateGrantRequest(_CamelModel):
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
 
+class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    recipient_key_id: str = Field(
+        alias="recipientKeyId",
+        min_length=1,
+        max_length=160,
+    )
+    client_operation_id: str = Field(
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
+    confirmed_at: datetime = Field(alias="confirmedAt")
+    envelope: dict[str, Any]
+
+
 class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
 
@@ -748,6 +766,30 @@ def create_location_grant(
                 enforce_connection=True,
             )
         }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/grants/with-envelope")
+def create_location_grant_with_envelope(
+    payload: CreateGrantWithEnvelopeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Atomically create/replace a grant and persist its first ciphertext."""
+
+    try:
+        return _service().create_grant_with_initial_envelope(
+            owner_user_id=_user_id(token_data),
+            recipient_user_id=payload.recipient_user_id,
+            recipient_key_id=payload.recipient_key_id,
+            duration_hours=payload.duration_hours,
+            client_operation_id=payload.client_operation_id,
+            confirmed_at=payload.confirmed_at,
+            envelope=payload.envelope,
+            reason=payload.reason,
+            share_kind=payload.share_kind,
+            enforce_connection=True,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 

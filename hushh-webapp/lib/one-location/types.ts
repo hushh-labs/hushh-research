@@ -403,6 +403,14 @@ export type DriveSharePayload = {
   etaComputedAt: string;
 };
 
+export type CheckInSharePayload = {
+  /**
+   * User-authored Check-In note. It is encrypted with the coordinates and is
+   * never persisted in grant, audit, URL, or notification metadata.
+   */
+  message: string;
+};
+
 export type PlainLocationPoint = {
   latitude: number;
   longitude: number;
@@ -414,6 +422,10 @@ export type PlainLocationPoint = {
    * backend never sees the destination or ETA.
    */
   drive?: DriveSharePayload | null;
+  /**
+   * Present only for Check-In shares. Encrypted together with the point.
+   */
+  checkIn?: CheckInSharePayload | null;
 };
 
 export type OneLocationEncryptedEnvelope = {

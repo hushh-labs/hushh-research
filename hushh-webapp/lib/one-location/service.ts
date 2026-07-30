@@ -427,6 +427,45 @@ export class OneLocationService {
     return response.grant;
   }
 
+  /**
+   * Create/replace a private share and persist its first encrypted point as one
+   * idempotent backend mutation. Safe to retry with the same operation id.
+   */
+  static async createGrantWithEnvelope(params: {
+    vaultOwnerToken: string;
+    recipientUserId: string;
+    recipientKeyId: string;
+    durationHours: number;
+    clientOperationId: string;
+    confirmedAt: string;
+    envelope: OneLocationEncryptedEnvelope;
+    reason?: string;
+    shareKind?: string;
+  }): Promise<{
+    grant: OneLocationGrant;
+    envelope: OneLocationEncryptedEnvelope;
+    idempotentReplay: boolean;
+  }> {
+    return apiJsonWithRetry(
+      "/api/one/location/grants/with-envelope",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          recipientUserId: params.recipientUserId,
+          recipientKeyId: params.recipientKeyId,
+          durationHours: params.durationHours,
+          clientOperationId: params.clientOperationId,
+          confirmedAt: params.confirmedAt,
+          envelope: params.envelope,
+          ...(params.reason ? { reason: params.reason } : {}),
+          ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+        }),
+      },
+      1,
+    );
+  }
+
   static async storeEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;

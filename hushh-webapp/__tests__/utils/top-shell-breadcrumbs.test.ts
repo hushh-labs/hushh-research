@@ -515,6 +515,7 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      ["private-check-in", "Private Check-In"],
       ["sos", "Safety"],
       ["share", "Share location"],
       ["ask", "Ask someone"],
@@ -543,6 +544,31 @@ describe("top shell breadcrumbs", () => {
         ],
       });
     }
+
+    const fromNearbyCheckIn = new URLSearchParams();
+    fromNearbyCheckIn.set("action", "private-check-in");
+    fromNearbyCheckIn.set("source", "nearby");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
+    ).toEqual({
+      backHref: "/one/location/map?action=check-in",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Private Check-In" },
+      ],
+    });
+    fromNearbyCheckIn.set(
+      "returnToken",
+      "123e4567-e89b-12d3-a456-426614174000",
+    );
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
+    ).toBe(
+      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+    );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
     // still returns to the Location hub (not Profile) while the flow is open.
