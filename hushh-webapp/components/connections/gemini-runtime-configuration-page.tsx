@@ -10,6 +10,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -66,9 +67,7 @@ export function GeminiRuntimeConfigurationPage({
     let active = true;
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
-      setHasRuntimeChoice(
-        PreVaultUserStateService.hasOneRuntimeChoice(cached),
-      );
+      setHasRuntimeChoice(PreVaultUserStateService.hasOneRuntimeChoice(cached));
       return;
     }
     void PreVaultUserStateService.bootstrapState(user.uid)
@@ -89,11 +88,15 @@ export function GeminiRuntimeConfigurationPage({
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.replace(`/login?redirect=${encodeURIComponent(setupMode ? ROUTES.ONE_SETUP_CONNECTIONS : ROUTES.CONNECT_SETTINGS)}`);
+      router.replace(
+        `/login?redirect=${encodeURIComponent(setupMode ? ROUTES.ONE_SETUP_CONNECTIONS : ROUTES.CONNECT_SETTINGS)}`,
+      );
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = Boolean(user && !isVaultUnlocked && hasVault === false);
+  const needsVaultCreation = Boolean(
+    user && !isVaultUnlocked && hasVault === false,
+  );
   const needsUnlock = Boolean(user && !isVaultUnlocked && hasVault === true);
   const finishConnections = useCallback(async () => {
     if (!hasRuntimeChoice) {
@@ -148,17 +151,21 @@ export function GeminiRuntimeConfigurationPage({
         : [],
   });
 
-  return (
+  const content = (
     <AppPageShell
       as="main"
       width="standard"
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: setupMode ? "/one/setup/connections" : "/one/connect/settings",
-        marker: setupMode ? "native-route-one-setup-connections" : "native-route-connect-settings",
+        marker: setupMode
+          ? "native-route-one-setup-connections"
+          : "native-route-connect-settings",
         authState: user ? "authenticated" : "pending",
         dataState:
-          authLoading || hasVault === null || (setupMode && hasRuntimeChoice === null)
+          authLoading ||
+          hasVault === null ||
+          (setupMode && hasRuntimeChoice === null)
             ? "loading"
             : "loaded",
       }}
@@ -189,9 +196,7 @@ export function GeminiRuntimeConfigurationPage({
             setupMode && user?.uid
               ? async (ready) => {
                   if (!ready) return;
-                  await PreVaultUserStateService.markOneRuntimeChoice(
-                    user.uid,
-                  );
+                  await PreVaultUserStateService.markOneRuntimeChoice(user.uid);
                   setHasRuntimeChoice(true);
                 }
               : undefined
@@ -215,11 +220,26 @@ export function GeminiRuntimeConfigurationPage({
           user={user}
           open={unlockOpen}
           onOpenChange={setUnlockOpen}
-          title={needsVaultCreation ? "Set up your private vault" : "Open your private vault"}
+          title={
+            needsVaultCreation
+              ? "Set up your private vault"
+              : "Open your private vault"
+          }
           description="Your Gemini key is encrypted in your vault and is never stored by Connections."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}
     </AppPageShell>
+  );
+
+  // Connections is a root prerequisite rather than an agent capability. Its
+  // shared intro stays presentational-only and never enters the capability
+  // catalog or generated action registry.
+  return setupMode ? (
+    <CapabilityCinematicIntroGate capabilityId="connections">
+      {content}
+    </CapabilityCinematicIntroGate>
+  ) : (
+    content
   );
 }

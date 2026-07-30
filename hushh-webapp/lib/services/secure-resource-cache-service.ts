@@ -136,24 +136,43 @@ export class SecureResourceCacheService {
     vaultKey: string;
   }): Promise<void> {
     try {
-      const database = await openDb();
-      if (!database) {
-        return;
-      }
-
-      const payload = await encryptData(JSON.stringify(params.value), params.vaultKey);
-      await writeRecord<SecureResourceCacheRecord>(database, {
-        key: buildStorageKey(params.userId, params.resourceKey),
-        userId: params.userId,
-        resourceKey: params.resourceKey,
-        version: 1,
-        cachedAt: new Date().toISOString(),
-        ttlMs: params.ttlMs,
-        payload,
-      });
+      await this.writeRequired(params);
     } catch (error) {
       console.warn("[SecureResourceCacheService] Failed to write secure cache:", error);
     }
+  }
+
+  /**
+   * Writes an encrypted snapshot and lets the caller observe a failure.
+   *
+   * Ordinary cache writes remain deliberately best-effort. A bounded migration
+   * is different: it must not claim that a plaintext origin can be retired
+   * unless the encrypted handoff was durably committed. Keep this narrow
+   * primitive here instead of weakening the failure contract for all cache
+   * consumers.
+   */
+  static async writeRequired<T>(params: {
+    userId: string;
+    resourceKey: string;
+    value: T;
+    ttlMs: number;
+    vaultKey: string;
+  }): Promise<void> {
+    const database = await openDb();
+    if (!database) {
+      throw new Error("Secure resource cache is unavailable on this device.");
+    }
+
+    const payload = await encryptData(JSON.stringify(params.value), params.vaultKey);
+    await writeRecord<SecureResourceCacheRecord>(database, {
+      key: buildStorageKey(params.userId, params.resourceKey),
+      userId: params.userId,
+      resourceKey: params.resourceKey,
+      version: 1,
+      cachedAt: new Date().toISOString(),
+      ttlMs: params.ttlMs,
+      payload,
+    });
   }
 
   static async invalidateResource(userId: string, resourceKey: string): Promise<void> {

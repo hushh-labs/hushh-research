@@ -46,6 +46,7 @@ vi.mock("sonner", () => ({
 describe("KycIdentityPreface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
@@ -59,6 +60,7 @@ describe("KycIdentityPreface", () => {
         }),
     );
     render(<KycIdentityPreface onComplete={onComplete} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     fireEvent.change(screen.getByLabelText("Legal name"), {
       target: { value: "Avery Example" },
@@ -98,6 +100,7 @@ describe("KycIdentityPreface", () => {
   it("lets a user skip questions without writing a partial identity profile", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
     expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();

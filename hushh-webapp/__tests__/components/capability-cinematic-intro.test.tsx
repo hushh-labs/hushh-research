@@ -80,6 +80,60 @@ describe("CapabilityCinematicIntroGate", () => {
     );
   });
 
+  it("uses the shared prologue for Connections without promoting it to a capability", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="connections">
+        <p>Connections settings</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "One gets more useful when you choose its starting point.",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Connections settings")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByText("Connections settings")).toBeTruthy();
+    expect(
+      window.sessionStorage.getItem(
+        capabilityCinematicIntroSessionKey("connections"),
+      ),
+    ).toBe("1");
+  });
+
+  it("keeps the Continue action centered and full-width on compact viewports", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="finance">
+        <p>Finance preferences</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    const action = screen.getByRole("button", { name: "Continue" });
+    expect(action.className).toContain("w-full");
+    expect(action.className).toContain("justify-center");
+    expect(action.className).toContain("text-center");
+  });
+
+  it("keeps intro clearance inside the visible viewport", () => {
+    const gateSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/onboarding/setup/capability-cinematic-intro.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(gateSource).toContain(
+      "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))]",
+    );
+    expect(gateSource).toContain(
+      "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
+    );
+  });
+
   it("keeps every authored setup journey on the shared, non-durable gate", () => {
     const surfaces = [
       ["app/one/setup/kai/page.tsx", "finance"],
@@ -94,6 +148,10 @@ describe("CapabilityCinematicIntroGate", () => {
         "location",
       ],
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
+      [
+        "components/connections/gemini-runtime-configuration-page.tsx",
+        "connections",
+      ],
     ] as const;
 
     for (const [relativePath, capabilityId] of surfaces) {

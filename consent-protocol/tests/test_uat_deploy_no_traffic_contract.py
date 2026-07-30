@@ -131,6 +131,15 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     )
     assert '|| [ "$parity_failed" = "true" ]' in workflow
     assert "parity_failed=$parity_failed (warning-only)" not in workflow
+    assert "--require-connected-systems" in workflow
+    assert "- name: Verify production Connected Systems Omni Gateway" in workflow
+    assert (
+        workflow.index("- name: Verify production Connected Systems Omni Gateway")
+        < promote_position
+    )
+    assert "steps.verify-connected-systems.outcome == 'success'" in workflow
+    assert "CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}" in workflow
+    assert '|| [ "$connected_systems_failed" = "true" ]' in workflow
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai" in workflow
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow
 
