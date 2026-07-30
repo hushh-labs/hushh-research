@@ -12,6 +12,7 @@ import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 export function KaiControlSurface({
   open,
   onOpenChange,
+  leading,
   eyebrow,
   title,
   description,
@@ -23,6 +24,7 @@ export function KaiControlSurface({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  leading?: ReactNode;
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -36,6 +38,7 @@ export function KaiControlSurface({
     <AdaptiveDetailSurface
       open={open}
       onOpenChange={onOpenChange}
+      leading={leading}
       eyebrow={eyebrow}
       title={title}
       description={description}

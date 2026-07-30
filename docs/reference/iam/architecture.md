@@ -114,6 +114,11 @@ Private data is always consent-gated and scoped.
 4. RIA verification/compliance and relationship workflow do not belong in the PKM.
 5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
 6. The developer-token registry (`developer_applications`, `developer_apps`, `developer_tokens`) is defined by versioned migration `070_developer_registry.sql` and registered in `release_migration_manifest.json` (the `developer` lane); only peppered HMAC-SHA256 token hashes are stored, never raw tokens.
+7. Connected Systems stores owner-scoped external record pointers separately
+   from immutable workflow/audit history. A missing remote record is not an
+   authorization failure: the backend reports a typed recovery state, and only
+   explicit `VAULT_OWNER` confirmation may transition the local pointer from
+   `active` to `disconnected`. This never invokes remote deletion.
 
 ### Device-to-Device Capability Tokens
 
@@ -126,18 +131,36 @@ elevation:
 
 1. Firebase OAuth identifies the account through Authorization Code + PKCE.
 2. A registered P-256 device key proves the exact Hermes installation.
-3. The existing passphrase wrapper is fetched and unwrapped locally; the
-   passphrase and vault key never enter Hussh infrastructure or model context.
-4. A signed, single-use device challenge permits a 15-minute
+3. The approval browser may reuse an RP-compatible One passkey to unwrap and
+   hash-validate the vault key locally, seal it to an ephemeral Hermes key, and
+   attach ciphertext to the one-time authorization. The PKCE exchange consumes
+   that ciphertext exactly once.
+4. If no usable passkey exists, Hermes fetches the mandatory passphrase wrapper
+   and unwraps it through a native masked prompt. The passphrase and plaintext
+   vault key never enter Hussh infrastructure or model context.
+5. A signed, single-use device challenge permits a 15-minute
    device-bound `VAULT_OWNER` capability.
-5. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
+6. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
    validation/store endpoints and optimistic concurrency contract.
-6. Developer tokens remain application identity only. They never map to
+7. Developer tokens remain application identity only. They never map to
    `VAULT_OWNER`, PKM write, vault unwrap, or a trusted-device credential.
+
+The 15-minute capability is an automatically renewable in-memory lease, not
+the trusted-device lifetime. Device registration and Keychain-bound local
+custody remain durable until lock, disconnect, or revocation. Hermes uses the
+native connector for owner writes; the hosted MCP handshake is unchanged.
+
+Postgres `pkm_events.id` is the metadata-only encrypted-replica cursor today.
+Trusted devices fetch current ciphertext through the existing snapshot
+contract, and revision-safe domain deletion leaves a durable tombstone. This is
+the replaceable outbox seam for future Redis/Memorystore fan-out.
 
 Postgres owns one-time codes, nonce replay protection, device state, and
 metadata-only audit today. `TrustedDeviceStore` is the replaceable seam for a
 future Redis/Memorystore replay and revocation fan-out adapter.
+
+Canonical enrollment, custody, failure, and UAT verification contract:
+[Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md).
 
 ## Change Control
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LogOut, Phone } from "lucide-react";
@@ -309,6 +309,44 @@ describe("SettingsDetailPanel", () => {
     expect(screen.getByText("Settings dialog")).toBeTruthy();
   });
 
+  it("places supplied identity media before the detail title", () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        leading={<span data-testid="detail-identity">Logo</span>}
+        title="Nvidia"
+        description="NVDA • Semiconductors"
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Nvidia" });
+    const identity = screen.getByTestId("detail-identity");
+    const title = screen.getByRole("heading", { name: "Nvidia" });
+
+    expect(
+      identity.compareDocumentPosition(title) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(dialog.textContent).toContain("NVDA • Semiconductors");
+  });
+
   it("closes from the explicit close button", () => {
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -341,5 +379,47 @@ describe("SettingsDetailPanel", () => {
     );
 
     expect(handleOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("uses the shared physics-enabled bottom sheet when requested", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        title="Decision"
+        mobilePresentation="sheet"
+        showCloseButton={false}
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-slot="sheet-drag-handle"]'),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 });

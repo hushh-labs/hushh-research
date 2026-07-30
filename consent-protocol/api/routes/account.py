@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -58,11 +58,60 @@ class TrustedDeviceAuthorizationRequest(BaseModel):
     device_name: str = Field(min_length=1, max_length=100)
     platform: Literal["macos"]
     state: str = Field(min_length=16, max_length=512)
+    replaces_device_id: str | None = Field(default=None, min_length=24, max_length=96)
+    vault_handoff_public_key: str | None = Field(default=None, min_length=40, max_length=64)
+
+    @field_validator("vault_handoff_public_key")
+    @classmethod
+    def validate_vault_handoff_public_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("vault_handoff_public_key must be base64.") from exc
+        if len(decoded) != 32:
+            raise ValueError("vault_handoff_public_key must be a 32-byte X25519 key.")
+        return value
 
 
 class TrustedDeviceExchangeRequest(BaseModel):
     code: str = Field(min_length=20, max_length=256)
     code_verifier: str = Field(min_length=43, max_length=128)
+
+
+class TrustedDeviceVaultHandoffRequest(BaseModel):
+    vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
+    vault_handoff_iv: str = Field(min_length=16, max_length=24)
+    vault_handoff_tag: str = Field(min_length=20, max_length=32)
+    vault_handoff_sender_public_key: str = Field(min_length=40, max_length=64)
+    vault_handoff_alg: Literal["X25519-AES256-GCM"]
+    vault_handoff_vault_key_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    vault_handoff_wrapper_id: str = Field(min_length=1, max_length=128)
+    vault_handoff_rp_id: str = Field(min_length=1, max_length=253)
+
+    @field_validator(
+        "vault_handoff_wrapped_key",
+        "vault_handoff_iv",
+        "vault_handoff_tag",
+        "vault_handoff_sender_public_key",
+    )
+    @classmethod
+    def validate_handoff_base64(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Vault handoff fields must be base64.") from exc
+        expected_lengths = {
+            "vault_handoff_wrapped_key": 32,
+            "vault_handoff_iv": 12,
+            "vault_handoff_tag": 16,
+            "vault_handoff_sender_public_key": 32,
+        }
+        expected_length = expected_lengths.get(info.field_name or "")
+        if expected_length is None or len(decoded) != expected_length:
+            raise ValueError("Vault handoff fields have an invalid byte length.")
+        return value
 
 
 def _trusted_device_allowlist() -> set[str]:
@@ -83,6 +132,14 @@ async def _trusted_device_guard(user_id: str | None = None) -> None:
             },
         )
     allowlist = _trusted_device_allowlist()
+    if not allowlist:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ALLOWED",
+                "message": "Trusted-device enrollment is not available for this account.",
+            },
+        )
     # The unauthenticated PKCE exchange is guarded by possession of the
     # one-time code and verifier; the allowlist was enforced when that code was
     # created. Every signed-in entrypoint fails closed when rollout membership
@@ -150,6 +207,60 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
     return str(claims.get("uid") or claims.get("sub") or "").strip()
 
 
+async def _verified_account_email(user_id: str) -> str:
+    """Return the server-verified display identity for a trusted device.
+
+    Hermes stores this value locally only to make an already-authorized account
+    recognizable.  It is intentionally obtained from Firebase after the
+    one-time code is consumed; a browser query parameter or client-supplied
+    label must never become identity authority.
+    """
+    app = get_firebase_auth_app()
+    if app is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FIREBASE_ADMIN_UNAVAILABLE",
+                "message": "Verified account identity is unavailable.",
+            },
+        )
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_ACCOUNT_LOOKUP_FAILED",
+                "message": "Verified account identity is unavailable.",
+            },
+        ) from exc
+    email = str(getattr(record, "email", "") or "").strip()
+    if not email or not bool(getattr(record, "email_verified", False)):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_EMAIL_REQUIRED",
+                "message": "A verified email address is required to connect a trusted device.",
+            },
+        )
+    return email
+
+
+async def _verified_account_phone(user_id: str) -> None:
+    """Require the same durable phone admission claim as One's browser flow."""
+    identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+    if identity.get("phone_verified") is not True:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_PHONE_REQUIRED",
+                "message": "A verified phone number is required to connect a trusted device.",
+            },
+        )
+
+
 @router.post("/trusted-device-authorizations")
 async def create_trusted_device_authorization(
     payload: TrustedDeviceAuthorizationRequest,
@@ -158,6 +269,10 @@ async def create_trusted_device_authorization(
 ):
     """Approve a PKCE-bound Hermes installation for the signed-in account."""
     await _trusted_device_guard(firebase_uid)
+    # Fail before persisting an authorization/device record when the account
+    # cannot later be shown as a verified local identity in Hermes.
+    await _verified_account_email(firebase_uid)
+    await _verified_account_phone(firebase_uid)
     browser_uid = await _verify_browser_enrollment_identity(authorization)
     if browser_uid != firebase_uid:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
@@ -171,6 +286,7 @@ async def create_trusted_device_authorization(
             device_name=payload.device_name,
             platform=payload.platform,
             state=payload.state,
+            replaces_device_id=payload.replaces_device_id,
         )
     except TrustedDeviceError as exc:
         _raise_trusted_device_error(exc)
@@ -180,7 +296,37 @@ async def create_trusted_device_authorization(
         "redirect_uri": device_authorization.redirect_uri,
         "redirect_url": device_authorization.redirect_url,
         "expires_at": device_authorization.expires_at,
+        "replaces_device_id": device_authorization.replaces_device_id,
+        # This public key is validated and echoed from the authenticated
+        # approval request. The browser may use it to seal the locally
+        # unlocked vault key directly to Hermes; the server never receives the
+        # resulting plaintext.
+        "vault_handoff_public_key": payload.vault_handoff_public_key,
     }
+
+
+@router.post("/trusted-device-authorizations/{authorization_id}/vault-handoff")
+async def attach_trusted_device_vault_handoff(
+    authorization_id: str,
+    payload: TrustedDeviceVaultHandoffRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Attach ciphertext for atomic delivery through the PKCE exchange."""
+    await _trusted_device_guard(firebase_uid)
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().attach_vault_handoff,
+            authorization_id=authorization_id,
+            user_id=firebase_uid,
+            handoff=payload.model_dump(),
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+    return {"attached": True}
 
 
 @router.post("/trusted-device-authorizations/exchange")
@@ -208,6 +354,7 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
     try:
         from firebase_admin import auth as firebase_auth
 
+        account_email = await _verified_account_email(str(device["user_id"]))
         custom_token = await run_in_threadpool(
             firebase_auth.create_custom_token,
             device["user_id"],
@@ -224,11 +371,20 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
             },
         )
     token = custom_token.decode("utf-8") if isinstance(custom_token, bytes) else str(custom_token)
-    return {
+    response: dict[str, Any] = {
         "firebase_custom_token": token,
         "device_id": device["device_id"],
         "user_id": device["user_id"],
+        "account_email": account_email,
+        "replaced_device_id": device.get("replaced_device_id"),
     }
+    if device.get("vault_handoff"):
+        response.update(
+            authorization_id=device.get("authorization_id"),
+            authorization_expires_at=device.get("authorization_expires_at"),
+            vault_handoff=device.get("vault_handoff"),
+        )
+    return response
 
 
 @router.get("/trusted-devices")

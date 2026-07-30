@@ -70,6 +70,7 @@ function renderFlow(
       failedUserIds: [],
     }),
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
+    onLocationReady: vi.fn().mockResolvedValue(true),
     onRequestNotifications: vi.fn().mockResolvedValue(undefined),
     onBack: vi.fn(),
     onComplete: vi.fn(),
@@ -77,8 +78,18 @@ function renderFlow(
     ...overrides,
   };
 
-  render(<OneLocationOnboardingFlow {...props} />);
-  return props;
+  const view = render(<OneLocationOnboardingFlow {...props} />);
+  return {
+    ...props,
+    rerenderFlow: (
+      nextOverrides: Partial<
+        React.ComponentProps<typeof OneLocationOnboardingFlow>
+      >,
+    ) => {
+      Object.assign(props, nextOverrides);
+      view.rerender(<OneLocationOnboardingFlow {...props} />);
+    },
+  };
 }
 
 function openPeopleScreen() {
@@ -195,6 +206,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -203,7 +215,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
   });
 
-  it("does not re-request permissions that are already ready", () => {
+  it("runs Location-ready onboarding work without re-requesting permission", async () => {
     const props = renderFlow({
       locationPermission: {
         state: "granted",
@@ -216,7 +228,84 @@ describe("OneLocationOnboardingFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     expect(props.onRequestLocation).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(props.onLocationReady).toHaveBeenCalledTimes(1),
+    );
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(props.onLocationReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepares the saved-place step after the user returns from device Settings", async () => {
+    const props = renderFlow({
+      locationPermission: {
+        state: "denied",
+        precise: false,
+        background: "restricted",
+        locationServicesEnabled: true,
+      },
+      notificationDeliveryMode: "push_active",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(props.onLocationReady).not.toHaveBeenCalled();
+
+    props.rerenderFlow({
+      locationPermission: {
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      },
+    });
+
+    await waitFor(() =>
+      expect(props.onLocationReady).toHaveBeenCalledTimes(1),
+    );
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+    );
+  });
+
+  it("blocks advancement while the saved-place step is preparing", async () => {
+    let resolvePreparation: ((complete: boolean) => void) | null = null;
+    const onLocationReady = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolvePreparation = resolve;
+        }),
+    );
+    renderFlow({
+      locationPermission: {
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      },
+      notificationDeliveryMode: "push_active",
+      onLocationReady,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+    await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
+
+    await act(async () => {
+      resolvePreparation?.(true);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+    );
   });
 
   it("keeps setup on screen two until required Location access is ready", () => {

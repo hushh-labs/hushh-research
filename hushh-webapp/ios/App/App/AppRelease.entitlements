@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Production entitlements for App Store / public-release builds.
+
+  Identical to App.entitlements EXCEPT aps-environment = production, so the
+  released binary registers for the Apple Push Notification *production*
+  gateway. App.entitlements keeps aps-environment = development for local
+  `npm run ios:run`, Xcode debug installs, and the TestFlight (UAT) pipeline.
+
+  Applied only by the production release workflow via an archive-time build
+  setting override:
+      CODE_SIGN_ENTITLEMENTS = App/AppRelease.entitlements
+  (see .github/workflows/release-ios-appstore.yml). The committed pbxproj is
+  left pointing at App/App.entitlements so no local/dev workflow changes.
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:one.hushh.ai</string>
+		<string>webcredentials:uat.one.hushh.ai</string>
+		<string>webcredentials:dev.one.hushh.ai</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
+		<string>$(AppIdentifierPrefix)com.hushh.app.imessage</string>
+	</array>
+</dict>
+</plist>

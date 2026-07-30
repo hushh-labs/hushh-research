@@ -387,6 +387,20 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 
 ### Mobile Firebase Artifacts (Regulated)
 
+> **In use by the one-click iOS pipelines.**
+> - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` reads
+>   `IOS_GOOGLESERVICE_INFO_PLIST_B64`, `APPSTORE_CONNECT_API_KEY_P8_B64`,
+>   `APPSTORE_CONNECT_KEY_ID`, and `APPSTORE_CONNECT_ISSUER_ID` from Secret Manager
+>   (`hushh-pda-uat`) via `GCP_SA_KEY_UAT` to build + sign + upload the UAT build to TestFlight.
+>   Setup + flow: [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+> - **Public App Store:** `.github/workflows/release-ios-appstore.yml` reads the **same four
+>   secret names — plus the `NEXT_PUBLIC_*` web contract — from the same `hushh-pda-uat` project via
+>   `GCP_SA_KEY_UAT`**, because the public build ships the **UAT backend + UAT Firebase** (the same
+>   latest frontend+backend as TestFlight). It keeps `environment: production` and the production
+>   actor gate (public submission is a production surface) but keeps the production APNs entitlement,
+>   so the UAT Firebase project must hold a production APNs key. Setup + flow:
+>   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+
 - Do not commit production `GoogleService-Info.plist` or `google-services.json`.
 - Store production mobile Firebase artifacts in Secret Manager:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`

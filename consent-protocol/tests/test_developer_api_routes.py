@@ -815,6 +815,52 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
+def test_request_consent_rejects_authoritatively_empty_information_scope(monkeypatch):
+    async def _empty_scope_snapshot(user_id: str, *, detail: str):
+        assert user_id == "user_123"
+        assert detail == "verbose"
+        return (
+            ["financial"],
+            ["attr.financial.portfolio.*"],
+            [
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "materialization_state": "empty",
+                }
+            ],
+        )
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "_get_user_scope_snapshot", _empty_scope_snapshot)
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "get_active_connector_key",
+        lambda self, *, app_id: None,
+    )
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "attr.financial.portfolio.*",
+            "expiry_hours": 24,
+            "reason": "Portfolio analysis",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "SCOPE_NOT_DISCOVERED_FOR_USER"
+    assert "no available information" in response.json()["detail"]["message"]
+
+
 def test_request_consent_creates_pending_one_invocation_request(monkeypatch):
     inserted: dict[str, object] = {}
 

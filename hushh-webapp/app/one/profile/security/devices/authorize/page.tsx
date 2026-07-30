@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { buildTrustedDevicePasskeyHandoff } from "@/lib/vault/trusted-device-passkey-handoff";
 
 function requiredParam(
   params: { get(name: string): string | null },
@@ -33,10 +34,22 @@ export default function TrustedDeviceAuthorizePage() {
       device_name: requiredParam(searchParams, "device_name"),
       platform: requiredParam(searchParams, "platform") || "macos",
       state: requiredParam(searchParams, "state"),
+      replaces_device_id:
+        requiredParam(searchParams, "replaces_device_id") || undefined,
+      vault_handoff_public_key:
+        requiredParam(searchParams, "vault_handoff_public_key") || undefined,
     }),
     [searchParams],
   );
-  const complete = Object.values(request).every(Boolean);
+  const complete = [
+    request.redirect_uri,
+    request.code_challenge,
+    request.code_challenge_method,
+    request.device_public_key,
+    request.device_name,
+    request.platform,
+    request.state,
+  ].every(Boolean);
 
   async function approve() {
     if (!user || !complete || submitting) return;
@@ -49,6 +62,47 @@ export default function TrustedDeviceAuthorizePage() {
         throw new Error(
           payload?.detail?.message || "This device could not be authorized.",
         );
+      }
+      const handoffPublicKey =
+        typeof payload.vault_handoff_public_key === "string"
+          ? payload.vault_handoff_public_key
+          : "";
+      if (handoffPublicKey) {
+        try {
+          const handoff = await buildTrustedDevicePasskeyHandoff({
+            userId: user.uid,
+            deviceId: String(payload.device_id || ""),
+            state: request.state,
+            authorizationId: String(payload.authorization_id || ""),
+            expiresAt: Number(payload.expires_at || 0),
+            recipientPublicKey: handoffPublicKey,
+            hostname: window.location.hostname,
+            environment:
+              window.location.hostname === "one.hushh.ai"
+                ? "production"
+                : "uat",
+          });
+          if (handoff) {
+            const attachResponse =
+              await ApiService.attachTrustedDeviceVaultHandoff(
+                String(payload.authorization_id || ""),
+                handoff,
+              );
+            if (!attachResponse.ok) {
+              throw new Error("The passkey handoff could not be attached.");
+            }
+          }
+        } catch (passkeyError) {
+          // A missing, canceled, unavailable, or RP-incompatible passkey is a
+          // safe fallback condition. Hermes continues with its native masked
+          // passphrase prompt; no vault material was transferred.
+          console.info(
+            "[trusted-device] Existing passkey was not used; continuing with native enrollment.",
+            passkeyError instanceof DOMException
+              ? passkeyError.name
+              : "unavailable",
+          );
+        }
       }
       assignWindowLocation(payload.redirect_url);
     } catch (cause) {
@@ -76,9 +130,11 @@ export default function TrustedDeviceAuthorizePage() {
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Approve this private computer as an extension of One. The vault
-          passphrase remains local to Hermes and is never sent to Hussh. Each
-          signed device proof can issue a 15-minute vault-owner capability for
-          protected actions, including confirmed Personal Data writes.
+          passphrase remains local to Hermes and is never sent to Hussh. When
+          this browser can use an existing One passkey, Touch ID can secure the
+          device without asking for the passphrase again. Each signed device
+          proof can issue a short-lived vault-owner capability for protected
+          actions, including confirmed PKM writes.
         </p>
 
         <dl className="mt-6 rounded-2xl bg-muted/50 p-4 text-sm">
@@ -97,7 +153,7 @@ export default function TrustedDeviceAuthorizePage() {
           <div className="mt-2 flex justify-between gap-4">
             <dt className="text-muted-foreground">Access</dt>
             <dd className="text-right font-medium">
-              15-minute vault-owner capability
+              Trusted until revoked; short-lived action capabilities
             </dd>
           </div>
         </dl>

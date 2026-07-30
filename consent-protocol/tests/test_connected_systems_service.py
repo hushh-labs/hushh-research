@@ -13,6 +13,7 @@ from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
     ConnectedSystemNotFoundError,
+    ConnectedSystemsError,
     ConnectedSystemsService,
     ConnectedSystemValidationError,
     ExternalCrmStreamableMcpAdapter,
@@ -99,6 +100,14 @@ class ContractMappedCrmAdapter:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str | None, dict]] = []
+        self.read_rows: object = [
+            {
+                "id": "blue-42",
+                "externalId": "external-42",
+                "publicName": "A. Example",
+                "privateNote": "must not be projected",
+            }
+        ]
 
     async def call_operation(self, *, operation, tool_name, endpoint, arguments, **_kwargs):
         self.calls.append((operation, tool_name, endpoint, arguments))
@@ -154,16 +163,7 @@ class ContractMappedCrmAdapter:
         if operation == "read":
             return {
                 "isError": False,
-                "payload": {
-                    "rows": [
-                        {
-                            "id": "blue-42",
-                            "externalId": "external-42",
-                            "publicName": "A. Example",
-                            "privateNote": "must not be projected",
-                        }
-                    ]
-                },
+                "payload": {"rows": self.read_rows},
             }
         return {"isError": False, "payload": {"success": True, "id": "blue-42"}}
 
@@ -685,6 +685,319 @@ async def test_bound_read_skips_redundant_mcp_search():
     assert second["recordId"] == "003gK00000demoQAA"
     assert second["mcp"] is None
     assert len(adapter.calls) == calls_after_first  # no extra read-crm-record call
+
+
+@pytest.mark.asyncio
+async def test_bound_read_requires_owner_recovery_after_authoritative_absence():
+    definition = ConnectedSystemDefinition(
+        system_id="bluebird-accounts",
+        display_name="Bluebird",
+        customer_display_name="Bluebird",
+        system_type="Bluebird CRM",
+        system_name="Accounts",
+        target="Bluebird",
+        object_type_default="Account",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/bluebird",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "bluebird-schema",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/bluebird/schema",
+                "responseContract": enterprise_schema_contract(),
+            },
+            {
+                "name": "bluebird-read",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/bluebird/read",
+                "responseContract": enterprise_read_contract(),
+            },
+        ),
+        capabilities=frozenset({"schema", "read"}),
+    )
+    adapter = ContractMappedCrmAdapter()
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-stale",
+            "user_id": "user_123",
+            "system_id": definition.system_id,
+            "target": definition.target,
+            "object_type": definition.object_type_default,
+            "record_id": "blue-missing",
+        }
+    )
+    adapter.read_rows = []
+
+    result = await service.read_bound_record(
+        user_id="user_123",
+        system_id=definition.system_id,
+        object_type=definition.object_type_default,
+        return_fields=["publicName"],
+    )
+
+    assert result["bindingStatus"] == "remote_record_missing"
+    assert result["recordId"] is None
+    assert result["recoveryAction"] == "create_or_relink"
+    assert result["binding"]["status"] == "active"
+    assert service.store.get_binding(
+        user_id="user_123",
+        system_id=definition.system_id,
+        object_type=definition.object_type_default,
+    )
+
+    disconnected = service.disconnect_record_binding(
+        user_id="user_123",
+        system_id=definition.system_id,
+        object_type=definition.object_type_default,
+    )
+    repeated = service.disconnect_record_binding(
+        user_id="user_123",
+        system_id=definition.system_id,
+        object_type=definition.object_type_default,
+    )
+
+    assert disconnected["status"] == "disconnected"
+    assert repeated["status"] == "unbound"
+    assert service.store.audit_events[-1]["action"] == "disconnect"
+    assert service.store.audit_events[-1]["metadata"] == {"reason": "owner_confirmed_recovery"}
+    assert (
+        len([event for event in service.store.audit_events if event["action"] == "disconnect"]) == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_malformed_registered_read_response_never_marks_binding_missing():
+    definition = ConnectedSystemDefinition(
+        system_id="bluebird-accounts",
+        display_name="Bluebird",
+        customer_display_name="Bluebird",
+        system_type="Bluebird CRM",
+        system_name="Accounts",
+        target="Bluebird",
+        object_type_default="Account",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/bluebird",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "bluebird-schema",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/bluebird/schema",
+                "responseContract": enterprise_schema_contract(),
+            },
+            {
+                "name": "bluebird-read",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/bluebird/read",
+                "responseContract": enterprise_read_contract(),
+            },
+        ),
+        capabilities=frozenset({"schema", "read"}),
+    )
+    adapter = ContractMappedCrmAdapter()
+    adapter.read_rows = {"not": "a collection"}
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-malformed",
+            "user_id": "user_123",
+            "system_id": definition.system_id,
+            "target": definition.target,
+            "object_type": definition.object_type_default,
+            "record_id": "blue-42",
+        }
+    )
+
+    with pytest.raises(ConnectedSystemConfigurationError) as captured:
+        await service.read_bound_record(
+            user_id="user_123",
+            system_id=definition.system_id,
+            object_type=definition.object_type_default,
+            return_fields=["publicName"],
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_READ_RESPONSE_INVALID"
+    assert service.store.get_binding(
+        user_id="user_123",
+        system_id=definition.system_id,
+        object_type=definition.object_type_default,
+    )
+
+
+@pytest.mark.asyncio
+async def test_bound_read_never_substitutes_a_different_remote_record():
+    definition = ConnectedSystemDefinition(
+        system_id="bluebird-accounts",
+        display_name="Bluebird",
+        customer_display_name="Bluebird",
+        system_type="Bluebird CRM",
+        system_name="Accounts",
+        target="Bluebird",
+        object_type_default="Account",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/bluebird",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "bluebird-schema",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/bluebird/schema",
+                "responseContract": enterprise_schema_contract(),
+            },
+            {
+                "name": "bluebird-read",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/bluebird/read",
+                "responseContract": enterprise_read_contract(),
+            },
+        ),
+        capabilities=frozenset({"schema", "read"}),
+    )
+    adapter = ContractMappedCrmAdapter()
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-exact",
+            "user_id": "user_123",
+            "system_id": definition.system_id,
+            "target": definition.target,
+            "object_type": definition.object_type_default,
+            "record_id": "blue-expected",
+        }
+    )
+
+    with pytest.raises(ConnectedSystemConfigurationError) as captured:
+        await service.read_bound_record(
+            user_id="user_123",
+            system_id=definition.system_id,
+            object_type=definition.object_type_default,
+            return_fields=["publicName"],
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_BOUND_RECORD_MISMATCH"
+    assert (
+        service.store.get_binding(
+            user_id="user_123",
+            system_id=definition.system_id,
+            object_type=definition.object_type_default,
+        )["record_id"]
+        == "blue-expected"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bound_read_keeps_binding_when_remote_read_fails():
+    service, adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-retryable",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000retryQAA",
+        }
+    )
+
+    async def failed_read(payload):
+        adapter.calls.append(("read-crm-record", payload))
+        return {"isError": True, "payload": {"records": []}}
+
+    adapter.read_record = failed_read
+
+    with pytest.raises(ConnectedSystemsError):
+        await service.read_bound_record(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type="Contact",
+            return_fields=["Email"],
+        )
+
+    assert (
+        service.store.get_binding(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type="Contact",
+        )["record_id"]
+        == "003gK00000retryQAA"
+    )
+
+
+def test_create_intent_rejects_an_existing_active_binding():
+    service, _adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-existing",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000existingQAA",
+        }
+    )
+
+    with pytest.raises(ConnectedSystemBlockedError) as captured:
+        service.create_record_intent(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type="Contact",
+            email="person@example.test",
+            phone="4155550100",
+            first_name="Test",
+            last_name="Person",
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_RECORD_ALREADY_BOUND"
+    assert captured.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_create_approval_rechecks_binding_before_remote_mutation():
+    service, adapter = build_service()
+    intent = service.create_record_intent(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type="Contact",
+        email="person@example.test",
+        phone="4155550100",
+        first_name="Test",
+        last_name="Person",
+    )
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-raced",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000racedQAA",
+        }
+    )
+
+    with pytest.raises(ConnectedSystemBlockedError) as captured:
+        await service.approve_intent(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            intent_id=intent["intentId"],
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_RECORD_ALREADY_BOUND"
+    assert all(call[0] != "create-crm-record" for call in adapter.calls)
+    assert service.store.intents[intent["intentId"]]["status"] == "failed"
 
 
 @pytest.mark.asyncio

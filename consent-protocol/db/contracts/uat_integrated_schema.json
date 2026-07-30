@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 121,
+  "expected_migration_version": 124,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -22,6 +22,7 @@
     "commit_pkm_domain_mutation_v4",
     "rollback_pkm_domain_revision_v1",
     "delete_pkm_domain_v2",
+    "delete_pkm_domain_v3",
     "prune_expired_pkm_domain_revisions_v1",
     "prune_expired_pkm_recovery_for_user_v1"
   ],
@@ -1044,6 +1045,9 @@
       "device_public_key",
       "device_name",
       "platform",
+      "replaces_device_id",
+      "oauth_state",
+      "vault_handoff",
       "created_at",
       "expires_at",
       "consumed_at"

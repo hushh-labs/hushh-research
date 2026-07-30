@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import pytest
@@ -215,13 +216,17 @@ async def test_signed_in_trusted_device_rollout_accepts_exact_uid(
 
 
 @pytest.mark.asyncio
-async def test_pkce_exchange_guard_does_not_require_identity_allowlist(
+async def test_pkce_exchange_guard_fails_closed_without_rollout_allowlist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
     monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: set())
 
-    await account._trusted_device_guard()
+    with pytest.raises(HTTPException) as raised:
+        await account._trusted_device_guard()
+
+    assert raised.value.status_code == 403
+    assert raised.value.detail["code"] == "TRUSTED_DEVICE_NOT_ALLOWED"
 
 
 @pytest.mark.asyncio
@@ -314,6 +319,53 @@ async def test_browser_firebase_session_can_approve_device_enrollment(
     assert await account._verify_browser_enrollment_identity("Bearer firebase-id-token") == "user-1"
 
 
+def test_trusted_device_authorization_accepts_only_x25519_handoff_public_keys() -> None:
+    valid = base64.b64encode(b"k" * 32).decode("ascii")
+    request = account.TrustedDeviceAuthorizationRequest(
+        redirect_uri="http://127.0.0.1:49152/callback",
+        code_challenge="c" * 43,
+        device_public_key=base64.b64encode(b"d" * 96).decode("ascii"),
+        device_name="Hermes on Mac",
+        platform="macos",
+        state="s" * 32,
+        vault_handoff_public_key=valid,
+    )
+    assert request.vault_handoff_public_key == valid
+
+    with pytest.raises(ValueError, match="32-byte X25519"):
+        account.TrustedDeviceAuthorizationRequest(
+            redirect_uri="http://127.0.0.1:49152/callback",
+            code_challenge="c" * 43,
+            device_public_key=base64.b64encode(b"d" * 96).decode("ascii"),
+            device_name="Hermes on Mac",
+            platform="macos",
+            state="s" * 32,
+            vault_handoff_public_key=base64.b64encode(b"k" * 31).decode("ascii"),
+        )
+
+
+def test_trusted_device_vault_handoff_accepts_only_bounded_ciphertext() -> None:
+    request = account.TrustedDeviceVaultHandoffRequest(
+        vault_handoff_wrapped_key=base64.b64encode(b"c" * 32).decode("ascii"),
+        vault_handoff_iv=base64.b64encode(b"i" * 12).decode("ascii"),
+        vault_handoff_tag=base64.b64encode(b"t" * 16).decode("ascii"),
+        vault_handoff_sender_public_key=base64.b64encode(b"k" * 32).decode("ascii"),
+        vault_handoff_alg="X25519-AES256-GCM",
+        vault_handoff_vault_key_hash="a" * 64,
+        vault_handoff_wrapper_id="wrapper-1",
+        vault_handoff_rp_id="uat.one.hushh.ai",
+    )
+    assert request.vault_handoff_vault_key_hash == "a" * 64
+
+    with pytest.raises(ValueError, match="invalid byte length"):
+        account.TrustedDeviceVaultHandoffRequest(
+            **{
+                **request.model_dump(),
+                "vault_handoff_wrapped_key": base64.b64encode(b"c" * 31).decode("ascii"),
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_email_rollout_entry_requires_verified_firebase_email(
     monkeypatch: pytest.MonkeyPatch,
@@ -328,6 +380,7 @@ async def test_email_rollout_entry_requires_verified_firebase_email(
         return function(*args, **kwargs)
 
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
+    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
     monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"owner@example.com"})
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
@@ -337,3 +390,92 @@ async def test_email_rollout_entry_requires_verified_firebase_email(
         await account._trusted_device_guard("user-1")
 
     assert raised.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_trusted_device_exchange_identity_uses_verified_firebase_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from firebase_admin import auth as firebase_auth
+
+    class _Record:
+        email = "owner@example.com"
+        email_verified = True
+
+    async def _run_in_threadpool(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _Record())
+
+    assert await account._verified_account_email("user-1") == "owner@example.com"
+
+
+@pytest.mark.asyncio
+async def test_trusted_device_exchange_identity_rejects_unverified_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from firebase_admin import auth as firebase_auth
+
+    class _Record:
+        email = "owner@example.com"
+        email_verified = False
+
+    async def _run_in_threadpool(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _Record())
+
+    with pytest.raises(HTTPException) as raised:
+        await account._verified_account_email("user-1")
+
+    assert raised.value.status_code == 403
+    assert raised.value.detail["code"] == "TRUSTED_DEVICE_VERIFIED_EMAIL_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_trusted_device_exchange_returns_server_verified_account_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from firebase_admin import auth as firebase_auth
+
+    class _Service:
+        def exchange_authorization(self, **_kwargs: Any) -> dict[str, str]:
+            return {"user_id": "user-1", "device_id": "tdv_" + ("a" * 32)}
+
+    async def _verified_email(_user_id: str) -> str:
+        return "owner@example.com"
+
+    async def _run_in_threadpool(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
+    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
+    monkeypatch.setattr(account, "TrustedDeviceService", _Service)
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        account,
+        "_verified_account_email",
+        _verified_email,
+    )
+    monkeypatch.setattr(
+        firebase_auth,
+        "create_custom_token",
+        lambda *_args, **_kwargs: b"firebase-custom-token",
+    )
+
+    result = await account.exchange_trusted_device_authorization(
+        account.TrustedDeviceExchangeRequest(code="c" * 20, code_verifier="v" * 43)
+    )
+
+    assert result == {
+        "firebase_custom_token": "firebase-custom-token",
+        "device_id": "tdv_" + ("a" * 32),
+        "user_id": "user-1",
+        "account_email": "owner@example.com",
+        "replaced_device_id": None,
+    }

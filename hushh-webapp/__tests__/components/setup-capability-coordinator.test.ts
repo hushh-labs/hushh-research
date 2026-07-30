@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasUnresolvedRootSetup,
   resolveSetupCapabilityJourneyMode,
   resolveSetupCapabilityReturnTarget,
   resolveSetupCapabilityTerminalScreen,
   resolveSetupCapabilityTerminalTarget,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 
 describe("setup capability journey settlement", () => {
   it("derives root versus individual re-entry only from fresh setup resolution", () => {
@@ -15,6 +17,23 @@ describe("setup capability journey settlement", () => {
     expect(resolveSetupCapabilityJourneyMode("individual", false)).toBe(
       "individual",
     );
+  });
+
+  it("does not mistake a legacy Nav-tour outcome for root setup completion", () => {
+    expect(
+      hasUnresolvedRootSetup({
+        setupCompleted: false,
+        navSetupCompletedAt: Date.parse("2026-07-01T00:00:00.000Z"),
+        navSetupSkippedAt: null,
+      } as PreVaultUserState),
+    ).toBe(true);
+    expect(
+      hasUnresolvedRootSetup({
+        setupCompleted: true,
+        navSetupCompletedAt: null,
+        navSetupSkippedAt: null,
+      } as PreVaultUserState),
+    ).toBe(false);
   });
 
   it("returns root setup to the hub and individual setup directly to One", () => {
@@ -92,4 +111,3 @@ describe("setup capability journey settlement", () => {
     );
   });
 });
-

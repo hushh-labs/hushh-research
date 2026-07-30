@@ -93,8 +93,17 @@ live-location grants:
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
-- a device-local prompt marker may record that the optional onboarding question
-  was answered; it never contains coordinates, an address, or a place label
+- before saving, the owner may replace the captured place from the same
+  onboarding prompt; authenticated Maps autocomplete and place details replace
+  the display address and coordinates together in memory, while raw coordinates
+  and free-form coordinate/address mismatches are never exposed
+- active root-setup replay offers the saved-place step once per mounted journey
+  until setup is resolved; workspace onboarding treats encrypted PKM as the
+  saved-state authority and uses device storage only for an explicit skip
+  outcome
+- the old binary prompt marker is cleared only after an empty encrypted-PKM
+  read proves it is ambiguous; no prompt marker contains coordinates, an
+  address, or a place label
 
 Saved places do not create sharing authority. They enter a consented PKM export
 only when the owner separately approves the applicable Location information

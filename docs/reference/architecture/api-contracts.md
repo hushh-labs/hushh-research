@@ -116,9 +116,9 @@ flowchart TB
 | GET | `/api/v1` | Developer API root summary (`410` when developer API disabled) |
 | GET | `/api/v1/list-scopes` | Generic dynamic scope catalog (`410` when developer API disabled) |
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
-| GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `Authorization: Bearer <developer-token>`) |
+| GET | `/api/v1/user-scopes/{user_id}` | Discover materialized dynamic user scopes for one user; reserved empty PKM shapes are omitted (requires `Authorization: Bearer <developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved capability such as `cap.one.invoke` (requires `Authorization: Bearer <developer-token>`) |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one currently materialized/discovered `attr.*` scope or approved capability such as `cap.one.invoke`; empty dynamic scopes fail before pending/active reuse while static capabilities are unaffected (requires `Authorization: Bearer <developer-token>`) |
 | POST | `/api/v1/public-profile-export` | Read an owner-published public-profile resource by opaque handle; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
@@ -146,7 +146,7 @@ flowchart TB
 | POST | `/api/consent/vault-owner-token` | Issue VAULT_OWNER token |
 | POST | `/api/consent/vault-owner-token/device` | Issue a 15-minute device-bound VAULT_OWNER token after Firebase auth and a signed one-time device challenge |
 | POST | `/api/account/trusted-device-authorizations` | Approve a UAT-flagged PKCE-bound Hermes installation for the signed-in account |
-| POST | `/api/account/trusted-device-authorizations/exchange` | Consume a one-time PKCE code and return a Firebase custom token plus registered device identity |
+| POST | `/api/account/trusted-device-authorizations/exchange` | Consume a one-time PKCE code and return a Firebase custom token, registered device identity, and server-verified account email for local trusted-device display |
 | GET | `/api/account/trusted-devices` | List signed-in account device metadata and revocation status |
 | POST | `/api/account/trusted-devices/{device_id}/challenge` | Create a short-lived device proof-of-possession challenge |
 | DELETE | `/api/account/trusted-devices/{device_id}` | Revoke the device and its device-bound owner capabilities |
@@ -336,7 +336,9 @@ RIA relationship bundle note:
 | POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index; accepts optional non-sensitive `write_projections[]` for derived read models such as decision history |
 | GET | `/api/pkm/data/{user_id}` | Get full encrypted PKM payload |
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
-| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
+| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Compatibility deletion path for existing first-party callers |
+| POST | `/api/pkm/delete-domain` | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision |
+| GET | `/api/pkm/device-sync/{user_id}` | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
 | POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private or consent-required |
 | POST | `/api/pkm/domains/{domain}/public-profile-projection` | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture |
@@ -381,13 +383,23 @@ Macy's compatibility aliases only and are routed through the same schema
 validation. Create, update, and delete are auditable, idempotently approved
 intents. Only intent approval issues the registered direct MCP mutation.
 
+A successful exact-bound-id read with a valid registered response contract and
+an empty record collection returns `bindingStatus=remote_record_missing`.
+Malformed responses and transport, authorization, timeout, or MCP tool failures
+never enter that state. The active binding remains in place until the owner
+confirms local unlink; unlink transitions only the local pointer to
+`disconnected`, preserves intent/audit history, and never calls the remote
+delete operation. New record preparation and approval both fail while another
+active binding exists.
+
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/connected-systems` | List active registry systems with `registryRevision` and per-system `configurationRevision`; signed-in metadata only |
 | GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}&forceRefresh=false` | Return the normalized schema catalogue, fingerprint, freshness, refresh guidance, and exact `effectiveActions` |
 | GET | `/api/connected-systems/record-bindings` | Return owner-scoped binding statuses for every active CRM in one request; no CRM record IDs or values |
 | GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
-| POST | `/api/connected-systems/{system_id}/records/read` | Read using generic `{ objectType, searchFields, returnFields }`; returns a sanitized normalized projection only |
+| DELETE | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Idempotently disconnect the authenticated owner's current local binding; the request accepts no record ID and does not delete the remote CRM record |
+| POST | `/api/connected-systems/{system_id}/records/read` | Read the exact owner-bound record using `{ objectType, returnFields }`; returns a sanitized normalized projection or explicit `remote_record_missing` recovery state |
 | POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
 | POST | `/api/connected-systems/{system_id}/records/create-intents` | Create a pending schema-validated `{ objectType, recordFields }` intent |
 | POST | `/api/connected-systems/{system_id}/records/update-intents` | Create a pending schema-validated `{ objectType, id, recordFields }` intent |

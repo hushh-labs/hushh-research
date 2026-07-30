@@ -35,6 +35,16 @@ def _git_diff(base_sha: str, target_sha: str) -> set[str]:
     return {_normalize(item) for item in result.stdout.splitlines() if _normalize(item)}
 
 
+def _exclude_service_tree(paths: set[str], service_root: str) -> set[str]:
+    """Drop changes owned exclusively by the other deployable service."""
+    prefix = f"{service_root}/"
+    return {
+        path
+        for path in paths
+        if path != service_root and not path.startswith(prefix)
+    }
+
+
 def _is_pkm_upgrade(path: str) -> bool:
     return (
         path in {
@@ -136,9 +146,22 @@ def resolve_plan(
     changed: set[str] = set()
     try:
         if deploy_backend:
-            changed.update(_git_diff(backend_base_sha, target_sha))
+            # Service revisions can advance independently. A stale backend
+            # baseline may therefore include frontend files that the active
+            # frontend revision already verified and deployed.
+            changed.update(
+                _exclude_service_tree(
+                    _git_diff(backend_base_sha, target_sha),
+                    "hushh-webapp",
+                )
+            )
         if deploy_frontend:
-            changed.update(_git_diff(frontend_base_sha, target_sha))
+            changed.update(
+                _exclude_service_tree(
+                    _git_diff(frontend_base_sha, target_sha),
+                    "consent-protocol",
+                )
+            )
     except subprocess.CalledProcessError:
         return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
 
