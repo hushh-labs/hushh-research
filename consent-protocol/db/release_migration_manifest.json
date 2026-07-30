@@ -103,7 +103,8 @@
     "122_trusted_device_repair.sql",
     "123_pkm_device_sync.sql",
     "124_trusted_device_vault_handoff.sql",
-    "125_one_location_nearby_presence.sql"
+    "125_kai_analyze_run_store.sql",
+    "126_one_location_nearby_presence.sql"
   ],
   "groups": {
     "iam": [
@@ -162,7 +163,7 @@
       "121_trusted_devices.sql",
       "122_trusted_device_repair.sql",
       "124_trusted_device_vault_handoff.sql",
-      "125_one_location_nearby_presence.sql"
+      "126_one_location_nearby_presence.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

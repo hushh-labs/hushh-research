@@ -9,7 +9,7 @@ PROD_CONTRACT = ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_sche
 
 
 def test_nearby_presence_migration_encrypts_anchor_and_clears_terminal_rows():
-    name = "125_one_location_nearby_presence.sql"
+    name = "126_one_location_nearby_presence.sql"
     sql = (MIGRATIONS / name).read_text(encoding="utf-8")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     uat = json.loads(UAT_CONTRACT.read_text(encoding="utf-8"))
@@ -29,12 +29,12 @@ def test_nearby_presence_migration_encrypts_anchor_and_clears_terminal_rows():
     assert "event_code" not in sql.lower()
     assert "one_location_nearby_presences" in uat["required_tables"]
     assert "one_location_nearby_presences" in prod["required_tables"]
-    assert uat["expected_migration_version"] == 125
-    assert prod["expected_migration_version"] == 125
+    assert uat["expected_migration_version"] == 126
+    assert prod["expected_migration_version"] == 126
 
 
 def test_nearby_presence_rollback_is_explicitly_unshipped_only():
-    rollback = (MIGRATIONS / "rollback" / "125_one_location_nearby_presence_down.sql").read_text(
+    rollback = (MIGRATIONS / "rollback" / "126_one_location_nearby_presence_down.sql").read_text(
         encoding="utf-8"
     )
 

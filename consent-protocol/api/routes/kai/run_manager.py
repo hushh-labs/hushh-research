@@ -61,6 +61,11 @@ class AnalyzeRunRecord:
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     worker_task: Optional[asyncio.Task] = None
+    # True only for records rebuilt from a durable terminal checkpoint (a
+    # /stream that landed on an instance without the live run). Such records
+    # carry a single terminal frame; the stream route replays it and skips the
+    # stale-cursor 410 guard. Always False for live, locally-owned runs.
+    is_durable_replay: bool = False
 
     @property
     def latest_cursor(self) -> int:
@@ -84,6 +89,30 @@ class AnalyzeRunRecord:
         }
 
 
+def _default_store_from_flag() -> Any:
+    """Return a durable run store iff the feature flag is on, else ``None``.
+
+    Isolated so the manager stays inert by default: when
+    ``KAI_ANALYZE_DURABLE_RUN_STORE`` is off (the default) this returns ``None``
+    and the manager performs zero durable-store I/O -- byte-for-byte the prior
+    in-memory-only behavior. Any import/construction failure also degrades to
+    ``None`` (log + continue) so a store problem can never break run handling.
+    """
+    try:
+        from hushh_mcp.runtime_settings import kai_analyze_durable_run_store_enabled
+
+        if not kai_analyze_durable_run_store_enabled():
+            return None
+        from api.routes.kai.analyze_run_store import KaiAnalyzeRunStore
+
+        return KaiAnalyzeRunStore()
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "[KaiRun] durable store unavailable; continuing in-memory only", exc_info=True
+        )
+        return None
+
+
 class KaiAnalyzeRunManager:
     """In-memory run manager for resumable analyze streams."""
 
@@ -91,11 +120,15 @@ class KaiAnalyzeRunManager:
         self,
         *,
         retention_seconds: int = 6 * 60 * 60,
+        store: Any = None,
     ) -> None:
         self._retention_seconds = max(60, retention_seconds)
         self._runs_by_id: dict[str, AnalyzeRunRecord] = {}
         self._active_by_session: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        # Durable terminal-checkpoint store. Injected in tests; otherwise
+        # resolved from the feature flag. ``None`` => in-memory only (default).
+        self._store = store if store is not None else _default_store_from_flag()
 
     async def _append_frame(self, run: AnalyzeRunRecord, frame: RunFrame) -> dict[str, Any] | None:
         try:
@@ -245,6 +278,18 @@ class KaiAnalyzeRunManager:
                 if active_run_id == run.run_id:
                     del self._active_by_session[session_key]
 
+            # Coarse durable checkpoint: one write per run, at terminal state,
+            # off the per-token hot path. Best-effort -- persist_terminal never
+            # raises, but guard anyway so nothing here can affect completion.
+            # Inert when the flag is off (self._store is None).
+            if self._store is not None:
+                try:
+                    await self._store.persist_terminal(run)
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning(
+                        "[KaiRun] durable checkpoint failed for %s", run.run_id, exc_info=True
+                    )
+
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
         stale_ids: list[str] = []
@@ -318,7 +363,21 @@ class KaiAnalyzeRunManager:
     async def get_run(self, run_id: str) -> Optional[AnalyzeRunRecord]:
         async with self._lock:
             await self._prune_locked()
-            return self._runs_by_id.get(run_id)
+            run = self._runs_by_id.get(run_id)
+            if run is not None:
+                return run
+
+        # Not in this instance's memory. On prod the run may have been created
+        # on a different Cloud Run instance; fall back to the durable terminal
+        # checkpoint (if the flag is on) and replay its final frame. The lock is
+        # released before the DB round-trip -- it only guards the in-memory dicts.
+        if self._store is None:
+            return None
+        try:
+            return await self._store.load_terminal_run(run_id)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("[KaiRun] durable read-through failed for %s", run_id, exc_info=True)
+            return None
 
     async def cancel_run(self, *, run_id: str, user_id: str) -> Optional[AnalyzeRunRecord]:
         run = await self.get_run(run_id)

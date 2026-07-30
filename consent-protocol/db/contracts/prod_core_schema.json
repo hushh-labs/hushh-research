@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 125,
+  "expected_migration_version": 126,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -536,6 +536,20 @@
       "payload_json",
       "occurred_at",
       "created_at"
+    ],
+    "kai_analyze_runs": [
+      "run_id",
+      "user_id",
+      "debate_session_id",
+      "ticker",
+      "risk_profile",
+      "status",
+      "terminal_event",
+      "terminal_payload",
+      "started_at_iso",
+      "completed_at_iso",
+      "created_at",
+      "expires_at"
     ],
     "one_email_mailbox_state": [
       "mailbox_email",
