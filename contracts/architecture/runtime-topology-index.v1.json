@@ -783,6 +783,16 @@
       "primary_access_path": "One Information Marketplace access-request inbox: a buyer files a request for owner-approved access to a published data-slice safe projection; the owner lists, approves, or denies server-side from the marketplace surface or via Agent One over A2A."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "id": "kai_analyze_run_store",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read."
+    },
+    {
       "data_class": "provider_cache",
       "exact_tables": [],
       "id": "kai_brokerage_provider_cache",
@@ -4345,7 +4355,7 @@
     "action_gateway": "ec8e4dae0987de143e456d0f70a489b5083a7c85028a46a7ced57d868ada8bc2",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
-    "data_plane": "0a8cd55eee9579c9fbc8c4d20499b118dd048789ee281d8640bc1e0842bc4f04",
+    "data_plane": "1f3e48b46bb818d595846c964b15255c2c504d6755c197cd4d679f9af2100976",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "2826d42fba01cbca263a49c3ff66797dc107c9679a1375d102ea9183be71bc82",
@@ -4364,6 +4374,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 115,
     "semantic_routes": 14,
-    "table_families": 40
+    "table_families": 41
   }
 }

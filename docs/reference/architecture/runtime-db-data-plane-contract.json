@@ -352,6 +352,21 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "kai_analyze_run_store",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
+      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
+      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
+      "plaintext_posture": "terminal_result_and_metadata",
+      "expected_row_growth": "low_per_user_run"
+    },
+    {
       "id": "one_location_agent",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
