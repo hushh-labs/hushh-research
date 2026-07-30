@@ -691,4 +691,34 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+
+  it("deepens Picks into Debate config for the ?view=debate sub-view", () => {
+    const debateView = new URLSearchParams("view=debate");
+
+    // Debate config lives one level below Picks, so Back returns to Picks and
+    // the trail carries a fourth "Debate" crumb.
+    expect(resolveTopShellBreadcrumb("/ria/picks", debateView)).toEqual({
+      backHref: "/ria/picks",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria" },
+        { label: "Picks", href: "/ria/picks" },
+        { label: "Debate" },
+      ],
+    });
+
+    // Without the view param, bare Picks is untouched: three crumbs, Back to RIA.
+    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
+      backHref: "/ria",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria" },
+        { label: "Picks" },
+      ],
+    });
+  });
 });

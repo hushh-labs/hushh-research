@@ -122,6 +122,19 @@ export const RIA_COPY = {
     unlockRail: "Unlock the vault to edit or publish.",
   },
 
+  debate: {
+    eyebrow: "Debate",
+    title: "Debate config",
+    description: "The rules Kai's investor debate runs on.",
+    banner: {
+      title: "This is your debate config",
+      description:
+        "Kai's multi-agent debate scores every name against these screening rules and conviction bands.",
+    },
+    disclaimer:
+      "Agent Kai is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
+  },
+
   connect: {
     eyebrow: "SEBI-registered network",
     title: "Connect",
