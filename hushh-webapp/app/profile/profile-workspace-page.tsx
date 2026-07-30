@@ -14,7 +14,6 @@ import {
   Bug,
   CodeXml,
   Code2,
-  ClipboardCheck,
   ExternalLink,
   Fingerprint,
   Folder,
@@ -65,7 +64,6 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
-import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -110,8 +108,7 @@ import {
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
-import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
-import { markSetupIntent } from "@/lib/services/one-setup-intent";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildProfileRoute,
@@ -124,10 +121,6 @@ import {
   resolveGmailStatusSummary,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
-import {
-  getProfileRiaRefreshLicenseNumber,
-  resolveProfileRiaRegulatoryRow,
-} from "@/lib/profile/profile-ria-regulatory-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -139,10 +132,7 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import {
-  RiaService,
-  type RiaOnboardingStatus,
-} from "@/lib/services/ria-service";
+import { RiaService } from "@/lib/services/ria-service";
 import {
   ConsentCenterService,
   type ConsentCenterResponse,
@@ -557,7 +547,6 @@ function ProfilePageContent() {
   const {
     personaState,
     refresh: refreshPersonaState,
-    riaOnboardingStatus: personaRiaOnboardingStatus,
   } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
@@ -651,18 +640,6 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
-  // Seed synchronously from the persona context (itself warm-seeded from cache)
-  // so the regulatory row paints "Update" instantly instead of flashing
-  // "Checking" on every open. SWR keeps it fresh in the background.
-  const [riaOnboardingStatus, setRiaOnboardingStatus] =
-    useState<RiaOnboardingStatus | null>(
-      () => personaRiaOnboardingStatus ?? null,
-    );
-  const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
-    useState(false);
-  const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
-    string | null
-  >(null);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportSubject, setSupportSubject] = useState("");
@@ -735,8 +712,6 @@ function ProfilePageContent() {
   });
   const gmailActionsBusy =
     gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
-  const personaList = personaState?.personas ?? ["investor"];
-  const hasRiaPersona = personaList.includes("ria");
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
@@ -1045,61 +1020,6 @@ function ProfilePageContent() {
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
 
-  const refreshRiaOnboardingStatus = useCallback(
-    async (force = false) => {
-      if (!user?.uid || !user.getIdToken || !hasRiaPersona) {
-        setRiaOnboardingStatus(null);
-        setRiaOnboardingStatusError(null);
-        setLoadingRiaOnboardingStatus(false);
-        return null;
-      }
-
-      // Only show the "Checking" spinner on a genuine cold cache — a warm value
-      // (the synchronously-seeded snapshot) already paints, so we revalidate
-      // silently. Independent of `force` so an explicit refresh with a value
-      // shown doesn't flash the row either.
-      const hasDisplayable = Boolean(
-        CacheService.getInstance().peek<RiaOnboardingStatus>(
-          CACHE_KEYS.RIA_ONBOARDING_STATUS(user.uid),
-        ),
-      );
-      // Show the spinner on a cold cache, or on an explicit user-triggered
-      // refresh (force) where feedback is expected; stay silent on a warm open.
-      if (!hasDisplayable || force) {
-        setLoadingRiaOnboardingStatus(true);
-      }
-      setRiaOnboardingStatusError(null);
-      try {
-        const idToken = await user.getIdToken();
-        // Always revalidate against the server on open/refresh (force) so a warm
-        // SESSION-cached snapshot can't leave a compliance-meaningful status
-        // (e.g. verification_status) stale for up to 30 min; the seed already
-        // painted instantly, and setState below repaints when the fresh value
-        // lands (no spinner on a warm cache).
-        const nextStatus = await RiaService.getOnboardingStatus(idToken, {
-          userId: user.uid,
-          force: true,
-        });
-        setRiaOnboardingStatus(nextStatus);
-        return nextStatus;
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Couldn't load RIA regulatory status.";
-        setRiaOnboardingStatusError(message);
-        return null;
-      } finally {
-        setLoadingRiaOnboardingStatus(false);
-      }
-    },
-    [hasRiaPersona, user],
-  );
-
-  useEffect(() => {
-    if (authLoading) return;
-    void refreshRiaOnboardingStatus(false);
-  }, [authLoading, refreshRiaOnboardingStatus]);
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
@@ -2053,24 +1973,6 @@ function ProfilePageContent() {
       : vaultAccess.needsUnlock
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
-  const shouldShowRiaRegulatoryRow =
-    hasRiaPersona || Boolean(riaOnboardingStatus?.exists);
-  const riaRegulatoryRow = resolveProfileRiaRegulatoryRow({
-    loading: loadingRiaOnboardingStatus,
-    status: riaOnboardingStatus,
-    error: riaOnboardingStatusError,
-  });
-  const currentRiaLicenseNumber =
-    getProfileRiaRefreshLicenseNumber(riaOnboardingStatus);
-  const currentRiaRegulatorMetadata =
-    riaOnboardingStatus?.latest_verification_event?.reference_metadata
-      ?.provider;
-  const currentRiaRegulator =
-    riaOnboardingStatus?.regulator ||
-    (typeof currentRiaRegulatorMetadata === "string"
-      ? currentRiaRegulatorMetadata
-      : null) ||
-    "SEC";
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const profileHomeControls = [
       {
@@ -2100,25 +2002,6 @@ function ProfilePageContent() {
           "vault security",
         ],
       },
-      ...(shouldShowRiaRegulatoryRow
-        ? [
-            {
-              id: "profile_ria_regulatory",
-              label: "Regulatory profile",
-              purpose:
-                "updates official RIA license, CRD, firm, certification, and business location information.",
-              actionId: "route.profile_regulatory",
-              role: "card",
-              voiceAliases: [
-                "update my RIA license",
-                "refresh regulatory profile",
-                "sync CRD information",
-                "update license information",
-                "regulatory profile",
-              ],
-            },
-          ]
-        : []),
       {
         id: "profile_account",
         label: PROFILE_LABELS.account,
@@ -2210,7 +2093,6 @@ function ProfilePageContent() {
         ]
       : [
           PROFILE_LABELS.account,
-          ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
           PROFILE_LABELS.preferences,
           PROFILE_LABELS.security,
           PROFILE_LABELS.support,
@@ -2251,9 +2133,6 @@ function ProfilePageContent() {
                   : [
                       "Open your account",
                       "Open security & privacy",
-                      ...(shouldShowRiaRegulatoryRow
-                        ? ["Update license information"]
-                        : []),
                       "Open help & feedback",
                     ];
 
@@ -2350,9 +2229,6 @@ function ProfilePageContent() {
         google_email: gmail.status?.google_email || null,
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
-        ria_regulatory_profile_visible: shouldShowRiaRegulatoryRow,
-        ria_license_number: currentRiaLicenseNumber || null,
-        ria_regulator: currentRiaRegulator,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
@@ -2365,8 +2241,6 @@ function ProfilePageContent() {
     activePanel,
     activeVoiceControlId,
     canShowPkmAgentLab,
-    currentRiaLicenseNumber,
-    currentRiaRegulator,
     gmailActionsBusy,
     gmailLastSyncText,
     gmailPresentation.isConnected,
@@ -2384,7 +2258,6 @@ function ProfilePageContent() {
     savingMarketplaceOptIn,
     securitySummaryText,
     sendingSupportMessage,
-    shouldShowRiaRegulatoryRow,
     showVaultUnlock,
     supportComposeKind,
     switchingVaultMethod,
@@ -2461,15 +2334,6 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
-  const openRegulatoryPanel = () => {
-    // No profile yet → send to onboarding (the panel would just redirect anyway).
-    if (riaRegulatoryRow.action === "onboarding") {
-      router.push(ROUTES.RIA_ONBOARDING);
-      return;
-    }
-    updateProfileView({ panel: "regulatory", detail: null }, "push");
-  };
-
   const handlePreviewDomainPermission = async (
     domainKey: string,
     permission: {
@@ -3737,23 +3601,7 @@ function ProfilePageContent() {
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (activePanel === "regulatory") {
-    // The full RIA advisor profile (view / edit / re-initiate / delete / license)
-    // lives here so it renders inside the unified /one/profile section — not a bespoke
-    // /ria/profile screen. Not vault-gated: RIA status is not behind the vault.
-    profileStackEntries.push({
-      key: "panel:regulatory",
-      title: "Regulatory profile",
-      description: "View, edit, verify, or delete your RIA advisor profile.",
-      content: (
-        <RiaProfileSection
-          status={riaOnboardingStatus}
-          loading={loadingRiaOnboardingStatus}
-          onRefresh={refreshRiaOnboardingStatus}
-        />
-      ),
-    });
-  } else if (!routeBlockedByVault && activePanel === "account") {
+  if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
@@ -4026,44 +3874,6 @@ function ProfilePageContent() {
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
-              <SettingsRow
-                leading={
-                  <span
-                    aria-hidden
-                    className="inline-flex h-8 w-8 items-center justify-center self-center rounded-[10px] bg-accent/12 text-[18px] leading-none sm:h-10 sm:w-10 sm:rounded-[12px] sm:text-[20px]"
-                  >
-                    🤫
-                  </span>
-                }
-                title={PROFILE_LABELS.setup}
-                chevron
-                density="compact"
-                onClick={() => {
-                  // Mark this as a DELIBERATE setup open so the onboarding guard
-                  // admits the hub for an already-dismissed user (any other
-                  // arrival — back button / history — is ejected to home).
-                  markSetupIntent();
-                  router.push(buildOneSetupRoute({ returnTo: ROUTES.PROFILE }));
-                }}
-              />
-              {shouldShowRiaRegulatoryRow ? (
-                <SettingsRow
-                  icon={ClipboardCheck}
-                  iconTone="blue"
-                  title={riaRegulatoryRow.title}
-                  trailing={
-                    <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
-                  }
-                  chevron
-                  density="compact"
-                  disabled={riaRegulatoryRow.disabled}
-                  voiceControlId="profile_ria_regulatory"
-                  voiceActionId="route.profile_regulatory"
-                  voiceLabel="Regulatory profile"
-                  voicePurpose="Open your RIA advisor profile to view, edit, verify, or delete it."
-                  onClick={openRegulatoryPanel}
-                />
-              ) : null}
               <SettingsRow
                 icon={UserRound}
                 iconTone="blue"

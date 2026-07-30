@@ -9,6 +9,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { VaultStatusInline } from "@/components/app-ui/vault-status-inline";
 import {
   SetupCapabilityLoading,
@@ -38,10 +39,10 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const systemId = params.get("system")?.trim() || null;
   const completedSetup = Boolean(
     coordinator.isReady &&
-      user?.uid &&
-      PreVaultUserStateService.isSetupResolved(
-        PreVaultUserStateService.getCachedBootstrapState(user.uid),
-      ),
+    user?.uid &&
+    PreVaultUserStateService.isSetupResolved(
+      PreVaultUserStateService.getCachedBootstrapState(user.uid),
+    ),
   );
 
   useEffect(() => {
@@ -54,44 +55,50 @@ export function ConnectedSystemsOnboardingSetupClient() {
   }
 
   return (
-    <AppPageShell as="main" width="standard" className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="CRM"
-          description="Find your existing CRM record or approve creating one from your verified identity."
-          accent="neutral"
-        />
-      </AppPageHeaderRegion>
-      <AppPageContentRegion>
-        <VaultStatusInline className="mb-3 px-1" />
-        <ConnectedSystemsPanel
-          cacheUserId={user?.uid}
-          vaultOwnerToken={vaultOwnerToken}
-          onRequestUnlock={() => setShowUnlock(true)}
-          mode={systemId ? "detail" : "list"}
-          systemId={systemId}
-          setupRouteBase={ROUTES.ONE_SETUP_CONNECTED_SYSTEMS}
-          onSetupReadinessChange={setReady}
-          presentation="setup"
-        />
-      </AppPageContentRegion>
-      {!systemId ? (
-        <SetupCapabilityTerminalFooter
-          capabilityId="connected-systems"
-          isOperationallyReady={ready}
-          coordinator={coordinator}
-        />
-      ) : null}
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={showUnlock}
-          onOpenChange={setShowUnlock}
-          title="Set up your private vault"
-          description="Set up or open your private vault to inspect CRM records and approve CRM actions."
-          onSuccess={() => setShowUnlock(false)}
-        />
-      ) : null}
-    </AppPageShell>
+    <CapabilityCinematicIntroGate capabilityId="connected-systems">
+      <AppPageShell
+        as="main"
+        width="standard"
+        className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+      >
+        <AppPageHeaderRegion>
+          <PageHeader
+            title="CRM"
+            description="Find your existing CRM record or approve creating one from your verified identity."
+            accent="neutral"
+          />
+        </AppPageHeaderRegion>
+        <AppPageContentRegion>
+          <VaultStatusInline className="mb-3 px-1" />
+          <ConnectedSystemsPanel
+            cacheUserId={user?.uid}
+            vaultOwnerToken={vaultOwnerToken}
+            onRequestUnlock={() => setShowUnlock(true)}
+            mode={systemId ? "detail" : "list"}
+            systemId={systemId}
+            setupRouteBase={ROUTES.ONE_SETUP_CONNECTED_SYSTEMS}
+            onSetupReadinessChange={setReady}
+            presentation="setup"
+          />
+        </AppPageContentRegion>
+        {!systemId ? (
+          <SetupCapabilityTerminalFooter
+            capabilityId="connected-systems"
+            isOperationallyReady={ready}
+            coordinator={coordinator}
+          />
+        ) : null}
+        {user ? (
+          <VaultUnlockDialog
+            user={user}
+            open={showUnlock}
+            onOpenChange={setShowUnlock}
+            title="Set up your private vault"
+            description="Set up or open your private vault to inspect CRM records and approve CRM actions."
+            onSuccess={() => setShowUnlock(false)}
+          />
+        ) : null}
+      </AppPageShell>
+    </CapabilityCinematicIntroGate>
   );
 }

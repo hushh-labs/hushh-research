@@ -2739,8 +2739,8 @@
       "page_file": "app/one/kai/analysis/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility route only redirects to the canonical Finance Analysis tab.",
+        "mode": "standard",
+        "exemption_reason": null,
         "shell_verification_file": "app/one/kai/analysis/page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
@@ -4203,11 +4203,9 @@
         "profile.marketplace_visibility.toggle",
         "profile.sign_out",
         "profile.support.submit_message",
-        "ria.profile.edit_services",
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
-        "route.profile_regulatory",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5307,30 +5305,21 @@
       "page_file": "app/one/profile/regulatory/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect to the canonical RIA profile.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.profile.regulatory",
-          "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+          "playbook_id": "route.profile.regulatory_compat",
+          "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
           "screen": "profile_regulatory",
-          "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_regulatory",
-          "happy_path_action_ids": [
-            "route.profile_regulatory",
-            "ria.profile.edit_services"
-          ],
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -5340,9 +5329,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
+          "completion_boundary": "The compatibility redirect has no completion authority.",
+          "next_route": "/ria/profile",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -7446,21 +7435,27 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the unified /one/profile/regulatory surface.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/ria/profile/page.tsx",
+        "shell_verification_includes": [
+          "RiaPageShell",
+          "RiaProfileSection"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.ria.profile",
-          "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+          "purpose": "Help the advisor view and manage their RIA profile.",
           "screen": "profile_regulatory",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "entry_cue": "You can say “Open RIA Profile” to return here.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_profile",
+          "happy_path_action_ids": [
+            "route.ria_profile",
+            "ria.profile.edit_services"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -7470,9 +7465,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The compatibility redirect has no completion authority.",
-          "next_route": "/one/profile/regulatory",
-          "return_policy": "navigate",
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -7495,8 +7490,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7742,5 +7740,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a6fea86368712ce21c3cf13364d5f3521af5dff0f50e5cfbd4c5fb0aad6a088f"
+  "content_sha256": "4314c9f9db9ec14ab6e7580c12adb0d168a90d11bf838dfd701714747fd418f4"
 }

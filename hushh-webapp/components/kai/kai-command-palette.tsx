@@ -33,7 +33,11 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
-import { searchKaiActions } from "@/lib/voice/kai-action-gateway";
+import {
+  evaluateKaiActionAvailability,
+  getKaiActionById,
+  searchKaiActions,
+} from "@/lib/voice/kai-action-gateway";
 import {
   isDiscoverableCapability,
   projectKaiActionCapability,
@@ -65,6 +69,56 @@ interface KaiCommandPaletteProps {
     is_investable?: boolean;
     analyze_eligible?: boolean;
   }>;
+  topMover?: {
+    symbol: string;
+    companyName?: string | null;
+  } | null;
+}
+
+export type InitialCommandRecommendation = {
+  actionId: string;
+  category: "Research" | "Memory" | "Consent" | "Account";
+  label: string;
+  slots?: Record<string, string>;
+};
+
+/**
+ * The empty command palette is a short, varied next-step list rather than a
+ * full action directory. The first choice uses the same cached market mover
+ * already surfaced on One; this helper intentionally does not fetch data.
+ */
+export function buildInitialCommandRecommendations(input: {
+  topMover?: { symbol: string; companyName?: string | null } | null;
+}): InitialCommandRecommendation[] {
+  const symbol = String(input.topMover?.symbol || "").trim().toUpperCase();
+  const companyName = String(input.topMover?.companyName || "").trim();
+  const analysisLabel = symbol
+    ? `Analyze ${symbol}${companyName ? ` · ${companyName}` : ""}`
+    : "Start stock analysis";
+
+  return [
+    {
+      actionId: "analysis.start",
+      category: "Research",
+      label: analysisLabel,
+      ...(symbol ? { slots: { symbol } } : {}),
+    },
+    {
+      actionId: "route.one_pkm",
+      category: "Memory",
+      label: "Open Memory",
+    },
+    {
+      actionId: "route.consents",
+      category: "Consent",
+      label: "Review consent requests",
+    },
+    {
+      actionId: "route.profile",
+      category: "Account",
+      label: "Open Profile",
+    },
+  ];
 }
 
 function isPortfolioAnalyzeEligible(row: {
@@ -169,6 +223,7 @@ export function KaiCommandPalette({
   surfaceMetadata,
   disabled = false,
   portfolioTickers = [],
+  topMover = null,
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
@@ -403,6 +458,41 @@ export function KaiCommandPalette({
     [appRuntimeState, capabilityState, query, surfaceMetadata]
   );
 
+  const initialRecommendations = useMemo(
+    () =>
+      buildInitialCommandRecommendations({ topMover }).flatMap(
+        (recommendation) => {
+          const action = getKaiActionById(recommendation.actionId);
+          if (!action) return [];
+          const availability = evaluateKaiActionAvailability({
+            action,
+            appRuntimeState,
+            surfaceMetadata,
+          });
+          const unavailable =
+            availability.status === "dead" ||
+            availability.status === "unwired" ||
+            availability.status === "manual_only" ||
+            availability.status === "blocked";
+          if (unavailable) return [];
+          if (
+            capabilityState &&
+            !isDiscoverableCapability(
+              projectKaiActionCapability({
+                actionId: action.action_id,
+                state: capabilityState,
+                surfaceMetadata,
+              }),
+            )
+          ) {
+            return [];
+          }
+          return [{ ...recommendation, action }];
+        },
+      ),
+    [appRuntimeState, capabilityState, surfaceMetadata, topMover],
+  );
+
   const exactActionMatch = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return null;
@@ -461,6 +551,31 @@ export function KaiCommandPalette({
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>
+
+        <CommandGroup heading="Suggested actions" hidden={isFiltering}>
+          {initialRecommendations.map(({ action, actionId, category, label, slots }) => {
+            const icon =
+              category === "Research"
+                ? TrendingUp
+                : category === "Memory"
+                  ? History
+                  : category === "Consent"
+                    ? ShieldCheck
+                    : UserRound;
+            return (
+              <CommandItem
+                className={commandItemClass}
+                key={actionId}
+                disabled={disabled}
+                value={`${label} ${category} ${action.action_id}`}
+                onSelect={() => runAction(actionId, slots)}
+              >
+                <Icon icon={icon} size="sm" className="mr-2 text-muted-foreground" />
+                <span className="min-w-0 truncate font-medium">{label}</span>
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
 
         <CommandGroup heading="Ask One" hidden={!isFiltering}>
           <CommandItem

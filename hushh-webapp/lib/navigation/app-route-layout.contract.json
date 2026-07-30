@@ -2349,28 +2349,16 @@
   },
   {
     "route": "/one/profile/regulatory",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect to the canonical RIA profile.",
     "voicePlaybook": {
-      "playbookId": "route.profile.regulatory",
-      "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+      "playbookId": "route.profile.regulatory_compat",
+      "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
       "screen": "profile_regulatory",
-      "entryCue": "You can say \u201cOpen Regulatory Profile\u201d to return to this profile panel.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_regulatory",
-      "happyPathActionIds": [
-        "route.profile_regulatory",
-        "ria.profile.edit_services"
-      ],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2380,9 +2368,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "stay",
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/ria/profile",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -3682,16 +3670,25 @@
   },
   {
     "route": "/ria/profile",
-    "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the unified /one/profile/regulatory surface.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/ria/profile/page.tsx",
+      "includes": [
+        "RiaPageShell",
+        "RiaProfileSection"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.ria.profile",
-      "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+      "purpose": "Help the advisor view and manage their RIA profile.",
       "screen": "profile_regulatory",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
+      "entryCue": "You can say \u201cOpen RIA Profile\u201d to return here.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.ria_profile",
+      "happyPathActionIds": [
+        "route.ria_profile",
+        "ria.profile.edit_services"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -3701,9 +3698,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The compatibility redirect has no completion authority.",
-      "nextRoute": "/one/profile/regulatory",
-      "returnPolicy": "navigate",
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

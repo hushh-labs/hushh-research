@@ -149,6 +149,35 @@ function DomainCard({
   );
 }
 
+function MemoryBackgroundStatus({
+  tone = "loading",
+  children,
+}: {
+  tone?: "loading" | "error";
+  children: ReactNode;
+}) {
+  const isError = tone === "error";
+
+  return (
+    <div
+      data-testid="memory-background-status"
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      className={cn(
+        "flex min-h-9 items-center gap-2 px-1 text-sm",
+        isError ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {isError ? (
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+      ) : (
+        <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+      )}
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export function PkmDataManagerPanel({
   signedIn,
   loading,
@@ -249,12 +278,16 @@ export function PkmDataManagerPanel({
 
   if (loading && !summary) {
     return (
-      <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-        <RefreshCw className="h-4 w-4 animate-spin" />
-        Loading your saved details...
-      </SurfaceInset>
+      <MemoryBackgroundStatus>Loading saved details…</MemoryBackgroundStatus>
     );
   }
+
+  const metadataStatus = !metadataReady
+    ? metadataError || "Loading saved details…"
+    : null;
+  const sharingStatus = metadataReady
+    ? sharingError || (!sharingReady ? "Updating sharing controls…" : null)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -294,63 +327,45 @@ export function PkmDataManagerPanel({
         />
       ) : null}
 
-      <SettingsGroup separatorInset testId="memory-saved-details-group">
-        {sharingError ? (
-          <SettingsRow
-            icon={AlertTriangle}
-            iconTone="orange"
-            title="Sharing status unavailable"
-            description={sharingError}
-          />
-        ) : !sharingReady ? (
-          <SettingsRow
-            icon={RefreshCw}
-            iconTone="gray"
-            title="Checking sharing status"
-            description="Active access is loading in the background."
-          />
-        ) : null}
-
-        {!metadataReady ? (
-          <SettingsRow
-            icon={RefreshCw}
-            iconTone={metadataError ? "orange" : "gray"}
-            title={
-              metadataError
-                ? "Saved details unavailable"
-                : "Checking your saved details"
-            }
-            description={
-              metadataError
-                ? metadataError
-                : "Saved details and sharing controls are still loading."
-            }
-          />
-        ) : filteredDomains.length === 0 ? (
-          <SettingsRow
-            icon={Folder}
-            iconTone="purple"
-            title={
-              domains.length === 0
-                ? "No saved details yet"
-                : "No matching details"
-            }
-            description={
-              domains.length === 0
-                ? "Once One saves your first detail or import, it will appear here for review and sharing."
-                : "Try a different search term to find saved details."
-            }
-          />
-        ) : (
-          filteredDomains.map((domain) => (
-            <DomainCard
-              key={domain.key}
-              domain={domain}
-              onOpen={() => onOpenDomain(domain)}
-            />
-          ))
-        )}
-      </SettingsGroup>
+      {metadataStatus ? (
+        <MemoryBackgroundStatus tone={metadataError ? "error" : "loading"}>
+          {metadataStatus}
+        </MemoryBackgroundStatus>
+      ) : (
+        <>
+          {sharingStatus ? (
+            <MemoryBackgroundStatus tone={sharingError ? "error" : "loading"}>
+              {sharingStatus}
+            </MemoryBackgroundStatus>
+          ) : null}
+          <SettingsGroup separatorInset testId="memory-saved-details-group">
+            {filteredDomains.length === 0 ? (
+              <SettingsRow
+                icon={Folder}
+                iconTone="purple"
+                title={
+                  domains.length === 0
+                    ? "No saved details yet"
+                    : "No matching details"
+                }
+                description={
+                  domains.length === 0
+                    ? "Once One saves your first detail or import, it will appear here for review and sharing."
+                    : "Try a different search term to find saved details."
+                }
+              />
+            ) : (
+              filteredDomains.map((domain) => (
+                <DomainCard
+                  key={domain.key}
+                  domain={domain}
+                  onOpen={() => onOpenDomain(domain)}
+                />
+              ))
+            )}
+          </SettingsGroup>
+        </>
+      )}
 
       {loadingDomainCount > 0 || domainErrorCount > 0 ? (
         <SettingsGroup title="Availability" separatorInset>

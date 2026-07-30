@@ -35,6 +35,7 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
   SpecialistConsentActionsCard,
@@ -874,7 +875,7 @@ function AgentBubble({
   return (
     <div
       className={cn(
-        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+        "motion-step-enter flex w-full gap-3",
         isUser ? "justify-end" : "justify-start"
       )}
     >
@@ -3767,10 +3768,9 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          // On phones the popover is a full-bleed immersive sheet, so the inner
-          // content must reach every edge (no surrounding padding gap). The
-          // inset padding only applies to the floating windowed card at >=sm.
-          isPopover ? "overflow-hidden p-0 sm:p-3" : "overflow-hidden"
+          // The popover and page both use one continuous workspace surface.
+          // The outer popover owns its floating frame; no inner card is allowed.
+          "overflow-hidden"
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -3807,11 +3807,7 @@ export function AgentChatWorkspace({
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            // Rounded card framing is only for the floating windowed popover at
-            // >=sm. On phones the sheet is edge-to-edge, so no rounding/border.
-            isPopover &&
-              "sm:rounded-lg sm:border sm:border-border sm:shadow-sm"
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -3831,28 +3827,26 @@ export function AgentChatWorkspace({
           >
             <div className="flex min-w-0 items-center gap-3">
               {isPopover && onMinimize ? (
-                <button
-                  type="button"
+                <ShellActionSurface
+                  variant="icon"
                   onClick={onMinimize}
                   aria-label="Back"
                   title="Back"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/70 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:hidden"
+                  className="sm:hidden"
                 >
                   <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
-                </button>
+                </ShellActionSurface>
               ) : null}
               {!isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted lg:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
                 >
                   <Menu className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[color:var(--app-accent-border)]">
                 <Image
@@ -3880,30 +3874,26 @@ export function AgentChatWorkspace({
                 {statusText}
               </span>
               {isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-full bg-muted text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="sm:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
                 >
                   <Menu className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               {!isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="lg:hidden"
                   onClick={handlePageMinimize}
                   aria-label="Minimize Agent"
                   title="Minimize Agent"
                 >
                   <Minus className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
             </div>
@@ -3915,7 +3905,7 @@ export function AgentChatWorkspace({
               isPopover ? "pb-4" : "pb-6 lg:px-8"
             )}
           >
-            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/35 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
@@ -4457,9 +4447,9 @@ export function AgentChatWorkspace({
                 : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]"
             )}
           >
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto w-full max-w-4xl">
               {voiceActive ? (
-                <div className="rounded-2xl border border-black/10 bg-[#f5f5f7] p-2 shadow-lg shadow-black/[0.06] dark:border-white/10 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] p-2 shadow-[var(--app-card-shadow-standard)]">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -4470,7 +4460,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="flex min-h-14 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message One"
@@ -4488,7 +4478,7 @@ export function AgentChatWorkspace({
                     disabled={isLoadingHistory || isVoiceConnecting}
                     placeholder="Message One..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
                   />
                   {agentVoiceEnabled ? (
                     <Button

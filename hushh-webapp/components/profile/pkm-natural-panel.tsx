@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { PkmDataManagerPanel } from "@/components/profile/pkm-data-manager";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -777,23 +778,30 @@ export function PkmNaturalPanel({
   }
 
   return (
-    <>{nativeBeacon}<div className="space-y-4"><SurfaceInset className="flex items-start justify-between gap-4 p-4">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-semibold text-foreground">Automatically save eligible memories</p>
-        <p className="text-sm leading-6 text-muted-foreground">
-          When enabled, One saves medium- and high-confidence preferences in the background. Low-confidence, shared, corrective, and destructive changes still ask first.
-        </p>
-        {autoSavePolicyError ? (
-          <p className="text-sm text-destructive">{autoSavePolicyError}</p>
-        ) : null}
-      </div>
-      <Switch
-        checked={autoSavePolicy.enabled}
-        onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
-        disabled={autoSavePolicyLoading || autoSavePolicySaving}
-        aria-label="Automatically save eligible memories"
-      />
-    </SurfaceInset><PkmDataManagerPanel
+    <>
+      {nativeBeacon}
+      <div className="space-y-4">
+        <SettingsGroup separatorInset testId="memory-auto-save-group">
+          <SettingsRow
+            testId="memory-auto-save-row"
+            title="Automatically save eligible memories"
+            description={
+              autoSavePolicyError ||
+              "One saves medium- and high-confidence preferences in the background. Shared, corrective, and destructive changes still ask first."
+            }
+            tone={autoSavePolicyError ? "destructive" : "default"}
+            trailing={
+              <Switch
+                checked={autoSavePolicy.enabled}
+                onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
+                disabled={autoSavePolicyLoading || autoSavePolicySaving}
+                aria-label="Automatically save eligible memories"
+                className="shrink-0"
+              />
+            }
+          />
+        </SettingsGroup>
+        <PkmDataManagerPanel
       signedIn
       loading={bootstrapLoading}
       metadataReady={metadata !== null}
@@ -810,6 +818,8 @@ export function PkmNaturalPanel({
       onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
       onRefresh={() => setRefreshNonce((value) => value + 1)}
       onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
-    /></div></>
+        />
+      </div>
+    </>
   );
 }

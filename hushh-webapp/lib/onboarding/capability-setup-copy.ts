@@ -32,6 +32,12 @@ export interface CapabilitySetupCopy {
   /** Short continuation action after the capability has started. */
   resumeActionLabel: string;
   /**
+   * One short premise and one consent-safe promise for the optional cinematic
+   * entry screen. This is presentation-only: it never changes setup state.
+   */
+  introPremise?: string;
+  introPromise?: string;
+  /**
    * Where "Set up" / "Explore" routes for this capability. Always the
    * setup-scoped handoff route (`/one/setup/<id>`) so the hard setup gate
    * never bounces a first-time tap.
@@ -61,6 +67,8 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: string;
     actionLabel: string;
     resumeActionLabel: string;
+    introPremise?: string;
+    introPromise?: string;
     exploreTitle?: string;
     exploreBlurb?: string;
     exploreBullets?: readonly string[];
@@ -73,6 +81,9 @@ const SETUP_COPY_BY_ID: Record<
       "Tell One how you like to invest so it can read your portfolio and surface analysis that fits you.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
+    introPremise: "A clearer way to understand your money.",
+    introPromise:
+      "One only uses the accounts and preferences you choose to share.",
     setupBullets: [
       "Share how you like to invest in a few quick taps.",
       "One reads your portfolio and tailors the analysis to you.",
@@ -85,6 +96,9 @@ const SETUP_COPY_BY_ID: Record<
       "Connect Gmail so One can understand the brands you care about and build a private memory of recent interactions.",
     actionLabel: "Connect Gmail",
     resumeActionLabel: "Finish Gmail",
+    introPremise: "Let the details you choose become more useful.",
+    introPromise:
+      "Gmail is connected only with your approval, and you stay in control of what One remembers.",
     setupBullets: [
       "Connect Gmail once, with your approval.",
       "One learns your brand affinities from the interactions you approve.",
@@ -97,6 +111,9 @@ const SETUP_COPY_BY_ID: Record<
       "Choose whether requests you send to one@hushh.ai may prepare responses for your approval.",
     actionLabel: "Set up KYC",
     resumeActionLabel: "Finish KYC",
+    introPremise: "An identity that moves at your pace.",
+    introPromise:
+      "You decide which details to save and when One may use them to help you.",
     setupBullets: [
       "Turn drafting on or off any time.",
       "Every draft stays yours to review before it sends.",
@@ -108,6 +125,9 @@ const SETUP_COPY_BY_ID: Record<
       "Set up location so you can share it with the trusted people you choose, whenever you want.",
     actionLabel: "Choose location",
     resumeActionLabel: "Finish location",
+    introPremise: "Be easier to reach when it matters.",
+    introPromise:
+      "Your location stays private until you choose the people and moment to share it.",
     setupBullets: [
       "Choose the trusted people who can receive a location share.",
       "Start and stop sharing whenever you want.",
@@ -120,6 +140,9 @@ const SETUP_COPY_BY_ID: Record<
       "Create and verify your advisor profile so One can open the right professional workspace for you.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
+    introPremise: "A professional workspace shaped around your practice.",
+    introPromise:
+      "You review every detail before it becomes part of your advisor profile.",
     setupBullets: [
       "Verify your advisor or firm credentials.",
       "Choose the services you offer and review your profile.",
@@ -159,6 +182,9 @@ const SETUP_COPY_BY_ID: Record<
       "Find your CRM record or approve creating one from your verified identity.",
     actionLabel: "Set up CRM",
     resumeActionLabel: "Finish CRM",
+    introPremise: "Start with the record that already knows you.",
+    introPromise:
+      "One looks for your record before creating anything, and you approve every change.",
     setupBullets: [
       "One looks for your record first, then creates one if needed.",
       "Nothing happens without your approval.",
@@ -175,6 +201,8 @@ function toSetupCopy(cap: OneCapability): CapabilitySetupCopy {
     setupBlurb: extra?.setupBlurb ?? cap.description,
     actionLabel: extra?.actionLabel ?? `Set up ${cap.title}`,
     resumeActionLabel: extra?.resumeActionLabel ?? `Finish ${cap.title}`,
+    introPremise: extra?.introPremise,
+    introPromise: extra?.introPromise,
     // Every tile routes through the onboarding-scoped handoff so the hard gate
     // never bounces a first-time tap. The handoff resolves the gate and
     // forwards to the canonical capability destination.

@@ -88,6 +88,18 @@ The setup screen reports `completed` only after the capability's durable termina
 acknowledgement. A connector or preferences record without that acknowledgement is
 `in-progress`, never a fabricated Ready state.
 
+### Capability entry presentation
+
+Each authored capability journey may begin with exactly one shared cinematic
+introduction from `CapabilityCinematicIntroGate`: one plain-language premise,
+one consent-safe promise, and one **Continue** action. The text is semantic on
+first render; its shared `motion-step-enter` reveal is visual-only and respects
+reduced-motion. The shown latch is session-scoped per capability and never
+writes durable setup, consent, connector, or OAuth state. A verified callback
+therefore resumes the existing feature body without replaying the introduction.
+Do not add a second wizard, route-local intro, or durable completion marker for
+presentation alone.
+
 ## 1. The hierarchy
 
 ```mermaid
