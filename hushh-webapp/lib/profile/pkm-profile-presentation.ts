@@ -506,26 +506,27 @@ function normalizeVisibilityPosture(params: {
 
 function visibilityPostureCopy(params: {
   posture: PkmVisibilityPosture;
-  defaultProjectionReady: boolean;
   readerSummary: ReturnType<typeof summarizePermissionReaders>;
 }): { label: string; description: string; counterpartSummary: string } {
+  if (params.readerSummary.activeReaderCount > 0) {
+    return {
+      label: "Approved for sharing",
+      description: "These recipients have an active, consented grant for this section.",
+      counterpartSummary: params.readerSummary.counterpartSummary,
+    };
+  }
   if (params.posture === "private") {
     return {
-      label: "Private",
-      description: "Only you can see this section.",
-      counterpartSummary:
-        params.readerSummary.activeReaderCount > 0
-          ? params.readerSummary.counterpartSummary
-          : "Hidden from new sharing",
+      label: "Private to your private agent",
+      description:
+        "One can use this after you unlock your vault. Sharing is disabled for external recipients.",
+      counterpartSummary: "Sharing disabled",
     };
   }
   return {
-    label: "Ask first",
-    description: "One asks you before sharing this section.",
-    counterpartSummary:
-      params.readerSummary.activeReaderCount > 0
-        ? params.readerSummary.counterpartSummary
-        : "One will ask before sharing",
+    label: "Consent required to share",
+    description: "One can use this privately after unlock and asks before sharing it externally.",
+    counterpartSummary: "Consent required for every new recipient",
   };
 }
 
@@ -707,7 +708,6 @@ export function buildPkmDomainPermissionPresentation(params: {
         : "Section-level sharing will appear once this domain manifest is ready.";
       const postureCopy = visibilityPostureCopy({
         posture: entry.visibilityPosture,
-        defaultProjectionReady: entry.defaultProjectionReady,
         readerSummary,
       });
       return {

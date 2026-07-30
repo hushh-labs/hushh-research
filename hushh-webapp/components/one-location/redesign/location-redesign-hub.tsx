@@ -45,6 +45,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import type {
   OneLocationAccessRequest,
@@ -172,7 +173,6 @@ export type LocationHubViewModel = {
   toggleRequestOwner: (id: string, surface?: string) => void;
 
   /* actions — wired 1:1 to existing handlers */
-  onRefresh: () => void;
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
   onRequestPermission: () => void;
@@ -295,6 +295,49 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
 };
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
+
+function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
+  const locationOn = Boolean(vm.myLocationPoint);
+  const toggling = BUSY(vm, "selfLocation");
+  const refreshing = BUSY(vm, "load");
+
+  const handleLocationChange = (checked: boolean) => {
+    if (checked === locationOn) return;
+    if (checked) {
+      vm.onShowMyLocation();
+      return;
+    }
+    vm.onHideMyLocation();
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Location preview control"
+      className="ml-auto flex max-w-full shrink-0 items-center justify-end"
+      data-testid="one-location-header-actions"
+    >
+      <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
+        <span
+          className="hidden whitespace-nowrap sm:inline"
+          aria-hidden="true"
+        >
+          {locationOn ? "Location on" : "Location off"}
+        </span>
+        <Switch
+          checked={locationOn}
+          onCheckedChange={handleLocationChange}
+          disabled={toggling || refreshing}
+          aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          className={cn(
+            "data-[state=checked]:bg-emerald-500 dark:data-[state=checked]:bg-emerald-400",
+            toggling && "animate-pulse",
+          )}
+        />
+      </div>
+    </div>
+  );
+}
 
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
@@ -574,7 +617,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "settings" ? (
           <LocationSettingsFlow
             smsContactCount={vm.smsContactUserIds.length}
-            onManageSharing={() => closeFlow("people")}
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
@@ -595,50 +637,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Location Agent"
+        title={
+          <span className="inline-flex h-9 items-center whitespace-nowrap">
+            Location Agent
+          </span>
+        }
         icon={MapPin}
         accent="neutral"
         actionsInlineMobile
-        actions={
-          (() => {
-            const locationOn = Boolean(vm.myLocationPoint);
-            const toggling = BUSY(vm, "selfLocation");
-            return (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                role="switch"
-                aria-checked={locationOn}
-                aria-label={
-                  locationOn ? "Turn location off" : "Turn location on"
-                }
-                onClick={
-                  locationOn ? vm.onHideMyLocation : vm.onShowMyLocation
-                }
-                disabled={toggling || BUSY(vm, "load")}
-                className={cn(
-                  "gap-2 rounded-full font-semibold transition-colors",
-                  locationOn
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200"
-                    : "border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted/60",
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-2 w-2 rounded-full transition-colors",
-                    locationOn
-                      ? "bg-emerald-500 dark:bg-emerald-400"
-                      : "bg-muted-foreground/40",
-                    toggling && "animate-pulse",
-                  )}
-                  aria-hidden="true"
-                />
-                {locationOn ? "Location on" : "Location off"}
-              </Button>
-            );
-          })()
-        }
+        actions={<LocationHeaderActions vm={vm} />}
       />
 
 
@@ -648,6 +655,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
+          viewportMinHeight="0px"
         >
           <LocationHubPanel>
             <NowHub
@@ -960,11 +968,9 @@ function LocationToggle({
 
 function LocationSettingsFlow({
   smsContactCount,
-  onManageSharing,
   onManageSmsContacts,
 }: {
   smsContactCount: number;
-  onManageSharing: () => void;
   onManageSmsContacts: () => void;
 }) {
   // Inert local state for now — real auto-share / pause wiring comes later.
@@ -1023,25 +1029,6 @@ function LocationSettingsFlow({
           access to anyone at any time.
         </p>
       </div>
-
-      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Who can see you
-      </p>
-      <button
-        type="button"
-        onClick={onManageSharing}
-        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-      >
-        <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-            Manage sharing
-          </p>
-          <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
-            See and change who has your live location
-          </p>
-        </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
-      </button>
 
       <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
         Safety

@@ -27,16 +27,19 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
-  it("redirects an already-completed Location setup to its workspace", () => {
+  it("redirects completed Location only after root setup is resolved", () => {
     const coordinator = read(
       "components/onboarding/setup/setup-capability-coordinator.tsx",
     );
 
-    expect(coordinator).toMatch(
-      /initialJourney\.setupCapabilityIds\.includes\(\s*capabilityId/,
+    expect(coordinator).toContain(
+      "completedCapabilityIds: initialJourney.setupCapabilityIds",
     );
     expect(coordinator).toContain(
-      "resolveCompletedSetupCapabilityTarget(capabilityId)",
+      "resolveCompletedSetupCapabilityTarget({",
+    );
+    expect(coordinator).toContain(
+      "PreVaultUserStateService.isSetupResolved(initialJourney)",
     );
     expect(coordinator).toContain("replaceRoute(completedTarget)");
   });

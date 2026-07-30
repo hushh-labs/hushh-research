@@ -266,10 +266,28 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
-/** Completed Location setup is one-time and reopens its product workspace. */
+/**
+ * Completed Location setup reopens its product workspace only after the root
+ * setup journey is resolved. While `/one/setup` is still active, the authored
+ * setup route remains replayable just like every other capability.
+ */
 export function resolveCompletedSetupCapabilityTarget(
-  capabilityId: string,
+  {
+    capabilityId,
+    completedCapabilityIds,
+    rootSetupResolved,
+  }: {
+    capabilityId: string;
+    completedCapabilityIds: readonly string[];
+    rootSetupResolved: boolean;
+  },
 ): string | null {
+  if (
+    !rootSetupResolved ||
+    !completedCapabilityIds.includes(capabilityId)
+  ) {
+    return null;
+  }
   return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
 }
 

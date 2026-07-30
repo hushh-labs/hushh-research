@@ -205,12 +205,19 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   circle confirmation. Opening the use-case screen requests missing Location
   and notification permissions from the initiating user gesture. Location is
   required before root setup can continue; notifications remain best-effort.
-  At least one contact must be selected. Every screen retains a Back control.
+  Once Location is ready, the journey captures a candidate saved place and
+  lets the owner replace it through authenticated place search before choosing
+  Home, Work, or Other. Saving writes only the encrypted Location PKM; capture
+  failure remains on the use-case screen with an explicit retry. At least one
+  contact must be selected. Every screen retains a Back control.
   The final circle has no terminal completion button: after its four-second,
   reduced-motion-safe confirmation, it invokes
-  the coordinator's durable finish action and lands on `/one/location`.
-  Settlement retries automatically on a transient failure. The first share
-  remains optional. A dismissed or failed vault setup leaves Location pending.
+  the coordinator's durable finish action. While root setup remains active,
+  completion returns to `/one/setup`, and the completed Location tile can
+  replay the authored journey. After the master setup acknowledgement,
+  completed Location entry opens `/one/location`. Settlement retries
+  automatically on a transient failure. The first share remains optional. A
+  dismissed or failed vault setup leaves Location pending.
 - **KYC** reuses the email workspace; it becomes finishable after a verified
   identity and initialized client connector. Sending a draft remains optional.
 - **Finance** uses `/one/setup/finance` for preferences and

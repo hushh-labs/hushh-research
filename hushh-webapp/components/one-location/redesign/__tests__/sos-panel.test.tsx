@@ -46,7 +46,7 @@ describe("SosPanel", () => {
   it("renders the Save My Soul UI, selected recipients, and local dialer", () => {
     render(<SosPanel {...baseProps} />);
 
-    expect(screen.getByText("SMS · Save my soul")).toBeInTheDocument();
+    expect(screen.getByText("SMS · Save my Soul")).toBeInTheDocument();
     expect(
       screen.getByText(
         "Press and hold. An SMS with your live location goes to your people — even with no internet.",

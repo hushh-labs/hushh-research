@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
 import { useAuth } from "@/hooks/use-auth";
@@ -35,6 +36,12 @@ import {
 } from "@/lib/profile/pkm-section-preview";
 import { ROUTES } from "@/lib/navigation/routes";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import {
+  DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
+  loadAgentPkmAutoSavePolicy,
+  saveAgentPkmAutoSavePolicy,
+  type AgentPkmAutoSavePolicy,
+} from "@/lib/agent/agent-pkm-auto-save-policy";
 import {
   buildPkmMemorySnapshot,
   deletePkmDomainValue,
@@ -101,6 +108,12 @@ export function PkmNaturalPanel({
   const [sharingImpactLoading, setSharingImpactLoading] = useState(false);
   const [sharingImpactError, setSharingImpactError] = useState<string | null>(null);
   const [sharingImpactRefreshNonce, setSharingImpactRefreshNonce] = useState(0);
+  const [autoSavePolicy, setAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
+    DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY
+  );
+  const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
+  const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
+  const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +179,33 @@ export function PkmNaturalPanel({
       cancelled = true;
     };
   }, [authLoading, isVaultUnlocked, refreshNonce, refreshToken, user, vaultOwnerToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      setAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      setAutoSavePolicyLoading(false);
+      return undefined;
+    }
+    setAutoSavePolicyLoading(true);
+    void loadAgentPkmAutoSavePolicy({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((policy) => {
+        if (!cancelled) setAutoSavePolicy(policy);
+      })
+      .catch(() => {
+        if (!cancelled) setAutoSavePolicyError("Automatic memory saving couldn’t be loaded.");
+      })
+      .finally(() => {
+        if (!cancelled) setAutoSavePolicyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVaultUnlocked, user, vaultKey, vaultOwnerToken]);
 
   const visibleMetadataDomains = useMemo(
     () => (metadata?.domains || []).filter(isConsumerVisiblePkmDomain),
@@ -464,6 +504,32 @@ export function PkmNaturalPanel({
     }
   }
 
+  async function updateAutoSavePolicy(enabled: boolean) {
+    if (!user || !vaultKey || !vaultOwnerToken) return;
+    setAutoSavePolicySaving(true);
+    setAutoSavePolicyError(null);
+    try {
+      const nextPolicy = await saveAgentPkmAutoSavePolicy({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        enabled,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "pkm_memory_auto_save_toggle",
+        },
+      });
+      setAutoSavePolicy(nextPolicy);
+    } catch (error) {
+      setAutoSavePolicyError(
+        error instanceof Error ? error.message : "Automatic memory saving couldn’t be updated."
+      );
+    } finally {
+      setAutoSavePolicySaving(false);
+    }
+  }
+
   if (authLoading) {
     return (
       <>
@@ -711,7 +777,23 @@ export function PkmNaturalPanel({
   }
 
   return (
-    <>{nativeBeacon}<PkmDataManagerPanel
+    <>{nativeBeacon}<div className="space-y-4"><SurfaceInset className="flex items-start justify-between gap-4 p-4">
+      <div className="min-w-0 space-y-1">
+        <p className="text-sm font-semibold text-foreground">Automatically save eligible memories</p>
+        <p className="text-sm leading-6 text-muted-foreground">
+          When enabled, One saves medium- and high-confidence preferences in the background. Low-confidence, shared, corrective, and destructive changes still ask first.
+        </p>
+        {autoSavePolicyError ? (
+          <p className="text-sm text-destructive">{autoSavePolicyError}</p>
+        ) : null}
+      </div>
+      <Switch
+        checked={autoSavePolicy.enabled}
+        onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
+        disabled={autoSavePolicyLoading || autoSavePolicySaving}
+        aria-label="Automatically save eligible memories"
+      />
+    </SurfaceInset><PkmDataManagerPanel
       signedIn
       loading={bootstrapLoading}
       metadataReady={metadata !== null}
@@ -728,6 +810,6 @@ export function PkmNaturalPanel({
       onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
       onRefresh={() => setRefreshNonce((value) => value + 1)}
       onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
-    /></>
+    /></div></>
   );
 }

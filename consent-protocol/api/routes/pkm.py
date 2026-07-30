@@ -461,6 +461,13 @@ async def _generate_pkm_memory_proposals(
                 },
             ) from exc
         card["sharing_impact"] = sharing_impact
+        if (
+            card.get("write_mode") == "can_save"
+            and int(sharing_impact.get("active_recipient_count") or 0) > 0
+        ):
+            card["write_mode"] = "confirm_first"
+            card["requires_confirmation"] = True
+            card.setdefault("validation_hints", []).append("auto_save_blocked_by_active_recipients")
         total_active_recipients += int(sharing_impact.get("active_recipient_count") or 0)
     payload["preview_cards"] = preview_cards
     payload["preview_summary"] = {
