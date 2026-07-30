@@ -1095,7 +1095,7 @@ class DebateEngine:
         """
         shift = 0.0
 
-        # Renaissance overlays from Supabase-backed screening tables.
+        # Renaissance overlays from Cloud SQL-backed screening tables.
         tier = str((self.renaissance_context or {}).get("tier") or "").upper()
         is_investable = bool((self.renaissance_context or {}).get("is_investable"))
         is_avoid = bool((self.renaissance_context or {}).get("is_avoid"))

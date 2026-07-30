@@ -104,6 +104,21 @@ class RateLimits:
     # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
     ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
 
+    # Preference Subscription Fabric (PCHP RFC-002).
+    # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
+    # it must be firmly bounded per principal so no brand can drain an owner's
+    # data or flood the receipt ledger (SC-5 / CWE-400). Owner grant writes are
+    # conservative; owner reads (list/verify) are cheap and higher-frequency.
+    FABRIC_READ = "60/minute"  # noqa: S105 - subscriber read of granted fields
+    FABRIC_GRANT_WRITE = "20/minute"  # noqa: S105 - owner create/revoke a grant
+    FABRIC_OWNER_READ = "60/minute"  # noqa: S105 - owner list grants/receipts
+    # Pairing-code lookup is the code-probe surface of the handshake; bound it
+    # tightly (defense-in-depth on top of the CSPRNG code + 15-min TTL + the
+    # sign-in requirement) so no authenticated caller can farm codes.
+    FABRIC_REQUEST_LOOKUP = "20/minute"  # noqa: S105 - owner lookup of a pairing code
+    PWM_WRITE = "30/minute"  # noqa: S105 - owner PUT/DELETE own PWM
+    PWM_READ = "60/minute"  # noqa: S105 - owner GET own PWM
+
     # Global fallback per IP
     GLOBAL_PER_IP = "100/minute"  # noqa: S105
 

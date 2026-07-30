@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
 
+from starlette.concurrency import run_in_threadpool
+
+from hushh_mcp.services.feed_service import FeedService
+
 logger = logging.getLogger(__name__)
 
 RunStatus = str
@@ -111,6 +115,7 @@ class KaiAnalyzeRunManager:
                 payload["run_id"] = run.run_id
             frame["data"] = json.dumps(envelope)
 
+        just_completed = False
         async with run.condition:
             run.events.append(frame)
             run.updated_at = _now_iso()
@@ -123,11 +128,24 @@ class KaiAnalyzeRunManager:
                 )
                 if event_name == "decision":
                     run.status = "completed"
+                    just_completed = True
                 elif event_name == "aborted":
                     run.status = "canceled"
                 elif event_name == "error":
                     run.status = "failed"
             run.condition.notify_all()
+        if just_completed:
+            # Best-effort Feed row; the analysis itself is already durably
+            # saved (encrypted PKM) independent of this. Never let a feed
+            # write failure affect the run's own completion.
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type="kai_analysis_completed",
+                actor_label="Kai",
+                metadata={"ticker": run.ticker},
+            )
         return envelope if isinstance(envelope, dict) else None
 
     async def _append_synthetic_terminal(

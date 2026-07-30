@@ -22,7 +22,7 @@ The green `main` SHA is the deployment source of truth for a manual UAT dispatch
 
 1. opens a Cloud SQL Auth Proxy session to the UAT database
 2. applies the canonical release lane with `python3 consent-protocol/db/migrate.py --release`
-3. enforces the live UAT schema contract in `consent-protocol/db/schema_contract/uat_integrated_schema.json`
+3. enforces the live UAT schema contract in `consent-protocol/db/contracts/uat_integrated_schema.json`
 4. deploys backend/frontend
 5. reruns the read-only UAT schema contract gate after deploy
 6. runs the hosted runtime parity check
@@ -196,37 +196,31 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
    `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
    UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
 
-4. **Configure production logical backup infrastructure** (GCP)
+4. **Configure the production backup posture** (GCP)
 
-   Provision the bucket + service accounts + Cloud Run Job + Cloud Scheduler:
+   Production backups are native Cloud SQL automated backups + point-in-time
+   recovery on `hushh-pda:us-central1:hushh-vault-db`. Apply/refresh the posture:
 
    ```bash
-   PROJECT_ID=hushh-pda REGION=us-central1 bash deploy/backup/setup_prod_logical_backup.sh
+   gcloud sql instances patch hushh-vault-db \
+     --project hushh-pda \
+     --backup-start-time=06:00 \
+     --enable-point-in-time-recovery \
+     --retained-backups-count=30 \
+     --retained-transaction-log-days=7
    ```
 
-   The setup script enforces bucket hardening (UBLA + PAP), lifecycle delete at 14 days, and soft-delete disabled for cost control.
-
-   If the currently deployed backend image does not yet include `scripts/ops/supabase_logical_backup.py`,
-   pass an explicit image override:
+   Validate backup posture locally (same gate used by the production deploy workflow):
 
    ```bash
-   PROJECT_ID=hushh-pda REGION=us-central1 \
-   BACKUP_JOB_IMAGE=gcr.io/hushh-pda/consent-protocol:backup-job-YYYYMMDD-HHMMSS \
-   bash deploy/backup/setup_prod_logical_backup.sh
-   ```
-
-   Validate backup freshness policy locally (same gate used by production deploy workflow):
-
-   ```bash
-   python3 scripts/ops/logical_backup_freshness_check.py \
+   python3 scripts/ops/cloudsql_backup_freshness_check.py \
      --project-id hushh-pda \
-     --bucket hushh-pda-prod-db-backups \
-     --prefix prod/supabase-logical \
+     --instance hushh-vault-db \
      --max-age-hours 30 \
      --report-path /tmp/prod-backup-posture-report.json
    ```
 
-  This checker requires ADC-capable credentials (`gcloud auth application-default login`) or a service account credential source.
+  This checker uses `gcloud`, so it requires an authenticated gcloud session or service-account credentials.
 
 5. **Configure RIA marketplace investor replenisher** (UAT first)
 
@@ -286,6 +280,10 @@ The repo includes:
 
 - [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production`.
 - [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): manual UAT deploy (`workflow_dispatch`) through `uat`.
+
+Production GitHub OIDC/WIF setup has one idempotent entrypoint:
+[`deploy/iam/setup_production_github_wif.sh`](iam/setup_production_github_wif.sh).
+Do not provision a parallel provider or restore a service-account JSON key.
 
 Manual dispatch now supports `scope`:
 
@@ -389,6 +387,20 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 
 ### Mobile Firebase Artifacts (Regulated)
 
+> **In use by the one-click iOS pipelines.**
+> - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` reads
+>   `IOS_GOOGLESERVICE_INFO_PLIST_B64`, `APPSTORE_CONNECT_API_KEY_P8_B64`,
+>   `APPSTORE_CONNECT_KEY_ID`, and `APPSTORE_CONNECT_ISSUER_ID` from Secret Manager
+>   (`hushh-pda-uat`) via `GCP_SA_KEY_UAT` to build + sign + upload the UAT build to TestFlight.
+>   Setup + flow: [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
+> - **Public App Store:** `.github/workflows/release-ios-appstore.yml` reads the **same four
+>   secret names — plus the `NEXT_PUBLIC_*` web contract — from the same `hushh-pda-uat` project via
+>   `GCP_SA_KEY_UAT`**, because the public build ships the **UAT backend + UAT Firebase** (the same
+>   latest frontend+backend as TestFlight). It keeps `environment: production` and the production
+>   actor gate (public submission is a production surface) but keeps the production APNs entitlement,
+>   so the UAT Firebase project must hold a production APNs key. Setup + flow:
+>   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+
 - Do not commit production `GoogleService-Info.plist` or `google-services.json`.
 - Store production mobile Firebase artifacts in Secret Manager:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`
@@ -444,20 +456,16 @@ OBS_ALERT_EMAIL=you@example.com bash deploy/observability/setup_gcp_observabilit
 ### Production DB Governance Helpers
 
 ```bash
-# Provision logical backup infra (idempotent)
-bash deploy/backup/setup_prod_logical_backup.sh
-
-# Execute logical backup job manually (optional pre-deploy trigger)
-gcloud run jobs execute prod-supabase-logical-backup \
+# Take an on-demand Cloud SQL backup (optional pre-deploy trigger)
+gcloud sql backups create \
+  --instance hushh-vault-db \
   --project hushh-pda \
-  --region us-central1 \
-  --wait
+  --description "manual-predeploy"
 
-# Read-only logical backup freshness gate
-python3 scripts/ops/logical_backup_freshness_check.py \
+# Read-only Cloud SQL backup posture gate
+python3 scripts/ops/cloudsql_backup_freshness_check.py \
   --project-id hushh-pda \
-  --bucket hushh-pda-prod-db-backups \
-  --prefix prod/supabase-logical \
+  --instance hushh-vault-db \
   --max-age-hours 30 \
   --report-path /tmp/prod-backup-posture-report.json
 
@@ -467,7 +475,7 @@ python3 scripts/ops/db_migration_release_guard.py \
 
 # Latest-integrated UAT schema contract gate
 python3 scripts/ops/db_migration_release_guard.py \
-  --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+  --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
   --report-path /tmp/uat-db-migration-guard-report.json
 
 # Generate audit manifest for a production release
@@ -586,7 +594,6 @@ gcloud run services update-traffic consent-protocol \
 deploy/
 ├── backend.cloudbuild.yaml      # Backend Cloud Build config
 ├── frontend.cloudbuild.yaml     # Frontend Cloud Build config
-├── backup/setup_prod_logical_backup.sh  # Logical backup infra bootstrap
 ├── ../scripts/ops/verify-env-secrets-parity.py  # Secrets/deploy parity audit utility
 ├── .env.backend.example         # Backend env vars template
 ├── .env.frontend.example        # Frontend env vars template

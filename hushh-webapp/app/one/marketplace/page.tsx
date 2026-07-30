@@ -8,6 +8,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
@@ -911,6 +912,18 @@ function OneMarketplacePageImpl() {
 
   const deliveredCount = received.filter((r) => r.status === "approved").length;
 
+  const marketplaceTabOptions = useMemo(
+    () => [
+      { value: "owner", label: "Owner" },
+      { value: "buyer", label: "Buyer" },
+      {
+        value: "flow",
+        label: deliveredCount > 0 ? `Received data (${deliveredCount})` : "Received data",
+      },
+    ],
+    [deliveredCount],
+  );
+
   // Identity keys of slices already published — the chat publish card filters
   // these out so a just-published slice drops off the recommendation.
   const publishedSliceKeys = useMemo(() => {
@@ -1008,15 +1021,7 @@ function OneMarketplacePageImpl() {
           <SettingsSegmentedTabs
             value={view}
             onValueChange={(value) => setView(value as MarketplaceView)}
-            options={[
-              { value: "owner", label: "Owner" },
-              { value: "buyer", label: "Buyer" },
-              {
-                value: "flow",
-                label:
-                  deliveredCount > 0 ? `Received data (${deliveredCount})` : "Received data",
-              },
-            ]}
+            options={marketplaceTabOptions}
           />
           <Button
             type="button"
@@ -1070,10 +1075,14 @@ function OneMarketplacePageImpl() {
           Loading your saved sections…
         </div>
       ) : (
-        <>
+        <SwipeViews
+          tabSetId="one-marketplace"
+          activeValue={view}
+          options={marketplaceTabOptions}
+          onSelectionChange={(value) => setView(value as MarketplaceView)}
+        >
           {/* OWNER VIEW — the single consent-first control panel */}
-          {view === "owner" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               {bandControls}
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -1188,12 +1197,10 @@ function OneMarketplacePageImpl() {
                   );
                 })
               )}
-            </div>
-          ) : null}
+          </div>
 
           {/* BUYER — the anonymized cross-user directory of published slices */}
-          {view === "buyer" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Slices other people have published — only the safe summary, never raw data, and the
                 seller stays anonymous. Requesting access files a request the owner must approve;
@@ -1250,14 +1257,12 @@ function OneMarketplacePageImpl() {
                   ))}
                 </div>
               )}
-            </div>
-          ) : null}
+          </div>
 
           {/* RECEIVED DATA — the buyer's own requests + delivered slices. Owner
               approvals happen in the Consent Guardian; here the buyer views what
               sellers delivered, decrypting each envelope on this device. */}
-          {view === "flow" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Slices you requested. Once the owner approves in their Consent Guardian, the encrypted
                 safe summary is delivered here — decrypted on this device with a private key only you
@@ -1346,9 +1351,8 @@ function OneMarketplacePageImpl() {
                 published, and only this device holds the private half. The server relayed ciphertext
                 only — it never saw the data. Switching devices means re-requesting the slice.
               </div>
-            </div>
-          ) : null}
-        </>
+          </div>
+        </SwipeViews>
       )}
 
       {/* REQUEST ACCESS CONFIRM MODAL — real cross-account request */}

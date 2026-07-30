@@ -1,0 +1,29 @@
+{
+  "skill_name": "kai-test-account-reset",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "wipe the UAT test user for this email so I can run onboarding end to end again",
+        "top_k": 3
+      },
+      {
+        "prompt": "dry run first, show the Firebase UID shadows and actor profile rows for this test email before deleting",
+        "top_k": 3
+      },
+      {
+        "prompt": "I need a clean Kai test account for this email to retest vault and RIA setup",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the vault-owner account deletion service is dropping encrypted PKM rows, fix the storage boundary",
+        "owner": "vault-pkm-governance"
+      },
+      {
+        "prompt": "the One Voice search action for account deletion needs a new capability id and execution policy",
+        "owner": "one-voice-governance"
+      }
+    ]
+  }
+}

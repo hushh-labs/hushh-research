@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -148,13 +148,104 @@ def test_accept_creates_connection_and_two_trusted_edges():
             [{"id": "req-1"}],
         ]
     )
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
+    ):
         out = svc.accept_request("user-b", "req-1")
     assert out["status"] == "accepted"
     assert out["connectionId"] == "conn-1"
     # Two trusted_connections INSERTs happened.
     trusted_inserts = [c for c in db.calls if "INSERT INTO trusted_connections" in c[0]]
     assert len(trusted_inserts) == 2
+    assert feed_cls.return_value.record_event.call_args_list == [
+        call(
+            user_id="user-b",
+            source_domain="connections",
+            event_type="connection_accepted",
+            metadata={"counterpart_user_id": "user-a"},
+        ),
+        call(
+            user_id="user-a",
+            source_domain="connections",
+            event_type="connection_accepted",
+            metadata={"counterpart_user_id": "user-b"},
+        ),
+    ]
+
+
+def test_accept_transaction_records_feed_only_after_commit():
+    svc = _svc()
+    request_row = {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    tx = _TxConnection([[request_row], [], [], []])
+    committed = {"value": False}
+
+    class _CommitTrackingBegin(_Begin):
+        def __exit__(self, _exc_type, _exc, _traceback):
+            committed["value"] = True
+            return False
+
+    db = SimpleNamespace(
+        engine=SimpleNamespace(begin=lambda: _CommitTrackingBegin(tx)),
+        execute_raw=lambda _sql, _params=None: SimpleNamespace(data=[request_row]),
+    )
+    state = {"connectionId": "00000000-0000-4000-8000-000000000002"}
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch(
+            "hushh_mcp.services.connections_service.ConnectionGraphService.ensure_origin",
+            return_value=state,
+        ),
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
+    ):
+        feed_cls.return_value.record_event.side_effect = lambda **_kwargs: assert_committed(
+            committed["value"]
+        )
+        out = svc.accept_request(
+            "user-b",
+            "00000000-0000-4000-8000-000000000001",
+        )
+
+    assert out["connectionId"] == state["connectionId"]
+    assert committed["value"] is True
+    assert feed_cls.return_value.record_event.call_count == 2
+
+
+def test_accept_replay_does_not_duplicate_feed_events():
+    svc = _svc()
+    request_row = {
+        "id": "req-accepted",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "accepted",
+    }
+    db = SimpleNamespace(
+        engine=SimpleNamespace(begin=lambda: pytest.fail("transaction must not reopen")),
+        execute_raw=lambda _sql, _params=None: SimpleNamespace(data=[request_row]),
+    )
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
+    ):
+        out = svc.accept_request("user-b", "req-accepted")
+
+    assert out == {
+        "status": "accepted",
+        "requestId": "req-accepted",
+        "connectionId": None,
+    }
+    feed_cls.assert_not_called()
+
+
+def assert_committed(value: bool) -> None:
+    assert value is True
 
 
 def test_accept_rejected_when_not_addressee():
@@ -329,7 +420,10 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
+    ):
         out = svc.remove_connection("user-a", "conn-1")
     assert out == {
         "removed": 1,
@@ -350,6 +444,20 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     assert trusted_update_indices[0] < conn_update_indices[0], (
         "UPDATE trusted_connections must precede UPDATE connections"
     )
+    assert feed_cls.return_value.record_event.call_args_list == [
+        call(
+            user_id="user-a",
+            source_domain="connections",
+            event_type="connection_revoked",
+            metadata={"counterpart_user_id": "user-b"},
+        ),
+        call(
+            user_id="user-b",
+            source_domain="connections",
+            event_type="connection_revoked",
+            metadata={"counterpart_user_id": "user-a"},
+        ),
+    ]
 
 
 def test_remove_direct_origin_preserves_named_circle_connection():
@@ -387,6 +495,7 @@ def test_remove_direct_origin_preserves_named_circle_connection():
             "hushh_mcp.services.connections_service.ConnectionGraphService.revoke_origins",
             return_value=state,
         ) as revoke,
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
     ):
         out = svc.remove_connection(
             "user-a",
@@ -415,6 +524,61 @@ def test_remove_direct_origin_preserves_named_circle_connection():
     trusted_update = tx.calls[-1][0]
     assert "UPDATE trusted_connections" in trusted_update
     assert "source = 'connection'" in trusted_update
+    feed_cls.assert_not_called()
+
+
+def test_remove_final_origin_records_revoked_feed_after_commit():
+    svc = _svc()
+    tx = _TxConnection(
+        [
+            [
+                {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                }
+            ],
+            [],
+        ]
+    )
+    committed = {"value": False}
+
+    class _CommitTrackingBegin(_Begin):
+        def __exit__(self, _exc_type, _exc, _traceback):
+            committed["value"] = True
+            return False
+
+    db = SimpleNamespace(engine=SimpleNamespace(begin=lambda: _CommitTrackingBegin(tx)))
+    state = {
+        "active": False,
+        "connectionKind": None,
+        "circleIds": [],
+        "circleNames": [],
+        "circles": [],
+        "canRemoveDirect": False,
+        "revokedOrigins": 1,
+    }
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch(
+            "hushh_mcp.services.connections_service.ConnectionGraphService.revoke_origins",
+            return_value=state,
+        ),
+        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
+    ):
+        feed_cls.return_value.record_event.side_effect = lambda **_kwargs: assert_committed(
+            committed["value"]
+        )
+        out = svc.remove_connection(
+            "user-a",
+            "00000000-0000-4000-8000-000000000002",
+        )
+
+    assert out["removed"] == 1
+    assert out["stillConnected"] is False
+    assert committed["value"] is True
+    assert feed_cls.return_value.record_event.call_count == 2
 
 
 def test_remove_connection_returns_zero_when_not_member_or_missing():

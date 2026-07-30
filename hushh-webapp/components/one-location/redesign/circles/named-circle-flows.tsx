@@ -168,9 +168,9 @@ export function CirclesSection({
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex items-center justify-between gap-3 px-1">
         <div>
-          <p className="text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
+          <h2 className="text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
             Your circles
-          </p>
+          </h2>
           <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
             Family and friends you choose to group together.
           </p>

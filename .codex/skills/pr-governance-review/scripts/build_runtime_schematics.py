@@ -82,7 +82,7 @@ def _voice_family(skills: list[dict[str, Any]]) -> OrderedDict[str, Any]:
     web_contracts = sorted(REPO_ROOT.glob("hushh-webapp/**/*.voice-action-contract.json"))
     gateway = _read_json(root_gateway) or {}
     orchestration = _read_json(route_index) or {}
-    skill = _skill_by_id(skills, "kai-voice-governance")
+    skill = _skill_by_id(skills, "one-voice-governance")
     source_contracts = gateway.get("source_contracts") if isinstance(gateway, dict) else []
     generated_artifacts = _existing(
         [
@@ -216,7 +216,7 @@ def build_schematics() -> OrderedDict[str, Any]:
         ),
         _route_family(skills),
         _family_from_skill(
-            _skill_by_id(skills, "kai-voice-governance"),
+            _skill_by_id(skills, "one-voice-governance"),
             "kai-finance-runtime",
             [
                 "docs/reference/kai/kai-accuracy-contract.md",

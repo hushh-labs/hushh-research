@@ -10,7 +10,6 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
-  isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
@@ -25,6 +24,7 @@ import {
   clearSetupIntent,
   hasSetupIntent,
 } from "@/lib/services/one-setup-intent";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -50,13 +50,16 @@ function admissionAllowsCurrentRoute(params: {
   setupSurface: boolean;
 }): boolean {
   const { pathname, setupSurface, state } = params;
+  // Product routes (including the Location workspace at /one/location) stay
+  // gated until the overall first-run setup is resolved via the master
+  // "Finish setup" action, which requires the Connections step. Completing an
+  // individual capability like Location is NOT sufficient on its own — the
+  // user must still return to /one/setup and finish setup before any main
+  // workspace becomes reachable.
   return (
     !hasExplicitIncompleteSetup(state) ||
     setupSurface ||
-    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname) ||
-    // Completed Location setup may open its workspace while the wider setup
-    // funnel remains unresolved. Other product routes stay gated.
-    isCompletedLocationWorkspaceRoute(state.setupCapabilityIds, pathname)
+    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname)
   );
 }
 
@@ -323,13 +326,19 @@ export function OnboardingJourneyGuard({
     }
   }, [pathname]);
 
-  if (exempt || (!authLoading && !userId)) return <>{children}</>;
-  if (
-    shouldEjectSetupSurface ||
-    (checking && !cachedAdmissionAllowsCurrentRoute) ||
-    authLoading ||
-    redirecting
-  ) {
+  const passThrough = exempt || (!authLoading && !userId);
+  const loaderActive =
+    !passThrough &&
+    (shouldEjectSetupSurface ||
+      (checking && !cachedAdmissionAllowsCurrentRoute) ||
+      authLoading ||
+      redirecting);
+  // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
+  // admission check paints its loader, so the loader never leaks the page frame.
+  useSessionChromeSuppression(loaderActive);
+
+  if (passThrough) return <>{children}</>;
+  if (loaderActive) {
     return (
       <HushhLoader
         label={

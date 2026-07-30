@@ -70,6 +70,7 @@ type OneLocationOnboardingFlowProps = {
     userIds: string[],
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
+  onLocationReady: () => Promise<boolean>;
   onRequestNotifications: () => Promise<void>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
@@ -547,9 +548,10 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute bottom-[22%] right-[5%] w-[74%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
+            className="absolute bottom-[24%] right-[9%] w-[58%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
             data-one-checkin-art
           />
+
 
         </>
       ) : null}
@@ -658,6 +660,8 @@ function FeaturesScreen({
   locationGranted,
   notificationsGranted,
   locationBusy,
+  locationPreparationBusy,
+  locationPreparationRetry,
   notificationBusy,
   requireLocationToContinue,
   onBack,
@@ -668,6 +672,8 @@ function FeaturesScreen({
   locationGranted: boolean;
   notificationsGranted: boolean;
   locationBusy: boolean;
+  locationPreparationBusy: boolean;
+  locationPreparationRetry: boolean;
   notificationBusy: boolean;
   requireLocationToContinue: boolean;
   onBack: () => void;
@@ -676,11 +682,16 @@ function FeaturesScreen({
   onContinue: () => void;
 }) {
   const waitingForLocation = requireLocationToContinue && !locationGranted;
-  const permissionBusy = locationBusy || notificationBusy;
-  const status = locationBusy
+  const permissionBusy =
+    locationBusy || locationPreparationBusy || notificationBusy;
+  const status = locationPreparationBusy
+    ? "Preparing your saved place..."
+    : locationBusy
     ? "Requesting Location permission..."
     : notificationBusy
       ? "Turning on notifications..."
+      : locationPreparationRetry
+        ? "We couldn't prepare your saved place. Try again."
       : waitingForLocation
         ? "Allow Location to continue. You stay in control of every share."
         : locationGranted && notificationsGranted
@@ -778,7 +789,7 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[52px] min-h-[52px]"
         >
-          Continue
+          {locationPreparationRetry ? "Try again" : "Continue"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -1222,6 +1233,7 @@ export function OneLocationOnboardingFlow({
   onRetryPeople,
   onSendConnectionRequests,
   onRequestLocation,
+  onLocationReady,
   onRequestNotifications,
   onBack,
   onComplete,
@@ -1243,7 +1255,13 @@ export function OneLocationOnboardingFlow({
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const requestBatchRef = useRef(0);
   const permissionPromptAttemptedRef = useRef(false);
+  const locationPreparationCompleteRef = useRef(false);
+  const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
+  const [locationPreparationBusy, setLocationPreparationBusy] =
+    useState(false);
+  const [locationPreparationRetry, setLocationPreparationRetry] =
+    useState(false);
 
   const locationGranted =
     locationPermission?.state === "granted" &&
@@ -1266,6 +1284,36 @@ export function OneLocationOnboardingFlow({
     onRequestNotifications,
   ]);
 
+  const prepareSavedLocation = useCallback((): Promise<boolean> => {
+    if (!locationGranted) return Promise.resolve(false);
+    if (locationPreparationCompleteRef.current) {
+      return Promise.resolve(true);
+    }
+    if (locationPreparationInFlightRef.current) {
+      return locationPreparationInFlightRef.current;
+    }
+
+    setLocationPreparationBusy(true);
+    setLocationPreparationRetry(false);
+    const attempt = Promise.resolve(onLocationReady())
+      .then((complete) => {
+        locationPreparationCompleteRef.current = complete;
+        setLocationPreparationRetry(!complete);
+        return complete;
+      })
+      .catch(() => {
+        locationPreparationCompleteRef.current = false;
+        setLocationPreparationRetry(true);
+        return false;
+      })
+      .finally(() => {
+        locationPreparationInFlightRef.current = null;
+        setLocationPreparationBusy(false);
+      });
+    locationPreparationInFlightRef.current = attempt;
+    return attempt;
+  }, [locationGranted, onLocationReady]);
+
   useEffect(() => {
     const nextScreen = initialScreen(startAt);
     setScreen(nextScreen);
@@ -1275,6 +1323,11 @@ export function OneLocationOnboardingFlow({
   useEffect(() => {
     if (startAt === "permissions") requestMissingPermissions();
   }, [requestMissingPermissions, startAt]);
+
+  useEffect(() => {
+    if (screen !== "features" || !locationGranted) return;
+    void prepareSavedLocation();
+  }, [locationGranted, prepareSavedLocation, screen]);
 
   useEffect(() => {
     if (screen !== "circle") return;
@@ -1318,6 +1371,10 @@ export function OneLocationOnboardingFlow({
   const continueFromFeatures = () => {
     if (requireLocationToComplete && !locationGranted) {
       void onRequestLocation();
+      return;
+    }
+    if (locationGranted && !locationPreparationCompleteRef.current) {
+      void prepareSavedLocation();
       return;
     }
     setScreen("people");
@@ -1403,6 +1460,8 @@ export function OneLocationOnboardingFlow({
             locationGranted={locationGranted}
             notificationsGranted={notificationsGranted}
             locationBusy={locationBusy}
+            locationPreparationBusy={locationPreparationBusy}
+            locationPreparationRetry={locationPreparationRetry}
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
             onBack={() => setScreen("welcome")}

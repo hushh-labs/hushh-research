@@ -1,6 +1,6 @@
 """Tests for durable opportunity-signal persistence.
 
-Injects a fake Supabase client (chainable query stub) so shaping, idempotent
+Injects a fake Cloud SQL client (chainable query stub) so shaping, idempotent
 re-derivation, owner-scoped lifecycle, and the due-now logic are covered without a
 real database. Unlike the marketplace-request stub, this one queues a result per
 execute() because the service issues several queries per call (find-by-dedupe then
@@ -91,7 +91,7 @@ class _FakeDB:
 def _service_with(*results) -> tuple[OpportunitySignalService, _FakeDB]:
     svc = OpportunitySignalService()
     fake = _FakeDB([_FakeResult(r) for r in results])
-    svc._supabase = fake
+    svc._db = fake
     return svc, fake
 
 

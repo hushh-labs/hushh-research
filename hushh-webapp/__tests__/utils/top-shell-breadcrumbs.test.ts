@@ -313,8 +313,68 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("returns the profile root to its origin (origin-aware, avoids the dashboard glitch)", () => {
+    // The reported bug: opening Profile from Location and pressing Back always
+    // jumped to the One dashboard. Profile is opened from every screen (the
+    // avatar), so — like the other One capabilities — its back target is now
+    // origin-aware via a validated `?from`.
+    const fromLocation = new URLSearchParams();
+    fromLocation.set("from", "/one/location");
+    expect(resolveTopShellBreadcrumb("/one/profile", fromLocation)).toEqual({
+      backHref: "/one/location",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Location", href: "/one/location" },
+        { label: "Profile" },
+      ],
+    });
+
+    const fromGmail = new URLSearchParams();
+    fromGmail.set("from", "/one/gmail");
+    expect(resolveTopShellBreadcrumb("/one/profile", fromGmail)).toEqual({
+      backHref: "/one/gmail",
+      width: "profile",
+      align: "center",
+      items: [{ label: "Gmail", href: "/one/gmail" }, { label: "Profile" }],
+    });
+
+    // No origin → the historic default (back to the One dashboard) is preserved.
+    expect(resolveTopShellBreadcrumb("/one/profile")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: "/one" }, { label: "Profile" }],
+    });
+
+    // Unsafe / protocol-relative origins are rejected → One dashboard fallback.
+    const unsafe = new URLSearchParams();
+    unsafe.set("from", "//evil.example/path");
+    expect(resolveTopShellBreadcrumb("/one/profile", unsafe)?.backHref).toBe(
+      "/one",
+    );
+  });
+
+  it("keeps the profile origin while drilling into a panel and stepping back", () => {
+    // The `from` origin survives on the internal Profile crumb/back targets so
+    // Profile → panel → back all the way out still returns to the real origin
+    // (not the dashboard).
+    const fromLocation = new URLSearchParams();
+    fromLocation.set("from", "/one/location");
+    fromLocation.set("panel", "security");
+    const config = resolveTopShellBreadcrumb("/one/profile", fromLocation);
+    // Back from the panel returns to the profile ROOT, and the root itself keeps
+    // the origin marker so the next Back leaves to Location.
+    expect(config?.backHref).toBe("/one/profile?from=%2Fone%2Flocation");
+    expect(config?.items?.[0]).toEqual({
+      label: "Profile",
+      href: "/one/profile?from=%2Fone%2Flocation",
+    });
+  });
+
   it("owns profile nested and legacy panels from the shared top bar", () => {
     const panelParams = new URLSearchParams();
+
     panelParams.set("panel", "my-data");
 
     expect(resolveTopShellBreadcrumb("/one/profile", panelParams)).toEqual({
@@ -451,7 +511,7 @@ describe("top shell breadcrumbs", () => {
   });
 
   it("returns the single top-bar back button to the Location hub while a focused flow is open", () => {
-    // Location focused screens (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // Location focused screens (Check-In, Alert, Share, Ask, Invite, Settings,
     // Temp link, and share details) are tracked
     // via /one/location?action=<slug>. The one top-left back button must return
     // to the Location hub (strip the action param) rather than leaving to /one —
@@ -464,8 +524,11 @@ describe("top shell breadcrumbs", () => {
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
-      ["privacy", "Privacy"],
       ["sms-contacts", "SMS contacts"],
+      ["settings", "Settings"],
+      // Legacy bookmarks are labelled correctly while the hub canonicalizes
+      // `action=privacy` to `action=settings`.
+      ["privacy", "Settings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
       ["needs-review", "Needs my review"],

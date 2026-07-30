@@ -82,11 +82,11 @@ Purpose:
 
 Public tools:
 
-1. `search_user_scopes`
-2. `prepare_campaign_context` (Hussh ADK compatibility only)
-3. `request_consent`
-4. `check_consent_status`
-5. `get_encrypted_scoped_export`
+1. `search-user-scopes`
+2. `prepare-campaign-context` (Hussh ADK compatibility only)
+3. `request-consent`
+4. `check-consent-status`
+5. `get-encrypted-scoped-export`
 
 Use bearer-header authentication only. MCP results must not expose caller or Firebase identifiers, developer or consent tokens, private keys, internal URLs, backend payloads, or exception text.
 

@@ -199,7 +199,7 @@ class PersonalKnowledgeModelService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._domain_registry = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
@@ -229,6 +229,7 @@ class PersonalKnowledgeModelService:
         "readable_projection_version",
         "readable_updated_at",
         "save_class",
+        "scope_materialization",
         "source",
         "source_local_time",
         "source_timezone",
@@ -286,10 +287,10 @@ class PersonalKnowledgeModelService:
     }
 
     @property
-    def supabase(self):
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     @staticmethod
     def _clean_text(
@@ -343,17 +344,17 @@ class PersonalKnowledgeModelService:
         return canonical_domain
 
     async def _run_rpc(self, function_name: str, params: Optional[dict] = None):
-        call = self.supabase.rpc(function_name, params or {})
+        call = self.db.rpc(function_name, params or {})
         if not hasattr(call, "execute"):
             return call
         return await asyncio.to_thread(call.execute)
 
     @staticmethod
     def _unwrap_rpc_payload(rpc_result: Any, function_name: str) -> Any:
-        """Normalize direct-SQL and Supabase RPC result envelopes.
+        """Normalize direct-SQL and Cloud SQL RPC result envelopes.
 
         The direct PostgreSQL client represents ``SELECT function(...)`` as
-        ``[{"function": value}]`` while Supabase-compatible clients expose
+        ``[{"function": value}]`` while Cloud SQL-compatible clients expose
         ``value`` directly. PKM callers must see one stable contract.
         """
         payload = getattr(rpc_result, "data", rpc_result)
@@ -364,14 +365,14 @@ class PersonalKnowledgeModelService:
         return payload
 
     async def _execute_query(self, query):
-        """Run blocking Supabase query execution without blocking the event loop."""
+        """Run blocking Cloud SQL query execution without blocking the event loop."""
         return await asyncio.to_thread(query.execute)
 
     def _supports_blob_upsert_rpc(self) -> bool:
         if self._blob_upsert_rpc_supported is not None:
             return self._blob_upsert_rpc_supported
 
-        client = self.supabase
+        client = self.db
         if not hasattr(client, "execute_raw"):
             # Non-SQLAlchemy clients may still support rpc(); keep optimistic.
             self._blob_upsert_rpc_supported = True
@@ -568,6 +569,29 @@ class PersonalKnowledgeModelService:
         for raw_key, value in source.items():
             key = str(raw_key).strip().lower()
             if key not in cls._MANIFEST_SUMMARY_PROJECTION_KEYS:
+                continue
+            if key == "scope_materialization":
+                if not isinstance(value, dict):
+                    continue
+                materialization: dict[str, dict[str, object]] = {}
+                for raw_scope, raw_entry in value.items():
+                    scope = cls._normalize_manifest_path(str(raw_scope))
+                    if not scope or "." in scope or not isinstance(raw_entry, dict):
+                        continue
+                    state = str(raw_entry.get("state") or "").strip().lower()
+                    if state not in {"materialized", "empty", "unknown"}:
+                        continue
+                    count = cls._to_non_negative_int(raw_entry.get("materialized_leaf_count"))
+                    if count is None:
+                        continue
+                    if (state == "materialized") != (count > 0):
+                        continue
+                    materialization[scope] = {
+                        "state": state,
+                        "materialized_leaf_count": count,
+                    }
+                if materialization:
+                    sanitized[key] = materialization
                 continue
             if key in integer_keys:
                 parsed = cls._to_non_negative_int(value)
@@ -836,6 +860,11 @@ class PersonalKnowledgeModelService:
             manifest_version=manifest_version,
             top_level_scope_paths=top_level_scope_paths,
             paths=list(normalized_paths.values()),
+            scope_materialization=(
+                summary_projection.get("scope_materialization")
+                if isinstance(summary_projection.get("scope_materialization"), dict)
+                else None
+            ),
         )
 
         return DomainManifest(
@@ -1101,6 +1130,7 @@ class PersonalKnowledgeModelService:
         manifest_version: int,
         top_level_scope_paths: list[str],
         paths: list[PathDescriptor],
+        scope_materialization: dict[str, dict[str, object]] | None = None,
     ) -> list[ScopeRegistryEntry]:
         entries: list[ScopeRegistryEntry] = []
         path_map = {
@@ -1131,6 +1161,21 @@ class PersonalKnowledgeModelService:
             ):
                 sensitivity_tier = "restricted"
             handle = self._scope_handle_for_path(user_id, domain, normalized_path)
+            materialization = (
+                (scope_materialization or {}).get(normalized_path)
+                if isinstance(scope_materialization, dict)
+                else None
+            )
+            materialization_state = (
+                str((materialization or {}).get("state") or "unknown").strip().lower()
+            )
+            if materialization_state not in {"materialized", "empty", "unknown"}:
+                materialization_state = "unknown"
+            materialized_leaf_count = self._to_non_negative_int(
+                (materialization or {}).get("materialized_leaf_count")
+            )
+            if materialized_leaf_count is None:
+                materialized_leaf_count = 0
             for descriptor in matching:
                 descriptor.scope_handle = handle
             entries.append(
@@ -1149,6 +1194,9 @@ class PersonalKnowledgeModelService:
                     summary_projection={
                         **self._scope_visibility_projection(normalized_path),
                         "manifest_version": manifest_version,
+                        "source_manifest_revision": manifest_version,
+                        "materialization_state": materialization_state,
+                        "materialized_leaf_count": materialized_leaf_count,
                         "storage_mode": "manifest",
                     },
                 )
@@ -1500,7 +1548,7 @@ class PersonalKnowledgeModelService:
     async def _list_manifest_rows(self, user_id: str) -> list[dict]:
         try:
             result = await self._execute_query(
-                self.supabase.table("pkm_manifests").select("*").eq("user_id", user_id)
+                self.db.table("pkm_manifests").select("*").eq("user_id", user_id)
             )
             return result.data or []
         except Exception as e:
@@ -1662,7 +1710,7 @@ class PersonalKnowledgeModelService:
     async def get_index_v2(self, user_id: str) -> Optional[PersonalKnowledgeModelIndex]:
         """Get the user's PKM discovery index."""
         try:
-            query = self.supabase.table("pkm_index").select("*").eq("user_id", user_id)
+            query = self.db.table("pkm_index").select("*").eq("user_id", user_id)
             result = await self._execute_query(query)
 
             if not result.data:
@@ -1745,7 +1793,7 @@ class PersonalKnowledgeModelService:
             }
 
             await self._execute_query(
-                self.supabase.table("pkm_index").upsert(data, on_conflict="user_id")
+                self.db.table("pkm_index").upsert(data, on_conflict="user_id")
             )
             return True
         except Exception as e:
@@ -1804,7 +1852,7 @@ class PersonalKnowledgeModelService:
         """Persist manifest header + path descriptors for a user/domain pair."""
         try:
             existing_scope_query = (
-                self.supabase.table("pkm_scope_registry")
+                self.db.table("pkm_scope_registry")
                 .select("*")
                 .eq("user_id", manifest.user_id)
                 .eq("domain", manifest.domain)
@@ -1829,20 +1877,20 @@ class PersonalKnowledgeModelService:
 
             manifest_row = self._serialize_manifest(manifest)
             await self._execute_query(
-                self.supabase.table("pkm_manifests").upsert(
+                self.db.table("pkm_manifests").upsert(
                     manifest_row,
                     on_conflict="user_id,domain",
                 )
             )
 
             await self._execute_query(
-                self.supabase.table("pkm_manifest_paths")
+                self.db.table("pkm_manifest_paths")
                 .delete()
                 .eq("user_id", manifest.user_id)
                 .eq("domain", manifest.domain)
             )
             await self._execute_query(
-                self.supabase.table("pkm_scope_registry")
+                self.db.table("pkm_scope_registry")
                 .delete()
                 .eq("user_id", manifest.user_id)
                 .eq("domain", manifest.domain)
@@ -1853,7 +1901,7 @@ class PersonalKnowledgeModelService:
                     self._serialize_manifest_path(manifest, path) for path in manifest.paths
                 ]
                 await self._execute_query(
-                    self.supabase.table("pkm_manifest_paths").upsert(
+                    self.db.table("pkm_manifest_paths").upsert(
                         path_rows,
                         on_conflict="user_id,domain,json_path",
                     )
@@ -1891,7 +1939,7 @@ class PersonalKnowledgeModelService:
                         )
                     scope_rows.append(row)
                 await self._execute_query(
-                    self.supabase.table("pkm_scope_registry").upsert(
+                    self.db.table("pkm_scope_registry").upsert(
                         scope_rows,
                         on_conflict="user_id,domain,scope_handle",
                     )
@@ -1913,7 +1961,7 @@ class PersonalKnowledgeModelService:
             if not canonical_domain:
                 return None
             manifest_query = (
-                self.supabase.table("pkm_manifests")
+                self.db.table("pkm_manifests")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
@@ -1925,7 +1973,7 @@ class PersonalKnowledgeModelService:
 
             manifest_row = manifest_result.data[0]
             path_query = (
-                self.supabase.table("pkm_manifest_paths")
+                self.db.table("pkm_manifest_paths")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
@@ -1933,7 +1981,7 @@ class PersonalKnowledgeModelService:
             )
             path_rows = await self._execute_query(path_query)
             scope_query = (
-                self.supabase.table("pkm_scope_registry")
+                self.db.table("pkm_scope_registry")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
@@ -1975,7 +2023,7 @@ class PersonalKnowledgeModelService:
         try:
             canonical_domain = self._canonicalize_domain_key(domain)
             await self._execute_query(
-                self.supabase.table("pkm_events").insert(
+                self.db.table("pkm_events").insert(
                     {
                         "user_id": user_id,
                         "domain": canonical_domain or domain,
@@ -2099,7 +2147,7 @@ class PersonalKnowledgeModelService:
     ) -> list[dict]:
         """Read latest decision projections from mutation events."""
         try:
-            rows = self.supabase.execute_raw(
+            rows = self.db.execute_raw(
                 """
                 SELECT metadata, created_at
                 FROM pkm_events
@@ -3069,9 +3117,7 @@ class PersonalKnowledgeModelService:
             top_level_scope_path=normalized_path,
             reason="replaced",
         )
-        await self._execute_query(
-            self.supabase.table("pkm_default_available_projections").insert(row)
-        )
+        await self._execute_query(self.db.table("pkm_default_available_projections").insert(row))
 
         await self.record_mutation_event(
             user_id=user_id,
@@ -3106,7 +3152,7 @@ class PersonalKnowledgeModelService:
     ) -> dict[str, Any] | None:
         try:
             result = await self._execute_query(
-                self.supabase.table("pkm_default_available_projections")
+                self.db.table("pkm_default_available_projections")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("public_profile_handle", public_profile_handle)
@@ -3150,7 +3196,7 @@ class PersonalKnowledgeModelService:
             return []
         try:
             result = await self._execute_query(
-                self.supabase.table("pkm_default_available_projections")
+                self.db.table("pkm_default_available_projections")
                 .select(
                     "public_profile_handle,scope_handle,top_level_scope_path,projection_hash,"
                     "projection_version,publication_provenance,publication_confirmed_at,updated_at"
@@ -3181,7 +3227,7 @@ class PersonalKnowledgeModelService:
         now = datetime.now(UTC).isoformat()
         try:
             result = await self._execute_query(
-                self.supabase.table("pkm_default_available_projections")
+                self.db.table("pkm_default_available_projections")
                 .update({"revoked_at": now, "revoked_reason": reason, "updated_at": now})
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
@@ -3218,7 +3264,7 @@ class PersonalKnowledgeModelService:
         now = datetime.now(UTC).isoformat()
         try:
             await self._execute_query(
-                self.supabase.table("pkm_default_available_projections")
+                self.db.table("pkm_default_available_projections")
                 .update({"revoked_at": now, "revoked_reason": reason, "updated_at": now})
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
@@ -3619,7 +3665,7 @@ class PersonalKnowledgeModelService:
                 }
 
             existing_domain_blob = await self._execute_query(
-                self.supabase.table("pkm_blobs")
+                self.db.table("pkm_blobs")
                 .select("segment_id,content_revision,updated_at")
                 .eq("user_id", user_id)
                 .eq("domain", domain)
@@ -3731,7 +3777,7 @@ class PersonalKnowledgeModelService:
 
             for segment_id in sorted(existing_segment_ids - next_segment_ids):
                 await self._execute_query(
-                    self.supabase.table("pkm_blobs")
+                    self.db.table("pkm_blobs")
                     .delete()
                     .eq("user_id", user_id)
                     .eq("domain", domain)
@@ -3761,7 +3807,7 @@ class PersonalKnowledgeModelService:
                     }
                 )
             await self._execute_query(
-                self.supabase.table("pkm_blobs").upsert(
+                self.db.table("pkm_blobs").upsert(
                     segment_rows,
                     on_conflict="user_id,domain,segment_id",
                 )
@@ -3929,7 +3975,7 @@ class PersonalKnowledgeModelService:
                 )
 
             await self._execute_query(
-                self.supabase.table("pkm_migration_state").upsert(
+                self.db.table("pkm_migration_state").upsert(
                     {
                         "user_id": user_id,
                         "status": "completed",
@@ -3985,7 +4031,7 @@ class PersonalKnowledgeModelService:
         """
         try:
             result = await self._execute_query(
-                self.supabase.table("pkm_data").select("*").eq("user_id", user_id)
+                self.db.table("pkm_data").select("*").eq("user_id", user_id)
             )
 
             if not result.data:
@@ -4027,7 +4073,7 @@ class PersonalKnowledgeModelService:
                 return None
 
             domain_blob_result = await self._execute_query(
-                self.supabase.table("pkm_blobs")
+                self.db.table("pkm_blobs")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", domain)
@@ -4180,31 +4226,93 @@ class PersonalKnowledgeModelService:
         Used for account deletion / data purge.
         """
         try:
-            self.supabase.table("pkm_upgrade_claims").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_domain_commits").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_domain_revisions").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_upgrade_runs").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_upgrade_claims").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_domain_commits").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_domain_revisions").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_upgrade_runs").delete().eq("user_id", user_id).execute()
             # Delete encrypted data
-            self.supabase.table("pkm_data").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_manifest_paths").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_scope_registry").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_default_available_projections").delete().eq(
+            self.db.table("pkm_data").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_blobs").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_manifest_paths").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_scope_registry").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_default_available_projections").delete().eq(
                 "user_id", user_id
             ).execute()
-            self.supabase.table("pkm_manifests").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_events").delete().eq("user_id", user_id).execute()
-            self.supabase.table("pkm_migration_state").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_manifests").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_events").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_migration_state").delete().eq("user_id", user_id).execute()
 
             # Delete index
-            self.supabase.table("pkm_index").delete().eq("user_id", user_id).execute()
+            self.db.table("pkm_index").delete().eq("user_id", user_id).execute()
 
             return True
         except Exception as e:
             logger.error("pkm.delete_user_data.error: %s", e)
             return False
 
-    async def delete_domain_data(self, user_id: str, domain: str) -> bool:
+    async def list_device_sync_events(
+        self,
+        *,
+        user_id: str,
+        after_cursor: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Return metadata-only PKM changes for an encrypted trusted-device replica."""
+        bounded_limit = max(1, min(int(limit), 500))
+        result = await self._execute_query(
+            self.db.table("pkm_events")
+            .select("id,domain,operation_type,new_manifest_version,metadata,created_at")
+            .eq("user_id", user_id)
+            .in_(
+                "operation_type",
+                [
+                    "content_write",
+                    "upgrade_commit",
+                    "upgrade_rollback",
+                    "domain_delete",
+                ],
+            )
+            .gt("id", max(0, int(after_cursor)))
+            .order("id")
+            .limit(bounded_limit)
+        )
+        events: list[dict[str, Any]] = []
+        next_cursor = max(0, int(after_cursor))
+        for row in result.data or []:
+            if not isinstance(row, dict):
+                continue
+            event_id = self._to_non_negative_int(row.get("id"))
+            if event_id is None:
+                continue
+            metadata = self._json_object(row.get("metadata"))
+            events.append(
+                {
+                    "cursor": event_id,
+                    "domain": self._canonicalize_domain_key(row.get("domain")),
+                    "operation": (
+                        "delete" if row.get("operation_type") == "domain_delete" else "upsert"
+                    ),
+                    "content_revision": self._to_non_negative_int(metadata.get("data_version")),
+                    "manifest_revision": self._to_non_negative_int(row.get("new_manifest_version")),
+                    "created_at": row.get("created_at"),
+                }
+            )
+            next_cursor = max(next_cursor, event_id)
+        return {
+            "events": events,
+            "next_cursor": next_cursor,
+            "has_more": len(events) == bounded_limit,
+        }
+
+    async def delete_domain_data(
+        self,
+        user_id: str,
+        domain: str,
+        *,
+        expected_data_version: int | None = None,
+        mutation_plan: dict[str, Any] | None = None,
+        return_result: bool = False,
+    ) -> bool | dict[str, Any]:
         """
         Delete a specific domain from user's PKM.
 
@@ -4225,16 +4333,69 @@ class PersonalKnowledgeModelService:
             if not domain:
                 logger.warning("Empty domain requested for delete_domain_data user=%s", user_id)
                 return True
-            rpc_result = await self._run_rpc(
-                "delete_pkm_domain_v2",
-                {"p_user_id": user_id, "p_domain": domain},
+            if expected_data_version is None or mutation_plan is None:
+                rpc_result = await self._run_rpc(
+                    "delete_pkm_domain_v2",
+                    {"p_user_id": user_id, "p_domain": domain},
+                )
+                payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v2")
+                result = {"success": bool(payload), "conflict": False}
+                return result if return_result else bool(payload)
+
+            normalized_plan = PkmMutationPlanV2.model_validate(mutation_plan)
+            validate_mutation_plan_for_write(
+                plan=normalized_plan,
+                authenticated_user_id=user_id,
+                domain=domain,
             )
-            payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v2")
-            return bool(payload)
+            if normalized_plan.operation != "delete":
+                raise ValueError("domain_delete_requires_delete_mutation_plan")
+
+            manifest_row = await self.get_domain_manifest(user_id, domain)
+            manifest = DomainManifest(
+                user_id=user_id,
+                domain=domain,
+                manifest_version=self._to_non_negative_int(
+                    (manifest_row or {}).get("manifest_version")
+                )
+                or 1,
+                top_level_scope_paths=self._normalize_string_list(
+                    (manifest_row or {}).get("top_level_scope_paths")
+                ),
+                externalizable_paths=self._normalize_string_list(
+                    (manifest_row or {}).get("externalizable_paths")
+                ),
+            )
+            refresh_tokens = await self._continuous_refresh_tokens_for_domain_write(
+                user_id=user_id,
+                domain=domain,
+                manifest=manifest,
+            )
+            trigger_paths = sorted(
+                set(manifest.top_level_scope_paths + manifest.externalizable_paths)
+            )
+            rpc_result = await self._run_rpc(
+                "delete_pkm_domain_v3",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": domain,
+                    "p_expected_content_revision": max(0, int(expected_data_version)),
+                    "p_refresh_tokens": refresh_tokens,
+                    "p_trigger_paths": JsonParam(trigger_paths),
+                },
+            )
+            payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v3")
+            result = payload if isinstance(payload, dict) else {"success": False, "conflict": False}
+            return result if return_result else bool(result.get("success"))
 
         except Exception as e:
             logger.error("pkm.delete_domain.error domain=%s: %s", domain, e)
-            return False
+            result = {
+                "success": False,
+                "conflict": False,
+                "code": "PKM_DELETE_DOMAIN_ERROR",
+            }
+            return result if return_result else False
 
     async def reconcile_user_index_domains(
         self,
@@ -4356,7 +4517,7 @@ class PersonalKnowledgeModelService:
     async def update_activity(self, user_id: str) -> bool:
         """Update user's last active timestamp."""
         try:
-            self.supabase.table("pkm_index").upsert(
+            self.db.table("pkm_index").upsert(
                 {
                     "user_id": user_id,
                     "last_active_at": datetime.now(UTC).isoformat(),

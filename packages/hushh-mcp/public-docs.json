@@ -4,6 +4,32 @@
   "noticeSummary": "The published npm package ships package-local LICENSE and NOTICE files for Apache redistribution.",
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
   "mcpProtocolRevision": "2025-11-25",
+  "authentication": {
+    "discoveryUrl": "https://api.uat.hushh.ai/.well-known/oauth-authorization-server",
+    "authorizationEndpoint": "https://api.uat.hushh.ai/oauth/authorize",
+    "tokenEndpoint": "https://api.uat.hushh.ai/oauth/token",
+    "revocationEndpoint": "https://api.uat.hushh.ai/oauth/revoke",
+    "scope": "mcp:tools",
+    "bearerHeader": "Authorization: Bearer <access-token>",
+    "queryTokensAllowed": false,
+    "selfServeMethods": [
+      {
+        "id": "developer-token",
+        "label": "Developer token",
+        "detail": "A long-lived app credential created or rotated in the signed-in developer workspace."
+      },
+      {
+        "id": "authorization-code",
+        "label": "OAuth authorization code",
+        "detail": "Authorization code with S256 PKCE, exact registered redirect URIs, rotating refresh tokens, and revocation."
+      }
+    ],
+    "partnerOnlyMethod": {
+      "id": "client-credentials",
+      "label": "OAuth client credentials",
+      "detail": "Operations-provisioned partner_crm integrations only. This grant is not self-serve and does not issue refresh tokens."
+    }
+  },
   "promotedEnvironment": {
     "label": "UAT",
     "appUrl": "https://uat.one.hushh.ai",

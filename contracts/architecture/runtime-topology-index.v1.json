@@ -647,7 +647,7 @@
       "id": "connected_system_audit",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification"
+      "primary_access_path": "Connected Systems read/create/update approval audit, owner-confirmed local disconnect, and CRM readback result classification"
     },
     {
       "data_class": "workflow_state",
@@ -732,6 +732,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "feed_events"
+      ],
+      "id": "feed_events",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking"
     },
     {
       "data_class": "audit_regulated",
@@ -928,6 +938,16 @@
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pwm_documents"
+      ],
+      "id": "preference_world_model",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)"
+    },
+    {
       "data_class": "reference",
       "exact_tables": [
         "investor_profiles",
@@ -957,6 +977,36 @@
       "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "fabric_subscription_grants"
+      ],
+      "id": "subscription_fabric_grants",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PCHP RFC-002 subscription grants: owner-issued, subscriber-scoped read access to PWM fields (/api/fabric/grants)"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "fabric_receipts"
+      ],
+      "id": "subscription_fabric_receipts",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "fabric_consent_requests"
+      ],
+      "id": "subscription_fabric_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "brand-initiated PCHP RFC-002 pairing requests: create, code lookup, approve/deny, single handle claim (/api/fabric/requests)"
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "trusted_connections"
@@ -965,6 +1015,37 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight."
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "trusted_device_audit_events"
+      ],
+      "id": "trusted_device_audit",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Metadata-only trusted-device authorization, challenge, capability issuance, use, and revocation audit events written by TrustedDeviceService."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "trusted_device_authorizations",
+        "trusted_device_challenges"
+      ],
+      "id": "trusted_device_authorization_workflows",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived PKCE authorization codes and single-use proof-of-possession challenges consumed atomically through TrustedDeviceService."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "trusted_devices"
+      ],
+      "id": "trusted_device_registry",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used tracking, and revocation through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
@@ -976,7 +1057,7 @@
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 118 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 117. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -2075,6 +2156,29 @@
           "agent_nav"
         ],
         "playbook_id": "route.consents"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-feed",
+      "page_file": "app/one/feed/page.tsx",
+      "pathname": "/one/feed",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.feed"
       }
     },
     {
@@ -3343,6 +3447,52 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/security/devices/page.tsx",
+      "pathname": "/one/profile/security/devices",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.security.devices"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/security/devices/authorize/page.tsx",
+      "pathname": "/one/profile/security/devices/authorize",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.security.devices.authorize"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/security/session/page.tsx",
       "pathname": "/one/profile/security/session",
       "route_mode": "standard",
@@ -4231,15 +4381,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "afac5b3a07a1ec2e6ab4f87231b37edb81a0d771daae2cf4900dd6fb9a35f049",
-    "agent_registry": "7cd4e5facd8671943c46de4e91cfe306160f4322b9bdc020d305c4145e88145f",
-    "cache_manifest": "2cdf307a25efe39a9635368fe20550614724dfa7e46f57b65119c02eb07ed9d8",
-    "data_plane": "e9b58b929a6b94ec1a775b0666ca8291b5feec01eb4cb6ed68dce1721cf8ada0",
+    "action_gateway": "147e4b3faab35a337714f4aa191e57c453645f1f03e656f7e75b7d7a9c3ed014",
+    "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
+    "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
+    "data_plane": "5ecbe183a5ef9ebda44b94a357322fc64288860d713ea85bd9d43288cfd60b7b",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "136444f22def3c00a9e0baa323b42074072dd8b17802f1f1644fd00fc12e74d2",
-    "route_layout": "e8b17d619c2e741ecc03634daeb56ef4d28a2c51250bb859b7d0dff4be95f57e",
-    "surface_map": "251c9341804fc683d6a5baec2c65058a17351617af9490209252e5da2a0261b6",
+    "route_index": "f293d17e7d739acf3052aba9436829df846d059e980395de733596bb23b95338",
+    "route_layout": "ec5c36519d39337986cd72767030ef180b36d7b7216fcca515d8fe971f365b47",
+    "surface_map": "47b0541524ea256465b3f0d82b2908abd31f637bd460749d8b2e0d0fd8032f28",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4251,8 +4401,8 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 112,
+    "physical_routes": 115,
     "semantic_routes": 14,
-    "table_families": 33
+    "table_families": 41
   }
 }

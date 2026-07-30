@@ -22,6 +22,8 @@ export const ROUTE_ID_VALUES = [
   "profile_security",
   "profile_security_vault",
   "profile_security_session",
+  "profile_security_devices",
+  "profile_security_device_authorize",
   "profile_my_data",
   "profile_my_data_domain",
   "profile_access",
@@ -42,6 +44,7 @@ export const ROUTE_ID_VALUES = [
   "profile_gmail_oauth_return",
   "oauth_authorize",
   "consents",
+  "feed",
   "agent",
   "connect",
   "connect_settings",
@@ -119,6 +122,10 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_security_vault";
   if (pathname === ROUTES.PROFILE_SECURITY_SESSION)
     return "profile_security_session";
+  if (pathname === ROUTES.PROFILE_SECURITY_DEVICES)
+    return "profile_security_devices";
+  if (pathname === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE)
+    return "profile_security_device_authorize";
   if (pathname === ROUTES.PROFILE_MY_DATA) return "profile_my_data";
   if (pathname === ROUTES.PROFILE_MY_DATA_DOMAIN)
     return "profile_my_data_domain";
@@ -162,6 +169,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return "consents";
   }
+  if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";

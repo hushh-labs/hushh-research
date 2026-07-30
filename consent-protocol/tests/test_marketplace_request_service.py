@@ -1,6 +1,6 @@
 """Tests for durable marketplace access-request persistence.
 
-Injects a fake Supabase client (chainable query stub) so the shaping and the
+Injects a fake Cloud SQL client (chainable query stub) so the shaping and the
 owner-scoped resolve logic are covered without a real database.
 """
 
@@ -100,7 +100,7 @@ class _FakeDB:
 def _service_with(result_data) -> tuple[MarketplaceRequestService, _FakeDB]:
     svc = MarketplaceRequestService()
     fake = _FakeDB(_FakeResult(result_data))
-    svc._supabase = fake
+    svc._db = fake
     return svc, fake
 
 

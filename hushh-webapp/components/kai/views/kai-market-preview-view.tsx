@@ -32,10 +32,13 @@ import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR } from "@/components/app-ui/swipe-views";
+import { SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR } from "@/lib/morphy-ux/ui/swipe-views";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
-import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
+import {
+  getCompanyLogoUrl,
+  SymbolAvatar,
+} from "@/components/kai/shared/symbol-avatar";
 import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
 import {
   type MarketOverviewDetailPanel,
@@ -162,15 +165,13 @@ const oneMarketRootClassName = cn(
   "bg-transparent font-sans text-[color:var(--one-fg)] antialiased",
   // The page background always matches the app shell (--background) so the
   // route never paints its own lighter panel inside the shell (the "double
-  // layout" partition). Cards/surfaces are background-derived elevations.
-  "[--one-bg:var(--background)] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:var(--background)]",
-  "dark:[--one-card:color-mix(in_oklab,var(--background)_88%,white)]",
-  "dark:[--one-surface:color-mix(in_oklab,var(--background)_88%,white)]",
-  "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
-  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
-  "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
-  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
+  // layout" partition). Cards/surfaces/text route through the same
+  // --app-card-*/--foundation-* tokens Profile, Consent, and Feed use, so
+  // Kai's edges/shadows/text match those refined surfaces instead of a
+  // route-local palette.
+  "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
+  "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
+  "[--one-fg:var(--foreground)] [--one-fg2:var(--muted-foreground)] [--one-fg3:color-mix(in_oklab,var(--muted-foreground)_82%,transparent)]",
   "[--one-blue:var(--app-accent)] [--one-link:var(--app-accent-deep)]",
   "dark:[--one-blue:var(--app-accent)] dark:[--one-link:var(--app-accent-deep)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
@@ -589,7 +590,7 @@ function OneMarketIndexStrip({
           type="button"
           onClick={() => onMetricSelect(metric)}
           aria-label={`Open ${metric.label} details`}
-          className="w-[132px] shrink-0 rounded-2xl bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)] transition-transform duration-200 active:scale-[0.985] sm:w-full"
+          className="w-[132px] shrink-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-200 active:scale-[0.985] sm:w-full"
         >
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[12px] font-medium text-[color:var(--one-fg2)]">
@@ -642,7 +643,7 @@ function OneMarketMoverMetric({
 
   if (!row) {
     return (
-      <div className="min-w-0 rounded-2xl bg-[color:var(--one-card)] px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+      <div className="min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-4 py-3 shadow-[var(--app-card-shadow-standard)]">
         <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-fg3)]">
           {label}
         </span>
@@ -661,14 +662,20 @@ function OneMarketMoverMetric({
           buildKaiMarketRoute("analysis", { symbol: row.symbol }),
         )
       }
-      className="min-w-0 rounded-2xl bg-[color:var(--one-card)] px-4 py-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)] transition-colors active:bg-[color:var(--one-surface)]"
+      className="min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-4 py-3 text-left shadow-[var(--app-card-shadow-standard)] transition-colors active:bg-[color:var(--one-surface)]"
     >
       <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-fg3)]">
         {label}
       </span>
-      <span className="mt-1 flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[16px] font-semibold text-[color:var(--one-fg)]">
-          {row.symbol}
+      <span className="mt-2 flex items-center gap-2.5">
+        <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-[color:var(--one-fg)]">
+            {row.companyName}
+          </span>
+          <span className="mt-0.5 block truncate text-[12px] text-[color:var(--one-fg3)]">
+            {row.symbol}
+          </span>
         </span>
         <span
           className={cn(
@@ -678,9 +685,6 @@ function OneMarketMoverMetric({
         >
           {formatOneMarketPercent(row.changePct)}
         </span>
-      </span>
-      <span className="mt-0.5 block truncate text-[12px] text-[color:var(--one-fg3)]">
-        {row.companyName}
       </span>
     </button>
   );
@@ -831,7 +835,7 @@ function SectorRotationChart({ rows }: { rows: KaiHomeSectorItem[] }) {
 function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
   if (!rows.length) {
     return (
-      <div className="rounded-[18px] border border-[color:var(--one-line)] bg-[color:var(--one-card)] px-4 py-5 text-sm text-[color:var(--one-fg2)]">
+      <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--one-line)] bg-[color:var(--one-card)] px-4 py-5 text-sm text-[color:var(--one-fg2)]">
         Headlines will appear here when a market source is available.
       </div>
     );
@@ -851,7 +855,7 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
             key={`${row.symbol}-${index}-${row.url}`}
             type="button"
             onClick={() => openOneMarketHref(row.url)}
-            className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-[color:var(--one-card)] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.22)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.26)] active:scale-[0.985] sm:w-[300px]"
+            className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[var(--app-card-radius-feature)] bg-[color:var(--one-card)] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[var(--app-card-shadow-feature)] active:scale-[0.985] sm:w-[300px]"
           >
             <OneMarketNewsCover row={row} index={index} />
             <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">
@@ -2186,6 +2190,8 @@ export function KaiMarketPreviewView() {
         : [],
     [effectivePayload],
   );
+  const OverviewDetailIcon = retainedOverviewMetric?.icon || LineChart;
+
   return (
     <div
       className={oneMarketRootClassName}
@@ -2256,132 +2262,132 @@ export function KaiMarketPreviewView() {
         />
 
         <AppPageContentRegion>
-        <OneMarketIndexStrip
-          metrics={indexStripItems}
-          onMetricSelect={(metric) =>
-            setSelectedOverviewMetricId(metric.id || metric.label)
-          }
-        />
+          <OneMarketIndexStrip
+            metrics={indexStripItems}
+            onMetricSelect={(metric) =>
+              setSelectedOverviewMetricId(metric.id || metric.label)
+            }
+          />
 
-        {displayLoading && !hasPayload ? (
-          <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-            <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-[18px] bg-[color:var(--one-card)] p-5 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <p>Loading your market view.</p>
+          {displayLoading && !hasPayload ? (
+            <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+              <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-5 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <p>Loading your market view.</p>
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {displayError && !hasPayload ? (
-          <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-            <div className="space-y-3 rounded-[18px] bg-[color:var(--one-card)] p-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
-              <div className="flex items-center gap-2 text-[color:var(--one-down)]">
-                <AlertTriangle className="h-4 w-4" />
-                <p className="text-[14px] font-semibold">
-                  Failed to load market home
+          {displayError && !hasPayload ? (
+            <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+              <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-left shadow-[var(--app-card-shadow-standard)]">
+                <div className="flex items-center gap-2 text-[color:var(--one-down)]">
+                  <AlertTriangle className="h-4 w-4" />
+                  <p className="text-[14px] font-semibold">
+                    Failed to load market home
+                  </p>
+                </div>
+                <p className="text-[12px] leading-relaxed text-[color:var(--one-fg2)]">
+                  {displayError}
                 </p>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => void loadInsights({ manual: true })}
+                >
+                  Retry
+                </Button>
               </div>
-              <p className="text-[12px] leading-relaxed text-[color:var(--one-fg2)]">
-                {displayError}
-              </p>
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => void loadInsights({ manual: true })}
-              >
-                Retry
-              </Button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {displayError && hasPayload ? (
-          <div className="mx-auto mt-5 w-full max-w-[1080px] px-[var(--one-gutter)]">
-            <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[color:var(--one-card)] p-3 text-left text-[12px] text-[color:var(--one-fg2)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
-              <span className="flex min-w-0 items-center gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[color:var(--one-down)]" />
-                <span className="truncate">
-                  Showing saved data. Couldn&apos;t refresh just now.
+          {displayError && hasPayload ? (
+            <div className="mx-auto mt-5 w-full max-w-[1080px] px-[var(--one-gutter)]">
+              <div className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-3 text-left text-[12px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
+                <span className="flex min-w-0 items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[color:var(--one-down)]" />
+                  <span className="truncate">
+                    Showing saved data. Couldn&apos;t refresh just now.
+                  </span>
                 </span>
-              </span>
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => void loadInsights({ manual: true })}
-              >
-                Retry
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {hasPayload ? (
-          <>
-            <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <RiaPicksList
-                rows={riaPickRows}
-                sources={pickSources}
-                activeSourceId={activePickSource}
-                onSourceChange={handlePickSourceChange}
-                controlMode="adaptive-surface"
-              />
-            </section>
-
-            <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader
-                title="Top movers"
-                icon={ChartColumnIncreasing}
-                tone="orange"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <OneMarketMoverMetric
-                  label="Top mover"
-                  row={moverGroups.gain[0]}
-                  tone="up"
-                />
-                <OneMarketMoverMetric
-                  label="Top loser"
-                  row={moverGroups.lose[0]}
-                  tone="down"
-                />
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => void loadInsights({ manual: true })}
+                >
+                  Retry
+                </Button>
               </div>
-            </section>
+            </div>
+          ) : null}
 
-            <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader
-                title="Market news"
-                icon={Newspaper}
-                tone="teal"
-                actionLabel="All news"
-                actionHref={ROUTES.KAI_NEWS}
-              />
-              <OneMarketNewsCards rows={marketNewsRows} />
-            </section>
+          {hasPayload ? (
+            <>
+              <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+                <RiaPicksList
+                  rows={riaPickRows}
+                  sources={pickSources}
+                  activeSourceId={activePickSource}
+                  onSourceChange={handlePickSourceChange}
+                  controlMode="adaptive-surface"
+                />
+              </section>
 
-            {sectorRotationRows.length ? (
               <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
                 <OneMarketSectionHeader
-                  title="Sector rotation"
+                  title="Top movers"
                   icon={ChartColumnIncreasing}
-                  tone="indigo"
+                  tone="orange"
                 />
-                <div className="rounded-2xl bg-[color:var(--one-card)] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
-                  <SectorRotationChart rows={sectorRotationRows} />
+                <div className="grid grid-cols-2 gap-3">
+                  <OneMarketMoverMetric
+                    label="Top mover"
+                    row={moverGroups.gain[0]}
+                    tone="up"
+                  />
+                  <OneMarketMoverMetric
+                    label="Top loser"
+                    row={moverGroups.lose[0]}
+                    tone="down"
+                  />
                 </div>
               </section>
-            ) : null}
 
-            {showConnectPortfolio ? (
               <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-                <PermissionGate permission="portfolio_valuation">
-                  <ConnectPortfolioCta />
-                </PermissionGate>
+                <OneMarketSectionHeader
+                  title="Market news"
+                  icon={Newspaper}
+                  tone="teal"
+                  actionLabel="All news"
+                  actionHref={ROUTES.KAI_NEWS}
+                />
+                <OneMarketNewsCards rows={marketNewsRows} />
               </section>
-            ) : null}
-          </>
-        ) : null}
+
+              {sectorRotationRows.length ? (
+                <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+                  <OneMarketSectionHeader
+                    title="Sector rotation"
+                    icon={ChartColumnIncreasing}
+                    tone="indigo"
+                  />
+                  <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 shadow-[var(--app-card-shadow-standard)]">
+                    <SectorRotationChart rows={sectorRotationRows} />
+                  </div>
+                </section>
+              ) : null}
+
+              {showConnectPortfolio ? (
+                <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+                  <PermissionGate permission="portfolio_valuation">
+                    <ConnectPortfolioCta />
+                  </PermissionGate>
+                </section>
+              ) : null}
+            </>
+          ) : null}
         </AppPageContentRegion>
       </div>
 
@@ -2390,7 +2396,13 @@ export function KaiMarketPreviewView() {
         onOpenChange={(open) => {
           if (!open) setSelectedOverviewMetricId(null);
         }}
-        eyebrow={retainedOverviewMetric?.detailPanel?.eyebrow}
+        leading={
+          retainedOverviewMetric ? (
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]">
+              <OverviewDetailIcon className="h-5 w-5" aria-hidden="true" />
+            </span>
+          ) : null
+        }
         title={retainedOverviewMetric?.detailPanel?.title || "Overview detail"}
         description={retainedOverviewMetric?.detailPanel?.summary}
         surfaceClassName={marketSurfaceVariablesClassName}

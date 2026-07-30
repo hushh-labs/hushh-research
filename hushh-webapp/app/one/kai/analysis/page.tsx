@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -23,9 +23,10 @@ import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-vie
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
@@ -168,7 +169,16 @@ export function KaiAnalysisPageContent() {
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
   const [historyCount, setHistoryCount] = useState(0);
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
+  // Landing shows the summary "table"; debate is its own ?view=debate route.
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("summary");
+  const workspaceTabOptions = useMemo(
+    () => [
+      { value: "debate", label: "Debate" },
+      { value: "summary", label: "Summary" },
+      { value: "detailed", label: "Detailed View" },
+    ],
+    [],
+  );
   const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
@@ -420,12 +430,41 @@ export function KaiAnalysisPageContent() {
     [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
-  const handleWorkspaceTabChange = useCallback((value: string) => {
-    setWorkspaceTab(value as WorkspaceTab);
-    requestAnimationFrame(() => {
-      workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-    });
-  }, []);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+  const setWorkspaceView = useCallback(
+    (value: WorkspaceTab) => {
+      setWorkspaceTab(value);
+      const params = new URLSearchParams(searchParamsRef.current.toString());
+      const onDebateRoute = params.get("view") === "debate";
+      if (value === "debate") {
+        // Debate is its own back-navigable route under Analysis.
+        params.set("view", "debate");
+        router.push(
+          buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+          { scroll: false },
+        );
+      } else if (onDebateRoute) {
+        // Leaving the debate route returns to the summary/detailed table.
+        params.delete("view");
+        router.replace(
+          buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+          { scroll: false },
+        );
+      }
+      // summary <-> detailed within the table view stays local-only state.
+    },
+    [router],
+  );
+  const handleWorkspaceTabChange = useCallback(
+    (value: string) => {
+      setWorkspaceView(value as WorkspaceTab);
+      requestAnimationFrame(() => {
+        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      });
+    },
+    [setWorkspaceView],
+  );
 
   const handleLiveDecisionReady = useCallback(
     (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
@@ -791,15 +830,15 @@ export function KaiAnalysisPageContent() {
     return { status: "succeeded", summary: "Analysis history opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_debate_tab", () => {
-    setWorkspaceTab("debate");
-    return { status: "succeeded", summary: "Debate tab opened." };
+    setWorkspaceView("debate");
+    return { status: "succeeded", summary: "Debate opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_summary_tab", () => {
-    setWorkspaceTab("summary");
+    setWorkspaceView("summary");
     return { status: "succeeded", summary: "Summary tab opened." };
   });
   useLocalOnboardingActionHandler("analysis.open_detailed_tab", () => {
-    setWorkspaceTab("detailed");
+    setWorkspaceView("detailed");
     return { status: "succeeded", summary: "Detailed analysis opened." };
   });
   useLocalOnboardingActionHandler("analysis.cancel_active", () => {
@@ -1082,24 +1121,23 @@ export function KaiAnalysisPageContent() {
               </div>
               </SurfaceCardContent>
             </SurfaceCard>
-            <Tabs
-              value={workspaceTab}
-              onValueChange={handleWorkspaceTabChange}
-              className="w-full min-w-0 max-w-full"
-            >
+            <div className="w-full min-w-0 max-w-full">
               <div className="mx-auto flex justify-center w-full" style={APP_MEASURE_STYLES.reading}>
                 <SegmentedTabs
                   value={workspaceTab}
                   onValueChange={handleWorkspaceTabChange}
-                  options={[
-                    { value: "debate", label: "Debate" },
-                    { value: "summary", label: "Summary" },
-                    { value: "detailed", label: "Detailed View" },
-                  ]}
+                  options={workspaceTabOptions}
                   className="mx-auto w-full"
                 />
               </div>
-              <TabsContent value="debate" className="mt-4 min-w-0 max-w-full data-[state=inactive]:hidden" forceMount>
+              <SwipeViews
+                tabSetId="analysis-workspace"
+                activeValue={workspaceTab}
+                options={workspaceTabOptions}
+                onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
+                onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
+              >
+              <div className="mt-4 min-w-0 max-w-full">
                 {activeRunTask ? (
                   <DebateStreamView
                     runId={activeRunTask.runId}
@@ -1160,8 +1198,8 @@ export function KaiAnalysisPageContent() {
                     {toInvestorMessage("ANALYSIS_UNAVAILABLE", { ticker: activeTicker })}
                   </div>
                 )}
-              </TabsContent>
-              <TabsContent value="summary" className="mt-4 min-w-0 max-w-full">
+              </div>
+              <div className="mt-4 min-w-0 max-w-full">
                 {activeEntry ? (
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
@@ -1197,8 +1235,8 @@ export function KaiAnalysisPageContent() {
                     Your summary will appear as soon as the first recommendation is ready.
                   </div>
                 )}
-              </TabsContent>
-              <TabsContent value="detailed" className="mt-4 min-w-0 max-w-full">
+              </div>
+              <div className="mt-4 min-w-0 max-w-full">
                 {activeEntry ? (
                   <HistoryDetailView
                     entry={activeEntry}
@@ -1213,8 +1251,9 @@ export function KaiAnalysisPageContent() {
                     Detailed analysis will appear once the first recommendation is complete.
                   </div>
                 )}
-              </TabsContent>
-            </Tabs>
+              </div>
+              </SwipeViews>
+            </div>
               </SurfaceStack>
             </div>
           </AppPageContentRegion>
@@ -1245,22 +1284,35 @@ export function KaiAnalysisPageContent() {
             <SurfaceStack compact className="min-w-0 max-w-full">
           {analysisSuggestions.length > 0 ? (
             <SurfaceCard className="w-full">
-              <SurfaceCardContent className="flex flex-wrap items-center gap-2 px-3 py-3">
-                <span className="mr-1 text-xs font-medium text-muted-foreground">
-                  Research starters
-                </span>
-                {analysisSuggestions.map((suggestion) => (
-                  <MorphyButton
-                    key={suggestion.symbol}
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    className="h-8 rounded-full border border-border/70 px-3 text-xs text-foreground hover:bg-muted"
-                    onClick={() => handleSelectTicker(suggestion.symbol)}
-                  >
-                    Analyze {suggestion.symbol}
-                  </MorphyButton>
-                ))}
+              <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => openKaiCommandBar()}
+                  className="flex h-9 w-full items-center gap-2 rounded-full border border-border/70 px-3.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted"
+                >
+                  <Icon icon={Search} size="sm" className="shrink-0" />
+                  Search any stock to analyze
+                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="mr-1 text-xs font-medium text-muted-foreground">
+                    Research starters
+                  </span>
+                  {analysisSuggestions.map((suggestion) => (
+                    <MorphyButton
+                      key={suggestion.symbol}
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      className="h-8 rounded-full border border-border/70 pl-1.5 pr-3 text-xs text-foreground hover:bg-muted"
+                      onClick={() => handleSelectTicker(suggestion.symbol)}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <SymbolAvatar symbol={suggestion.symbol} size="sm" />
+                        {suggestion.symbol}
+                      </span>
+                    </MorphyButton>
+                  ))}
+                </div>
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}

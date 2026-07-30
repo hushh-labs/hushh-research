@@ -29,7 +29,9 @@ describe("Navbar bottom chrome contract", () => {
     const providers = read("app/providers.tsx");
 
     expect(navbar).toContain("const bottomNavWidth =");
-    expect(navbar).toContain('"min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"');
+    expect(navbar).toContain(
+      '"min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"',
+    );
     expect(navbar).toContain("style={{ width: bottomNavWidth }}");
     expect(navbar).not.toContain('data-testid="bottom-agent-trigger"');
 
@@ -42,7 +44,7 @@ describe("Navbar bottom chrome contract", () => {
     // persistent Agent Bar also exposes a direct Agent Chat entry point.
     expect(agentBar).toContain('data-testid="one-agent-chat-open"');
     expect(agentBar).toContain("onClick={openAgentChat}");
-    expect(agentBar).toContain('aria-label={`Open Agent Chat. ${hint}`}');
+    expect(agentBar).toContain("aria-label={`Open Agent Chat. ${hint}`}");
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
     expect(agentBar).toContain("Talk to One");
@@ -50,7 +52,9 @@ describe("Navbar bottom chrome contract", () => {
       'data-native-voice-control-id="one_voice_agent_bar_start"',
     );
     expect(agentBar).toContain("onClick={handleVoiceStartClick}");
-    expect(agentBar).toContain("aria-label={`Start a voice conversation. ${hint}`}");
+    expect(agentBar).toContain(
+      "aria-label={`Start a voice conversation. ${hint}`}",
+    );
     expect(agentBar).toContain("MessageCircle");
     expect(agentBar).toContain("loading: authLoading");
     expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
@@ -65,9 +69,7 @@ describe("Navbar bottom chrome contract", () => {
     const bottomChromeMotion = read(
       "lib/navigation/kai-bottom-chrome-visibility.ts",
     );
-    expect(bottomChromeMotion).toContain(
-      "Follow the thumb directly",
-    );
+    expect(bottomChromeMotion).toContain("Follow the thumb directly");
     expect(agentBar).not.toContain('aria-label="Talk to your agent"');
     expect(agentBar).not.toContain("<Mic");
 
@@ -91,7 +93,9 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).not.toContain("<AgentBar />");
     expect(bottomShell).toContain("export function AppBottomShell");
     expect(bottomShell).not.toContain("AmbientChromeController");
-    expect(bottomShell).toContain('<AmbientChromeMask\n          edge="bottom"');
+    expect(bottomShell).toContain(
+      '<AmbientChromeMask\n          edge="bottom"',
+    );
     expect(bottomShell).not.toContain("useKaiBottomChromeElementTranslation");
     expect(bottomShell).toContain("snapKaiBottomChromeVisible");
     expect(bottomShell).toContain("onPointerDownCapture");
@@ -101,7 +105,9 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("data-bottom-shell-navigation-slot");
     expect(bottomShell).toContain("--bottom-nav-travel");
     expect(bottomShell).toContain("data-app-bottom-shell");
-    expect(bottomShell).toContain('<Navbar shellNavigationHidden={model.navigationHidden} layout="slot"');
+    expect(bottomShell).toMatch(
+      /<Navbar\s+shellNavigationHidden=\{model\.navigationHidden\}\s+layout="slot"/,
+    );
     expect(bottomShell).toContain('<AgentBar layout="slot" />');
     expect(bottomShell).toContain("items-center gap-1.5");
     expect(agentBar).toContain('? "h-10 rounded-[1.25rem] px-2"');

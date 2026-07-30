@@ -25,7 +25,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
-5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition.
+5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition. The paired swipeable content pager is `SwipeViews` at `@/lib/morphy-ux/ui/swipe-views` (see Lean Route Headers And Responsive Lists below) — use it instead of a new carousel/tab-content implementation whenever a page has more than one locally-selectable view.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 8. `AppPageShell` and `FullscreenFlowShell` own the route container contract; feature files must not replace that contract with route-local `max-w-* mx-auto px-*` wrappers.
@@ -202,12 +202,15 @@ canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
 Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a blur-free sampled
-tint and feathered dissolve; the top mask keeps the shell legible through its
-tab stack before fading into content. Those edges must remain present on mobile
-and desktop wherever the signed-in top/bottom shell is present.
+`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
+feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
+filter; the top mask keeps the shell legible through its visible tab stack and
+moves its dissolve with header collapse. The bottom mask contracts with the
+scroll-hidden navigation slot while retaining the Agent Bar tail. Those edges
+must remain present on mobile and desktop wherever the signed-in top/bottom
+shell is present.
 
-Persistent chrome text and icons inherit the sampled ambient foreground through
+Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
 `text-muted-foreground` classes. Lucide icons use the shared
 `--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
@@ -217,6 +220,24 @@ The top shell’s Finance, Location, Consent Center, and public Explore tab sets
 use equal fixed tracks from the central registry. They remain visible and
 interactive above the ambient mask on every responsive surface; route bodies
 may supply only the paired pager, never another tab row.
+
+`SwipeViews` (`@/lib/morphy-ux/ui/swipe-views`) is that paired pager and the
+one canonical primitive for any route or panel with more than one
+locally-selectable content view, whether the selection is query-backed
+(Finance, Location, Consent Center, the Analysis workspace's Debate/Summary/
+Detailed split) or purely local state (Marketplace, Profile's PKM Agent Lab).
+It keeps every pane mounted (`aria-hidden`, never unmounted) and reports
+selection in two stages — `onSelectionChange` fires immediately for the
+visible pill/underline, `onSelectionCommit` fires after the drag settles for
+the URL or state write that should not sit in the pointer/scroll hot path.
+Use `panelInset="page"` when the surrounding shell has cancelled its own
+gutter (Finance/Location's full-bleed layout); use the default
+`panelInset="none"` when the shell already provides normal padding
+(Marketplace, Profile, Analysis, Consent Center). Do not build a new
+swipeable-pane implementation, and do not reach for the stock shadcn
+`components/ui/carousel` for tab content — `SwipeViews` is the only one with
+the tab-underline swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
+that the top shell's pill relies on.
 
 Motion has one standard content-enter expression across One and every
 specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
@@ -228,3 +249,24 @@ fallback into a separate motion language. High-churn rails and tables opt out
 of automatic enters and may animate a stable inner layout root only.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
+
+## Bounded Managers And Decision Sheets
+
+Tabbed managers with a dense row rail (including Consent Center) keep their list
+surface within the available viewport between the shared top tabs and bottom
+chrome. The toolbar and pagination are fixed inside that surface; only the row
+rail scrolls with `overscroll-contain`. Keep server pagination authoritative and
+reachable, rather than expanding a page of rows beyond a mobile viewport.
+
+Consent request review uses `AdaptiveDetailSurface`/`SettingsDetailPanel` as the
+single record-detail owner. On mobile, a direct decision may opt into the
+canonical bottom `SheetContent` transport: it retains the drag handle, scroll
+handoff, velocity dismissal, focus, Escape, and outside-click behavior. Such a
+sheet may omit the redundant X only when those paths remain available. Its body
+is a flat key/value definition list followed by the decision controls—never a
+second `Request details` heading, explanatory subheader, or nested detail card.
+
+Counterparty identity media uses the supplied image when available; the fallback
+is a compact type-specific glyph with initials inside a token-based, theme-safe
+well. Do not use light-only hard-coded brand hues, favicon inference, or status
+color as the sole identifier.

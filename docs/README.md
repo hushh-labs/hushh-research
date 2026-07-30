@@ -56,6 +56,7 @@ The canonical brand rule lives in [reference/operations/brand-and-compatibility-
 Start here:
 
 - [../README.md](../README.md): product and repo orientation
+- [project_context_map.md](./project_context_map.md): where things live — the seven platform layers mapped to their real repo anchors, plus the four non-negotiables
 - [guides/getting-started.md](./guides/getting-started.md): first-run path
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
 - [reference/README.md](./reference/README.md): execution-owned current reference hub and docs classification model

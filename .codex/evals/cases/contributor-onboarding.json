@@ -1,0 +1,29 @@
+{
+  "skill_name": "contributor-onboarding",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "new hire ran scripts/env/bootstrap.sh and doctor still reports missing uv",
+        "top_k": 3
+      },
+      {
+        "prompt": "the devcontainer image does not give Codespaces users a working first run",
+        "top_k": 3
+      },
+      {
+        "prompt": "align consent-protocol/CONTRIBUTING.md with the monorepo getting started path",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "env and secret parity between UAT and production Cloud Run services is off",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "maintainer only subtree sync policy between consent-protocol and the mirror repo",
+        "owner": "subtree-upstream-governance"
+      }
+    ]
+  }
+}

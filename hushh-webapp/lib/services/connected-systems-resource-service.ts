@@ -241,6 +241,25 @@ export class ConnectedSystemsResourceService {
     });
   }
 
+  static forgetLiveRecord(userId: string, systemId: string): void {
+    this.liveRecordByUserSystem.delete(`${userId}:${systemId}`);
+  }
+
+  static rememberBindingStatus(
+    userId: string,
+    nextStatus: { systemId: string; objectType: string; status: string }
+  ): void {
+    const current = this.bindingStatusByUser.get(userId) ?? [];
+    this.bindingStatusByUser.set(userId, [
+      ...current.filter(
+        (candidate) =>
+          candidate.systemId !== nextStatus.systemId ||
+          candidate.objectType !== nextStatus.objectType
+      ),
+      nextStatus,
+    ]);
+  }
+
   static getLiveRecord(
     userId: string,
     systemId: string

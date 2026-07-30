@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-07-19",
-  "total_routes": 100,
-  "native_required_routes": 90,
+  "total_routes": 103,
+  "native_required_routes": 93,
   "excluded_routes": 10,
   "routes": [
     {
@@ -489,6 +489,19 @@
       ]
     },
     {
+      "route": "/one/feed",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ffeed",
+      "expectedMarker": "native-route-feed",
+      "expectedRoute": "/one/feed",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid"
+      ]
+    },
+    {
       "route": "/consents",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconsents",
@@ -669,6 +682,30 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fsession",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/security/session",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/security/devices",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/security/devices",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/security/devices/authorize",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices%2Fauthorize",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/security/devices/authorize",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

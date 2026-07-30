@@ -6,6 +6,8 @@ Status: Current implementation guide, verified against the Agent One A2A route c
 
 Canonical API owner: [../reference/architecture/api-contracts.md](../reference/architecture/api-contracts.md). This guide is the shareable integration brief for external developers and partner platforms such as Salesforce Agentforce.
 
+A print-ready single-page twin of this guide lives at [agent-one-a2a-printable.html](./agent-one-a2a-printable.html). It is a rendering of this page, not a second source of truth: change this markdown first.
+
 ```mermaid
 sequenceDiagram
   participant Partner as Partner agent or Agentforce

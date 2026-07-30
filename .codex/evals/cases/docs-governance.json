@@ -1,0 +1,29 @@
+{
+  "skill_name": "docs-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "we have three overlapping runbooks under docs/reference/operations, consolidate them and fix the inbound links",
+        "top_k": 3
+      },
+      {
+        "prompt": "where does this new architecture map belong, docs/reference or the superpowers planning archive",
+        "top_k": 3
+      },
+      {
+        "prompt": "the documentation homes are drifting again, update the doc map and the verification policy",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "branch protection and the merge queue gates need updating for this repo",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "turn this markdown draft into a presentation-grade pdf packet for the board",
+        "owner": "founder-brief-curation"
+      }
+    ]
+  }
+}

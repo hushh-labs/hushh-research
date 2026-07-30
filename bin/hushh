@@ -731,7 +731,7 @@ EOF
             ;;
         esac
       done
-      exec python3 "$REPO_ROOT/scripts/ops/report_prod_frozen_posture.py" ${json_flag:+"$json_flag"}
+      exec python3 "$REPO_ROOT/scripts/ops/report_prod_contract_posture.py" ${json_flag:+"$json_flag"}
       ;;
     *)
       die "Unknown db subcommand: $1"

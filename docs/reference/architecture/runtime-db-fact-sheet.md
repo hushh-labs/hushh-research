@@ -7,9 +7,14 @@ Canonical visual owner: [Architecture Index](README.md). Use that map for the to
 
 This appendix records the runtime database shape that matters for One, Kai, Nav/KYC, PKM, consent, IAM, provider caches, and regulated workflow state. It is documentation-only and intentionally excludes credentials, row payloads, and any user-secret values.
 
-- Captured at (UTC): `2026-03-20T00:00:00Z`
-- Source: read-only introspection against the live UAT-backed local environment
+- Source of truth: [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json)
+  (table families) and `consent-protocol/db/contracts/prod_core_schema.json`
+  (the exact table set both UAT and production must satisfy)
 - Schema: `public`
+
+This page summarizes those two contract files in prose. When they disagree, the
+contract files win, and this page is the thing to correct. Do not add a
+hand-maintained table list here: it drifts the moment a migration lands.
 
 ## Canonical Data-Plane Contract
 
@@ -44,23 +49,53 @@ Run:
 
 ## Current Table Families
 
-| Family | Data class | Owner | Boundary |
+Every family below carries its own owner, retention policy, deletion behavior,
+access path, trust boundary, and plaintext posture in the contract file. Read
+that file for the full record; this table is the index.
+
+| Family | Data class | Owner | Coverage |
 | --- | --- | --- | --- |
-| Vault key material | `personal_encrypted` | `vault-pkm-governance` | encrypted/hash-only vault state; not the general user model |
-| Actor identity state | `personal_metadata` | `iam-consent-governance` | actor/profile/persona/push metadata |
-| Consent authority audit | `audit_regulated` | `iam-consent-governance` | metadata audit; rows do not grant authority by themselves |
-| Consent export workflows | `workflow_state` | `iam-consent-governance` | encrypted exports and wrapped-key metadata only |
-| PKM encrypted memory | `personal_encrypted` | `vault-pkm-governance` | ciphertext segments; backend does not inspect plaintext PKM |
-| PKM metadata and scope | `personal_metadata` | `vault-pkm-governance` | manifests, scope handles, index metadata, replay metadata |
-| PKM upgrade workflows | `workflow_state` | `vault-pkm-governance` | client-side decrypt/transform/re-encrypt checkpoints |
-| Legacy memory cutover | `personal_encrypted` | `vault-pkm-governance` | no new canonical writes; delete after cutover evidence |
-| RIA marketplace relationships | `personal_metadata` | `iam-consent-governance` | professional/relationship metadata, not investor PKM |
-| Kai brokerage provider cache | `provider_cache` | `backend-runtime-governance` | encrypted tokens and bounded derived state |
-| Kai Gmail receipt cache | `provider_cache` | `backend-runtime-governance` | receipt summaries/previews; durable memory requires PKM write |
-| Market reference and cache | `reference` | `backend-runtime-governance` | shared market/reference data |
-| Funding/trading audit | `audit_regulated` | `backend-runtime-governance` | money-movement and trade-execution metadata |
-| One email KYC workflow | `workflow_state` | `backend-runtime-governance` | metadata and approval drafts; no raw mailbox memory |
-| Developer access | `audit_regulated` | `mcp-developer-surface` | developer metadata and token hashes/wrappers |
+| `actor_identity_state` | `personal_metadata` | `iam-consent-governance` | 5 tables |
+| `agent_chat_encrypted_memory` | `personal_encrypted` | `backend-agents-operons` | 2 tables |
+| `consent_authority_audit` | `audit_regulated` | `iam-consent-governance` | 3 tables |
+| `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
+| `feed_events` | `workflow_state` | `backend-runtime-governance` | 1 table |
+| `funding_trading_audit` | `audit_regulated` | `backend-runtime-governance` | `kai_funding_*` |
+| `information_marketplace_delivery` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `information_marketplace_opportunity_signals` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `information_marketplace_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `kai_brokerage_provider_cache` | `provider_cache` | `backend-runtime-governance` | `kai_plaid_*`, `kai_portfolio_source_preferences` |
+| `kai_gmail_receipts_provider_cache` | `provider_cache` | `backend-runtime-governance` | 4 tables |
+| `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |
+| `one_action_directive_authority` | `workflow_state` | `backend-agents-operons` | 1 table |
+| `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
+| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 13 tables |
+| `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
+| `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
+| `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
+| `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |
+| `pkm_upgrade_workflows` | `workflow_state` | `vault-pkm-governance` | 5 tables |
+| `preference_world_model` | `personal_metadata` | `iam-consent-governance` | 1 table |
+| `public_investor_reference` | `reference` | `backend-api-contracts` | 2 tables |
+| `relay_ticket_replay_guard` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `ria_marketplace_relationships` | `personal_metadata` | `iam-consent-governance` | `ria_*`, `advisor_investor_relationships`, `marketplace_investor_actions`, `marketplace_public_profiles`, `relationship_share_*` |
+| `subscription_fabric_grants` | `personal_metadata` | `iam-consent-governance` | 1 table |
+| `subscription_fabric_receipts` | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `subscription_fabric_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `trusted_connections_graph` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `trusted_device_registry` | `personal_metadata` | `iam-consent-governance` | 1 table |
+| `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
+| `vault_key_material` | `personal_encrypted` | `vault-pkm-governance` | 2 tables |
+| `connected_system_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `crm_schema_mapping_cache` *(customer0)* | `provider_cache` | `backend-agents-operons` | 2 tables |
+| `domain_reference_registry` *(transitional)* | `reference` | `vault-pkm-governance` | 1 table |
+| `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 2 tables |
+| `enterprise_crm_registry_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `vault-pkm-governance` | 10 tables |
 
 ## Identity Boundary Rule
 
@@ -85,36 +120,20 @@ These tables exist only for the bounded encrypted-user cutover window. No new pr
 3. `world_model_*`
 4. old chat/world-model tables retained only for migration compatibility or historical cleanup
 
-## Shared Application Tables
+## Required Table Set
 
-1. `actor_profiles`
-2. `advisor_investor_relationships`
-3. `consent_audit`
-4. `consent_exports`
-5. `consent_scope_templates`
-6. `developer_applications`
-7. `developer_apps`
-8. `developer_tokens`
-9. `domain_registry`
-10. `kai_market_cache_entries`
-11. `kai_plaid_items`
-12. `kai_plaid_link_sessions`
-13. `kai_plaid_refresh_runs`
-14. `kai_portfolio_source_preferences`
-15. `marketplace_public_profiles`
-16. `renaissance_avoid`
-17. `renaissance_screening_criteria`
-18. `renaissance_universe`
-19. `ria_client_invites`
-20. `ria_firm_memberships`
-21. `ria_firms`
-22. `ria_profiles`
-23. `ria_verification_events`
-24. `runtime_persona_state`
-25. `tickers`
-26. `user_push_tokens`
-27. `vault_key_wrappers`
-28. `vault_keys`
+The authoritative per-environment table list is not duplicated here. Both UAT and
+production run the same Cloud SQL schema and both contracts use the `exact`
+policy, so one file answers "which tables must exist":
+
+- `consent-protocol/db/contracts/prod_core_schema.json`
+- `consent-protocol/db/contracts/uat_integrated_schema.json`
+
+They are table-for-table identical by policy; see
+[migration-governance.md](../operations/migration-governance.md) for the contract
+model and [report_prod_contract_posture.py](../../../scripts/ops/report_prod_contract_posture.py)
+for the parity check (`./bin/hushh db report-prod-posture`, which exits non-zero
+on any delta).
 
 ## Key Column Snapshots
 

@@ -1,0 +1,37 @@
+{
+  "skill_name": "release-ios-appstore",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "release the Hushh One iOS app to the public App Store from the latest green main",
+        "top_k": 3
+      },
+      {
+        "prompt": "submit the iOS build for public App Store review and set the What's New notes",
+        "top_k": 3
+      },
+      {
+        "prompt": "cut a prod iOS App Store build, upload to App Store Connect, and attach the processed build",
+        "top_k": 3
+      },
+      {
+        "prompt": "verify the App Store Connect version and submission state after a release run",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "run a scoped backend-only UAT deploy and capture Cloud Run revision evidence",
+        "owner": "uat-scoped-deploy"
+      },
+      {
+        "prompt": "fix the Capacitor iOS native plugin bridge and app entitlements build error",
+        "owner": "mobile-native"
+      },
+      {
+        "prompt": "review whether the release PR is safe to merge and check the blocker gates",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

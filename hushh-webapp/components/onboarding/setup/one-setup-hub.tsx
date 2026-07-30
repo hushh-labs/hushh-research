@@ -22,7 +22,6 @@ import { useVault } from "@/lib/vault/vault-context";
 import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
-  resolveCompletedSetupCapabilityTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
@@ -427,10 +426,7 @@ export function OneSetupHub() {
                   description={item.copy.setupBlurb}
                   actionLabel={item.copy.actionLabel}
                   resumeActionLabel={item.copy.resumeActionLabel}
-                  href={
-                    resolveCompletedSetupCapabilityTarget(item.id) ??
-                    item.copy.href
-                  }
+                  href={item.copy.href}
                   voiceControlId={item.voiceControlId}
                   icon={item.icon}
                   tone={item.tone}

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({

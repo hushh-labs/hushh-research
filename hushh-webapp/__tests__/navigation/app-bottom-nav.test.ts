@@ -72,6 +72,7 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
     expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
     expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
+    expect(resolveOneActiveNav(ROUTES.ONE_FEED)).toBe("feed");
     // Global destinations keep their own fixed tab; Profile belongs to One
     // because Profile is not a persistent bottom-bar option.
     expect(resolveOneActiveNav(ROUTES.AGENT)).toBe("search");
@@ -116,6 +117,7 @@ describe("app bottom navigation", () => {
       expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
         "dashboard",
         "connect",
+        "feed",
         "search",
       ]);
     }
@@ -146,6 +148,7 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("connected", "one")).toBe(
       ROUTES.CONNECTED_SYSTEMS,
     );
+    expect(resolveBottomNavHref("feed", "one")).toBe(ROUTES.ONE_FEED);
   });
 
   it("keeps legacy workspace-slot resolution separate from primary navigation", () => {
@@ -172,5 +175,6 @@ describe("app bottom navigation", () => {
       "finance",
     );
     expect(resolveBottomNavContextKey(ROUTES.RIA_HOME, "ria")).toBe("clients");
+    expect(resolveBottomNavActiveKey(ROUTES.ONE_FEED, "one")).toBe("feed");
   });
 });

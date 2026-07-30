@@ -62,7 +62,8 @@ function oneLocationActionLabel(action: string): string {
     "needs-review": "Needs my review",
     sos: "Safety",
     "sms-contacts": "SMS contacts",
-    privacy: "Privacy",
+    settings: "Settings",
+    privacy: "Settings",
   };
   return labels[action] ?? titleizeSegment(action);
 }
@@ -83,6 +84,53 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
 function profilePanelHref(panel: ProfilePanel): string {
   return buildProfileRoute({ panel });
 }
+
+/**
+ * The Profile hub is opened from wherever the user tapped the avatar (every
+ * signed-in screen shows it) and from the agent workspace. Like the other One
+ * capability surfaces it therefore honors a validated `?from` origin so the
+ * single top-bar back control returns to the screen the user came from instead
+ * of always dropping them on the One dashboard. Falls back to One home when no
+ * (or an unsafe) origin is present.
+ */
+function resolveProfileOriginBackHref(
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+): string {
+  return (
+    normalizeInternalRouteHref(searchParams?.get("from")) ?? ROUTES.ONE_HOME
+  );
+}
+
+/**
+ * A clean, from-only params object so nested profile links keep the origin
+ * without dragging transient vault/return markers into computed back hrefs.
+ */
+function profileOriginSearchParams(
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+): URLSearchParams | undefined {
+  const from = normalizeInternalRouteHref(searchParams?.get("from"));
+  return from ? new URLSearchParams({ from }) : undefined;
+}
+
+/** Human label for the origin the Profile hub was opened from. */
+function profileOriginCrumbLabel(backHref: string): string {
+  const path = normalizeBreadcrumbPathname(backHref);
+  const labels: Record<string, string> = {
+    [ROUTES.ONE_HOME]: "One",
+    [ROUTES.ONE_LOCATION]: "Location",
+    [ROUTES.GMAIL]: "Gmail",
+    [ROUTES.PKM]: "Memory",
+    [ROUTES.ONE_MARKETPLACE]: "Marketplace",
+    [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
+    [ROUTES.CONSENTS]: "Consent Center",
+    [ROUTES.ONE_FEED]: "Feed",
+    [ROUTES.ONE_KYC]: "KYC",
+    [KAI_MARKET_PATH]: "Kai",
+    [ROUTES.CONNECT]: "Connect",
+  };
+  return labels[path] ?? "One";
+}
+
 
 function profileDetailLabel(detail: string | null): string | null {
   if (!detail) return null;
@@ -243,6 +291,7 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
+    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
 
     if (debateId) {
       return {
@@ -279,6 +328,19 @@ function resolveTopShellBreadcrumbInner(
           { label: "Kai", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
+        ],
+      };
+    }
+
+    if (view === "debate") {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: "Debate" },
         ],
       };
     }
@@ -597,7 +659,7 @@ function resolveTopShellBreadcrumbInner(
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
-    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Privacy,
+    // A Location action flow (Check-In, Alert, Share, Ask, Invite, Settings,
     // temporary link, or a focused detail view) is a
     // sub-screen of the Location hub, tracked via `?action=…`. While one is
     // open, the SINGLE top-left back button must return to the Location hub
@@ -653,6 +715,26 @@ function resolveTopShellBreadcrumbInner(
           ? { label: "Profile", href: ROUTES.PROFILE }
           : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Marketplace" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.ONE_FEED) {
+    // Feed is a bottom-nav destination but reads as a One sub-surface: the
+    // shared top bar owns its "Feed" title + a single back-to-One arrow, so
+    // the page itself carries no in-body header.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Feed" },
       ],
     };
   }
@@ -758,14 +840,27 @@ function resolveTopShellBreadcrumbInner(
   if (pathname === ROUTES.PROFILE) {
     const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
     const panelLabel = profilePanelLabel(panel);
+    const originBackHref = resolveProfileOriginBackHref(searchParams);
+    const originParams = profileOriginSearchParams(searchParams);
+    // Keep the origin marker on the internal Profile back targets so drilling
+    // Profile → panel → detail and stepping back never loses "where I came
+    // from" once the user unwinds all the way to the Profile root.
+    const profileRootHref = buildProfileRoute({ searchParams: originParams });
     if (!panelLabel) {
-      // Bare profile root (level 2): back returns to /one (level 1) so the
-      // One -> Profile hierarchy always has a governed exit.
+      // Bare profile root (level 2): back returns to the origin the avatar was
+      // tapped from (origin-aware, like every other One capability). Falls back
+      // to /one when there is no safe origin, preserving the historic default.
       return {
-        backHref: ROUTES.ONE_HOME,
+        backHref: originBackHref,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Profile" }],
+        items: [
+          {
+            label: profileOriginCrumbLabel(originBackHref),
+            href: originBackHref,
+          },
+          { label: "Profile" },
+        ],
       };
     }
 
@@ -773,16 +868,17 @@ function resolveTopShellBreadcrumbInner(
     if (!panel) return null;
     const panelHref = profilePanelHref(panel);
     return {
-      backHref: detailLabel ? panelHref : ROUTES.PROFILE,
+      backHref: detailLabel ? panelHref : profileRootHref,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Profile", href: profileRootHref },
         { label: panelLabel, href: detailLabel ? panelHref : undefined },
         ...(detailLabel ? [{ label: detailLabel }] : []),
       ],
     };
   }
+
 
   if (!pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;

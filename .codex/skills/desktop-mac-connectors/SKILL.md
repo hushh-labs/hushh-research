@@ -1,6 +1,6 @@
 ---
 name: desktop-mac-connectors
-description: Use when implementing or reviewing Mac-side knowledge connectors (local filesystem, Spotlight, Apple Notes, Apple Mail, Calendar, Obsidian, Notion, Google Drive, Slack) inside the desktop-mac owner family.
+description: Use when implementing or reviewing Mac-side knowledge connectors (local filesystem, Spotlight, Apple Notes, Apple Mail, Calendar, Obsidian, Notion, Google Drive, Slack) inside the desktop-mac owner family, including the AppleScript/EventKit/FSEvents bridges, Keychain and OAuth refresh, TCC permission state, and revocation cascade.
 ---
 
 # Hussh Desktop Mac Connectors Skill

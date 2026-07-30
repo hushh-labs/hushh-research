@@ -53,6 +53,19 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
+def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
+    assert 'genai_project_id="hushh-pda-uat"' in backend_build
+    assert '"${_DEPLOY_ENV}" != "dev"' in backend_build
+    assert "roles/serviceusage.serviceUsageConsumer" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
+    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1
+    assert "GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '_GENAI_PROJECT_ID: ""' in backend_build
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
@@ -120,6 +133,53 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert "parity_failed=$parity_failed (warning-only)" not in workflow
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai" in workflow
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow
+
+
+def test_production_release_result_fails_closed_on_upstream_or_missing_classification() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert "UPSTREAM_JOB_STATUS: ${{ job.status }}" in workflow
+    assert 'if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then' in workflow
+    assert 'if [ "$upstream_failed" = "true" ]' in workflow
+    assert (
+        workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
+        == 2
+    )
+
+
+def test_production_wif_has_one_keyless_setup_path() -> None:
+    setup_script = _read("deploy/iam/setup_production_github_wif.sh")
+
+    assert 'readonly PROD_PROJECT_ID="hushh-pda"' in setup_script
+    assert 'readonly GITHUB_ENVIRONMENT="production"' in setup_script
+    assert "environment:${GITHUB_ENVIRONMENT}" in setup_script
+    assert "assertion.ref == 'refs/heads/main'" in setup_script
+    assert "roles/iam.workloadIdentityUser" in setup_script
+    assert 'build_service_account_email="${prod_project_number}-compute' in setup_script
+    assert (
+        'RUNTIME_SERVICE_ACCOUNT_EMAIL="consent-protocol-runtime@${PROD_PROJECT_ID}' in setup_script
+    )
+    assert setup_script.count('"roles/iam.serviceAccountUser"') == 2
+    assert 'readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"' in setup_script
+    assert 'readonly BACKEND_ARTIFACT_LOCATION="us"' in setup_script
+    assert "gcloud artifacts repositories add-iam-policy-binding" in setup_script
+    assert '"roles/artifactregistry.reader"' in setup_script
+    assert "gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER" in setup_script
+    assert "gh variable set GCP_DEPLOY_SERVICE_ACCOUNT" in setup_script
+    assert "service-account keys create" not in setup_script
+
+
+def test_production_health_gates_only_probe_after_successful_promotion() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert (
+        "if: steps.scope.outputs.deploy_backend == 'true' "
+        "&& steps.promote-traffic.outcome == 'success'"
+    ) in workflow
+    assert (
+        "if: steps.scope.outputs.deploy_frontend == 'true' "
+        "&& steps.promote-traffic.outcome == 'success'"
+    ) in workflow
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:

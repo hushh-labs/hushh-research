@@ -4,13 +4,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
-  it("opens completed Location directly instead of replaying one-time setup", () => {
+  it("keeps completed capabilities replayable while the setup hub is active", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("resolveCompletedSetupCapabilityTarget(item.id)");
+    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
+    expect(source).not.toContain(
+      "resolveCompletedSetupCapabilityTarget(item.id)",
+    );
   });
 
   it("changes its explicit outcome from skip to finish after a verified capability completes", () => {

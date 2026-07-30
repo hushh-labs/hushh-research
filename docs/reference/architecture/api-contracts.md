@@ -39,12 +39,54 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ## Visual Map
 
-```text
-Client surfaces
-  -> Next.js API proxies / native plugins
-    -> FastAPI route families
-      -> consent, PKM, IAM, Kai, RIA, marketplace, notifications
-        -> encrypted storage, scoped sharing, and public lookup contracts
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+  end
+
+  fb --> vo
+  fb --> dev
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
 ```
 
 ---
@@ -74,9 +116,9 @@ Client surfaces
 | GET | `/api/v1` | Developer API root summary (`410` when developer API disabled) |
 | GET | `/api/v1/list-scopes` | Generic dynamic scope catalog (`410` when developer API disabled) |
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
-| GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `Authorization: Bearer <developer-token>`) |
+| GET | `/api/v1/user-scopes/{user_id}` | Discover materialized dynamic user scopes for one user; reserved empty PKM shapes are omitted (requires `Authorization: Bearer <developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved capability such as `cap.one.invoke` (requires `Authorization: Bearer <developer-token>`) |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one currently materialized/discovered `attr.*` scope or approved capability such as `cap.one.invoke`; empty dynamic scopes fail before pending/active reuse while static capabilities are unaffected (requires `Authorization: Bearer <developer-token>`) |
 | POST | `/api/v1/public-profile-export` | Read an owner-published public-profile resource by opaque handle; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
@@ -102,6 +144,12 @@ Client surfaces
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/consent/vault-owner-token` | Issue VAULT_OWNER token |
+| POST | `/api/consent/vault-owner-token/device` | Issue a 15-minute device-bound VAULT_OWNER token after Firebase auth and a signed one-time device challenge |
+| POST | `/api/account/trusted-device-authorizations` | Approve a UAT-flagged PKCE-bound Hermes installation for the signed-in account |
+| POST | `/api/account/trusted-device-authorizations/exchange` | Consume a one-time PKCE code and return a Firebase custom token, registered device identity, and server-verified account email for local trusted-device display |
+| GET | `/api/account/trusted-devices` | List signed-in account device metadata and revocation status |
+| POST | `/api/account/trusted-devices/{device_id}/challenge` | Create a short-lived device proof-of-possession challenge |
+| DELETE | `/api/account/trusted-devices/{device_id}` | Revoke the device and its device-bound owner capabilities |
 | POST | `/api/notifications/register` | Register FCM push token |
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
@@ -203,6 +251,7 @@ not the product owner for live location.
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List active connections and active named-Circle co-members excluding self, with masked labels and public-key readiness only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
+| POST | `/api/one/location/maps/reverse-geocode` | VAULT_OWNER Bearer | Transiently resolve captured coordinates to display copy and an ISO alpha-2 `countryCode`; the service does not persist coordinates or reverse-geocoded output |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
 | GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
@@ -304,7 +353,9 @@ RIA relationship bundle note:
 | POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index; accepts optional non-sensitive `write_projections[]` for derived read models such as decision history |
 | GET | `/api/pkm/data/{user_id}` | Get full encrypted PKM payload |
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
-| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
+| DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Compatibility deletion path for existing first-party callers |
+| POST | `/api/pkm/delete-domain` | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision |
+| GET | `/api/pkm/device-sync/{user_id}` | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
 | POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private or consent-required |
 | POST | `/api/pkm/domains/{domain}/public-profile-projection` | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture |
@@ -349,13 +400,23 @@ Macy's compatibility aliases only and are routed through the same schema
 validation. Create, update, and delete are auditable, idempotently approved
 intents. Only intent approval issues the registered direct MCP mutation.
 
+A successful exact-bound-id read with a valid registered response contract and
+an empty record collection returns `bindingStatus=remote_record_missing`.
+Malformed responses and transport, authorization, timeout, or MCP tool failures
+never enter that state. The active binding remains in place until the owner
+confirms local unlink; unlink transitions only the local pointer to
+`disconnected`, preserves intent/audit history, and never calls the remote
+delete operation. New record preparation and approval both fail while another
+active binding exists.
+
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/connected-systems` | List active registry systems with `registryRevision` and per-system `configurationRevision`; signed-in metadata only |
 | GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}&forceRefresh=false` | Return the normalized schema catalogue, fingerprint, freshness, refresh guidance, and exact `effectiveActions` |
 | GET | `/api/connected-systems/record-bindings` | Return owner-scoped binding statuses for every active CRM in one request; no CRM record IDs or values |
 | GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
-| POST | `/api/connected-systems/{system_id}/records/read` | Read using generic `{ objectType, searchFields, returnFields }`; returns a sanitized normalized projection only |
+| DELETE | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Idempotently disconnect the authenticated owner's current local binding; the request accepts no record ID and does not delete the remote CRM record |
+| POST | `/api/connected-systems/{system_id}/records/read` | Read the exact owner-bound record using `{ objectType, returnFields }`; returns a sanitized normalized projection or explicit `remote_record_missing` recovery state |
 | POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
 | POST | `/api/connected-systems/{system_id}/records/create-intents` | Create a pending schema-validated `{ objectType, recordFields }` intent |
 | POST | `/api/connected-systems/{system_id}/records/update-intents` | Create a pending schema-validated `{ objectType, id, recordFields }` intent |
@@ -389,17 +450,17 @@ delete/absent lifecycle with cleanup.
 
 #### One Voice
 
-One Voice is the product-facing voice wrapper over the current Kai-era compatibility runtime.
-These routes preserve the same VAULT_OWNER, request user match, rollout,
-canary, kill-switch, planner, composer, and settlement behavior while the
-frontend migrates to the provider-neutral One Voice transport contract.
+There is no `/api/one/voice/*` router. The product-facing voice wrapper described
+in earlier plans was never registered: `consent-protocol/api/routes/one/` has no
+`voice.py`, and no `/api/one/voice/...` path exists in the codebase.
+
+The real full-duplex voice transport is the ADK live pair in
+`consent-protocol/api/routes/one/adk_live.py`, listed under Kai Chat below:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/one/voice/session` | Product-facing wrapper for realtime voice session creation |
-| POST | `/api/one/voice/plan` | Product-facing wrapper for voice planning; accepts the shared One Voice context snapshot alongside existing structured screen context |
-| POST | `/api/one/voice/compose` | Product-facing wrapper for post-action spoken response composition |
-| POST | `/api/one/voice/benchmark` | Disabled status route until live provider benchmark adapters and versioned artifacts exist |
+| POST | `/api/one/adk/relay-session` | Mints a single-use relay ticket over HTTPS |
+| WS | `/api/one/adk/live` | Consumes that ticket once and carries the live session |
 
 #### Kai Portfolio
 
@@ -715,9 +776,9 @@ Coverage rules:
 - partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 
 Production policy:
-- All `/api/v1/*` endpoints return `410` with:
-- `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}`
-- Non-production can enable `/api/v1/*` via `DEVELOPER_API_ENABLED=true` with runtime registry `DEVELOPER_REGISTRY_JSON`.
+- `/api/v1/*` is enabled in production, matching UAT (`DEVELOPER_API_ENABLED=true`, sourced from `BACKEND_RUNTIME_CONFIG_JSON`; see [env-and-secrets.md](../operations/env-and-secrets.md)).
+- When the developer API is off in a given environment, every `/api/v1/*` route returns `410` with `{"error_code":"DEVELOPER_API_DISABLED_IN_PRODUCTION","message":"Developer API is disabled in production."}` (or the non-production variant of that error code).
+- Developer principals are DB-backed records issued via the registry service (`hushh_mcp/services/developer_registry_service.py`), not a static `DEVELOPER_REGISTRY_JSON` env var.
 
 ### Available Scopes
 

@@ -77,8 +77,11 @@ substituted for one another:
 - Physical-device tests use a separately authorised test session and terminate
   their launched app even when an XCTest assertion fails.
 
-The iOS standard target is the existing iPhone 14 Plus
-`9C5B1D61-028C-474A-BDFC-523BACC3B02C`. A cold runner has a 45-second internal
+Build commands use the portable `generic/platform=iOS Simulator` destination
+rather than a pinned simulator UDID, because Xcode updates retire device types
+and a pinned id fails only after a full build. Interactive runs resolve a
+concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its
 host stops.

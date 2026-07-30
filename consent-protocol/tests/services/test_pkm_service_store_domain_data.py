@@ -20,18 +20,18 @@ def _unwrap(value):
     return value.value if isinstance(value, JsonParam) else value
 
 
-def test_pkm_rpc_payload_unwraps_direct_postgres_and_supabase_shapes():
+def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
     payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
 
     direct = SimpleNamespace(data=[{"get_pkm_domain_snapshot_v1": payload}])
-    supabase = SimpleNamespace(data=[payload])
+    db = SimpleNamespace(data=[payload])
 
     assert (
         PersonalKnowledgeModelService._unwrap_rpc_payload(direct, "get_pkm_domain_snapshot_v1")
         == payload
     )
     assert (
-        PersonalKnowledgeModelService._unwrap_rpc_payload(supabase, "get_pkm_domain_snapshot_v1")
+        PersonalKnowledgeModelService._unwrap_rpc_payload(db, "get_pkm_domain_snapshot_v1")
         == payload
     )
 
@@ -64,6 +64,13 @@ def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio
     }
 
 
+def _confirmed_delete_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
+    plan = _confirmed_create_plan(user_id=user_id, domain=domain, scope=scope)
+    plan["operation"] = "delete"
+    plan["source_scope_handle"] = plan.pop("target_scope_handle")
+    return plan
+
+
 class _StubDomainRegistry:
     async def ensure_canonical_domains(self):
         return None
@@ -72,7 +79,60 @@ class _StubDomainRegistry:
         return None
 
 
-class _StubSupabaseTable:
+@pytest.mark.asyncio
+async def test_confirmed_domain_delete_uses_atomic_revision_and_refresh_rpc() -> None:
+    service = PersonalKnowledgeModelService()
+    service.get_domain_manifest = AsyncMock(
+        return_value={
+            "manifest_version": 3,
+            "top_level_scope_paths": ["portfolio"],
+            "externalizable_paths": ["portfolio.holdings"],
+        }
+    )
+    service._continuous_refresh_tokens_for_domain_write = AsyncMock(return_value=["token-1"])
+    service._run_rpc = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                {
+                    "delete_pkm_domain_v3": {
+                        "success": True,
+                        "conflict": False,
+                        "deleted": True,
+                        "data_version": 8,
+                    }
+                }
+            ]
+        )
+    )
+
+    result = await service.delete_domain_data(
+        "owner-1",
+        "financial",
+        expected_data_version=7,
+        mutation_plan=_confirmed_delete_plan(
+            user_id="owner-1",
+            domain="financial",
+        ),
+        return_result=True,
+    )
+
+    assert result == {
+        "success": True,
+        "conflict": False,
+        "deleted": True,
+        "data_version": 8,
+    }
+    rpc_name, rpc_params = service._run_rpc.await_args.args
+    assert rpc_name == "delete_pkm_domain_v3"
+    assert rpc_params["p_expected_content_revision"] == 7
+    assert rpc_params["p_refresh_tokens"] == ["token-1"]
+    assert _unwrap(rpc_params["p_trigger_paths"]) == [
+        "portfolio",
+        "portfolio.holdings",
+    ]
+
+
+class _StubDbTable:
     def __init__(self, rows=None):
         self.rows = list(rows or [])
         self.last_upsert_data = None
@@ -112,21 +172,21 @@ class _StubSupabaseTable:
         return SimpleNamespace(data=filtered, error=None)
 
 
-class _StubSupabase:
+class _StubDb:
     def __init__(self):
         self.tables = {
-            "pkm_blobs": _StubSupabaseTable(),
-            "pkm_manifests": _StubSupabaseTable(),
-            "pkm_manifest_paths": _StubSupabaseTable(),
-            "pkm_scope_registry": _StubSupabaseTable(),
-            "pkm_migration_state": _StubSupabaseTable(),
+            "pkm_blobs": _StubDbTable(),
+            "pkm_manifests": _StubDbTable(),
+            "pkm_manifest_paths": _StubDbTable(),
+            "pkm_scope_registry": _StubDbTable(),
+            "pkm_migration_state": _StubDbTable(),
         }
         self.rpc_calls = []
 
     def table(self, name: str):
         table = self.tables.get(name)
         if table is None:
-            table = _StubSupabaseTable()
+            table = _StubDbTable()
             self.tables[name] = table
         table.filters = []
         return table
@@ -134,7 +194,7 @@ class _StubSupabase:
     def rpc(self, function_name: str, params=None):
         self.rpc_calls.append({"function_name": function_name, "params": params or {}})
         if function_name == "commit_pkm_domain_mutation_v4":
-            return _StubSupabaseTable(
+            return _StubDbTable(
                 rows=[
                     {
                         "commit_pkm_domain_mutation_v4": {
@@ -145,14 +205,14 @@ class _StubSupabase:
                     }
                 ]
             )
-        return _StubSupabaseTable(rows=[{}])
+        return _StubDbTable(rows=[{}])
 
 
 @pytest.mark.asyncio
 async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monkeypatch):
     service = PersonalKnowledgeModelService()
     service._domain_registry = _StubDomainRegistry()
-    service._supabase = _StubSupabase()
+    service._db = _StubDb()
 
     monkeypatch.setattr(service, "get_encrypted_data", AsyncMock(return_value=None))
     monkeypatch.setattr(service, "get_domain_manifest", AsyncMock(return_value=None))
@@ -237,8 +297,8 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     )
 
     assert result["success"] is True
-    assert len(service._supabase.rpc_calls) == 1
-    rpc_call = service._supabase.rpc_calls[0]
+    assert len(service._db.rpc_calls) == 1
+    rpc_call = service._db.rpc_calls[0]
     assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v4"
     params = rpc_call["params"]
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_manifest_row"])
@@ -290,7 +350,7 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
 @pytest.mark.asyncio
 async def test_update_domain_summary_uses_atomic_pkm_index_rpc():
     service = PersonalKnowledgeModelService()
-    service._supabase = _StubSupabase()
+    service._db = _StubDb()
 
     result = await service.update_domain_summary(
         user_id="user-1",
@@ -299,8 +359,8 @@ async def test_update_domain_summary_uses_atomic_pkm_index_rpc():
     )
 
     assert result is True
-    assert len(service._supabase.rpc_calls) == 1
-    rpc_call = service._supabase.rpc_calls[0]
+    assert len(service._db.rpc_calls) == 1
+    rpc_call = service._db.rpc_calls[0]
     assert rpc_call["function_name"] == "merge_pkm_domain_summary"
     assert rpc_call["params"]["p_user_id"] == "user-1"
     assert rpc_call["params"]["p_domain"] == "financial"
@@ -309,7 +369,7 @@ async def test_update_domain_summary_uses_atomic_pkm_index_rpc():
     assert rpc_call["params"]["p_patch"]["item_count"] == 3
     assert rpc_call["params"]["p_patch"]["holdings_count"] == 3
     assert rpc_call["params"]["p_patch"]["readable_summary"] == "Updated holdings."
-    assert "pkm_index" not in service._supabase.tables
+    assert "pkm_index" not in service._db.tables
 
 
 def test_structure_rewrite_preserves_existing_scope_posture_exactly():
@@ -372,7 +432,7 @@ def test_structure_rewrite_preserves_existing_scope_posture_exactly():
 async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_conflict(monkeypatch):
     service = PersonalKnowledgeModelService()
     service._domain_registry = _StubDomainRegistry()
-    service._supabase = _StubSupabase()
+    service._db = _StubDb()
 
     monkeypatch.setattr(
         service,
@@ -403,7 +463,7 @@ async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_con
 
 @pytest.mark.asyncio
 async def test_get_recent_decision_records_prefers_replace_all_projection():
-    class _SupabaseWithRaw:
+    class _DbWithRaw:
         def execute_raw(self, _query, _params):
             return SimpleNamespace(
                 data=[
@@ -438,7 +498,7 @@ async def test_get_recent_decision_records_prefers_replace_all_projection():
             )
 
     service = PersonalKnowledgeModelService()
-    service._supabase = _SupabaseWithRaw()
+    service._db = _DbWithRaw()
 
     result = await service.get_recent_decision_records("user-9")
 
@@ -911,12 +971,12 @@ async def test_get_user_metadata_compacts_domain_available_scopes(monkeypatch):
 async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monkeypatch):
     service = PersonalKnowledgeModelService()
 
-    class _ManifestScopeTable(_StubSupabaseTable):
+    class _ManifestScopeTable(_StubDbTable):
         def order(self, _column):
             return self
 
-    supabase = _StubSupabase()
-    supabase.tables["pkm_manifests"] = _ManifestScopeTable(
+    db = _StubDb()
+    db.tables["pkm_manifests"] = _ManifestScopeTable(
         [
             {
                 "user_id": "user-1",
@@ -925,7 +985,7 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             }
         ]
     )
-    supabase.tables["pkm_manifest_paths"] = _ManifestScopeTable(
+    db.tables["pkm_manifest_paths"] = _ManifestScopeTable(
         [
             {
                 "user_id": "user-1",
@@ -936,7 +996,7 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             }
         ]
     )
-    supabase.tables["pkm_scope_registry"] = _ManifestScopeTable(
+    db.tables["pkm_scope_registry"] = _ManifestScopeTable(
         [
             {
                 "user_id": "user-1",
@@ -985,7 +1045,7 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             },
         ]
     )
-    service._supabase = supabase
+    service._db = db
 
     manifest = await service.get_domain_manifest("user-1", "ria")
 

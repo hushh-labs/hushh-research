@@ -12,6 +12,7 @@ flowchart TD
   chain["One Agent Chained Voice Architecture"]
   kai["Kai Runtime Compatibility"]
   ontology["Agent Ontology"]
+  feed["Feed Notification Model"]
 
   root --> voice
   voice --> goal
@@ -20,6 +21,7 @@ flowchart TD
   root --> chain
   voice --> kai
   root --> ontology
+  root --> feed
 ```
 
 One is the private agent and relationship layer. Current-state One reference
@@ -48,3 +50,5 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md): current audit of what One Voice can trigger and where screen/button/action coverage is incomplete.
 - [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): compatibility runtime details for the Kai-era planner, composer, STT/TTS policy, and settlement path beneath the One Voice contract layer.
 - [../../vision/agent-ontology.md](../../vision/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
+- [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
+- [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.

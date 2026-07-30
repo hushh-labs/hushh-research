@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 114,
+  "expected_migration_version": 127,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -18,6 +18,7 @@
     "commit_pkm_domain_mutation_v4",
     "rollback_pkm_domain_revision_v1",
     "delete_pkm_domain_v2",
+    "delete_pkm_domain_v3",
     "prune_expired_pkm_domain_revisions_v1",
     "prune_expired_pkm_recovery_for_user_v1"
   ],
@@ -898,6 +899,51 @@
       "active_source",
       "created_at",
       "updated_at"
+    ],
+    "trusted_device_authorizations": [
+      "authorization_id",
+      "device_id",
+      "user_id",
+      "code_hash",
+      "redirect_uri",
+      "code_challenge",
+      "device_public_key",
+      "device_name",
+      "platform",
+      "replaces_device_id",
+      "oauth_state",
+      "vault_handoff",
+      "created_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "trusted_devices": [
+      "device_id",
+      "user_id",
+      "device_public_key",
+      "device_name",
+      "platform",
+      "status",
+      "created_at",
+      "last_used_at",
+      "revoked_at"
+    ],
+    "trusted_device_challenges": [
+      "challenge_id",
+      "device_id",
+      "user_id",
+      "nonce_hash",
+      "created_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "trusted_device_audit_events": [
+      "event_id",
+      "user_id",
+      "device_id",
+      "event_type",
+      "created_at",
+      "metadata"
     ]
   }
 }

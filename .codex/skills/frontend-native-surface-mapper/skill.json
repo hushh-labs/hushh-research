@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "frontend",
   "primary_scope": "frontend-native-surface-map",
-  "description": "Use when changing or auditing the generated mapping between app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.",
+  "description": "Use when regenerating or auditing the frontend surface map that joins app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.",
   "owned_paths": [
     "hushh-webapp/frontend-native-surface-map.generated.json",
     "hushh-webapp/scripts/architecture/generate-surface-map.mjs",
@@ -13,7 +13,7 @@
     "frontend",
     "mobile-native",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "task_types": [
@@ -50,14 +50,14 @@
     "frontend-architecture",
     "mobile-parity-audit",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "adjacent_skills": [
     "frontend-architecture",
     "mobile-native",
     "backend-api-contracts",
-    "kai-voice-governance",
+    "one-voice-governance",
     "docs-governance"
   ],
   "risk_tags": [

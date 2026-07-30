@@ -208,7 +208,7 @@ def test_migration_backfills_existing_active_circle_member_pairs():
         Path(__file__).resolve().parents[2]
         / "db"
         / "migrations"
-        / "118_one_location_circle_connection_origins.sql"
+        / "126_one_location_circle_connection_origins.sql"
     )
     sql = migration_path.read_text(encoding="utf-8")
 

@@ -920,11 +920,21 @@ function ProfilePageContent() {
           detail?: ProfileDetail | null;
         },
         mode: "push" | "replace" = "push",
+
       ) => {
+        // Preserve only the `from` origin marker (not transient vault/return
+        // keys, which must not re-fire while drilling panels) so the shared
+        // top-bar back control can retrace to wherever Profile was opened from,
+        // even after Profile → panel → detail → back all the way out.
+        const originFrom = searchParams.get("from");
+        const originParams = originFrom
+          ? new URLSearchParams({ from: originFrom })
+          : undefined;
         const href = buildProfileRoute({
           panel: typeof next.panel === "undefined" ? activePanel : next.panel,
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
+          searchParams: originParams,
         });
         if (mode === "push") {
           router.push(href, { scroll: false });
@@ -932,8 +942,9 @@ function ProfilePageContent() {
           router.replace(href, { scroll: false });
         }
       },
-    [activeDetail, activePanel, router],
+    [activeDetail, activePanel, router, searchParams],
   );
+
 
   useEffect(() => {
     let cancelled = false;
@@ -3152,7 +3163,7 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={
-            <ThemeToggleLean size="expanded" className="w-full min-w-0" />
+            <ThemeToggleLean size="expanded" className="w-full sm:w-60 min-w-0" />
           }
           stackTrailingOnMobile
         />
@@ -3168,14 +3179,32 @@ function ProfilePageContent() {
               }}
             >
               <SelectTrigger
-                className="w-full min-w-[11rem] sm:w-[228px]"
+                className="w-full sm:w-60 min-w-[11rem]"
                 aria-label="App accent color"
               >
                 <SelectValue placeholder="iOS Blue" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="blue">iOS Blue</SelectItem>
-                <SelectItem value="gold">Molten Gold</SelectItem>
+                <SelectItem value="blue">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
+                    />
+                    iOS Blue
+                  </span>
+                </SelectItem>
+                <SelectItem value="gold">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
+                    />
+                    Molten Gold
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           }

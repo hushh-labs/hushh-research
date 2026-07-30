@@ -28,7 +28,7 @@ class AccountService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
             "actor_identity_cache": text(
@@ -230,6 +230,16 @@ class AccountService:
                    OR trusted_user_id = :user_id
                 """
             ),
+            "trusted_device_challenges": text(
+                "DELETE FROM trusted_device_challenges WHERE user_id = :user_id"
+            ),
+            "trusted_device_authorizations": text(
+                "DELETE FROM trusted_device_authorizations WHERE user_id = :user_id"
+            ),
+            "trusted_device_audit_events": text(
+                "DELETE FROM trusted_device_audit_events WHERE user_id = :user_id"
+            ),
+            "trusted_devices": text("DELETE FROM trusted_devices WHERE user_id = :user_id"),
             "one_location_recipient_keys": text(
                 "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
             ),
@@ -372,11 +382,11 @@ class AccountService:
         }
 
     @property
-    def supabase(self):
+    def db(self):
         """Get database client."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _load_actor_profile(self, user_id: str) -> dict[str, Any] | None:
         try:
@@ -806,6 +816,10 @@ class AccountService:
                 "connected_system_audit_events",
                 "connected_system_record_bindings",
                 "connected_system_intents",
+                "trusted_device_challenges",
+                "trusted_device_authorizations",
+                "trusted_device_audit_events",
+                "trusted_devices",
                 "pkm_default_available_projections",
                 "pkm_upgrade_claims",
                 "pkm_domain_commits",
@@ -1154,6 +1168,10 @@ class AccountService:
             "connections": False,
             "connection_origins": False,
             "trusted_connections": False,
+            "trusted_device_challenges": False,
+            "trusted_device_authorizations": False,
+            "trusted_device_audit_events": False,
+            "trusted_devices": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "runtime_persona_state": False,
@@ -1192,6 +1210,10 @@ class AccountService:
                         "connected_system_audit_events",
                         "connected_system_record_bindings",
                         "connected_system_intents",
+                        "trusted_device_challenges",
+                        "trusted_device_authorizations",
+                        "trusted_device_audit_events",
+                        "trusted_devices",
                         "pkm_default_available_projections",
                         "pkm_upgrade_claims",
                         "pkm_domain_commits",

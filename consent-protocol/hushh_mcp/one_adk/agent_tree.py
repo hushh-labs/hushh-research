@@ -33,6 +33,7 @@ from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
+from google.genai import types as genai_types
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch
@@ -50,6 +51,7 @@ from hushh_mcp.one_adk.action_tools import (
     run_app_action,
     start_app_goal,
 )
+from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
@@ -219,6 +221,16 @@ def _build_one_live_model():
     )
 
 
+# Durable persona + north-star + roster grounding, composed from the canonical
+# ontology/context docs and the product agent registry (see one_persona.py).
+# Folded into ONE_IDENTITY_INSTRUCTION so it reaches BOTH the text head
+# (build_one_text_agent) and the Live head (build_one_root_agent), which share
+# _one_runtime_instruction. It is identity/values grounding, never authority.
+_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
+    _ONE_MANIFEST.capabilities.get("specialist_roster", [])
+)
+
+
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
@@ -226,6 +238,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
+    # Section 1b: durable persona, north stars, and authoritative roster.
+     + _ONE_PERSONA_GROUNDING + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
@@ -262,9 +276,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "from a previous screen's inventory after such a note arrives.\n\n"
     # Section 3: specialist ownership map.
     "Your specialist agents (your arms) and what they own:\n"
-    "- Finance: markets, portfolio, stock analysis and debates (internally "
-    "the Kai runtime). Its subagents: RIA (the advisor workspace with "
-    "clients, picks, and requests) and Investor (personal portfolio "
+    "- Finance, handled by your finance specialist Kai: markets, portfolio, "
+    "stock analysis and debates. Its subagents: RIA (the advisor workspace "
+    "with clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"
@@ -691,9 +705,9 @@ async def _specialist_turn(
             "reason": availability.reason_code,
             "availability": availability_payload,
             "message": (
-                "That specialist is not available from the current route. "
-                "Open its declared workspace first; consent and TrustLink "
-                "checks still apply after route admission."
+                "This screen is a redirect or sign-out step, so specialist work "
+                "is paused here. Ask again once the app lands on its workspace; "
+                "consent and TrustLink checks still apply."
             ),
         }
     if availability.state in {"needs_auth", "vault_locked"}:
@@ -1083,6 +1097,12 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         description=_ONE_MANIFEST.description,
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(specialist_model=text_model),
+        # Surface Gemini reasoning summaries so Agent Chat can stream a visible
+        # "Thinking" trace. include_thoughts only surfaces the summaries; it
+        # sends no token-budget control (3.6-flash owns its own thinking policy).
+        generate_content_config=genai_types.GenerateContentConfig(
+            thinking_config=genai_types.ThinkingConfig(include_thoughts=True),
+        ),
     )
 
 

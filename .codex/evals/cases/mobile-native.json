@@ -1,0 +1,29 @@
+{
+  "skill_name": "mobile-native",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "our iOS and Android apps are drifting from the web app and I need to figure out which native workstream owns the fix",
+        "top_k": 3
+      },
+      {
+        "prompt": "I am adding a feature that needs a native surface on iOS and Android but I do not know which mobile specialist owns it",
+        "top_k": 3
+      },
+      {
+        "prompt": "broadly something is wrong with our Capacitor native runtime on both platforms, where do I start",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "restyle the shared shell chrome and reusable button components in the web UI",
+        "owner": "frontend-design-system"
+      },
+      {
+        "prompt": "start by scanning the whole repository and routing this to the right owner skill",
+        "owner": "repo-context"
+      }
+    ]
+  }
+}

@@ -48,7 +48,7 @@
     "backend",
     "iam-consent-governance",
     "mcp-developer-surface",
-    "kai-voice-governance"
+    "one-voice-governance"
   ],
   "adjacent_skills": [
     "docs-governance",
@@ -57,7 +57,7 @@
     "backend",
     "iam-consent-governance",
     "mcp-developer-surface",
-    "kai-voice-governance"
+    "one-voice-governance"
   ],
   "risk_tags": [
     "founder-brief-drift",

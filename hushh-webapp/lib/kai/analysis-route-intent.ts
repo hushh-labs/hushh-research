@@ -10,13 +10,19 @@ export type AnalysisRouteIntent = {
 
 export function deriveAnalysisRouteIntent(searchParams: URLSearchParams): AnalysisRouteIntent {
   const hasTabParam = searchParams.has("tab");
-  const tab = String(searchParams.get("tab") || "").trim().toLowerCase();
   const focus = searchParams.get("focus");
   const focusActive = focus === "active";
   const hasRunIdParam = searchParams.has("run_id");
   const runIdRaw = searchParams.get("run_id");
   const runId = runIdRaw && runIdRaw.trim() ? runIdRaw.trim() : null;
-  const hasBehavioralParam = hasTabParam || focusActive || hasRunIdParam;
+  // The workspace sub-view rides on `view` on the canonical
+  // `/one/kai?tab=analysis` route (the legacy `?tab=<sub>` form redirects into
+  // it). Read `view` here so `?view=debate` deep-links open the debate route,
+  // and a bare `?tab=analysis` lands on the summary table.
+  const view = String(searchParams.get("view") || "").trim().toLowerCase();
+  const hasViewParam = searchParams.has("view");
+  const hasBehavioralParam =
+    hasTabParam || focusActive || hasRunIdParam || hasViewParam;
 
   if (!hasBehavioralParam) {
     return {
@@ -29,12 +35,12 @@ export function deriveAnalysisRouteIntent(searchParams: URLSearchParams): Analys
   }
 
   const showHistory =
-    !focusActive && !hasRunIdParam && (tab === "history" || tab === "transcript");
+    !focusActive && !hasRunIdParam && (view === "history" || view === "transcript");
   const workspaceTab: AnalysisWorkspaceTabIntent | null =
     !focusActive &&
     !hasRunIdParam &&
-    (tab === "debate" || tab === "summary" || tab === "detailed")
-      ? tab
+    (view === "debate" || view === "summary" || view === "detailed")
+      ? view
       : null;
 
   return {

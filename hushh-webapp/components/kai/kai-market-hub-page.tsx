@@ -8,7 +8,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
-import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";

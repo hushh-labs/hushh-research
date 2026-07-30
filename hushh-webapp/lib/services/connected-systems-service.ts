@@ -105,8 +105,9 @@ export type ConnectedSystemMcpResponse = {
   recordId?: string | null;
   resultClass: "succeeded" | "failed" | string;
   records?: ConnectedSystemRecord[];
-  bindingStatus?: "active" | "unbound" | string;
+  bindingStatus?: "active" | "unbound" | "remote_record_missing" | string;
   binding?: ConnectedSystemRecordBinding | null;
+  recoveryAction?: "create_or_relink" | string;
 };
 
 export type ConnectedSystemRecordBinding = {
@@ -115,7 +116,7 @@ export type ConnectedSystemRecordBinding = {
   target?: string | null;
   objectType?: string | null;
   recordId?: string | null;
-  status: "active" | "unbound" | "deleted" | string;
+  status: "active" | "unbound" | "deleted" | "disconnected" | string;
   createdIntentId?: string | null;
   lastIntentId?: string | null;
   createdAt?: string | null;
@@ -294,6 +295,24 @@ export class ConnectedSystemsService {
       `/api/connected-systems/${systemPath(input.systemId)}/record-binding${suffix}`,
       {
         method: "GET",
+        headers: authHeaders(input.vaultOwnerToken),
+      }
+    );
+    return readJsonOrThrow<ConnectedSystemBindingResponse>(response);
+  }
+
+  static async disconnectRecordBinding(input: {
+    vaultOwnerToken: string;
+    systemId?: string;
+    objectType?: string;
+  }): Promise<ConnectedSystemBindingResponse> {
+    const query = new URLSearchParams();
+    if (input.objectType) query.set("objectType", input.objectType);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await ApiService.apiFetch(
+      `/api/connected-systems/${systemPath(input.systemId)}/record-binding${suffix}`,
+      {
+        method: "DELETE",
         headers: authHeaders(input.vaultOwnerToken),
       }
     );

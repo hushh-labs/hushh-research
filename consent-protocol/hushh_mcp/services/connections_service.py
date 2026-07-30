@@ -21,6 +21,7 @@ from hushh_mcp.services.connection_graph_service import (
     USER_MANAGEABLE_ORIGIN_KINDS,
     ConnectionGraphService,
 )
+from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,23 @@ class ConnectionsService:
             {"owner": owner, "trusted": trusted},
         )
 
+    @staticmethod
+    def _record_pair_feed_event(*, event_type: str, user_a: str, user_b: str) -> None:
+        """Best-effort Feed projection after the canonical DB state commits."""
+        feed = FeedService()
+        feed.record_event(
+            user_id=user_a,
+            source_domain="connections",
+            event_type=event_type,
+            metadata={"counterpart_user_id": user_b},
+        )
+        feed.record_event(
+            user_id=user_b,
+            source_domain="connections",
+            event_type=event_type,
+            metadata={"counterpart_user_id": user_a},
+        )
+
     def accept_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         req = self._load_request(request_id)
@@ -314,6 +332,11 @@ class ConnectionsService:
                     ),
                     {"id": str(locked_request.get("id") or "")},
                 )
+            self._record_pair_feed_event(
+                event_type="connection_accepted",
+                user_a=user_id,
+                user_b=requester,
+            )
             return {
                 "status": "accepted",
                 "requestId": locked_request.get("id"),
@@ -345,6 +368,11 @@ class ConnectionsService:
             RETURNING id
             """,
             {"id": req.get("id")},
+        )
+        self._record_pair_feed_event(
+            event_type="connection_accepted",
+            user_a=user_id,
+            user_b=requester,
         )
         return {
             "status": "accepted",
@@ -455,6 +483,12 @@ class ConnectionsService:
             RETURNING id
             """,
             {"id": req.get("id")},
+        )
+        FeedService().record_event(
+            user_id=str(req.get("requester_user_id")),
+            source_domain="connections",
+            event_type="connection_rejected",
+            metadata={"counterpart_user_id": user_id},
         )
         return {"status": "rejected", "requestId": req.get("id")}
 
@@ -754,9 +788,17 @@ class ConnectionsService:
                         "b": row.get("user_b_id"),
                     },
                 )
+            revoked_origins = int(state.get("revokedOrigins") or 0)
+            still_connected = bool(state.get("active"))
+            if revoked_origins > 0 and not still_connected:
+                self._record_pair_feed_event(
+                    event_type="connection_revoked",
+                    user_a=str(row.get("user_a_id") or ""),
+                    user_b=str(row.get("user_b_id") or ""),
+                )
             return {
-                "removed": 1 if int(state.get("revokedOrigins") or 0) > 0 else 0,
-                "stillConnected": bool(state.get("active")),
+                "removed": 1 if revoked_origins > 0 else 0,
+                "stillConnected": still_connected,
                 "connectionKind": state.get("connectionKind"),
                 "circleIds": state.get("circleIds") or [],
                 "circleNames": state.get("circleNames") or [],
@@ -810,6 +852,12 @@ class ConnectionsService:
             """,
             {"id": (connection_id or "").strip()},
         )
+        if conn:
+            self._record_pair_feed_event(
+                event_type="connection_revoked",
+                user_a=str(user_a or ""),
+                user_b=str(user_b or ""),
+            )
         return {
             "removed": 1 if conn else 0,
             "stillConnected": False,

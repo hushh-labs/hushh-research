@@ -30,6 +30,15 @@ SUBAGENT_BUDGET_RELATIVE_PATH = Path(
     ".codex/skills/agent-orchestration-governance/scripts/subagent_budget.py"
 )
 CODING_AGENT_MCP_RELATIVE_PATH = Path("docs/reference/operations/coding-agent-mcp.md")
+BACTERIAL_ARCHITECTURE_RELATIVE_PATH = Path(
+    "docs/vision/bacterial-software-architecture.md"
+)
+CODE_PERSONA_RELATIVE_PATH = Path(
+    "docs/reference/operations/hussh-code-persona.md"
+)
+SKILL_CONTRACT_RELATIVE_PATH = Path(
+    ".codex/skills/codex-skill-authoring/references/skill-contract.md"
+)
 
 EXPECTED_AGENTS = {
     "analytics_observability_architect",
@@ -54,7 +63,8 @@ NICKNAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 GOVERNOR_AUTHORITY_RULE = "only you may produce final merge, deploy, or plan recommendations"
 NON_GOVERNOR_AUTHORITY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
-PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel from AGENTS.md"
+PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel"
+BACTERIAL_ARCHITECTURE_RULE = "Bacterial Software Architecture Gate from AGENTS.md"
 DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
     "Project-Wide Principal Craft Kernel",
     "Operate as a principal-level software engineer",
@@ -67,6 +77,9 @@ DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
     "Leslie Lamport",
     "John Carmack",
     "Steve Jobs",
+    "Project-Wide Bacterial Software Architecture Gate",
+    "A gene is the smallest useful capability",
+    "A eukaryotic monorepo backbone",
 ]
 TRUTH_FIRST_HEADER = "Truth-first protocol:"
 TRUTH_FIRST_TOKENS = [
@@ -93,6 +106,10 @@ STALE_DELEGATION_AUTHORIZATION_TOKENS = [
     "The user has explicitly allowed delegation or the active workflow has an approved delegation step.",
     "The user asked for information only and did not authorize delegation.",
 ]
+
+
+def missing_markers(text: str, markers: list[str]) -> list[str]:
+    return [marker for marker in markers if marker not in text]
 
 
 def load_toml(path: Path) -> dict:
@@ -293,6 +310,8 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
             errors.append(f"{path}: truth-first protocol missing token '{token}'")
     if name in EXPECTED_AGENTS and PRINCIPAL_CRAFT_RULE not in instructions:
         errors.append(f"{path}: missing Principal Craft Kernel inheritance hook")
+    if name in EXPECTED_AGENTS and BACTERIAL_ARCHITECTURE_RULE not in instructions:
+        errors.append(f"{path}: missing Bacterial Software Architecture inheritance hook")
 
     instructions_lower = instructions.lower()
     if name == "governor":
@@ -341,6 +360,97 @@ def validate_agents(root: Path, errors: list[str]) -> None:
         )
 
 
+def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> None:
+    agents_path = root / "AGENTS.md"
+    doctrine_path = root / BACTERIAL_ARCHITECTURE_RELATIVE_PATH
+    persona_path = root / CODE_PERSONA_RELATIVE_PATH
+    skill_contract_path = root / SKILL_CONTRACT_RELATIVE_PATH
+    if not doctrine_path.exists():
+        errors.append(f"missing bacterial architecture doctrine: {doctrine_path}")
+        return
+    if not agents_path.exists():
+        errors.append(f"missing root agent contract: {agents_path}")
+        return
+
+    agents_text = agents_path.read_text(encoding="utf-8")
+    doctrine_text = doctrine_path.read_text(encoding="utf-8")
+    for marker in [
+        "Project-Wide Bacterial Software Architecture Gate",
+        BACTERIAL_ARCHITECTURE_RELATIVE_PATH.as_posix(),
+        "`gene`",
+        "`operon`",
+        "`organ`",
+        "Preserve every working output",
+        "staged ratchet",
+    ]:
+        if marker not in agents_text:
+            errors.append(f"{agents_path}: bacterial architecture gate missing marker '{marker}'")
+    for marker in [
+        "## Three Scales",
+        "### Gene",
+        "### Operon",
+        "### Organ",
+        "## Compatibility-Preserving Retrofit",
+        "Working behavior is the baseline",
+        "What This Rule Does Not Mean",
+    ]:
+        if marker not in doctrine_text:
+            errors.append(f"{doctrine_path}: bacterial architecture doctrine missing marker '{marker}'")
+
+    linked_contracts = {
+        persona_path: [
+            "Bacterial Engineering Instinct",
+            BACTERIAL_ARCHITECTURE_RELATIVE_PATH.relative_to("docs").as_posix(),
+            "Every line must earn its cost",
+            "could someone “yoink”",
+            "`gene`",
+            "`operon`",
+            "`organ`",
+            "Copy-pasteability is a portability test",
+        ],
+        skill_contract_path: [
+            "Bacterial Software Architecture Gate",
+            "small, modular, and self-contained",
+            "preserving canonical authority",
+        ],
+    }
+    for path, markers in linked_contracts.items():
+        if not path.exists():
+            errors.append(f"missing bacterial architecture linked contract: {path}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in markers:
+            if marker not in text:
+                errors.append(f"{path}: bacterial architecture inheritance missing marker '{marker}'")
+
+
+def run_self_test() -> list[str]:
+    failures: list[str] = []
+    agent_markers = [PRINCIPAL_CRAFT_RULE, BACTERIAL_ARCHITECTURE_RULE]
+    complete_agent = "; ".join(agent_markers)
+    if missing_markers(complete_agent, agent_markers):
+        failures.append("complete agent fixture should pass inheritance validation")
+    without_bacterial = complete_agent.replace(BACTERIAL_ARCHITECTURE_RULE, "")
+    if missing_markers(without_bacterial, agent_markers) != [BACTERIAL_ARCHITECTURE_RULE]:
+        failures.append("agent inheritance removal fixture should fail on the bacterial hook")
+
+    skill_markers = [
+        "Bacterial Software Architecture Gate",
+        "small, modular, and self-contained",
+        "preserving canonical authority",
+    ]
+    complete_skill = (
+        "Every skill inherits the Bacterial Software Architecture Gate from AGENTS.md: "
+        "keep procedures small, modular, and self-contained while preserving canonical authority."
+    )
+    if missing_markers(complete_skill, skill_markers):
+        failures.append("complete skill fixture should pass inheritance validation")
+    for marker in skill_markers:
+        if missing_markers(complete_skill.replace(marker, ""), skill_markers) != [marker]:
+            failures.append(f"skill inheritance removal fixture should fail on {marker!r}")
+    return failures
+
+
 def validate_delegation_policies(root: Path, errors: list[str]) -> None:
     workflow_dir = root / WORKFLOWS_RELATIVE_PATH
     if not workflow_dir.exists():
@@ -357,8 +467,9 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
             continue
         if policy.get("auto_spawn_read_only_evidence_lanes") is not True:
             errors.append(f"{path}: delegation_policy must explicitly enable read-only evidence lanes")
-        if policy.get("router") != str(DELEGATION_ROUTER_RELATIVE_PATH):
-            errors.append(f"{path}: delegation_policy.router must point to {DELEGATION_ROUTER_RELATIVE_PATH}")
+        expected_router = DELEGATION_ROUTER_RELATIVE_PATH.as_posix()
+        if policy.get("router") != expected_router:
+            errors.append(f"{path}: delegation_policy.router must point to {expected_router}")
         phase_checkpoints = policy.get("phase_checkpoints")
         if phase_checkpoints != ["start", "mid"]:
             errors.append(f"{path}: delegation_policy.phase_checkpoints must equal ['start', 'mid']")
@@ -423,17 +534,27 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate repo-scoped Codex agent orchestration surfaces.")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="repo root to validate")
+    parser.add_argument("--self-test", action="store_true", help="exercise inheritance-removal fixtures")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        failures = run_self_test()
+        if failures:
+            for failure in failures:
+                print(f"ERROR: {failure}", file=sys.stderr)
+            return 1
+        print("Agent orchestration inheritance self-test passed.")
+        return 0
     root = args.root.resolve()
     errors: list[str] = []
     validate_config(root, errors)
     validate_delegation_router(root, errors)
     validate_delegation_contract(root, errors)
     validate_subagent_budget_policy(root, errors)
+    validate_bacterial_architecture_contract(root, errors)
     validate_agents(root, errors)
     validate_delegation_policies(root, errors)
 

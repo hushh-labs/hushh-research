@@ -9,6 +9,63 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
+## Visual Map
+
+Two token lanes cross one trust boundary: the vault-owner lane bootstrapped from
+Firebase, and the delegated-app lane that only ever yields ciphertext. Everything
+below the client box is server-side; the vault key never appears there.
+
+```mermaid
+flowchart TB
+  subgraph client["Client trust boundary, memory only"]
+    fb["Firebase ID token<br/>identity only, about 1h"]
+    vaultctx["hushh-webapp/lib/vault/vault-context.tsx<br/>vault key + VAULT_OWNER token<br/>React state, never persisted"]
+  end
+
+  subgraph bootstrap["Bootstrap, the only Firebase-auth consent route"]
+    vot["POST /api/consent/vault-owner-token<br/>verify_firebase_bearer, reuse when over 1h left"]
+    issue["issue_token<br/>hushh_mcp/consent/token.py<br/>HMAC-signed HCT, 24h"]
+    internal["internal_access_events<br/>vault-owner session ledger"]
+  end
+
+  subgraph delegated["Delegated app lane, scoped tokens"]
+    req["POST /api/v1/request-consent<br/>rejects vault.owner, pkm.read, pkm.write,<br/>and retired scopes"]
+    audit["consent_audit<br/>REQUESTED, CONSENT_GRANTED,<br/>CONSENT_DENIED, REVOKED"]
+    approve["POST /api/consent/pending/approve<br/>VAULT_OWNER only<br/>issue_token + store_consent_export"]
+    exports["consent_exports<br/>encrypted_data, iv, tag,<br/>wrapped_key_bundle"]
+  end
+
+  subgraph enforce["Enforcement on every gated call"]
+    dep["Token gates in api/middleware.py<br/>require_vault_owner_token, require_consent_scope"]
+    vt["validate_token<br/>prefix, HMAC, expiry, retired-scope reject"]
+    sm["scope_matches<br/>vault.owner satisfies every scope"]
+    vtdb["validate_token_with_db<br/>scoped fail closed, vault.owner grace"]
+    revoked["_revoked_tokens<br/>bounded in-memory cache"]
+  end
+
+  routes["Consent-gated routes<br/>/api/kai/*, /api/pkm/*,<br/>/api/consent/pending, /api/consent/data"]
+  revoke["POST /api/consent/revoke"]
+
+  fb --> vot
+  vot --> issue
+  issue --> internal
+  issue --> vaultctx
+  vaultctx --> dep
+  req --> audit
+  audit --> approve
+  approve --> audit
+  approve --> exports
+  approve --> dep
+  dep --> vt
+  vt --> sm
+  vt --> vtdb
+  vtdb --> revoked
+  vtdb --> routes
+  routes --> exports
+  revoke --> revoked
+  revoke --> audit
+```
+
 ---
 
 ## Overview
@@ -142,16 +199,19 @@ GET  /api/v1/user-scopes/{user_id}    # Developer-token protected dynamic scope 
 POST /api/v1/request-consent          # Create or reuse consent for one discovered scope
 ```
 
-### 3. Bootstrap Routes (Firebase Only)
+### 3. Bootstrap Route (Firebase Only)
 
-These routes issue or manage VAULT_OWNER tokens:
+Exactly one consent route accepts a Firebase bearer, and it exists to mint the
+VAULT_OWNER token:
 
 ```
 POST /api/consent/vault-owner-token    # Issues VAULT_OWNER token
-GET  /api/consent/pending              # View pending before vault unlock
-POST /api/consent/pending/approve      # Approve before having token
-POST /api/consent/pending/deny         # Deny before having token
 ```
+
+The `/api/consent/pending*` routes are **not** bootstrap routes. Every one of
+them takes `Depends(require_vault_owner_token)` in `api/routes/consent.py`, so
+the vault must already be unlocked before pending requests can be listed,
+approved, or denied.
 
 ### 4. Consent-Gated Routes (VAULT_OWNER Required)
 
@@ -159,20 +219,22 @@ ALL data access routes require VAULT_OWNER token:
 
 ```
 # Kai Chat
-POST /kai/chat
-GET  /kai/chat/history/{id}
-GET  /kai/chat/conversations/{user_id}
-GET  /kai/chat/initial-state/{user_id}
-POST /kai/chat/analyze-loser
+POST /api/kai/chat
+GET  /api/kai/chat/history/{id}
+GET  /api/kai/chat/conversations/{user_id}
+GET  /api/kai/chat/initial-state/{user_id}
+POST /api/kai/chat/analyze-loser
 
 # Kai Portfolio & PKM Data Retrieval
-POST /kai/portfolio/import
-GET  /kai/portfolio/summary/{user_id}
-GET  /api/consent/data                  # MCP: Get encrypted export
-GET  /api/consent/active                # MCP: List active tokens
-POST /api/consent/request-consent       # MCP: Request token
+POST /api/kai/portfolio/import
+GET  /api/kai/portfolio/summary/{user_id}
+GET  /api/consent/data                  # Get encrypted export
+GET  /api/consent/active                # List active tokens (api/routes/session.py)
 GET  /api/consent/pending               # Dashboard: View pending
-POST /api/consent/pending/approve      # Dashboard: Approve request
+POST /api/consent/pending/approve       # Dashboard: Approve request
+
+# Third-party consent requests enter through the developer surface,
+# POST /api/v1/request-consent. There is no /api/consent/request-consent.
 
 # Kai personalization storage
 # Optional intro data is stored in encrypted PKM path `financial.profile`.
@@ -287,9 +349,12 @@ Component → Service → Next.js Proxy → Python Backend
 
 ### Integrated Notification Flow (FCM-Only)
 The system uses a unified FCM (Firebase Cloud Messaging) pipeline for both Web and Native.
-1. **Backend** triggers FCM push via `send_consent_notification`.
+1. **Backend** signals the first-party app over the SSE stream in
+   `api/routes/sse.py` (`/api/consent/events/{user_id}`); push helpers in
+   `hushh_mcp/services/push_notifications.py` cover the data and connection
+   cases.
 2. **Device** receives notification (Foreground: custom event, Background: system tray).
-3. **App** UI polls/refreshes state based on notification type.
+3. **App** UI polls `/api/consent/pending` or refreshes state from the event.
 ```
 
 ### Native Flow (iOS/Android)

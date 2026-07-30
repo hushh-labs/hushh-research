@@ -231,6 +231,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_KYC) {
     return { screen: "one_kyc", subview: query.get("panel") || null };
   }
+  if (normalizedPath === ROUTES.ONE_FEED) {
+    return { screen: "one_feed", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
     return { screen: "one_location_map", subview: null };
   }
@@ -278,6 +281,12 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
     return { screen: "gmail", subview: "legacy" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICES) {
+    return { screen: "profile_security_devices", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE) {
+    return { screen: "app", subview: "trusted-device-authorization" };
   }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);

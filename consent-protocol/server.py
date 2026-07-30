@@ -356,6 +356,18 @@ from api.routes import world_model  # noqa: E402
 
 app.include_router(world_model.router)
 
+# Personal World Model store (PCHP RFC-002 subscription fabric): the uid-keyed
+# preference doc behind /api/pwm and cross-device "your private agent knows you".
+from api.routes import pwm  # noqa: E402
+
+app.include_router(pwm.router)
+
+# Preference Subscription Fabric (PCHP RFC-002): grants + hash-chained receipts
+# (/api/fabric/*) and the subscriber read API that turns a grant into value.
+from api.routes import fabric  # noqa: E402
+
+app.include_router(fabric.router)
+
 # Account deletion and management
 app.include_router(account.router)
 
@@ -404,7 +416,7 @@ async def startup_pool_and_iam_cache() -> None:
     in-flight API request.  That means the first real user request after a
     worker restart pays:
 
-      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
+      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Cloud SQL pooler
       • ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
                    checks, each ~50-80 ms over the Cloud SQL proxy)
 
@@ -655,6 +667,52 @@ async def startup_market_cache_store_table():
             raise
         logger.warning(
             "startup.market_cache_store_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
+
+
+@app.on_event("startup")
+async def startup_pwm_documents_table():
+    """Ensure the Personal World Model table exists before any /api/pwm request."""
+    from hushh_mcp.services.pwm_service import get_pwm_service
+
+    try:
+        await get_pwm_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.pwm_documents_table_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.pwm_documents_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
+
+
+@app.on_event("startup")
+async def startup_fabric_tables():
+    """Ensure the subscription-fabric tables exist before any /api/fabric request."""
+    from hushh_mcp.services.fabric_grant_service import get_fabric_grant_service
+    from hushh_mcp.services.fabric_request_service import get_fabric_request_service
+
+    try:
+        await get_fabric_grant_service().ensure_table()
+        await get_fabric_request_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.fabric_tables_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.fabric_tables_skipped environment=%s reason=%s",
             _environment(),
             exc,
         )

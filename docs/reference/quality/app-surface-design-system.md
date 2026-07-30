@@ -8,6 +8,70 @@ This document is the canonical contract for app-facing surfaces across Kai, RIA,
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
 
+## Visual Map
+
+Tokens in `globals.css` feed one shell composition, which feeds shared
+primitives. Route surfaces consume primitives and never re-derive the recipe.
+
+```mermaid
+flowchart TB
+  subgraph tokens["Token layer: hushh-webapp/app/globals.css"]
+    accent["--app-accent family<br/>iOS Blue default, Molten Gold opt-in<br/>lib/theme/accent.ts"]
+    metrics["--app-shell-reading, -standard, -expanded<br/>--top-shell-reserved-height, --page-top-start"]
+    surfacetok["--app-card-surface, -shadow, -radius, -border<br/>--ambient-chrome top and bottom"]
+  end
+
+  subgraph shell["Shell layer"]
+    frame["AppShellFrame + AmbientChromeController<br/>app/providers.tsx"]
+    top["AppTopShell: hidden, bar, bar-with-tabs<br/>components/app-ui/top-app-bar.tsx"]
+    page["AppPageShell and FullscreenFlowShell<br/>components/app-ui/app-page-shell.tsx"]
+    bottom["AppBottomShell: bottom nav plus Agent Bar<br/>components/app-ui/app-bottom-shell.tsx"]
+  end
+
+  subgraph primitives["Shared primitives"]
+    surfaces["SurfaceCard, SurfaceStack, SurfaceInset<br/>lib/morphy-ux/surfaces.tsx"]
+    control["ShellActionSurface + MaterialRipple<br/>components/app-ui/shell-action-surface.tsx"]
+    headers["PageHeader, SectionHeader<br/>components/app-ui/page-sections.tsx"]
+    settings["SettingsGroup, SettingsRow, AdaptiveDetailSurface<br/>components/app-ui/settings-ui.tsx"]
+    feedback["morphyToast, DialogOverlay scrim<br/>AppStreamPanel"]
+  end
+
+  subgraph nav["Navigation contract: hushh-webapp/lib/navigation"]
+    bottomnav["app-bottom-nav.ts, top-shell-back.ts"]
+    routecontract["app-route-layout.contract.json"]
+  end
+
+  routes["Route surfaces<br/>/one/kai, /one/consent, /one/feed, RIA, Profile, Marketplace"]
+
+  subgraph gates["Enforcement"]
+    gaccent["npm run verify:accent-tokens"]
+    groutes["npm run verify:routes"]
+    gcache["npm run audit:cache-coherence"]
+  end
+
+  accent --> frame
+  metrics --> frame
+  surfacetok --> frame
+  frame --> top
+  frame --> page
+  frame --> bottom
+  top --> control
+  bottom --> control
+  page --> surfaces
+  bottomnav --> bottom
+  routecontract --> page
+  surfaces --> headers
+  surfaces --> settings
+  surfaces --> feedback
+  control --> routes
+  headers --> routes
+  settings --> routes
+  feedback --> routes
+  routes --> gaccent
+  routes --> groutes
+  routes --> gcache
+```
+
 ## Agent Copy Ownership
 
 The app uses the Hussh / One / Kai / Nav / KYC ontology from [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
@@ -117,23 +181,19 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     browser history as its parent resolver. The left edge wins over contextual
     tab swipes, appears only when the route exposes a back action, and never
     runs over a modal surface. Android preserves platform system-back behavior.
-30. Persistent signed-in chrome uses `AmbientChromeMask` and its shared ambient
-    token engine. It samples the painted app surface behind the top and bottom
-    edges, including Foundation's computed `oklch()` theme colors, excludes
-    chrome and transient overlays, and keeps theme-derived fallback tokens
-    until the first valid sample. Do not set global
-    `--background` from a chrome sample or add a route-local blur/tint recipe.
-    The only edge variables are `--ambient-chrome-{top,bottom}-{bg,fg}`;
-    a bottom-specific Foundation/base tint is prohibited. Every chrome child
-    inherits the matching sampled foreground through `currentColor`, so dark
-    tint yields light ink and light tint yields dark ink on both platforms.
-    The top mask height is the resolved shell height plus a mode-specific tail:
-    `bar-with-tabs` must dissolve farther below its tab underline than `bar`.
-    The engine also publishes the top surface tone for native system-bar icon
-    contrast; native bridges consume that shared decision rather than guessing
-    from the global theme.
+30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
+    compositor. Both edges paint a neutral `--background` to transparent
+    feather with `--foreground` ink and the shared subtle readability blur;
+    route colors must not tint either bar.
+    The sampling engine remains limited to publishing the top surface tone for
+    native system-bar icon contrast and must not recolor web chrome. Do not set
+    global `--background` from a sample or add a route-local blur/tint recipe.
+    The top mask height is the currently visible shell height plus a
+    mode-specific tail: `bar-with-tabs` stays solid through the visible tab
+    underline and its dissolve moves with partial or full header collapse.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
-    bottom mask, safe-area stack, and scroll-hide transform, then renders the
+    bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
+    by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
     bottom navigation and Agent Bar as separate accessible slots. Keep route
     visibility in its route-derived model; never recreate fixed bottom wrappers
     or move either slot inside a page Suspense boundary.
@@ -268,7 +328,7 @@ Rules:
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
-11. Top and bottom shell material uses the same blur-free sampled-tint,
+11. Top and bottom shell material uses the same subtle-blur sampled-tint,
     feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
     contract. A dark or gradient surface must not acquire a milky light chrome
     band.
@@ -292,6 +352,12 @@ Rules:
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
+9. A browse-heavy manager with top-shell tabs must bound its grouped list to the
+   visible workspace. Keep the toolbar and pagination pinned within the group;
+   the row rail, not the document, owns vertical scrolling. Consent request
+   review uses the canonical adaptive detail surface with a flat definition
+   list and decision controls—no duplicate request heading, supporting copy,
+   or nested detail card.
 
 ## Route Loading Contract
 
@@ -315,7 +381,7 @@ Rules:
 2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
-5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame` and both edges consume its sampled tint and foreground tokens. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame`, and both edges consume the neutral theme feather and foreground contract. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
 6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
 
 ## Foundation Color Contract
@@ -420,7 +486,7 @@ Every floating surface that takes modal focus shares one backdrop language so op
 Rules:
 
 1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
-2. Dialogs, sheets, drawers, the command palette, and contextual vault unlock prompts inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Every vault unlock sheet suppresses persistent top chrome, bottom navigation, and the Agent Bar while it is open. The non-dismissible `VaultLockGuard` is the credential-gate exception: its drawer uses one opaque theme canvas without blur or backdrop fade, so route chrome and Agent Bar are fully covered rather than visibly competing beneath an unlock form.
+2. Dialogs, sheets, drawers, and the command palette inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Vault create, unlock, recovery, passkey, and biometric credential surfaces are the focused credential exception: every entry point uses one opaque neutral theme canvas without blur, suppressing persistent top chrome, bottom navigation, and the Agent Bar so route content never competes beneath the form. The non-dismissible `VaultLockGuard` uses the same canvas but also suppresses backdrop animation; contextual vault prompts remain dismissible and retain their standard enter/exit motion except while a newly generated one-time recovery key is disclosed. That disclosure blocks Escape and outside-pointer dismissal until the person explicitly confirms the key was saved.
    Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
 3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
@@ -436,39 +502,46 @@ Rules:
    Kai-, CRM-, consent-, or route-local detail shell. Activity is the deliberate
    exception in transport only: its desktop view remains a non-modal anchored
    dropdown and its mobile view remains the shared Sheet, while both retain the
-   same surface tokens and compact header/body anatomy.
+   same surface tokens and compact header/body anatomy. Entity details place
+   supplied identity media in the shared `leading` header slot, followed by one
+   entity title and one concise metadata line. The body begins with new evidence;
+   it must not repeat that identity block, title, subtitle, or implementation
+   diagnostics in a nested card.
 
-## Consent Inbox And Notification Contract
+## Activity And Notification Contract
+
+The dropdown-based `ActivityInbox` this section used to specify no longer exists.
+It was replaced by a dedicated route, and `__tests__/components/top-app-bar.contract.test.ts`
+actively asserts that `top-app-bar.tsx` contains no `<ActivityInbox`,
+`<ConsentInboxDropdown`, or `<DebateTaskCenter`.
 
 Rules:
 
-1. `ActivityInbox` is the one signed-in shell entry point for consent review and background activity. It owns the trigger, one badge, one menu, and responsive presentation only; it does not own either domain's data or actions.
-2. The consent adapter remains the authority for active-persona summary data, cached `pending page 1` previews, consent-change events, and manager routing. Its pending count must never be derived from notification-local counters.
-3. The task adapter remains the authority for background-task subscriptions, navigation, cancellation, retry, dismissal, and vault checks. Do not turn task activity into consent state or invent an acknowledgement model for it.
-4. The activity trigger uses a familiar minimal activity icon. On compact viewports it uses a heart; its consent-priority count badge sits in a reserved outer-edge gutter so it never cuts into the bell/heart or adjacent Profile action. This preserves consent priority without adding a second top-bar control.
-5. The activity menu is a compact ordered feed, not a tabbed mini-app: consent requests that need review appear first, followed by task activity. Each section retains its own actions and empty/loading behavior.
-6. On desktop, Activity uses the shared top-shell dropdown. On mobile, it uses
-   the shared Sheet bottom-sheet mechanics. Its scrim preserves the canonical
-   Foundation route canvas in light and dark mode rather than applying a hard
-   black wash. The trigger and domain adapters remain the same across both forms.
-7. The activity surface must stay compact:
-   - fixed width
-   - bounded height
-   - internal scroll only
-   - no pagination chrome inside the dropdown
-8. The desktop activity dropdown uses the shared top-shell dropdown chrome:
-   - same radius
-   - same border/backdrop treatment
-   - same header/body/footer spacing
-   - same device-width scaling rules
-9. Consent, Profile, and compatibility aliases must converge on the same `/one/consent` manager when the user chooses to open the full workspace.
-10. Delivery diagnostics do not belong in the activity inbox. Task notifications remain visible until dismissed and should be ordered newest-first.
-11. Consent-review actions triggered from toasts or push taps must use in-app router navigation for internal app routes so vault-backed sessions are not cold-restarted.
-12. The task section is a two-level async surface:
-    - primary work for long-running/recoverable tasks such as PKM upgrade, portfolio import, Plaid refresh, consent export refresh
-    - passive work for cache warm, silent refresh, and reconciliation
-13. Passive work should only surface after a short threshold, stay grouped under `Background activity`, and autoclear after success.
-14. Failed passive work must promote into the primary task list and remain visible until dismissed.
+1. `/one/feed` is the one signed-in activity surface. It owns presentation only:
+   a fixed header, a scrolling list, sticky day dividers, and inline actions. It
+   does not own either domain's data or actions.
+2. The consent adapter remains the authority for active-persona summary data,
+   cached pending previews, consent-change events, and manager routing. Its
+   pending count must never be derived from feed-local counters.
+3. The task adapter remains the authority for background-task subscriptions,
+   navigation, cancellation, retry, dismissal, and vault checks. Do not turn task
+   activity into consent state or invent an acknowledgement model for it.
+4. The feed uses the canonical list system (`SettingsGroup` / `SettingsRow`), not
+   a card stack, so it reads as one continuous descending stream.
+5. Rows are ordered newest-first by wall-clock time and grouped into day
+   sections. Items that need the user appear above history.
+6. Irreversible inline actions (deny, decline, cancel) require a confirming
+   second tap and auto-disarm; a stray tap must not reject a request.
+7. Consent, Profile, and compatibility aliases must converge on the same
+   `/one/consent` manager when the user opens the full workspace.
+8. Delivery diagnostics do not belong in the feed. Task notifications remain
+   visible until dismissed.
+9. Consent-review actions triggered from toasts or push taps must use in-app
+   router navigation for internal app routes so vault-backed sessions are not
+   cold-restarted.
+10. Passive background work should only surface after a short threshold and
+    autoclear after success. Failed passive work must promote into the primary
+    list and remain visible until dismissed.
 
 ## Scroll Stability Contract
 

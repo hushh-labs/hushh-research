@@ -329,6 +329,49 @@ describe("runSosPanic", () => {
     });
   });
 
+  it("forwards a trimmed custom short message while preserving the SOS share kind", async () => {
+    const selected = makeRecipient("userA");
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+
+    await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [selected],
+      point: makePoint(),
+      note: "  Meet me by the north entrance.  ",
+      publish: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(createGrantMock).toHaveBeenCalledWith({
+      vaultOwnerToken: "tok",
+      recipientUserId: "userA",
+      recipientKeyId: "key-userA",
+      durationHours: 8,
+      reason: "Meet me by the north entrance.",
+      shareKind: "sos",
+    });
+  });
+
+  it("rejects an over-limit message before creating or publishing a grant", async () => {
+    const publish = vi.fn();
+
+    const error = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [makeRecipient("userA")],
+      point: makePoint(),
+      note: "a".repeat(141),
+      publish,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SosPanicError);
+    expect(error).toMatchObject({
+      message: "character limit exceed",
+      partialIncident: null,
+    });
+    expect(createGrantMock).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(saveSosIncidentMock).not.toHaveBeenCalled();
+  });
+
   it("calls publish once per recipient", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");

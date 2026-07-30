@@ -89,7 +89,8 @@ ALTER TABLE pkm_events
       'default_projection_publish',
       'default_projection_revoke',
       'upgrade_commit',
-      'upgrade_rollback'
+      'upgrade_rollback',
+      'domain_delete'
     )
   );
 

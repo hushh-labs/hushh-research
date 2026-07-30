@@ -1,7 +1,7 @@
 {
   "id": "agent-orchestration-governance",
   "title": "Agent Orchestration Governance",
-  "goal": "Define or tighten repo-scoped Codex custom agents, bounded subagent limits, inheritance-first model behavior, delegation authority, and verification rules without duplicating the existing skills and workflow system.",
+  "goal": "Define or tighten repo-scoped Codex custom agents, bounded subagent limits, root craft and bacterial-architecture inheritance, delegation authority, and verification rules without duplicating the existing skills and workflow system.",
   "owner_skill": "agent-orchestration-governance",
   "default_spoke": null,
   "task_type": "agent-orchestration-governance",
@@ -10,12 +10,14 @@
     ".codex/config.toml",
     ".codex/skills/agent-orchestration-governance",
     ".codex/workflows/agent-orchestration-governance",
+    "docs/vision/bacterial-software-architecture.md",
     "docs/reference/operations/README.md",
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_reads": [
     ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
     ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    "docs/vision/bacterial-software-architecture.md",
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_commands": [

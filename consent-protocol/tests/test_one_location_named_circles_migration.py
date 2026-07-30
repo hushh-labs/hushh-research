@@ -13,14 +13,14 @@ def test_named_circle_migrations_are_registered_in_release_order() -> None:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     schema = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
     migrations = [
-        "117_one_location_named_circles.sql",
-        "118_one_location_circle_connection_origins.sql",
-        "119_one_location_circle_member_invites.sql",
+        "125_one_location_named_circles.sql",
+        "126_one_location_circle_connection_origins.sql",
+        "127_one_location_circle_member_invites.sql",
     ]
 
     assert manifest["ordered_migrations"][-3:] == migrations
     assert all(migration in manifest["groups"]["iam"] for migration in migrations)
-    assert schema["expected_migration_version"] == 119
+    assert schema["expected_migration_version"] == 127
     for migration in migrations:
         assert (MIGRATIONS_DIR / migration).exists()
         stem = migration.removesuffix(".sql")
@@ -28,7 +28,7 @@ def test_named_circle_migrations_are_registered_in_release_order() -> None:
 
 
 def test_named_circle_base_schema_is_hash_only_and_additive() -> None:
-    migration = (MIGRATIONS_DIR / "117_one_location_named_circles.sql").read_text(encoding="utf-8")
+    migration = (MIGRATIONS_DIR / "125_one_location_named_circles.sql").read_text(encoding="utf-8")
     schema = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
     required = schema["required_tables"]
 
@@ -53,7 +53,7 @@ def test_named_circle_base_schema_is_hash_only_and_additive() -> None:
 
 
 def test_named_circle_connection_origins_are_source_aware_and_access_neutral() -> None:
-    migration = (MIGRATIONS_DIR / "118_one_location_circle_connection_origins.sql").read_text(
+    migration = (MIGRATIONS_DIR / "126_one_location_circle_connection_origins.sql").read_text(
         encoding="utf-8"
     )
     schema = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
@@ -92,7 +92,7 @@ def test_named_circle_connection_origins_are_source_aware_and_access_neutral() -
 
 
 def test_targeted_circle_member_invites_require_acceptance_and_are_bounded() -> None:
-    migration = (MIGRATIONS_DIR / "119_one_location_circle_member_invites.sql").read_text(
+    migration = (MIGRATIONS_DIR / "127_one_location_circle_member_invites.sql").read_text(
         encoding="utf-8"
     )
     schema = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
@@ -122,7 +122,7 @@ def test_targeted_circle_member_invites_require_acceptance_and_are_bounded() -> 
 
 
 def test_named_circle_rollback_removes_only_the_additive_shape() -> None:
-    rollback = (MIGRATIONS_DIR / "rollback" / "117_one_location_named_circles_down.sql").read_text(
+    rollback = (MIGRATIONS_DIR / "rollback" / "125_one_location_named_circles_down.sql").read_text(
         encoding="utf-8"
     )
 
@@ -134,10 +134,10 @@ def test_named_circle_rollback_removes_only_the_additive_shape() -> None:
     assert "DROP TABLE IF EXISTS trusted_connections" not in rollback
 
     provenance_rollback = (
-        MIGRATIONS_DIR / "rollback" / "118_one_location_circle_connection_origins_down.sql"
+        MIGRATIONS_DIR / "rollback" / "126_one_location_circle_connection_origins_down.sql"
     ).read_text(encoding="utf-8")
     invite_rollback = (
-        MIGRATIONS_DIR / "rollback" / "119_one_location_circle_member_invites_down.sql"
+        MIGRATIONS_DIR / "rollback" / "127_one_location_circle_member_invites_down.sql"
     ).read_text(encoding="utf-8")
 
     assert "DROP TABLE IF EXISTS connection_origins" in provenance_rollback
@@ -153,7 +153,7 @@ def test_named_circle_rollback_removes_only_the_additive_shape() -> None:
 
 def test_connection_origin_rollback_handles_leave_before_rollback() -> None:
     rollback = (
-        MIGRATIONS_DIR / "rollback" / "118_one_location_circle_connection_origins_down.sql"
+        MIGRATIONS_DIR / "rollback" / "126_one_location_circle_connection_origins_down.sql"
     ).read_text(encoding="utf-8")
     circle_only_candidates = rollback.split("ranked_superseded_requests AS", maxsplit=1)[0]
     aggregate_revoke = rollback.split(

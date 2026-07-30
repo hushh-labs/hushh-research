@@ -1056,6 +1056,44 @@ def _scope_entry_for_scope(scope_entries: list[dict], scope: str) -> dict[str, A
     return None
 
 
+async def _require_discovered_information_scope(
+    *,
+    user_id: str,
+    scope: str,
+) -> tuple[list[str], dict[str, Any]]:
+    available_domains, discovered_scopes, scope_entries = await _get_user_scope_snapshot(
+        user_id,
+        detail="verbose",
+    )
+    if scope not in set(discovered_scopes):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
+                "message": "Requested scope has no available information for this user.",
+                "discovery_hint": (
+                    "Call GET /api/v1/user-scopes/{user_id} first and request "
+                    "one of the returned scopes."
+                ),
+                "available_domains": available_domains,
+            },
+        )
+    entry = _scope_entry_for_scope(scope_entries, scope)
+    if entry and str(entry.get("materialization_state") or "unknown").strip().lower() == "empty":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
+                "message": "Requested scope has no available information for this user.",
+                "discovery_hint": (
+                    "Search the user's currently available scopes before requesting consent."
+                ),
+                "available_domains": available_domains,
+            },
+        )
+    return available_domains, entry or {}
+
+
 async def _get_user_scope_snapshot(
     user_id: str,
     *,
@@ -1819,21 +1857,13 @@ async def _request_consent_impl(
     # Keep default developer discovery compact, but validate requestable scopes
     # against the full resolver output so explicitly requested leaf paths found via
     # verbose/debug discovery remain valid.
-    available_domains, discovered_scopes, scope_entries = await _get_user_scope_snapshot(
-        payload.user_id,
-        detail="verbose",
-    )
-    if normalized_scope.startswith("attr.") and normalized_scope not in set(discovered_scopes):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
-                "message": "Requested scope is not available for this user.",
-                "discovery_hint": "Call GET /api/v1/user-scopes/{user_id} first and request one of the returned scopes.",
-                "available_domains": available_domains,
-            },
+    available_domains: list[str] = []
+    discovered_entry: dict[str, Any] | None = None
+    if is_information_scope:
+        available_domains, discovered_entry = await _require_discovered_information_scope(
+            user_id=payload.user_id,
+            scope=normalized_scope,
         )
-    discovered_entry = _scope_entry_for_scope(scope_entries, normalized_scope)
     scope_handle = str(
         (discovered_entry or {}).get("registry_handle") or ""
     ).strip() or scope_handle_for_machine_scope(payload.user_id, normalized_scope)
@@ -1869,6 +1899,11 @@ async def _request_consent_impl(
         elif export_policy != payload.refresh_policy:
             active = None
     if active:
+        if is_information_scope:
+            await _require_discovered_information_scope(
+                user_id=payload.user_id,
+                scope=normalized_scope,
+            )
         active_metadata = _metadata_object_map(active.get("metadata"))
         granted_scope = str(active.get("scope") or "") or None
         coverage = _coverage_fields(
@@ -1921,6 +1956,11 @@ async def _request_consent_impl(
         connector_wrapping_alg=connector_wrapping_alg,
         recipient_key_fingerprint=recipient_key_fingerprint,
     ):
+        if is_information_scope:
+            await _require_discovered_information_scope(
+                user_id=payload.user_id,
+                scope=normalized_scope,
+            )
         return _pending_consent_response(
             pending,
             normalized_scope=normalized_scope,
@@ -1987,6 +2027,11 @@ async def _request_consent_impl(
         user_id=payload.user_id,
         scope=normalized_scope,
     ):
+        if is_information_scope:
+            await _require_discovered_information_scope(
+                user_id=payload.user_id,
+                scope=normalized_scope,
+            )
         concurrent_pending = await service.get_pending_request_for_scope(
             payload.user_id,
             agent_id=principal.agent_id,

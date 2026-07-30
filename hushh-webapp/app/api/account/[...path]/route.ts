@@ -84,3 +84,10 @@ export async function POST(
 ) {
   return proxyRequest(request, await props.params);
 }
+
+export async function DELETE(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  return proxyRequest(request, await props.params);
+}

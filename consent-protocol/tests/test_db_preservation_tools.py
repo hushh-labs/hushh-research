@@ -55,11 +55,10 @@ def test_restore_target_must_be_an_isolated_database_name():
 
 
 def test_backup_and_restore_preserve_grants_for_exact_clone_comparison():
-    paths = (
-        REPO_ROOT / "scripts/ops/supabase_logical_backup.py",
-        REPO_ROOT / "consent-protocol/scripts/ops/supabase_logical_backup.py",
-        REPO_ROOT / "scripts/ops/restore_logical_backup_clone.py",
-    )
+    # Production backups are now Cloud SQL automated backups + PITR, so the
+    # former logical-backup script is gone; the restore-clone tool remains the
+    # exact-clone path and must still preserve grants.
+    paths = (REPO_ROOT / "scripts/ops/restore_logical_backup_clone.py",)
     for path in paths:
         assert "--no-privileges" not in path.read_text(encoding="utf-8")
 

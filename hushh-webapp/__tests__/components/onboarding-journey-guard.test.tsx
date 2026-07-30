@@ -61,14 +61,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
-  isCompletedLocationWorkspaceRoute: (
-    completedCapabilityIds: readonly string[] | null | undefined,
-    pathname: string,
-  ) =>
-    Boolean(completedCapabilityIds?.includes("location")) &&
-    pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
-      "/one/location",
   isOnboardingAdmissionExemptRoute: () => false,
+
   isOneSetupRoute: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
     "/one/setup",
@@ -226,7 +220,11 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("admits completed Location without widening the unresolved setup gate", () => {
+  it("gates the Location workspace until overall setup is finished, even when Location is done", async () => {
+    // Completing the Location capability alone must NOT unlock the main
+    // Location workspace. The user still has to return to /one/setup and
+    // finish setup (which requires Connections). Direct navigation to
+    // /one/location while setup is unresolved is redirected back to setup.
     pathnameValue = "/one/location";
     window.history.replaceState(null, "", pathnameValue);
     getCachedBootstrapStateMock.mockReturnValue({
@@ -240,10 +238,14 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    expect(screen.getByText("location workspace")).toBeTruthy();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith(
+        "/one/setup?return_to=%2Fone%2Flocation",
+      );
+    });
+    expect(screen.queryByText("location workspace")).toBeNull();
   });
+
 
   it("admits the canonical setup hub even when setup is incomplete", async () => {
     pathnameValue = "/one/setup";

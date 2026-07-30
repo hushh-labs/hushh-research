@@ -18,6 +18,7 @@ import {
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
 import { Switch } from "@/components/ui/switch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +41,7 @@ export function EmailOnboardingSetupClient() {
   const [saving, setSaving] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
   const [enablePending, setEnablePending] = useState(false);
+  const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
   const enableAttemptRef = useRef(0);
 
   const loadPreference = useCallback(async () => {
@@ -167,6 +169,12 @@ export function EmailOnboardingSetupClient() {
       }
     });
   }, [enablePending, persistPreference, vaultKey, vaultOwnerToken]);
+
+  if (!user) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+
+  if (!identityPrefaceComplete) {
+    return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
+  }
 
   if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
 

@@ -39,6 +39,7 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [frontend-ui-architecture-map.md](./frontend-ui-architecture-map.md): repo map, labs boundary, and layer ownership.
 - [app-surface-design-system.md](./app-surface-design-system.md): page shell, header, card, bell, and interaction contract.
 - [profile-settings-design-system.md](./profile-settings-design-system.md): canonical grouped settings language.
+- [one-onboarding-architecture.md](./one-onboarding-architecture.md): canonical One onboarding architecture and step contract.
 - [frontend-pattern-catalog.md](./frontend-pattern-catalog.md): implementation patterns and allowed primitives.
 - [app-surface-audit-matrix.md](./app-surface-audit-matrix.md): current rollout matrix across routes.
 - [pr-impact-checklist.md](./pr-impact-checklist.md): change-impact review checklist.

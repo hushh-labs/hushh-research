@@ -76,6 +76,8 @@ export const ROUTES = {
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
+  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
+  PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
@@ -108,6 +110,8 @@ export const ROUTES = {
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
+  /** Cross-domain activity feed: consent, location, Kai, KYC, connected systems, connections. */
+  ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
   AGENT: "/agent",
@@ -262,10 +266,28 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
-/** Completed Location setup is one-time and reopens its product workspace. */
+/**
+ * Completed Location setup reopens its product workspace only after the root
+ * setup journey is resolved. While `/one/setup` is still active, the authored
+ * setup route remains replayable just like every other capability.
+ */
 export function resolveCompletedSetupCapabilityTarget(
-  capabilityId: string,
+  {
+    capabilityId,
+    completedCapabilityIds,
+    rootSetupResolved,
+  }: {
+    capabilityId: string;
+    completedCapabilityIds: readonly string[];
+    rootSetupResolved: boolean;
+  },
 ): string | null {
+  if (
+    !rootSetupResolved ||
+    !completedCapabilityIds.includes(capabilityId)
+  ) {
+    return null;
+  }
   return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
 }
 
