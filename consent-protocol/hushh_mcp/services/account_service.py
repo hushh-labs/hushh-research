@@ -61,6 +61,7 @@ class AccountService:
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
+            "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
             ),
@@ -521,6 +522,7 @@ class AccountService:
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
                 "kai_portfolio_source_preferences",
+                "kai_analyze_runs",
                 "consent_export_refresh_jobs",
                 "consent_exports",
                 "connected_system_audit_events",
