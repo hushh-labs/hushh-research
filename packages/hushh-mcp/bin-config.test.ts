@@ -13,7 +13,7 @@ const packageJson = require("./package.json") as {
 describe("hushh-mcp CLI config output", () => {
   it("prints the MCP config through the package entrypoint executable", async () => {
     expect(packageJson.bin["hushh-mcp"]).toBe("bin/hushh-mcp.js");
-    expect(packageJson.version).toBe("0.4.0");
+    expect(packageJson.version).toBe("0.4.1");
 
     const { stdout, stderr } = await execAsync(`node ${packageJson.bin["hushh-mcp"]} --print-config`, {
       cwd: process.cwd(),
@@ -37,6 +37,23 @@ describe("hushh-mcp CLI config output", () => {
     expect(remote.url).toBe("https://api.uat.hushh.ai/mcp/");
     expect(remote.headers.Authorization).toBe("Bearer <developer-token>");
     expect(remote.url).not.toContain("token=");
+  });
+
+  it("prints operations-provisioned OAuth client-credentials bridge config", async () => {
+    const { stdout, stderr } = await execAsync(
+      `node ${packageJson.bin["hushh-mcp"]} --print-client-credentials-config`,
+      { cwd: process.cwd() },
+    );
+
+    expect(stderr).toBe("");
+    const config = JSON.parse(stdout);
+    const bridge = config.mcpServers["hushh-consent"];
+    expect(bridge.env.CONSENT_API_URL).toBe("https://api.uat.hushh.ai");
+    expect(bridge.env.HUSHH_OAUTH_CLIENT_ID).toBe("<operations-provisioned-client-id>");
+    expect(bridge.env.HUSHH_OAUTH_CLIENT_SECRET).toBe(
+      "<operations-provisioned-client-secret>",
+    );
+    expect(stdout).not.toContain("HUSHH_DEVELOPER_TOKEN");
   });
 
   it("prints the complete core-plus-campaign static gateway manifest", async () => {
