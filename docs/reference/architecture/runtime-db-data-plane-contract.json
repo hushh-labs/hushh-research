@@ -377,6 +377,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -385,10 +386,10 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access or reveal only an explicit public snapshot; Invite to One links create metadata-only network readiness and never reveal private grants, ciphertext, or owner identity beyond a safe label.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants and nearby presence before deletion where possible.",
+      "trust_boundary": "Raw device coordinates exist on owner and recipient devices and only transiently in authenticated request memory for an explicit nearby-place verification. UAT nearby presence stores the selected public-place anchor only as AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token. Checkout clears anchor material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist raw device latitude/longitude, exact distance, plaintext venue labels or addresses, map previews, movement trails, or raw public tokens. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },

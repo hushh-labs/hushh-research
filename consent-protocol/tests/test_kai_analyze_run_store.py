@@ -457,8 +457,23 @@ def test_migration_manifest_and_contracts_aligned() -> None:
     manifest = json.loads((root / "db" / "release_migration_manifest.json").read_text("utf-8"))
     assert "125_kai_analyze_run_store.sql" in manifest["ordered_migrations"]
 
+    expected_columns = [
+        "run_id",
+        "user_id",
+        "debate_session_id",
+        "ticker",
+        "risk_profile",
+        "status",
+        "terminal_event",
+        "terminal_payload",
+        "started_at_iso",
+        "completed_at_iso",
+        "created_at",
+        "expires_at",
+    ]
     for contract in ("uat_integrated_schema.json", "prod_core_schema.json"):
         data = json.loads((root / "db" / "contracts" / contract).read_text("utf-8"))
-        assert data["expected_migration_version"] == 125, contract
+        assert data["expected_migration_version"] >= 125, contract
+        assert data["required_tables"]["kai_analyze_runs"] == expected_columns, contract
 
     asyncio.get_event_loop  # noqa: B018 - keep asyncio import used across module

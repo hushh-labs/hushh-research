@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   LocateFixed,
+  Loader2,
   MapPin,
   Search,
   UsersRound,
@@ -17,6 +18,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
@@ -33,10 +35,17 @@ import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
+import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import {
+  consumeNearbyPrivateReturn,
+  NEARBY_PRIVATE_RESUME_PARAM,
+} from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
+  OneLocationNearbyAttendee,
+  OneLocationNearbyPresenceState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
@@ -77,6 +86,13 @@ function personInitials(label: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toLocaleUpperCase() || "")
     .join("");
+}
+
+function nearbyRelationshipLabel(attendee: OneLocationNearbyAttendee): string {
+  if (attendee.relationship === "connected") return "Connected";
+  if (attendee.relationship === "pending_outgoing") return "Checked in nearby";
+  if (attendee.relationship === "pending_incoming") return "Wants to connect";
+  return attendee.canConnect ? "Available to connect" : "Checked in nearby";
 }
 
 function mapApiKey(): string {
@@ -157,12 +173,12 @@ export function LocationImmersiveMap() {
   const auth = useRequireAuth();
   const { vaultOwnerToken } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
+  const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
-  const peopleTrayBodyRef = useRef<HTMLDivElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
@@ -170,8 +186,19 @@ export function LocationImmersiveMap() {
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
+  const nearbyHistoryPreparedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
+  const nearbyConnectInFlightRef = useRef(false);
+  const nearbyConnectGenerationRef = useRef(0);
+  const nearbyConnectOwnerRef = useRef({
+    userId: auth.userId,
+    vaultOwnerToken,
+  });
+  nearbyConnectOwnerRef.current = {
+    userId: auth.userId,
+    vaultOwnerToken,
+  };
   const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
@@ -188,7 +215,6 @@ export function LocationImmersiveMap() {
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
-  const [trayExpandedHeight, setTrayExpandedHeight] = useState(224);
   const [closing, setClosing] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [entryLocationSettled, setEntryLocationSettled] = useState(false);
@@ -196,8 +222,133 @@ export function LocationImmersiveMap() {
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
+  const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
+    string | null
+  >(null);
+  const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [nearbyPresenceState, setNearbyPresenceState] =
+    useState<OneLocationNearbyPresenceState>({
+      presence: null,
+      attendees: [],
+    });
+  const nearbyPresenceStateRef = useRef(nearbyPresenceState);
+  nearbyPresenceStateRef.current = nearbyPresenceState;
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+
+  useEffect(() => {
+    const action = searchParams.get("action");
+    if (
+      !nearbyCheckInAvailable &&
+      (action === "check-in" || action === "event-check-in")
+    ) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("action");
+      const query = params.toString();
+      router.replace(
+        query ? `${ROUTES.ONE_LOCATION_MAP}?${query}` : ROUTES.ONE_LOCATION_MAP,
+        { scroll: false },
+      );
+      setNearbyCheckInOpen(false);
+      return;
+    }
+    if (action === "event-check-in") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("action", "check-in");
+      router.replace(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+        scroll: false,
+      });
+      return;
+    }
+    const requested = action === "check-in";
+    setNearbyCheckInOpen(requested);
+    if (
+      !requested ||
+      nearbyHistoryPreparedRef.current ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    const resumeToken = searchParams.get(NEARBY_PRIVATE_RESUME_PARAM);
+    if (resumeToken) {
+      const resumed = consumeNearbyPrivateReturn(resumeToken);
+      const resumedUrl = new URL(window.location.href);
+      resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
+      window.history.replaceState(window.history.state, "", resumedUrl.href);
+      if (resumed) {
+        nearbyHistoryPreparedRef.current = true;
+        return;
+      }
+    }
+
+    // A direct/deep-linked check-in still gets a local Map history boundary:
+    // first Back closes the sheet, the next Back leaves Your Map.
+    const actionUrl = new URL(window.location.href);
+    actionUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
+    const plainMapUrl = new URL(actionUrl.href);
+    plainMapUrl.searchParams.delete("action");
+    window.history.replaceState(window.history.state, "", plainMapUrl.href);
+    window.history.pushState(window.history.state, "", actionUrl.href);
+    nearbyHistoryPreparedRef.current = true;
+  }, [nearbyCheckInAvailable, router, searchParams]);
+
+  const openNearbyCheckIn = useCallback(() => {
+    if (
+      !nearbyCheckInAvailable ||
+      !rendererReady ||
+      demoMode ||
+      searchParams.get("action") === "check-in"
+    ) {
+      return;
+    }
+    setTrayExpanded(false);
+    nearbyHistoryPreparedRef.current = true;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("action", "check-in");
+    router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+      scroll: false,
+    });
+  }, [
+    demoMode,
+    nearbyCheckInAvailable,
+    rendererReady,
+    router,
+    searchParams,
+  ]);
+
+  const closeNearbyCheckIn = useCallback(() => {
+    setNearbyCheckInOpen(false);
+    if (
+      typeof window !== "undefined" &&
+      new URL(window.location.href).searchParams.get("action") === "check-in"
+    ) {
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const mobileQuery = window.matchMedia("(max-width: 767px)");
+    const syncTouchState = () => {
+      if (nearbyCheckInOpen && mobileQuery.matches) {
+        void map.disableTouch();
+        return;
+      }
+      if (!closing) void map.enableTouch();
+    };
+    syncTouchState();
+    mobileQuery.addEventListener("change", syncTouchState);
+    return () => mobileQuery.removeEventListener("change", syncTouchState);
+  }, [closing, mapReady, nearbyCheckInOpen]);
+
+  useEffect(() => {
+    nearbyConnectGenerationRef.current += 1;
+    nearbyConnectInFlightRef.current = false;
+    setNearbyConnectionBusyAlias(null);
+    setNearbyPresenceState({ presence: null, attendees: [] });
+  }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
   const captureCurrentLocation =
     useCallback((): Promise<PlainLocationPoint> => {
@@ -218,6 +369,18 @@ export function LocationImmersiveMap() {
       );
       return request;
     }, []);
+
+  const captureAndRememberCurrentLocation = useCallback(async () => {
+    const point = await captureCurrentLocation();
+    if (auth.userId) {
+      const workspace = readLocationWorkspaceMemory(auth.userId);
+      writeLocationWorkspaceMemory(auth.userId, {
+        ...workspace,
+        myLocationPoint: point,
+      });
+    }
+    return point;
+  }, [auth.userId, captureCurrentLocation]);
 
   const focusSelfPoint = useCallback(
     async (
@@ -536,31 +699,6 @@ export function LocationImmersiveMap() {
   );
 
   useEffect(() => {
-    if (!rendererReady || !peopleTrayBodyRef.current) return;
-    const body = peopleTrayBodyRef.current;
-    let frame: number | null = null;
-    const publishHeight = () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        frame = null;
-        const bodyHeight = Math.ceil(body.getBoundingClientRect().height);
-        // The expanded header is 72px. The body owns its viewport cap, so this
-        // remains a concrete pixel height that WebKit can interpolate reliably.
-        setTrayExpandedHeight(Math.max(168, 72 + bodyHeight));
-      });
-    };
-    publishHeight();
-    const observer = new ResizeObserver(publishHeight);
-    observer.observe(body);
-    window.addEventListener("resize", publishHeight);
-    return () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener("resize", publishHeight);
-    };
-  }, [rendererReady]);
-
-  useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     let paddingTimer: number | null = null;
@@ -797,10 +935,116 @@ export function LocationImmersiveMap() {
     );
   }, [markers, searchQuery]);
 
-  const markerCountLabel = useMemo(
-    () =>
-      `${markers.length} ${markers.length === 1 ? "person" : "people"} sharing with you`,
-    [markers.length],
+  const nearbyAttendees = useMemo(
+    () => (nearbyPresenceState.presence ? nearbyPresenceState.attendees : []),
+    [nearbyPresenceState],
+  );
+
+  const filteredNearbyAttendees = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    if (!query) return nearbyAttendees;
+    return nearbyAttendees.filter((attendee) =>
+      attendee.displayName.toLocaleLowerCase().includes(query),
+    );
+  }, [nearbyAttendees, searchQuery]);
+
+  const drawerEntryCount = markers.length + nearbyAttendees.length;
+
+  const peopleDrawerLabel = useMemo(() => {
+    if (nearbyPresenceState.presence) {
+      if (nearbyAttendees.length > 0 && markers.length > 0) {
+        return `${nearbyAttendees.length} nearby · ${markers.length} sharing`;
+      }
+      if (nearbyAttendees.length > 0) {
+        return `${nearbyAttendees.length} ${
+          nearbyAttendees.length === 1 ? "person" : "people"
+        } checked in nearby`;
+      }
+      if (markers.length > 0) {
+        return `${markers.length} ${
+          markers.length === 1 ? "person" : "people"
+        } sharing · no one nearby`;
+      }
+      return "No one checked in nearby";
+    }
+    return `${markers.length} ${
+      markers.length === 1 ? "person" : "people"
+    } sharing with you`;
+  }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
+
+  const peopleDrawerSubtitle = nearbyPresenceState.presence
+    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · precise nearby locations stay private`
+    : (activeShareCount ?? 0) > 0
+      ? `People sharing with you · you're sharing with ${activeShareCount}`
+      : "People sharing their location with you";
+
+  const connectNearbyAttendee = useCallback(
+    async (attendee: OneLocationNearbyAttendee) => {
+      const ownerSnapshot = nearbyConnectOwnerRef.current;
+      const presenceCheckedInAt =
+        nearbyPresenceStateRef.current.presence?.checkedInAt;
+      if (
+        !ownerSnapshot.userId ||
+        !ownerSnapshot.vaultOwnerToken ||
+        !presenceCheckedInAt ||
+        !attendee.canConnect ||
+        nearbyConnectInFlightRef.current
+      ) {
+        return;
+      }
+
+      const generation = ++nearbyConnectGenerationRef.current;
+      nearbyConnectInFlightRef.current = true;
+      setNearbyConnectionBusyAlias(attendee.participantAlias);
+      const requestIsCurrent = () => {
+        const currentOwner = nearbyConnectOwnerRef.current;
+        const currentPresence = nearbyPresenceStateRef.current;
+        return (
+          mountedRef.current &&
+          nearbyConnectGenerationRef.current === generation &&
+          currentOwner.userId === ownerSnapshot.userId &&
+          currentOwner.vaultOwnerToken === ownerSnapshot.vaultOwnerToken &&
+          currentPresence.presence?.checkedInAt === presenceCheckedInAt &&
+          currentPresence.attendees.some(
+            (item) =>
+              item.participantAlias === attendee.participantAlias,
+          )
+        );
+      };
+      try {
+        const result = await OneLocationService.requestNearbyConnection({
+          vaultOwnerToken: ownerSnapshot.vaultOwnerToken,
+          participantAlias: attendee.participantAlias,
+        });
+        if (!requestIsCurrent()) return;
+        setNearbyPresenceState((current) => ({
+          ...current,
+          attendees: current.attendees.map((item) =>
+            item.participantAlias === attendee.participantAlias
+              ? {
+                  ...item,
+                  relationship: result.relationship,
+                  canConnect:
+                    result.relationship === "none" ? item.canConnect : false,
+                }
+              : item,
+          ),
+        }));
+        toast.success("Connection request sent.");
+      } catch {
+        if (requestIsCurrent()) {
+          toast.error(
+            "That person may no longer be nearby. Open Check in and refresh the list.",
+          );
+        }
+      } finally {
+        if (nearbyConnectGenerationRef.current === generation) {
+          nearbyConnectInFlightRef.current = false;
+          if (mountedRef.current) setNearbyConnectionBusyAlias(null);
+        }
+      }
+    },
+    [],
   );
 
   const closeMap = useCallback(() => {
@@ -827,15 +1071,19 @@ export function LocationImmersiveMap() {
   useEffect(() => {
     if (!isNative() || getPlatform() !== "android") return;
     let listener: { remove: () => Promise<void> } | undefined;
-    void CapacitorApp.addListener("backButton", () => closeMap()).then(
-      (handle) => {
-        listener = handle;
-      },
-    );
+    void CapacitorApp.addListener("backButton", () => {
+      if (nearbyCheckInOpen) {
+        closeNearbyCheckIn();
+        return;
+      }
+      closeMap();
+    }).then((handle) => {
+      listener = handle;
+    });
     return () => {
       void listener?.remove();
     };
-  }, [closeMap]);
+  }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
 
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;
@@ -896,13 +1144,37 @@ export function LocationImmersiveMap() {
         >
           <X className="h-5 w-5 stroke-[2.25]" />
         </ShellActionSurface>
+        {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+          <ShellActionSurface
+            variant="pill"
+            className={`pointer-events-auto min-w-0 border shadow-lg backdrop-blur-md ${
+              nearbyPresenceState.presence
+                ? MAP_ACCENT_ACTIVE_CLASSNAME
+                : MAP_ACCENT_CONTROL_CLASSNAME
+            }`}
+            aria-label={
+              nearbyPresenceState.presence
+                ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                : "Check in nearby"
+            }
+            data-testid="one-location-map-nearby-check-in"
+            onClick={openNearbyCheckIn}
+          >
+            <UsersRound className="h-4 w-4 shrink-0" />
+            <span className="truncate">
+              {nearbyPresenceState.presence
+                ? `Nearby ${nearbyPresenceState.attendees.length}`
+                : "Check in"}
+            </span>
+          </ShellActionSurface>
+        ) : null}
         {!demoMode && (activeShareCount ?? 0) > 0 ? (
           <span
             data-testid="one-location-map-sharing-status"
             aria-label={`You are sharing your location with ${activeShareCount} ${
               activeShareCount === 1 ? "person" : "people"
             }`}
-            className="pointer-events-none flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+            className="pointer-events-none hidden min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md md:flex dark:text-[var(--app-accent-bright)]"
           >
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
@@ -932,9 +1204,11 @@ export function LocationImmersiveMap() {
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Your Map renders active private shares with Google Maps. One sends
-            Google only the map request; coordinates stay encrypted until this
-            device decrypts an approved share.
+            Your Map decrypts approved private shares only on this device, then
+            sends the coordinates needed to Google Maps to render them. Hussh
+            servers do not receive those decrypted points. Nearby Check-In sends
+            your current point once to Google to suggest places; Hussh does not
+            store that raw GPS fix, and other users never receive it.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
@@ -969,7 +1243,7 @@ export function LocationImmersiveMap() {
       {rendererReady && status !== "unavailable" ? (
         <section
           ref={peopleTrayRef}
-          className="absolute left-1/2 z-20 isolate overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
+          className="absolute left-1/2 z-20 isolate flex min-h-0 flex-col overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
           data-testid="one-location-map-people-tray"
           data-state={trayExpanded ? "expanded" : "collapsed"}
           style={{
@@ -978,7 +1252,9 @@ export function LocationImmersiveMap() {
             width: trayExpanded
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
-            height: trayExpanded ? `${trayExpandedHeight}px` : "3.5rem",
+            height: trayExpanded
+              ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
+              : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
               `width ${motionDurations.xl}ms ${motionEasings.emphasized}`,
@@ -991,7 +1267,7 @@ export function LocationImmersiveMap() {
         >
           <button
             type="button"
-            className={`group relative flex w-full touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
+            className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
                 ? "h-[4.5rem] px-3 pb-2 pt-2.5"
                 : "h-14 justify-center p-0"
@@ -1025,9 +1301,9 @@ export function LocationImmersiveMap() {
               aria-hidden={trayExpanded}
             >
               <UsersRound className="h-6 w-6 stroke-[2.25] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-              {markers.length > 0 ? (
+              {drawerEntryCount > 0 ? (
                 <span className="absolute right-1.5 top-1.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-semibold leading-none text-[var(--app-accent-fg)]">
-                  {markers.length > 9 ? "9+" : markers.length}
+                  {drawerEntryCount > 9 ? "9+" : drawerEntryCount}
                 </span>
               ) : null}
             </span>
@@ -1053,11 +1329,21 @@ export function LocationImmersiveMap() {
                     {personInitials(person.label)}
                   </span>
                 ))}
+                {nearbyAttendees
+                  .slice(0, Math.max(0, 3 - markers.length))
+                  .map((attendee) => (
+                    <span
+                      key={attendee.participantAlias}
+                      className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-[var(--app-accent)] text-[10px] font-semibold text-[var(--app-accent-fg)]"
+                    >
+                      {personInitials(attendee.displayName)}
+                    </span>
+                  ))}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
                   <span className="truncate text-sm font-semibold">
-                    {markerCountLabel}
+                    {peopleDrawerLabel}
                   </span>
                   {demoMode ? (
                     <span className="rounded-full bg-[var(--app-accent-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
@@ -1066,9 +1352,7 @@ export function LocationImmersiveMap() {
                   ) : null}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {(activeShareCount ?? 0) > 0
-                    ? `People sharing with you · you're sharing with ${activeShareCount}`
-                    : "People sharing their location with you"}
+                  {peopleDrawerSubtitle}
                 </span>
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
@@ -1078,7 +1362,7 @@ export function LocationImmersiveMap() {
           </button>
 
           <div
-            className={`absolute inset-x-0 top-[4.5rem] motion-reduce:transition-none ${
+            className={`min-h-0 flex-1 motion-reduce:transition-none ${
               trayExpanded
                 ? "translate-y-0 opacity-100"
                 : "pointer-events-none translate-y-2 opacity-0"
@@ -1094,8 +1378,8 @@ export function LocationImmersiveMap() {
             inert={!trayExpanded}
           >
             <div
-              ref={peopleTrayBodyRef}
-              className="max-h-[min(25rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              data-testid="one-location-map-tray-scroll"
             >
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1110,47 +1394,151 @@ export function LocationImmersiveMap() {
                 />
               </label>
 
-              <div
-                className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                data-testid="one-location-map-people"
-              >
-                {filteredPeople.map((person) => {
-                  const selectedPerson = selected?.key === person.key;
-                  return (
-                    <button
-                      key={person.key}
-                      type="button"
-                      className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
-                        selectedPerson
-                          ? MAP_ACCENT_ACTIVE_CLASSNAME
-                          : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
-                      }`}
-                      aria-label={`Show ${person.label} on the map`}
-                      data-testid="one-location-map-person"
-                      onClick={() => void focusMarker(person)}
-                    >
-                      <span
-                        className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
-                        style={{
-                          backgroundColor: person.tint
-                            ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                            : "var(--app-accent)",
-                        }}
+              {nearbyPresenceState.presence ? (
+                <section
+                  className="mt-2"
+                  data-testid="one-location-map-nearby-people"
+                  aria-label="People checked in nearby"
+                >
+                  {filteredNearbyAttendees.length > 0 ? (
+                    <div className="space-y-1">
+                      {filteredNearbyAttendees.map((attendee) => {
+                        const connectionBusy =
+                          nearbyConnectionBusyAlias ===
+                          attendee.participantAlias;
+                        return (
+                          <div
+                            key={attendee.participantAlias}
+                            className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                            data-testid="one-location-map-nearby-person"
+                          >
+                            <button
+                              type="button"
+                              className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                              aria-label={`Open nearby actions for ${attendee.displayName}`}
+                              onClick={openNearbyCheckIn}
+                            >
+                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
+                                {personInitials(attendee.displayName)}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium">
+                                  {attendee.displayName}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {nearbyRelationshipLabel(attendee)}
+                                </span>
+                              </span>
+                            </button>
+                            {attendee.canConnect &&
+                            attendee.relationship === "none" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 shrink-0 rounded-full px-3"
+                                aria-label={`Connect with ${attendee.displayName}`}
+                                disabled={nearbyConnectionBusyAlias !== null}
+                                onClick={() =>
+                                  void connectNearbyAttendee(attendee)
+                                }
+                              >
+                                {connectionBusy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Connect"
+                                )}
+                              </Button>
+                            ) : attendee.relationship === "pending_outgoing" ? (
+                              <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+                                Requested
+                              </span>
+                            ) : attendee.relationship === "pending_incoming" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 shrink-0 rounded-full px-3"
+                                aria-label={`Respond to ${attendee.displayName}`}
+                                onClick={openNearbyCheckIn}
+                              >
+                                Respond
+                              </Button>
+                            ) : (
+                              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="px-1 py-2 text-sm text-muted-foreground">
+                      {nearbyAttendees.length > 0
+                        ? "No nearby check-ins match your search."
+                        : "No one else is checked in nearby yet."}
+                    </p>
+                  )}
+                </section>
+              ) : null}
+
+              <section className="mt-3">
+                <div className="flex items-center justify-between gap-3 px-1">
+                  <div>
+                    <h3 className="text-sm font-semibold">
+                      Live locations shared with you
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Only explicit private shares appear as map pins.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
+                    {markers.length}
+                  </span>
+                </div>
+                <div
+                  className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  data-testid="one-location-map-people"
+                >
+                  {filteredPeople.map((person) => {
+                    const selectedPerson = selected?.key === person.key;
+                    return (
+                      <button
+                        key={person.key}
+                        type="button"
+                        className={`flex h-11 shrink-0 items-center gap-2 rounded-full border px-2.5 pr-3 text-left text-sm transition-colors ${
+                          selectedPerson
+                            ? MAP_ACCENT_ACTIVE_CLASSNAME
+                            : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
+                        }`}
+                        aria-label={`Show ${person.label} on the map`}
+                        data-testid="one-location-map-person"
+                        onClick={() => void focusMarker(person)}
                       >
-                        {personInitials(person.label)}
-                      </span>
-                      <span className="max-w-28 truncate font-medium">
-                        {person.label}
-                      </span>
-                    </button>
-                  );
-                })}
-                {filteredPeople.length === 0 ? (
-                  <p className="py-2 pl-1 text-sm text-muted-foreground">
-                    No matching person is active.
-                  </p>
-                ) : null}
-              </div>
+                        <span
+                          className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
+                          style={{
+                            backgroundColor: person.tint
+                              ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                              : "var(--app-accent)",
+                          }}
+                        >
+                          {personInitials(person.label)}
+                        </span>
+                        <span className="max-w-28 truncate font-medium">
+                          {person.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {filteredPeople.length === 0 ? (
+                    <p className="py-2 pl-1 text-sm text-muted-foreground">
+                      {markers.length > 0
+                        ? "No live shares match your search."
+                        : "No one is sharing a live location with you."}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
 
               {selected ? (
                 <div
@@ -1241,6 +1629,22 @@ export function LocationImmersiveMap() {
             </div>
           </div>
         </section>
+      ) : null}
+      {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+        <NearbyCheckInSheet
+          open={nearbyCheckInOpen}
+          ownerId={auth.userId}
+          vaultOwnerToken={vaultOwnerToken}
+          captureCurrentPosition={captureAndRememberCurrentLocation}
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) {
+              openNearbyCheckIn();
+              return;
+            }
+            closeNearbyCheckIn();
+          }}
+          onStateChange={setNearbyPresenceState}
+        />
       ) : null}
     </main>
   );

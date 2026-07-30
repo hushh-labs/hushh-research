@@ -20,6 +20,10 @@ function readJson(filePath) {
   return JSON.parse(read(filePath));
 }
 
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
+}
+
 function routeValuesFromRoutesTs(source) {
   return [
     ...new Set(
@@ -31,11 +35,14 @@ function routeValuesFromRoutesTs(source) {
 }
 
 function routeValuesFromAppPages() {
-  return walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+  return walkFiles(
+    path.join(appRoot, "app"),
+    (filePath) => path.basename(filePath) === "page.tsx",
   )
     .map((filePath) => {
-      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const relative = toPosixPath(
+        path.relative(path.join(appRoot, "app"), filePath),
+      );
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
       return route ? `/${route}` : "/";
     })
@@ -91,9 +98,11 @@ function routeToVoiceContractFile(route) {
 }
 
 function apiTemplateFromRouteFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app/api"), filePath);
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app/api"), filePath),
+  );
   const withoutRoute = relative.replace(/\/route\.ts$/, "");
-  const parts = withoutRoute.split(path.sep).map((part) => {
+  const parts = withoutRoute.split("/").map((part) => {
     const catchAll = part.match(/^\[\.\.\.(.+)\]$/);
     if (catchAll) return `{${catchAll[1]}*}`;
     const dynamic = part.match(/^\[(.+)\]$/);
@@ -152,10 +161,27 @@ const routeOverrides = {
     api_dependencies: [
       {
         service_file: "lib/one-location/service.ts",
-        service_methods: ["getMapState", "updateMapPreferences", "getState", "storeEnvelope"],
+        service_methods: [
+          "getMapState",
+          "updateMapPreferences",
+          "getState",
+          "storeEnvelope",
+          "captureCurrentPosition",
+          "getPermissionState",
+          "openLocationSettings",
+          "openAppSettings",
+          "nearbyPlaces",
+          "placesAutocomplete",
+          "placeDetails",
+          "getNearbyPresence",
+          "checkInNearby",
+          "checkoutNearby",
+          "requestNearbyConnection",
+        ],
         nextjs_api_route: "/api/one/{path*}",
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
-        backend_endpoint_family: "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+        backend_endpoint_family:
+          "/api/one/location/{map-state,map-preferences,grants/*/envelopes,maps/*,nearby-presence*}",
         native_transport: "CapacitorHttp direct backend via the shared One Location service",
       },
     ],
@@ -170,12 +196,24 @@ const routeOverrides = {
         package: "@capacitor/app",
         integration: "Foreground lifecycle gates the bounded map refresh loop",
       },
+      {
+        package: "HushhLocation",
+        integration:
+          "Foreground-only permission, bounded one-shot position capture, and native settings recovery",
+        ios: "When-in-use Core Location; full-accuracy checks; no background mode",
+        android:
+          "Fine/coarse foreground permission; coarse-only capture avoids the GPS provider; no background permission",
+      },
     ],
     thread_and_consent_contract: {
-      baseline_transport: "Active recipient-scoped ciphertext only; no public or iframe fallback",
-      coordinate_storage: "foreground renderer memory only; preferences contain no coordinates",
-      location_capture: "explicit Locate me action only; opening the route never captures or watches location",
-      visibility: "Ghost Mode by default; foreground map publication never promotes direct/background envelopes",
+      baseline_transport:
+        "Active recipient-scoped ciphertext only; no public or iframe fallback",
+      coordinate_storage:
+        "Map coordinates stay in foreground renderer memory. Nearby presence stores only the selected public-place anchor under AES-256-GCM plus a rotating spatial token; raw device GPS is request-memory only.",
+      location_capture:
+        "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
+      visibility:
+        "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production.",
     },
   },
   "/one/kai/news": {
@@ -462,12 +500,13 @@ function buildSurfaceMap() {
   const inventoryByRoute = new Map(
     (inventory.routes || []).map((route) => [route.route, route]),
   );
-  const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts"),
+  const apiRoutes = walkFiles(
+    path.join(appRoot, "app/api"),
+    (filePath) => path.basename(filePath) === "route.ts",
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
-      file: path.relative(appRoot, filePath),
+      file: toPosixPath(path.relative(appRoot, filePath)),
     }))
     .sort((left, right) => left.template.localeCompare(right.template));
 

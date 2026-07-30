@@ -100,6 +100,57 @@ describe("OneLocationService", () => {
     expect(body).not.toContain("longitude");
   });
 
+  it("sends one idempotent grant-and-envelope request for private check-in", async () => {
+    const envelope = {
+      algorithm: "ECDH-P256-AES256-GCM",
+      recipientKeyId: "key_b",
+      ciphertext: "ciphertext",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: { kty: "EC" },
+      capturedAt: "2026-07-31T00:00:00.000Z",
+      sourcePlatform: "web" as const,
+      metadata: { plaintext: false },
+    };
+    mockApiJson.mockResolvedValueOnce({
+      grant: { id: "grant_1" },
+      envelope: { id: "envelope_1" },
+      idempotentReplay: false,
+    });
+
+    await OneLocationService.createGrantWithEnvelope({
+      vaultOwnerToken: "vault-token",
+      recipientUserId: "user_b",
+      recipientKeyId: "key_b",
+      durationHours: 1,
+      clientOperationId: "123e4567-e89b-12d3-a456-426614174000",
+      confirmedAt: "2026-07-31T00:00:01.000Z",
+      envelope,
+      reason: "Made it safely",
+      shareKind: "check_in",
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/grants/with-envelope",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          recipientUserId: "user_b",
+          recipientKeyId: "key_b",
+          durationHours: 1,
+          clientOperationId: "123e4567-e89b-12d3-a456-426614174000",
+          confirmedAt: "2026-07-31T00:00:01.000Z",
+          envelope,
+          reason: "Made it safely",
+          shareKind: "check_in",
+        }),
+      }),
+    );
+  });
+
   it("uses authenticated recipient route for viewing envelopes", async () => {
     mockApiJson.mockResolvedValueOnce({ grant: {}, envelope: {} });
 

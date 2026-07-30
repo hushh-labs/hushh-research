@@ -30,6 +30,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     private let manager = CLLocationManager()
     private var pendingPermissionCall: CAPPluginCall?
     private var pendingLocationCall: CAPPluginCall?
+    private var pendingLocationTimeout: DispatchWorkItem?
     // Active continuous-tracking watches keyed by the id returned to JS. The
     // CLLocationManager is shared, so a single startUpdatingLocation stream
     // fans out to every saved callback call below. Foreground-only.
@@ -115,6 +116,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         case .authorizedAlways, .authorizedWhenInUse:
             requestOneShotLocation(call)
         case .notDetermined:
+            if
+                let existing = pendingLocationCall,
+                existing.callbackId != call.callbackId
+            {
+                clearPendingLocationCall()?.reject(
+                    "A newer location request replaced this request."
+                )
+            }
             pendingLocationCall = call
             manager.requestWhenInUseAuthorization()
         case .denied, .restricted:
@@ -125,8 +134,42 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     private func requestOneShotLocation(_ call: CAPPluginCall) {
+        if
+            let existing = pendingLocationCall,
+            existing.callbackId != call.callbackId
+        {
+            clearPendingLocationCall()?.reject(
+                "A newer location request replaced this request."
+            )
+        }
+        pendingLocationTimeout?.cancel()
         pendingLocationCall = call
+        let timeoutMs = max(3_000, min(call.getInt("timeoutMs") ?? 15_000, 30_000))
+        let callbackId = call.callbackId
+        let timeout = DispatchWorkItem { [weak self] in
+            guard
+                let self,
+                let pending = self.pendingLocationCall,
+                pending.callbackId == callbackId
+            else { return }
+            self.pendingLocationCall = nil
+            self.pendingLocationTimeout = nil
+            pending.reject("Precise location unavailable before timeout.")
+        }
+        pendingLocationTimeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(timeoutMs),
+            execute: timeout
+        )
         manager.requestLocation()
+    }
+
+    private func clearPendingLocationCall() -> CAPPluginCall? {
+        pendingLocationTimeout?.cancel()
+        pendingLocationTimeout = nil
+        let call = pendingLocationCall
+        pendingLocationCall = nil
+        return call
     }
 
     @objc func watchPosition(_ call: CAPPluginCall) {
@@ -315,21 +358,24 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         case .authorizedAlways, .authorizedWhenInUse:
             requestOneShotLocation(call)
         case .denied, .restricted:
-            pendingLocationCall = nil
-            call.reject("Location permission was not granted.")
+            clearPendingLocationCall()?.reject(
+                "Location permission was not granted."
+            )
         case .notDetermined:
             break
         @unknown default:
-            pendingLocationCall = nil
-            call.reject("Location permission state is unavailable.")
+            clearPendingLocationCall()?.reject(
+                "Location permission state is unavailable."
+            )
         }
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else {
             if pendingLocationCall != nil {
-                pendingLocationCall?.reject("Precise location unavailable.")
-                pendingLocationCall = nil
+                clearPendingLocationCall()?.reject(
+                    "Precise location unavailable."
+                )
             }
             return
         }
@@ -343,8 +389,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         ]
 
         // One-shot getCurrentPosition resolves and clears its single call.
-        if let call = pendingLocationCall {
-            pendingLocationCall = nil
+        if let call = clearPendingLocationCall() {
             call.resolve(payload)
         }
 
@@ -359,8 +404,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let message = "Precise location unavailable: \(error.localizedDescription)"
-        if let call = pendingLocationCall {
-            pendingLocationCall = nil
+        if let call = clearPendingLocationCall() {
             call.reject(message)
         }
         failWatches(message)

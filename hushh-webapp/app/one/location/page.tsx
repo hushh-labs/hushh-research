@@ -147,6 +147,8 @@ import {
   LocationRedesignHub,
   ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
   type LocationHubViewModel,
+  type PrivateCheckInRequest,
+  type PrivateCheckInResult,
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
@@ -184,6 +186,7 @@ import type {
   OneLocationActivityRange,
   OneLocationActivityResponse,
   OneLocationCircleInvite,
+  OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -4520,75 +4523,150 @@ export function OneLocationAgentPageContent({
     [selectedRequestOwnerIds],
   );
 
-  // Check-In quick action: shares live location with a caller-provided set of
-  // trusted contacts (the same SOS-connected circle) for a chosen duration.
-  // Reuses the exact encrypted share pipeline (createGrant + publish) as the
-  // normal share flow — no new crypto, no new consent surface — so a check-in
-  // is just a fast, pre-scoped share to the people who already receive SOS.
-  const handleCheckIn = useCallback(
-    async (
-      recipientIds: string[],
-      durationHoursValue: string,
-      messageValue?: string,
-    ) => {
-      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
-        toast.error("Location permission is required to check in.");
-        return;
+  // Private Check-In is an explicit second consent stage after optional nearby
+  // presence. It shares live location only with the trusted contacts selected
+  // on that screen, using the normal per-recipient grant + encrypted envelope
+  // pipeline. A successful nearby check-in never authorizes this private share.
+  const privateCheckInEnvelopeCacheRef = useRef(
+    new Map<string, OneLocationEncryptedEnvelope>(),
+  );
+  useEffect(() => {
+    privateCheckInEnvelopeCacheRef.current.clear();
+  }, [auth.userId]);
+  const discardPrivateCheckInOperation = useCallback(
+    (operationId: string | null) => {
+      const ownerPrefix = `${auth.userId ?? "anonymous"}:`;
+      const operationPrefix = operationId
+        ? `${ownerPrefix}${operationId}:`
+        : ownerPrefix;
+      for (const cacheKey of privateCheckInEnvelopeCacheRef.current.keys()) {
+        if (cacheKey.startsWith(operationPrefix)) {
+          privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
+        }
       }
+    },
+    [auth.userId],
+  );
+  const handleCheckIn = useCallback(
+    async (request: PrivateCheckInRequest): Promise<PrivateCheckInResult> => {
+      const {
+        recipientIds,
+        durationHours: durationHoursValue,
+        message: messageValue,
+        point,
+        clientOperationId,
+        confirmedAt,
+      } = request;
       const selected = sosActionRecipients
         .filter((recipient) => recipientIds.includes(recipient.userId))
         .filter(isShareReadyRecipient);
+      const failedSelection: PrivateCheckInResult = {
+        succeededRecipientIds: [],
+        failedRecipientIds:
+          selected.length > 0
+            ? selected.map((recipient) => recipient.userId)
+            : recipientIds,
+      };
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to check in.");
+        return failedSelection;
+      }
       if (!selected.length) {
         toast.error(
           "Select at least one trusted contact who is ready to receive your location.",
         );
-        return;
+        return failedSelection;
       }
-      // The check-in note rides along as the grant reason so it surfaces in the
-      // recipient's notification ("<You>: I've checked in here..."). Trimmed and
-      // bounded; empty falls back to a plain share on the backend.
+      // The user-authored note is encrypted with the reviewed point. Only the
+      // fixed `check_in` reason code is persisted in grant/audit metadata.
       const checkInMessage =
         (messageValue || "").trim().slice(0, 160) || undefined;
       setBusy("share");
-      let successCount = 0;
+      const succeededRecipientIds: string[] = [];
+      const failedRecipientIds: string[] = [];
       try {
         const readiness = await ensureForegroundLocationReady({
-          capturePoint: true,
+          capturePoint: false,
           autoOpenSettings: true,
         });
-        if (!readiness.ready || !readiness.point) {
-          toast.error("Couldn't get your location — check-in not sent.");
-          return;
+        // The location shown on the consent screen is the only point this
+        // operation may encrypt; permission is rechecked without recapturing.
+        if (!readiness.ready) {
+          toast.error("Location permission is required to check in.");
+          return failedSelection;
         }
-        const point = readiness.point;
+        const capturedAtMs = Date.parse(point.capturedAt);
+        const confirmedAtMs = Date.parse(confirmedAt);
+        const nowMs = Date.now();
+        if (
+          !Number.isFinite(capturedAtMs) ||
+          !Number.isFinite(confirmedAtMs) ||
+          confirmedAtMs > nowMs + 30_000 ||
+          capturedAtMs > confirmedAtMs + 30_000 ||
+          confirmedAtMs - capturedAtMs > 60_000 ||
+          nowMs - confirmedAtMs > 10 * 60_000
+        ) {
+          toast.error("Refresh and review your location before sharing it.");
+          return failedSelection;
+        }
         const durationHoursNum = Number(durationHoursValue) || 1;
-        for (const recipient of selected) {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
-            durationHours: durationHoursNum,
-            reason: checkInMessage,
-          });
-          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-          successCount += 1;
+        const operationCachePrefix = `${
+          auth.userId ?? "anonymous"
+        }:${clientOperationId}:`;
+        for (const cacheKey of privateCheckInEnvelopeCacheRef.current.keys()) {
+          if (!cacheKey.startsWith(operationCachePrefix)) {
+            privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
+          }
         }
-        trackEvent("one_location_share_confirmed", {
-          route_id: "one_location",
-          result: oneLocationEventResult(successCount, 0),
-          selected_count: selected.length,
-          success_count: successCount,
-          failure_count: 0,
-          duration_bucket: oneLocationDurationBucket(durationHoursValue),
-          review_required: false,
-        });
-        toast.success(`Checked in with ${peopleCountLabel(selected.length)}.`);
-        // Closes the Check-In flow and returns to the hub (same signal the
-        // share flow uses).
-        setShareCompletedTick((value) => value + 1);
-        await refresh();
-      } catch (error) {
-        const failureCount = selected.length - successCount || 1;
+        const preparedShares = await Promise.all(
+          selected.map(async (recipient) => {
+            const cacheKey = `${operationCachePrefix}${recipient.userId}:${
+              recipient.keyId!
+            }`;
+            const cached = privateCheckInEnvelopeCacheRef.current.get(cacheKey);
+            const envelope =
+              cached ??
+              (await encryptLocationForRecipient({
+                point: {
+                  ...point,
+                  ...(checkInMessage
+                    ? { checkIn: { message: checkInMessage } }
+                    : {}),
+                },
+                recipientPublicKeyJwk: recipient.publicKeyJwk!,
+                recipientKeyId: recipient.keyId!,
+              }));
+            if (!cached) {
+              privateCheckInEnvelopeCacheRef.current.set(cacheKey, envelope);
+            }
+            return { recipient, envelope, cacheKey };
+          }),
+        );
+        for (const { recipient, envelope, cacheKey } of preparedShares) {
+          try {
+            await OneLocationService.createGrantWithEnvelope({
+              vaultOwnerToken,
+              recipientUserId: recipient.userId,
+              recipientKeyId: recipient.keyId!,
+              durationHours: durationHoursNum,
+              clientOperationId,
+              confirmedAt,
+              envelope,
+              reason: "check_in",
+              shareKind: "check_in",
+            });
+            succeededRecipientIds.push(recipient.userId);
+            privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
+          } catch (error) {
+            failedRecipientIds.push(recipient.userId);
+            console.warn(
+              "[OneLocationAgent] Private check-in failed for one recipient.",
+              error,
+            );
+          }
+        }
+        const successCount = succeededRecipientIds.length;
+        const failureCount = failedRecipientIds.length;
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
@@ -4598,19 +4676,63 @@ export function OneLocationAgentPageContent({
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
         });
+        if (failureCount === 0) {
+          toast.success(
+            `Checked in with ${peopleCountLabel(selected.length)}.`,
+          );
+          // Closes the Check-In flow and returns to its authored source.
+          setShareCompletedTick((value) => value + 1);
+        } else if (successCount > 0) {
+          toast.warning(
+            `Shared with ${peopleCountLabel(successCount)}. Retry ${peopleCountLabel(failureCount)}.`,
+          );
+        } else {
+          toast.error(
+            "Could not share with the selected people. Please retry.",
+          );
+        }
+        await refresh().catch((refreshError) => {
+          console.warn(
+            "[OneLocationAgent] Private check-in state refresh failed.",
+            refreshError,
+          );
+        });
+        return { succeededRecipientIds, failedRecipientIds };
+      } catch (error) {
+        const remainingRecipientIds = selected
+          .map((recipient) => recipient.userId)
+          .filter(
+            (recipientId) => !succeededRecipientIds.includes(recipientId),
+          );
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(
+            succeededRecipientIds.length,
+            remainingRecipientIds.length || 1,
+          ),
+          selected_count: selected.length,
+          success_count: succeededRecipientIds.length,
+          failure_count: remainingRecipientIds.length || 1,
+          duration_bucket: oneLocationDurationBucket(durationHoursValue),
+          review_required: false,
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not check in.",
         );
+        return {
+          succeededRecipientIds,
+          failedRecipientIds: remainingRecipientIds,
+        };
       } finally {
         setBusy(null);
       }
     },
     [
+      auth.userId,
       vaultOwnerToken,
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
-      publishEnvelopeWithRetry,
       refresh,
     ],
   );
@@ -5942,8 +6064,8 @@ export function OneLocationAgentPageContent({
     onAddSmsContact: (recipientUserId) =>
       void handleAddSmsContact(recipientUserId),
     onRemoveSmsContact: handleRemoveSmsContact,
-    onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
-      void handleCheckIn(recipientIds, durationHoursValue, messageValue),
+    onCheckIn: handleCheckIn,
+    onDiscardPrivateCheckInOperation: discardPrivateCheckInOperation,
   };
 
   // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in
@@ -5959,7 +6081,7 @@ export function OneLocationAgentPageContent({
       return (
         <>
           <NativeTestBeacon {...nativeTestConfig} />
-          <LocationImmersiveMap />
+          <LocationImmersiveMap key={auth.userId ?? "anonymous"} />
         </>
       );
     }

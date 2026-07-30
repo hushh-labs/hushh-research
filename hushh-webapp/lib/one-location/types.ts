@@ -337,6 +337,45 @@ export type OneLocationActivityResponse = {
   events: OneLocationActivityEvent[];
 };
 
+export type OneLocationNearbyPlaceSuggestion = {
+  placeId: string;
+  text: string;
+  /** Present for automatic nearby results; autocomplete does not return it. */
+  distanceMeters?: number | null;
+};
+
+export type OneLocationNearbyRelationship =
+  | "none"
+  | "pending_outgoing"
+  | "pending_incoming"
+  | "connected";
+
+export type OneLocationNearbyAttendee = {
+  /** Rotating, presence-scoped alias. A stable user id is never returned. */
+  participantAlias: string;
+  displayName: string;
+  relationship: OneLocationNearbyRelationship;
+  canConnect: boolean;
+};
+
+export type OneLocationNearbyPresence = {
+  status: "active";
+  audience: "all_opted_in";
+  /** Fixed mutual-discovery radius selected by the server contract. */
+  radiusMeters: number;
+  allowConnectionRequests: boolean;
+  consentVersion: string;
+  checkedInAt: string;
+  expiresAt: string;
+  placeLabel?: string | null;
+};
+
+export type OneLocationNearbyPresenceState = {
+  presence: OneLocationNearbyPresence | null;
+  attendees: OneLocationNearbyAttendee[];
+  checkedOut?: boolean;
+};
+
 export type DriveDestination = {
   label: string;
   latitude: number;
@@ -364,6 +403,14 @@ export type DriveSharePayload = {
   etaComputedAt: string;
 };
 
+export type CheckInSharePayload = {
+  /**
+   * User-authored Check-In note. It is encrypted with the coordinates and is
+   * never persisted in grant, audit, URL, or notification metadata.
+   */
+  message: string;
+};
+
 export type PlainLocationPoint = {
   latitude: number;
   longitude: number;
@@ -375,6 +422,10 @@ export type PlainLocationPoint = {
    * backend never sees the destination or ETA.
    */
   drive?: DriveSharePayload | null;
+  /**
+   * Present only for Check-In shares. Encrypted together with the point.
+   */
+  checkIn?: CheckInSharePayload | null;
 };
 
 export type OneLocationEncryptedEnvelope = {

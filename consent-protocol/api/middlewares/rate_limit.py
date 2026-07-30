@@ -95,6 +95,18 @@ class RateLimits:
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
+    # UAT-only One Location nearby-presence simulation. The roster is a stable,
+    # bounded sample, and these per-principal limits additionally bound polling,
+    # check-in churn, and alias-based connection attempts. Shared enforcement
+    # keeps the existing RATE_LIMIT_STORAGE_URI Redis-later seam.
+    ONE_LOCATION_NEARBY_READ = "8/minute"  # noqa: S105
+    ONE_LOCATION_NEARBY_WRITE = "6/minute"  # noqa: S105
+    ONE_LOCATION_NEARBY_CONNECT = "10/minute"  # noqa: S105
+    # Provider-backed search/details incur external cost. Keep a separate,
+    # comfortably interactive bucket so search cannot consume nearby roster or
+    # check-in budgets while still bounding scripted abuse per signed owner.
+    ONE_LOCATION_MAPS_PROVIDER = "30/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's

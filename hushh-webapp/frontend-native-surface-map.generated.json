@@ -3921,11 +3921,22 @@
             "getMapState",
             "updateMapPreferences",
             "getState",
-            "storeEnvelope"
+            "storeEnvelope",
+            "captureCurrentPosition",
+            "getPermissionState",
+            "openLocationSettings",
+            "openAppSettings",
+            "nearbyPlaces",
+            "placesAutocomplete",
+            "placeDetails",
+            "getNearbyPresence",
+            "checkInNearby",
+            "checkoutNearby",
+            "requestNearbyConnection"
           ],
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
-          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes,maps/*,nearby-presence*}",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service"
         }
       ],
@@ -3939,13 +3950,19 @@
         {
           "package": "@capacitor/app",
           "integration": "Foreground lifecycle gates the bounded map refresh loop"
+        },
+        {
+          "package": "HushhLocation",
+          "integration": "Foreground-only permission, bounded one-shot position capture, and native settings recovery",
+          "ios": "When-in-use Core Location; full-accuracy checks; no background mode",
+          "android": "Fine/coarse foreground permission; coarse-only capture avoids the GPS provider; no background permission"
         }
       ],
       "thread_and_consent_contract": {
         "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
-        "coordinate_storage": "foreground renderer memory only; preferences contain no coordinates",
-        "location_capture": "explicit Locate me action only; opening the route never captures or watches location",
-        "visibility": "Ghost Mode by default; foreground map publication never promotes direct/background envelopes"
+        "coordinate_storage": "Map coordinates stay in foreground renderer memory. Nearby presence stores only the selected public-place anchor under AES-256-GCM plus a rotating spatial token; raw device GPS is request-memory only.",
+        "location_capture": "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
+        "visibility": "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
       }
     },
     {
@@ -7741,5 +7758,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9aa162ccdda9fe47517a01d98acae958ea179b583c9f5b94513f45230ea3e143"
+  "content_sha256": "1be88d39e9a5728adbcf515d337ca8a87fee01b21a4722e91895d49ed9c5b10b"
 }
