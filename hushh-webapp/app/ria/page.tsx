@@ -183,9 +183,11 @@ export default function RiaHomePage() {
         actionId: "route.ria_clients",
       },
       {
+        // Not a member of RIA_ROUTE_TABS (home/clients/picks) — Connect is a
+        // route jump, so it's a button, not a phantom entry in the tablist.
         id: "ria_route_tab_connect",
         label: "Connect",
-        type: "tab",
+        type: "button",
         actionId: "route.ria_marketplace_connect",
       },
       {
