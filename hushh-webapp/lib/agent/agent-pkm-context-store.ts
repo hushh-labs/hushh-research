@@ -105,10 +105,6 @@ function titleize(value: string): string {
     .trim();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
 function isPrimitive(value: unknown): value is string | number | boolean | bigint {
   return ["string", "number", "boolean", "bigint"].includes(typeof value);
 }
