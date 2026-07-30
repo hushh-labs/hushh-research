@@ -330,8 +330,8 @@ describe("OneLocationOnboardingFlow", () => {
     });
   });
 
-  it("requires at least one selected contact before Continue is enabled", () => {
-    renderFlow({
+  it("lets the user continue without selecting anyone and sends no requests", () => {
+    const props = renderFlow({
       people: [people[1]!],
       connections: [],
     });
@@ -340,14 +340,44 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).toBeDisabled();
+    expect(continueButton).toBeEnabled();
     expect(
-      screen.getByText("Select at least one person to continue"),
+      screen.getByText("Add anyone you'd like — or just continue"),
     ).toBeTruthy();
 
+    fireEvent.click(continueButton);
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+  });
+
+  it("keeps Continue enabled and counts people as they are selected", () => {
+    renderFlow({
+      people: [people[1]!],
+      connections: [],
+    });
+    openPeopleScreen();
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeEnabled();
+
     fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    expect(continueButton).not.toBeDisabled();
+    expect(continueButton).toBeEnabled();
     expect(screen.getByText("1 selected")).toBeTruthy();
+  });
+
+  it("advances the optional people step on Skip without ending onboarding", () => {
+    const props = renderFlow({
+      people: [people[1]!],
+      connections: [],
+    });
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(props.onSkip).not.toHaveBeenCalled();
+    expect(props.onComplete).not.toHaveBeenCalled();
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
   });
 
   it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
@@ -459,6 +489,6 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh people" }));
 
     expect(props.onRetryPeople).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 });

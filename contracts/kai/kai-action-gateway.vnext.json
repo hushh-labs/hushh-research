@@ -8159,6 +8159,112 @@
       }
     },
     {
+      "action_id": "ria.picks.open_view_debate",
+      "surface_id": "ria_picks",
+      "label": "Show Debate Config",
+      "aliases": [
+        "show debate config",
+        "open debate",
+        "show debate rules"
+      ],
+      "search_keywords": [
+        "debate",
+        "config",
+        "conviction",
+        "screening"
+      ],
+      "meaning": "Opens the read-only debate config sub-view of Picks — the screening rules and conviction bands Kai's investor debate runs on.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/picks?view=debate"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?view=debate"
+      },
+      "control_ids": [
+        "ria_picks_view_debate"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?view=debate"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_view_debate",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_view_debate",
+            "label": "Show Debate Config",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?view=debate",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "ria.picks.start_edit_package",
       "surface_id": "ria_picks",
       "label": "Edit Advisor Package",
