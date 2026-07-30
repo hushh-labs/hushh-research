@@ -81,6 +81,17 @@ function cardScopePath(card: PkmMemoryCard): string {
   return String(card.pathSegments.find((segment) => typeof segment === "string") || "profile");
 }
 
+function formatSharingImpactDisclosure(impact: PkmMutationSharingImpact): string {
+  const labels = impact.recipientLabels.map((label) => label.trim()).filter(Boolean);
+  const recipient =
+    labels.length === 1
+      ? labels[0]
+      : `${impact.activeRecipientCount} recipient${
+          impact.activeRecipientCount === 1 ? "" : "s"
+        }`;
+  return `This update is shared with ${recipient}.`;
+}
+
 export function PkmNaturalPanel({
   refreshToken = 0,
 }: {
@@ -662,7 +673,7 @@ export function PkmNaturalPanel({
                             <p className="text-xs text-muted-foreground">{card.detail}</p>
                             {sharingImpact?.activeRecipientCount ? (
                               <p className="text-xs text-muted-foreground">
-                                {sharingImpact.summary}
+                                {formatSharingImpactDisclosure(sharingImpact)}
                               </p>
                             ) : null}
                           </div>
@@ -738,7 +749,9 @@ export function PkmNaturalPanel({
                                       <AlertDialogTitle>Remove this saved detail?</AlertDialogTitle>
                                       <AlertDialogDescription>
                                         Other details in {card.domainTitle} will stay unchanged.
-                                        {sharingImpact ? ` ${sharingImpact.summary}` : ""}
+                                        {sharingImpact?.activeRecipientCount
+                                          ? ` ${formatSharingImpactDisclosure(sharingImpact)}`
+                                          : ""}
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -784,40 +797,49 @@ export function PkmNaturalPanel({
         <SettingsGroup separatorInset testId="memory-auto-save-group">
           <SettingsRow
             testId="memory-auto-save-row"
-            title="Automatically save eligible memories"
+            title="Save eligible memories automatically"
             description={
               autoSavePolicyError ||
-              "One saves medium- and high-confidence preferences in the background. Shared, corrective, and destructive changes still ask first."
+              "High-confidence private preferences save in the background. Shared, corrective, destructive, or uncertain changes still ask first."
             }
             tone={autoSavePolicyError ? "destructive" : "default"}
             trailing={
-              <Switch
-                checked={autoSavePolicy.enabled}
-                onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
-                disabled={autoSavePolicyLoading || autoSavePolicySaving}
-                aria-label="Automatically save eligible memories"
-                className="shrink-0"
-              />
+              <div className="flex min-h-11 items-center gap-2">
+                <span aria-live="polite" className="text-xs font-medium text-muted-foreground">
+                  {autoSavePolicy.enabled ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={autoSavePolicy.enabled}
+                  onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
+                  disabled={autoSavePolicyLoading || autoSavePolicySaving}
+                  aria-label={
+                    autoSavePolicy.enabled
+                      ? "Turn automatic memory saving off"
+                      : "Turn automatic memory saving on"
+                  }
+                  className="shrink-0"
+                />
+              </div>
             }
           />
         </SettingsGroup>
         <PkmDataManagerPanel
-      signedIn
-      loading={bootstrapLoading}
-      metadataReady={metadata !== null}
-      metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
-      sharingReady={sharingResolved}
-      sharingError={sharingError}
-      needsVaultCreation={false}
-      needsUnlock={false}
-      summary={summary}
-      domains={domainPresentations}
-      loadingManifestsByDomain={{}}
-      manifestErrorsByDomain={{}}
-      onOpenSharing={() => router.push(ROUTES.CONSENTS)}
-      onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
-      onRefresh={() => setRefreshNonce((value) => value + 1)}
-      onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
+          signedIn
+          loading={bootstrapLoading}
+          metadataReady={metadata !== null}
+          metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
+          sharingReady={sharingResolved}
+          sharingError={sharingError}
+          needsVaultCreation={false}
+          needsUnlock={false}
+          summary={summary}
+          domains={domainPresentations}
+          loadingManifestsByDomain={{}}
+          manifestErrorsByDomain={{}}
+          onOpenSharing={() => router.push(ROUTES.CONSENTS)}
+          onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
+          onRefresh={() => setRefreshNonce((value) => value + 1)}
+          onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
         />
       </div>
     </>
