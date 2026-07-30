@@ -259,7 +259,10 @@ async def handle_search_user_scopes(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     try:
         async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
@@ -320,7 +323,10 @@ async def handle_request_consent(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
 
     scope = str(args.get("scope") or "").strip()
@@ -430,7 +436,10 @@ async def handle_check_consent_status(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     request_ref = str(args.get("request_ref") or "").strip()
     try:
@@ -480,7 +489,10 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     expected_scope = str(args.get("expected_scope") or "").strip()
     try:

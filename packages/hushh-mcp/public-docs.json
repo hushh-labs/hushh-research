@@ -5,6 +5,9 @@
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
   "mcpProtocolRevision": "2025-11-25",
   "authentication": {
+    "clientIdEnvVar": "HUSHH_OAUTH_CLIENT_ID",
+    "clientSecretEnvVar": "HUSHH_OAUTH_CLIENT_SECRET",
+    "tokenUrlEnvVar": "HUSHH_OAUTH_TOKEN_URL",
     "discoveryUrl": "https://api.uat.hushh.ai/.well-known/oauth-authorization-server",
     "authorizationEndpoint": "https://api.uat.hushh.ai/oauth/authorize",
     "tokenEndpoint": "https://api.uat.hushh.ai/oauth/token",
@@ -79,6 +82,13 @@
       "whenToUse": "your host expects a local stdio process but supports generic mcpServers JSON.",
       "secretNote": "Keep {{TOKEN_ENV_VAR}} local. This should match the same endpoint and token you use for remote MCP.",
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
+    },
+    {
+      "id": "npm-bridge-client-credentials",
+      "title": "npm bridge with OAuth client credentials",
+      "whenToUse": "your operations-provisioned partner connector needs a local stdio process and has an approved Hussh OAuth client ID and secret.",
+      "secretNote": "Keep the client secret only in the host secret store. Configure either a developer token or OAuth client credentials, never both. The bridge obtains and renews an in-memory Bearer token; it never writes credentials into config output, disk, logs, or MCP results.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{OAUTH_CLIENT_ID_ENV_VAR}}\": \"<operations-provisioned-client-id>\",\n        \"{{OAUTH_CLIENT_SECRET_ENV_VAR}}\": \"<operations-provisioned-client-secret>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "claude-remote",

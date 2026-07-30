@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       dist_tag:
-        description: "npm dist-tag to publish (beta only; latest promotion is a separate authenticated dist-tag action)"
+        description: "npm dist-tag to publish after package verification"
         required: true
-        default: beta
+        default: latest
         type: choice
         options:
           - beta
+          - latest
 
 permissions:
   contents: read
@@ -70,7 +71,7 @@ jobs:
       - name: Publish package
         working-directory: ${{ env.PACKAGE_DIR }}
         # OIDC is selected by npm automatically. Do not add NODE_AUTH_TOKEN.
-        run: npm publish --tag beta --provenance
+        run: npm publish --tag "${{ inputs.dist_tag }}" --provenance
 
       - name: Verify exact published package from a clean npm cache
         shell: bash
