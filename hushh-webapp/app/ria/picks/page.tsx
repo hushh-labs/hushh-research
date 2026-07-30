@@ -1352,6 +1352,11 @@ export default function RiaPicksPage() {
   const [avoidLoading, setAvoidLoading] = useState(false);
   const [screeningRows, setScreeningRows] = useState<RiaScreeningRow[]>([]);
   const [screeningLoading, setScreeningLoading] = useState(false);
+  // Debate config surfaces Kai's screening fetch; without an explicit error +
+  // retry state a failed load silently collapses into the "No rules yet" empty
+  // state (indistinguishable from a genuinely empty config). Additive only.
+  const [screeningError, setScreeningError] = useState(false);
+  const [screeningReloadToken, setScreeningReloadToken] = useState(0);
 
   const sourceParam = searchParams?.get("source");
   const categoryParam = searchParams?.get("category");
@@ -1574,10 +1579,16 @@ export default function RiaPicksPage() {
     let cancelled = false;
     void (async () => {
       setScreeningLoading(true);
+      setScreeningError(false);
       try {
         const idToken = await user.getIdToken();
         const data = await RiaService.getRenaissanceScreening(idToken);
         if (!cancelled) setScreeningRows(data.items);
+      } catch {
+        // A failed screening fetch previously escaped as an unhandled rejection
+        // and left the debate view silently empty. Surface it so the debate
+        // branch can render an explicit error + retry affordance.
+        if (!cancelled) setScreeningError(true);
       } finally {
         if (!cancelled) setScreeningLoading(false);
       }
@@ -1585,7 +1596,7 @@ export default function RiaPicksPage() {
     return () => {
       cancelled = true;
     };
-  }, [screeningRows.length, user]);
+  }, [screeningRows.length, user, screeningReloadToken]);
 
   const sourceOptions = useMemo(
     () => [
@@ -2368,52 +2379,108 @@ export default function RiaPicksPage() {
                   </SurfaceCardContent>
                 </SurfaceCard>
 
-                {source === "kai" && screeningLoading ? (
-                  <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                {source === "my" && myListRequiresUnlock ? (
+                  // Locked My-list vault: without this the debate view rendered
+                  // "No rules yet" cards (false-empty), hiding that the config
+                  // exists but is locked. Mirrors the picks unlock notice.
+                  <SurfaceCard>
+                    <SurfaceCardContent
+                      className="p-4 sm:p-5"
+                      data-testid="ria-debate-unlock"
+                    >
+                      <p className="text-sm font-medium text-foreground">
+                        Unlock required
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        This advisor package is now stored in your PKM. Unlock the
+                        vault to view the debate config.
+                      </p>
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                ) : source === "kai" && screeningError ? (
+                  // A failed Kai screening fetch used to collapse into the empty
+                  // state. Show it explicitly with a retry that re-arms the loader.
+                  <SurfaceCard>
+                    <SurfaceCardContent
+                      className="space-y-3 p-4 sm:p-5"
+                      data-testid="ria-debate-error"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Debate config unavailable
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          The debate screening rules failed to load. Check your
+                          connection and try again.
+                        </p>
+                      </div>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => {
+                          setScreeningError(false);
+                          setScreeningReloadToken((token) => token + 1);
+                        }}
+                        className="justify-center"
+                      >
+                        Try again
+                      </Button>
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                ) : (source === "kai" && screeningLoading) ||
+                  (source === "my" && picksResource.loading) ? (
+                  // Spinner is mutually exclusive with the section list so the
+                  // two never render together, and My-list no longer flashes empty
+                  // while its package is still loading.
+                  <div
+                    className="flex items-center gap-2 py-8 text-sm text-muted-foreground"
+                    data-testid="ria-debate-loading"
+                  >
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Loading debate config...
                   </div>
-                ) : null}
-
-                <div className="space-y-6">
-                  {screeningViewRows.map((section) => (
-                    <SurfaceCard key={section.section}>
-                      <SurfaceCardContent className="p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-foreground">
-                          {section.label}
-                        </h3>
-                        {section.rows.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">
-                            No rules yet for this section.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {section.rows.map((rule, index) => (
-                              <div
-                                key={`${section.section}-${index}`}
-                                className="border-b border-border/20 pb-2 last:border-0 last:pb-0"
-                              >
-                                <p className="text-sm font-medium text-foreground">
-                                  {rule.title}
-                                </p>
-                                {shouldRenderScreeningDetail(rule) ? (
-                                  <p className="text-xs leading-5 text-muted-foreground">
-                                    {rule.detail}
+                ) : (
+                  <div className="space-y-6">
+                    {screeningViewRows.map((section) => (
+                      <SurfaceCard key={section.section}>
+                        <SurfaceCardContent className="p-4">
+                          <h3 className="mb-3 text-sm font-semibold text-foreground">
+                            {section.label}
+                          </h3>
+                          {section.rows.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No rules yet for this section.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {section.rows.map((rule, index) => (
+                                <div
+                                  key={`${section.section}-${index}`}
+                                  className="border-b border-border/20 pb-2 last:border-0 last:pb-0"
+                                >
+                                  <p className="text-sm font-medium text-foreground">
+                                    {rule.title}
                                   </p>
-                                ) : null}
-                                {shouldRenderScreeningValue(rule) ? (
-                                  <p className="mt-1 text-xs font-medium text-primary">
-                                    {rule.value_text}
-                                  </p>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </SurfaceCardContent>
-                    </SurfaceCard>
-                  ))}
-                </div>
+                                  {shouldRenderScreeningDetail(rule) ? (
+                                    <p className="text-xs leading-5 text-muted-foreground">
+                                      {rule.detail}
+                                    </p>
+                                  ) : null}
+                                  {shouldRenderScreeningValue(rule) ? (
+                                    <p className="mt-1 text-xs font-medium text-primary">
+                                      {rule.value_text}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </SurfaceCardContent>
+                      </SurfaceCard>
+                    ))}
+                  </div>
+                )}
 
                 <p className="px-1 text-xs leading-5 text-muted-foreground">
                   {RIA_COPY.debate.disclaimer}

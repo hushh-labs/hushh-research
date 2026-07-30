@@ -733,4 +733,29 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+
+  it("keeps bare Picks for unknown or wrong-case view values", () => {
+    const barePicks = {
+      backHref: "/ria",
+      width: "content" as const,
+      align: "center" as const,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria" },
+        { label: "Picks" },
+      ],
+    };
+
+    // An unrecognized view value must not deepen into the Debate crumb; it stays
+    // a plain three-crumb Picks with Back to RIA.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+    ).toEqual(barePicks);
+
+    // The Picks debate match is case-sensitive (view === "debate"), so a
+    // capitalized value is treated as unknown rather than the debate sub-view.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+    ).toEqual(barePicks);
+  });
 });
