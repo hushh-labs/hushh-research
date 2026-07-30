@@ -25,10 +25,26 @@ class CreateRequestBody(BaseModel):
     addressee_user_id: str | None = None
     query: str | None = None
     message: str | None = None
+    # Optional granular data-scope request bundled with the connection request.
+    # The requester publishes an on-device X25519 public key so the addressee can
+    # ZK-wrap each granted scope to it (reuses the proven consent export path).
+    requested_scopes: list[str] | None = None
+    requester_public_key: str | None = None
+    requester_key_id: str | None = None
 
 
 class LinkCircleInviteBody(BaseModel):
     peer_user_id: str
+
+
+class AcceptRequestBody(BaseModel):
+    # Optional per-scope decision applied at accept time. Scopes the addressee
+    # left OUT of `granted_scopes` (or listed in `denied_scopes`) are recorded as
+    # denied; the rest are minted as pending scope requests for later resolution
+    # in the consent center. Omit both to accept the connection with every
+    # requested scope queued.
+    granted_scopes: list[str] | None = None
+    denied_scopes: list[str] | None = None
 
 
 @router.get("/connections/directory")
@@ -63,6 +79,29 @@ def list_connection_requests(
         raise _handle(exc) from exc
 
 
+@router.get("/connections/requestable-scopes")
+def list_requestable_scopes(firebase_uid: str = Depends(require_firebase_auth)):
+    # Global, presence-safe catalog for the Connect scope picker. Auth-gated but
+    # user-agnostic: it reflects no specific user's holdings, so it cannot leak
+    # whether the person being connected with has any given data.
+    try:
+        return _service().list_requestable_scopes()
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/received-exports")
+def list_received_exports(firebase_uid: str = Depends(require_firebase_auth)):
+    # Scope exports other users sealed to THIS user's Connect requester key.
+    # The payload carries only ciphertext + the X25519-wrapped export key; the
+    # server never holds the plaintext, and only the addressee's on-device
+    # private key can unwrap it (zero-knowledge).
+    try:
+        return {"items": _service().list_received_scope_exports(firebase_uid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.post("/connections/requests")
 def create_connection_request(
     body: CreateRequestBody,
@@ -75,6 +114,9 @@ def create_connection_request(
                 addressee_user_id=body.addressee_user_id,
                 query=body.query,
                 message=body.message,
+                requested_scopes=body.requested_scopes,
+                requester_public_key=body.requester_public_key,
+                requester_key_id=body.requester_key_id,
             )
         }
     except Exception as exc:  # noqa: BLE001
@@ -97,10 +139,18 @@ def link_circle_invite(
 @router.post("/connections/requests/{request_id}/accept")
 def accept_connection_request(
     request_id: str = Path(...),
+    body: AcceptRequestBody | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
-        return {"result": _service().accept_request(firebase_uid, request_id)}
+        return {
+            "result": _service().accept_request(
+                firebase_uid,
+                request_id,
+                granted_scopes=(body.granted_scopes if body else None),
+                denied_scopes=(body.denied_scopes if body else None),
+            )
+        }
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
