@@ -1133,8 +1133,7 @@
   },
   {
     "route": "/one/kai/analysis",
-    "mode": "redirect",
-    "exemptionReason": "Compatibility route only redirects to the canonical Finance Analysis tab.",
+    "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/analysis/page.tsx",
       "includes": [

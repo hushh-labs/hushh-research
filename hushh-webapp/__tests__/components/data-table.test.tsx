@@ -62,10 +62,12 @@ describe("DataTable", () => {
 
     expect(rangeControls?.textContent).toContain("8");
     expect(rangeControls?.textContent).toContain("Showing 1-8 of 30");
+    expect(rangeControls).toHaveClass("w-full", "justify-between");
     expect(pageControls?.textContent).toContain("Page 1 of 4");
-    expect(
-      pageControls?.querySelector('[data-slot="pagination"]'),
-    ).toBeTruthy();
+    expect(pageControls).toHaveClass("w-full", "justify-between");
+    const pagination = pageControls?.querySelector('[data-slot="pagination"]');
+    expect(pagination).toBeTruthy();
+    expect(pageControls?.firstElementChild).toBe(pagination);
   });
 
   it("hides pagination chrome for a single page", () => {

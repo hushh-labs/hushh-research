@@ -7,6 +7,7 @@ import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 
 // ─── Action mode (existing contract, unchanged) ───────────────────────────────
 
@@ -237,16 +238,7 @@ export type SpecialistConsentActionsCardProps = {
 };
 
 function formatConsentExpiry(value?: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(date);
+  return formatLocalDateTime(value);
 }
 
 function consentActionSet(item: SpecialistConsentActionItem): Set<string> {

@@ -874,7 +874,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           style={{
             height:
               model.mode === "bar" || model.mode === "bar-with-tabs"
-                ? "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))"
+                ? "var(--top-shell-mask-visible-height)"
                 : "var(--top-shell-visual-height)",
           }}
         >
@@ -897,7 +897,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         >
           <div
             data-testid="top-app-bar-header"
-            className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu transition-[max-height,opacity,transform,padding] duration-200 ease-out will-change-transform"
+            className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
               maxHeight: tabsOnlyChrome
                 ? "0px"
@@ -1168,7 +1168,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           {model.mode === "bar-with-tabs" ? (
             <div
               data-testid="top-app-bar-tabs"
-              className="pointer-events-auto relative w-full shrink-0 transition-[height,padding] duration-200 ease-out"
+              className="pointer-events-auto relative w-full shrink-0"
               style={{
                 height: tabsOnlyChrome
                   ? "calc(var(--top-inset) + var(--top-tabs-h))"

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
@@ -538,6 +544,14 @@ describe("ConnectedSystemsPanel", () => {
         fieldNames: ["PreferredLanguage"],
       },
     );
+    vi.mocked(ConnectedSystemsService.approveIntent).mockResolvedValueOnce({
+      intentId: "intent-42",
+      systemId: system.systemId,
+      action: "update",
+      status: "succeeded",
+      recordId: "person-42",
+      fieldNames: ["PreferredLanguage"],
+    });
 
     render(
       <ConnectedSystemsPanel
@@ -552,18 +566,40 @@ describe("ConnectedSystemsPanel", () => {
       await screen.findByRole("region", { name: "CRM record fields" }),
     ).toBeTruthy();
     expect(screen.queryByText("Information")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Field view"), {
-      target: { value: "all" },
-    });
     const preferredLanguage = await screen.findByText("Preferred language");
     expect(preferredLanguage.closest("tr")?.textContent).toContain("English");
+    expect(screen.queryByLabelText("Field view")).toBeNull();
+    const fieldRows = screen.getAllByRole("row");
+    expect(
+      fieldRows.findIndex((row) => row.textContent?.includes("Email")),
+    ).toBeLessThan(
+      fieldRows.findIndex((row) =>
+        row.textContent?.includes("Preferred language"),
+      ),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Edit Preferred language" }),
     );
     const editor = await screen.findByRole("combobox");
     fireEvent.change(editor, { target: { value: "French" } });
     fireEvent.click(screen.getByRole("button", { name: "Stage change" }));
-    fireEvent.click(screen.getByRole("button", { name: "Update record" }));
+    const updateButton = screen.getByRole("button", {
+      name: "Update record",
+    });
+    expect(updateButton.parentElement).toHaveClass("justify-center");
+    expect(updateButton).toHaveClass("min-h-14", "max-w-[30rem]");
+    fireEvent.click(updateButton);
+
+    const reviewDialog = await screen.findByRole("alertdialog");
+    expect(within(reviewDialog).getByText("Review changes")).toBeTruthy();
+    expect(within(reviewDialog).getByText("Preferred language")).toBeTruthy();
+    expect(within(reviewDialog).getByText("English")).toBeTruthy();
+    expect(within(reviewDialog).getByText("French")).toBeTruthy();
+    expect(within(reviewDialog).queryByText("person-42")).toBeNull();
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(reviewDialog).getByRole("button", { name: "Confirm update" }),
+    );
 
     await waitFor(() => {
       expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
@@ -573,8 +609,11 @@ describe("ConnectedSystemsPanel", () => {
         }),
       );
     });
-    expect(await screen.findByText("Review update request")).toBeTruthy();
-    expect(screen.getByText("PreferredLanguage")).toBeTruthy();
+    expect(ConnectedSystemsService.approveIntent).toHaveBeenCalledWith({
+      vaultOwnerToken: "HCT:test",
+      systemId: system.systemId,
+      intentId: "intent-42",
+    });
   });
 
   it("keeps verified create and lookup fields locked even when the CRM omits identity metadata", async () => {
@@ -632,14 +671,25 @@ describe("ConnectedSystemsPanel", () => {
     expect(
       await screen.findByRole("region", { name: "CRM record fields" }),
     ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Field view"), {
-      target: { value: "all" },
-    });
     expect(screen.queryByRole("button", { name: "Edit Email" })).toBeNull();
     expect(screen.getByText("Primary CRM lookup field is locked")).toBeTruthy();
     expect(
+      screen.getByText("Primary CRM lookup field is locked").parentElement,
+    ).toHaveClass("w-full", "justify-end");
+    expect(
+      screen.getByText("Primary CRM lookup field is locked")
+        .previousElementSibling,
+    ).toHaveClass("size-8", "rounded-full", "bg-muted/55");
+    expect(
       screen.getByRole("button", { name: "Edit Preferred language" }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Edit Preferred language" })
+        .parentElement,
+    ).toHaveClass("w-full", "justify-end");
+    expect(
+      screen.getByRole("button", { name: "Edit Preferred language" }),
+    ).toHaveClass("size-8", "rounded-full", "bg-muted/55");
   });
 
   it("keeps CRM field values hidden until an explicit record refresh settles", async () => {

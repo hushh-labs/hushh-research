@@ -423,7 +423,7 @@ export function DataTable<TData, TValue>({
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:text-sm"
+            className="flex w-full flex-nowrap items-center justify-between gap-3 text-xs text-muted-foreground sm:text-sm"
             data-slot="data-table-range-controls"
           >
             <DropdownMenu>
@@ -450,18 +450,15 @@ export function DataTable<TData, TValue>({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <span>
+            <span className="whitespace-nowrap text-right">
               Showing {rangeStart}-{rangeEnd} of {filteredCount}
             </span>
           </div>
 
           <div
-            className="flex flex-wrap items-center gap-2 sm:justify-end"
+            className="flex w-full flex-nowrap items-center justify-between gap-3"
             data-slot="data-table-page-controls"
           >
-            <span className="whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
-              Page {currentPage} of {pageCount}
-            </span>
             <Pagination className="mx-0 w-auto justify-end">
               <PaginationContent
                 data-no-route-swipe
@@ -531,6 +528,9 @@ export function DataTable<TData, TValue>({
                 </PaginationItem>
               </PaginationContent>
             </Pagination>
+            <span className="whitespace-nowrap text-right text-xs text-muted-foreground sm:text-sm">
+              Page {currentPage} of {pageCount}
+            </span>
           </div>
         </div>
       )}

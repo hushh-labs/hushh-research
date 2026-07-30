@@ -10,20 +10,26 @@ function read(relativePath: string) {
 }
 
 describe("tabbed ambient chrome contract", () => {
-  it("keeps the top mask solid through the tab stack before dissolving", () => {
+  it("uses one resolved top-edge mask for tabbed and plain shells", () => {
     const topShell = read("components/app-ui/top-app-bar.tsx");
     const styles = read("app/globals.css");
     const providers = read("app/providers.tsx");
 
     expect(topShell).toContain("ambient-chrome-mask--top-with-tabs");
-    expect(topShell).toContain(': "var(--top-shell-visual-height)"');
+    expect(topShell).toContain('"var(--top-shell-mask-visible-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
+    expect(styles).toContain(".ambient-chrome-mask--top {");
+    expect(styles).toContain("--top-shell-live-height");
+    expect(styles).toContain("--top-shell-mask-tabs-gap");
+    expect(styles).toContain("--top-shell-mask-solid-height");
+    expect(styles).toContain("--top-shell-mask-visible-height");
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
     expect(styles).toContain("--ambient-chrome-top-visible-height");
+    expect(styles).toContain("--ambient-chrome-wash: 94%");
     expect(styles).toContain("var(--top-fade-active)");
     expect(providers).toContain(
-      '"--top-fade-active": topShellMetrics.hasTabs ? "16px" : "32px"',
+      '"--top-fade-active": topShellMetrics.hasTabs ? "12px" : "14px"',
     );
     expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "8px"');
     expect(styles).not.toContain(
@@ -31,6 +37,9 @@ describe("tabbed ambient chrome contract", () => {
     );
     expect(providers).toContain('"--top-shell-reserved-height":');
     expect(providers).toContain('"--top-shell-visual-height":');
+    expect(providers).toContain('"--top-shell-live-height":');
+    expect(providers).toContain('"--top-shell-mask-tabs-gap":');
+    expect(providers).toContain('"--top-shell-mask-visible-height":');
     expect(providers).toContain('"--top-tabs-total",');
   });
 
@@ -79,6 +88,21 @@ describe("tabbed ambient chrome contract", () => {
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain("rgba(0, 0, 0, 0.72) 38%");
+    expect(styles).toContain("rgba(0, 0, 0, 0.97)");
+    expect(styles).toContain("rgba(0, 0, 0, 0.77)");
+    expect(styles).toContain("rgba(0, 0, 0, 0.40)");
+    expect(styles).toContain("rgba(0, 0, 0, 0.13)");
+  });
+
+  it("drives top-shell collapse directly from the shared scroll progress", () => {
+    const topShell = read("components/app-ui/top-app-bar.tsx");
+
+    expect(topShell).toContain("--top-chrome-collapse-px");
+    expect(topShell).toContain("--top-chrome-progress");
+    expect(topShell).not.toContain(
+      "transition-[max-height,opacity,transform,padding]",
+    );
+    expect(topShell).not.toContain("transition-[height,padding]");
   });
 
   it("keeps neutral theme foreground authoritative for text and icons", () => {
@@ -88,7 +112,9 @@ describe("tabbed ambient chrome contract", () => {
       "[data-app-top-bar] .top-shell-ambient-ink .text-foreground",
     );
     expect(styles).toContain("color: currentColor;");
-    expect(styles).toContain("--ambient-chrome-material-bg: var(--background)");
+    expect(styles).toContain(
+      "--ambient-chrome-material-bg: var(--app-layout-surface, var(--background))",
+    );
     expect(styles).toContain("--ambient-chrome-material-fg: var(--foreground)");
     expect(styles).not.toContain("color: var(--ambient-chrome-top-fg");
     expect(styles).not.toContain("ambient-chrome-bottom-base");

@@ -457,7 +457,7 @@ export function KaiCommandPalette({
       showCloseButton={false}
       title="Search or ask One"
       data-keyboard-anchor="bottom"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>

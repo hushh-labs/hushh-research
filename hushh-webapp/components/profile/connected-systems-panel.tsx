@@ -123,6 +123,18 @@ type CrmFieldTableRow = {
   field: CrmProfileField;
 };
 
+type PendingUpdateReviewField = {
+  key: string;
+  label: string;
+  previousValue: string;
+  nextValue: string;
+};
+
+type PendingUpdateReview = {
+  recordFields: CrmFieldValues;
+  fields: PendingUpdateReviewField[];
+};
+
 function statusBadge(status: string | undefined | null): string {
   if (!status) return "Unknown";
   return status
@@ -478,6 +490,9 @@ export function ConnectedSystemsPanel({
   > | null>(null);
   const [pendingIntent, setPendingIntent] =
     useState<ConnectedSystemIntent | null>(null);
+  const [pendingUpdateReview, setPendingUpdateReview] =
+    useState<PendingUpdateReview | null>(null);
+  const updateReviewSubmittingRef = useRef(false);
   const [busy, setBusy] = useState<BusyState>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<CrmProfileField | null>(
@@ -493,7 +508,6 @@ export function ConnectedSystemsPanel({
   );
   const [updateId, setUpdateId] = useState("");
   const [deleteId, setDeleteId] = useState("");
-  const [fieldView, setFieldView] = useState<"basic" | "all">("basic");
   const [bindingResolvedKey, setBindingResolvedKey] = useState<string | null>(
     null,
   );
@@ -637,17 +651,20 @@ export function ConnectedSystemsPanel({
     return [];
   }, [bindingFieldTokens, schemaDrivenProfileFields]);
   const displayedProfileFields = useMemo(() => {
-    if (fieldView === "all") return visibleProfileFields;
-    const mappedFields = new Set(
-      Object.values(schema?.profileFieldMappings || {})
-        .map((value) => String(value || "").trim())
-        .filter(Boolean),
-    );
-    const basicFields = visibleProfileFields.filter(
-      (field) => mappedFields.has(field.rawName || field.key) || field.required,
-    );
-    return basicFields.length > 0 ? basicFields : visibleProfileFields;
-  }, [fieldView, schema?.profileFieldMappings, visibleProfileFields]);
+    // The CRM table is the one complete field inventory. Preserve schema
+    // ordering inside each partition, while leading with the fields that
+    // establish the verified lookup or are required by the CRM.
+    const basicFields: CrmProfileField[] = [];
+    const remainingFields: CrmProfileField[] = [];
+    for (const field of visibleProfileFields) {
+      if (field.bindingKey || field.identityField || field.required) {
+        basicFields.push(field);
+      } else {
+        remainingFields.push(field);
+      }
+    }
+    return [...basicFields, ...remainingFields];
+  }, [visibleProfileFields]);
   const changedProfileFields = useMemo(
     () =>
       changedFieldsFromValues(
@@ -1269,32 +1286,73 @@ export function ConnectedSystemsPanel({
     toast.info(`No matching ${customerName} profile was found.`);
   };
 
-  const updateRecordFromSchema = async () => {
-    const recordId = currentRecordId;
+  const updateRecordFromSchema = () => {
     const recordFields = changedProfileFields;
     if (Object.keys(recordFields).length === 0) {
       toast.error("Change at least one CRM field before updating the record.");
       return;
     }
-    setUpdateId(recordId);
+    // Open the review from the already staged local snapshot. There is no
+    // reason to make a remote request before the person has reviewed it.
+    const fieldsByKey = new Map(
+      visibleProfileFields.map((field) => [field.key, field]),
+    );
+    setPendingUpdateReview({
+      recordFields,
+      fields: Object.entries(recordFields).map(([key, nextValue]) => ({
+        key,
+        label: fieldsByKey.get(key)?.label || key,
+        previousValue: crmBaselineValues[key] || "",
+        nextValue,
+      })),
+    });
+  };
+
+  const approveUpdateReview = async () => {
+    if (!pendingUpdateReview) return;
+    const review = pendingUpdateReview;
+    updateReviewSubmittingRef.current = true;
+    let preparedIntent: ConnectedSystemIntent | null = null;
     const result = await runMutation(
       "update",
       {
-        loading: "Preparing CRM update review...",
-        success: "CRM update is ready for review.",
-        error: "CRM update could not be prepared.",
+        loading: "Updating CRM record…",
+        success: `${customerName} record updated.`,
+        error: `${customerName} record could not be updated.`,
       },
-      () =>
-        ConnectedSystemsService.updateRecordIntent(vaultOwnerToken || "", {
-          systemId: selectedSystem?.systemId,
-          objectType: selectedSystem?.objectTypeDefault,
-          additionalFields: {},
-          recordFields,
-        }),
+      async () => {
+        preparedIntent = await ConnectedSystemsService.updateRecordIntent(
+          vaultOwnerToken || "",
+          {
+            systemId: selectedSystem?.systemId,
+            objectType: selectedSystem?.objectTypeDefault,
+            additionalFields: {},
+            recordFields: review.recordFields,
+          },
+        );
+        return ConnectedSystemsService.approveIntent({
+          vaultOwnerToken: vaultOwnerToken || "",
+          systemId: preparedIntent.systemId,
+          intentId: preparedIntent.intentId,
+        });
+      },
     );
-    if (result) {
-      setPendingIntent(result);
+    updateReviewSubmittingRef.current = false;
+    if (!result) {
+      // A prepared intent remains safely pending server-side. Reuse it rather
+      // than submitting a second update if approval has to be retried.
+      if (preparedIntent) {
+        setPendingUpdateReview(null);
+        setPendingIntent(preparedIntent);
+      }
+      return;
     }
+    setPendingUpdateReview(null);
+    setCrmBaselineValues((current) => ({
+      ...current,
+      ...review.recordFields,
+    }));
+    void readRecord({ silent: true });
   };
 
   const deleteRecord = async () => {
@@ -1421,7 +1479,10 @@ export function ConnectedSystemsPanel({
       header: "Field",
       size: 156,
       cell: ({ row }) => (
-        <span className="block break-words font-medium text-foreground">
+        <span
+          className="block truncate font-medium text-foreground"
+          title={row.original.label}
+        >
           {row.original.label}
         </span>
       ),
@@ -1430,7 +1491,10 @@ export function ConnectedSystemsPanel({
       accessorKey: "currentValue",
       header: "Current value",
       cell: ({ row }) => (
-        <span className="block break-words text-foreground">
+        <span
+          className="block truncate text-foreground"
+          title={row.original.currentValue}
+        >
           {row.original.currentValue}
         </span>
       ),
@@ -1449,14 +1513,16 @@ export function ConnectedSystemsPanel({
         ) {
           return (
             <span
-              className="flex justify-end text-muted-foreground"
+              className="flex w-full items-center justify-end"
               title={
                 field.bindingKey || field.identityField
                   ? "Primary CRM lookup field"
                   : "This CRM field is read-only"
               }
             >
-              <Icon icon={LockKeyhole} size="xs" />
+              <span className="flex size-8 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
+                <Icon icon={LockKeyhole} size="sm" />
+              </span>
               <span className="sr-only">
                 {field.bindingKey || field.identityField
                   ? "Primary CRM lookup field is locked"
@@ -1466,7 +1532,7 @@ export function ConnectedSystemsPanel({
           );
         }
         return (
-          <span className="flex justify-end">
+          <span className="flex w-full items-center justify-end">
             <Button
               type="button"
               variant="none"
@@ -1856,17 +1922,6 @@ export function ConnectedSystemsPanel({
         <section className="space-y-3" aria-label="CRM record fields">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <select
-                aria-label="Field view"
-                className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                value={fieldView}
-                onChange={(event) =>
-                  setFieldView(event.target.value as "basic" | "all")
-                }
-              >
-                <option value="basic">Basic fields</option>
-                <option value="all">All fields</option>
-              </select>
               <Button
                 type="button"
                 variant="none"
@@ -1912,10 +1967,11 @@ export function ConnectedSystemsPanel({
             renderCrmFieldTable()
           )}
           {renderPendingUpdatePreview()}
-          <div className="flex justify-end">
+          <div className="flex justify-center">
             <Button
               type="button"
-              size="sm"
+              fullWidth
+              className="min-h-14 max-w-[30rem] text-base font-semibold"
               disabled={
                 busy !== null ||
                 !currentRecordId.trim() ||
@@ -2008,6 +2064,62 @@ export function ConnectedSystemsPanel({
         </SettingsDetailPanel>
       ) : null}
       <AlertDialog
+        open={Boolean(pendingUpdateReview)}
+        onOpenChange={(open) => {
+          if (!open && !updateReviewSubmittingRef.current && busy === null) {
+            setPendingUpdateReview(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="!grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] !max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 !overflow-hidden !p-0">
+          <AlertDialogHeader className="shrink-0 px-5 pt-5 pb-4 sm:px-6 sm:pt-6">
+            <AlertDialogTitle>Review changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              {customerName} · {primaryObjectLabel}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div
+            aria-label="Changes to apply"
+            className="min-h-0 max-h-[min(46dvh,30rem)] overflow-y-auto overscroll-contain border-y border-[color:var(--app-card-border-standard)]"
+          >
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-muted/45 px-5 py-2 text-[11px] font-semibold tracking-[0.16em] text-muted-foreground sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:px-6">
+              <span>FIELD</span>
+              <span className="hidden sm:block">CURRENT VALUE</span>
+              <span>UPDATED VALUE</span>
+            </div>
+            <dl className="divide-y divide-[color:var(--app-card-border-standard)]">
+              {pendingUpdateReview?.fields.map((field) => (
+                <div
+                  key={field.key}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 px-5 py-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-4 sm:px-6"
+                >
+                  <dt className="min-w-0 text-sm font-medium text-foreground">
+                    {field.label}
+                  </dt>
+                  <dd className="hidden min-w-0 break-words text-sm text-muted-foreground sm:block">
+                    {field.previousValue || "Not set"}
+                  </dd>
+                  <dd className="min-w-0 break-words text-sm text-foreground">
+                    {field.nextValue || "Clear value"}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <AlertDialogFooter className="shrink-0 px-5 py-4 sm:px-6 sm:py-5">
+            <AlertDialogCancel disabled={busy !== null}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null}
+              onClick={() => void approveUpdateReview()}
+            >
+              Confirm update
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
         open={Boolean(pendingIntent)}
         onOpenChange={(open) => {
           if (!open && busy === null) setPendingIntent(null);
@@ -2020,7 +2132,7 @@ export function ConnectedSystemsPanel({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingIntent
-                ? `${customerName} · ${pendingIntent.objectType || primaryObjectLabel}${pendingIntent.recordId ? ` · record ${pendingIntent.recordId}` : ""}`
+                ? `${customerName} · ${pendingIntent.objectType || primaryObjectLabel}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

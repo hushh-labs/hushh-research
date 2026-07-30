@@ -34,7 +34,8 @@ describe("PkmDomainDetailPanel", () => {
         domain={{
           key: "financial",
           title: "Financial",
-          summary: "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+          summary:
+            "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
           highlights: [
             "19 saved details",
             "Organized into Portfolio, Analytics, and Documents",
@@ -91,18 +92,22 @@ describe("PkmDomainDetailPanel", () => {
         onPreviewOpenChange={vi.fn()}
         onPreviewPermission={vi.fn()}
         onTogglePermission={vi.fn()}
-      />
+      />,
     );
 
     expect(
       screen.getByText(
-        "Kai keeps a readable view of your financial details across portfolio, analytics, and documents."
-      )
+        "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("19 items")).toBeTruthy();
-    expect(screen.getByText("Organized into Portfolio, Analytics, and Documents")).toBeTruthy();
+    expect(
+      screen.getByText("Organized into Portfolio, Analytics, and Documents"),
+    ).toBeTruthy();
     expect(screen.getByText("Sharing controls")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "View Portfolio information" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "View Portfolio information" }),
+    ).toBeTruthy();
     expect(screen.queryByText("What's saved here")).toBeNull();
     expect(screen.queryByText("Current access")).toBeNull();
   });
@@ -113,7 +118,8 @@ describe("PkmDomainDetailPanel", () => {
         domain={{
           key: "financial",
           title: "Financial",
-          summary: "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+          summary:
+            "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
           highlights: [],
           sections: ["Portfolio"],
           sourceLabels: ["Portfolio imports"],
@@ -166,17 +172,23 @@ describe("PkmDomainDetailPanel", () => {
         onPreviewOpenChange={vi.fn()}
         onPreviewPermission={vi.fn()}
         onTogglePermission={vi.fn()}
-      />
+      />,
     );
 
-    expect(screen.getByText("Snapshot of your saved holdings and balances.")).toBeTruthy();
+    expect(
+      screen.getByText("Snapshot of your saved holdings and balances."),
+    ).toBeTruthy();
     expect(screen.getByText("2 accounts")).toBeTruthy();
     expect(screen.getByText("14 holdings")).toBeTruthy();
     expect(screen.getByText("Total value")).toBeTruthy();
     expect(screen.getByText("$412,000")).toBeTruthy();
     expect(screen.queryByText("saved_data")).toBeNull();
-    const dialogContent = document.querySelector('[data-slot="dialog-content"]');
-    expect(dialogContent?.className).toContain("sm:max-w-[min(42rem,calc(100vw-4rem))]");
+    const dialogContent = document.querySelector(
+      '[data-slot="dialog-content"]',
+    );
+    expect(dialogContent?.className).toContain(
+      "sm:max-w-[min(42rem,calc(100vw-4rem))]",
+    );
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 });
@@ -237,10 +249,18 @@ describe("PkmDataManagerPanel", () => {
     );
 
     expect(screen.getByTestId("memory-saved-details-group")).toBeTruthy();
+    expect(screen.queryByText("Saved details")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Review what One remembers and choose how it can be shared.",
+      ),
+    ).toBeNull();
     const row = screen.getByTestId("memory-category-financial");
     expect(row.querySelector('[data-slot="settings-row-icon"]')).toBeTruthy();
     expect(screen.getByText("19 items")).toBeTruthy();
     screen.getByRole("button", { name: /Financial/i }).click();
-    expect(onOpenDomain).toHaveBeenCalledWith(expect.objectContaining({ key: "financial" }));
+    expect(onOpenDomain).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "financial" }),
+    );
   });
 });
