@@ -23,6 +23,12 @@ class DatabaseExecutionError(Exception):
     status_code = 503
 
 
+class _MemoryNearbyPresenceService:
+    def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]:
+        assert older_than_hours > 0
+        return {"expired": 0, "deleted": 0}
+
+
 def _client(
     service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
 ) -> TestClient:
@@ -32,6 +38,11 @@ def _client(
         "user_id": current_user["user_id"]
     }
     monkeypatch.setattr(one_location, "_service", lambda: service)
+    monkeypatch.setattr(
+        one_location,
+        "_nearby_presence_service",
+        _MemoryNearbyPresenceService,
+    )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -568,6 +579,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_circle_invites": 0,
         "deleted_public_submissions": 1,
         "deleted_events": 1,
+        "nearby_presence": {"expired": 0, "deleted": 0},
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants

@@ -7,6 +7,7 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 from urllib.parse import quote
 
@@ -21,6 +22,8 @@ _PLACES_BASE = "https://places.googleapis.com"
 _PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+_NEARBY_CHECK_IN_RADIUS_METERS = 500.0
+_NEARBY_CHECK_IN_RESULT_LIMIT = 8
 
 
 class GoogleMapsError(RuntimeError):
@@ -83,6 +86,26 @@ def _country_code_from_components(components: Any) -> str | None:
         if len(normalized) == 2 and normalized.isalpha():
             return normalized
     return None
+
+
+def _distance_meters(
+    *,
+    origin_lat: float,
+    origin_lng: float,
+    destination_lat: float,
+    destination_lng: float,
+) -> float:
+    radius = 6_371_000.0
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(destination_lat)
+    delta_lat = math.radians(destination_lat - origin_lat)
+    delta_lng = math.radians(destination_lng - origin_lng)
+    value = (
+        math.sin(delta_lat / 2.0) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2.0) ** 2
+    )
+    clamped = max(0.0, min(1.0, value))
+    return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
 
 
 class GoogleMapsService:
@@ -150,12 +173,27 @@ class GoogleMapsService:
         }
 
     async def autocomplete(
-        self, input_text: str, *, session_token: str | None = None
+        self,
+        input_text: str,
+        *,
+        session_token: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
     ) -> list[dict[str, Any]]:
         key = _require_key()
         body: dict[str, Any] = {"input": input_text}
         if session_token:
             body["sessionToken"] = session_token
+        if lat is not None and lng is not None:
+            body["locationBias"] = {
+                "circle": {
+                    "center": {
+                        "latitude": float(lat),
+                        "longitude": float(lng),
+                    },
+                    "radius": 2_000.0,
+                }
+            }
         async with _async_client() as client:
             try:
                 response = await client.post(
@@ -181,6 +219,88 @@ class GoogleMapsService:
             text = (prediction.get("text") or {}).get("text")
             if place_id and text:
                 results.append({"placeId": str(place_id), "text": str(text)})
+        return results
+
+    async def nearby_places(
+        self,
+        *,
+        lat: float,
+        lng: float,
+    ) -> list[dict[str, Any]]:
+        """Return a bounded nearest-place picker for explicit check-in.
+
+        The request point is sent to Google only for this foreground request and
+        is not cached or logged by this service. Exact distance helps the owner
+        choose a place but is never included in nearby-person responses.
+        """
+
+        key = _require_key()
+        async with _async_client() as client:
+            try:
+                response = await client.post(
+                    _PLACES_NEARBY_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": (
+                            "places.id,places.displayName,places.formattedAddress,places.location"
+                        ),
+                    },
+                    json={
+                        "maxResultCount": _NEARBY_CHECK_IN_RESULT_LIMIT,
+                        "rankPreference": "DISTANCE",
+                        "locationRestriction": {
+                            "circle": {
+                                "center": {
+                                    "latitude": float(lat),
+                                    "longitude": float(lng),
+                                },
+                                "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
+                            }
+                        },
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(
+                    f"Nearby places lookup failed: {exc}",
+                    status_code=502,
+                ) from exc
+        if response.status_code >= 400:
+            logger.warning("maps.nearby_places upstream %s", response.status_code)
+            raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
+
+        results: list[dict[str, Any]] = []
+        for place in (response.json().get("places") or [])[:_NEARBY_CHECK_IN_RESULT_LIMIT]:
+            place_id = str(place.get("id") or "").strip()
+            location = place.get("location") or {}
+            try:
+                place_lat = float(location.get("latitude"))
+                place_lng = float(location.get("longitude"))
+            except (TypeError, ValueError):
+                continue
+            if not place_id:
+                continue
+            display = str((place.get("displayName") or {}).get("text") or "").strip()
+            address = str(place.get("formattedAddress") or "").strip()
+            text = ", ".join(part for part in (display, address) if part)
+            if not text:
+                continue
+            results.append(
+                {
+                    "placeId": place_id,
+                    "text": text,
+                    "distanceMeters": int(
+                        round(
+                            _distance_meters(
+                                origin_lat=float(lat),
+                                origin_lng=float(lng),
+                                destination_lat=place_lat,
+                                destination_lng=place_lng,
+                            )
+                        )
+                    ),
+                }
+            )
         return results
 
     async def place_details(self, place_id: str) -> dict[str, Any]:

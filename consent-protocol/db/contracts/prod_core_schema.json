@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 124,
+  "expected_migration_version": 125,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -709,6 +709,29 @@
       "user_id",
       "presence_mode",
       "renderer_consent_version",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_nearby_presences": [
+      "id",
+      "owner_user_id",
+      "participant_alias",
+      "status",
+      "audience",
+      "allow_connection_requests",
+      "consent_version",
+      "radius_meters",
+      "anchor_ciphertext",
+      "anchor_iv",
+      "anchor_tag",
+      "anchor_algorithm",
+      "anchor_key_id",
+      "anchor_cell_epoch",
+      "anchor_cell_token",
+      "checked_in_at",
+      "expires_at",
+      "checked_out_at",
+      "version",
       "created_at",
       "updated_at"
     ],

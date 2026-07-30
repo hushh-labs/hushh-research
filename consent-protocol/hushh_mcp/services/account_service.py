@@ -175,6 +175,12 @@ class AccountService:
                    OR recipient_user_id = :user_id
                 """
             ),
+            "one_location_nearby_presences": text(
+                """
+                DELETE FROM one_location_nearby_presences
+                WHERE owner_user_id = :user_id
+                """
+            ),
             "one_location_sms_contacts": text(
                 """
                 DELETE FROM one_location_sms_contacts
@@ -682,6 +688,7 @@ class AccountService:
         results["one_kyc_workflows"] = True
         for table_name in (
             "one_location_events",
+            "one_location_nearby_presences",
             "one_location_sms_contacts",
             "one_location_referrals",
             "one_location_public_invite_submissions",
@@ -854,6 +861,7 @@ class AccountService:
             "marketplace_profile": False,
             "one_kyc_workflows": False,
             "one_location_events": False,
+            "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
@@ -1082,6 +1090,7 @@ class AccountService:
                 results["one_kyc_workflows"] = True
                 for table_name in (
                     "one_location_events",
+                    "one_location_nearby_presences",
                     "one_location_sms_contacts",
                     "one_location_referrals",
                     "one_location_public_invite_submissions",

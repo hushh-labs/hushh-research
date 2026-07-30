@@ -24,6 +24,30 @@ also return to Now and display an unavailable outcome; they do not recreate a
 sharing flow. Existing grants and their historical/revocation records remain
 available through the active share detail surfaces.
 
+In local/UAT, the **Check-In** quick action opens
+`/one/location/map?action=check-in`; the ordinary **Your Map** row opens the same
+map without forcing the sheet. Production retains the established
+recipient-scoped encrypted Check-In while nearby discovery remains disabled.
+The nearby sheet captures a fresh foreground fix, preselects the closest
+provider place, supports a location-biased search edit, and offers 30-minute,
+one-hour, and two-hour visibility. Nothing is submitted until the owner checks
+the explicit visibility confirmation. **Allow connection requests** is separate
+and off by default.
+
+Nearby matching uses a fixed 500-meter radius between independently selected
+public-place anchors, so people at Spot A and Spot B can see one another without
+typing or sharing an event code. Peers appear only in the accessible roster,
+never as precise pins or distance ordering. Responses expose a rotating alias,
+safe display label, relationship, and Connect posture only. Check out clears
+encrypted anchor/index material synchronously. At expiry the user disappears
+from rosters and Connect synchronously; the backend scrubs due material on the
+next feature operation or required hosted hourly retention job. The feature
+remains a visibly labelled local/UAT simulation and fails closed in production until
+organizer admission proof, replay resistance, and Block/Report controls exist.
+Approximate native permission and fixes worse than 100 m fail before
+publication with an app-settings recovery path. Active rosters refresh on a
+15-second, visible-app cadence without extending the server expiry.
+
 ## Your Map
 
 `/one/location/map` is an immersive private map. It suppresses the app top

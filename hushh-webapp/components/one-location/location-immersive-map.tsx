@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
@@ -33,10 +34,12 @@ import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
+import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
+  OneLocationNearbyPresenceState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
@@ -157,6 +160,7 @@ export function LocationImmersiveMap() {
   const auth = useRequireAuth();
   const { vaultOwnerToken } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
+  const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
@@ -170,6 +174,7 @@ export function LocationImmersiveMap() {
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
+  const nearbyHistoryPreparedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const [demoMode, setDemoMode] = useState(initialDemoMode);
@@ -196,8 +201,112 @@ export function LocationImmersiveMap() {
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
+  const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [nearbyPresenceState, setNearbyPresenceState] =
+    useState<OneLocationNearbyPresenceState>({
+      presence: null,
+      attendees: [],
+    });
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+
+  useEffect(() => {
+    const action = searchParams.get("action");
+    if (
+      !nearbyCheckInAvailable &&
+      (action === "check-in" || action === "event-check-in")
+    ) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("action");
+      const query = params.toString();
+      router.replace(
+        query ? `${ROUTES.ONE_LOCATION_MAP}?${query}` : ROUTES.ONE_LOCATION_MAP,
+        { scroll: false },
+      );
+      setNearbyCheckInOpen(false);
+      return;
+    }
+    if (action === "event-check-in") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("action", "check-in");
+      router.replace(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+        scroll: false,
+      });
+      return;
+    }
+    const requested = action === "check-in";
+    setNearbyCheckInOpen(requested);
+    if (
+      !requested ||
+      nearbyHistoryPreparedRef.current ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    // A direct/deep-linked check-in still gets a local Map history boundary:
+    // first Back closes the sheet, the next Back leaves Your Map.
+    const actionUrl = new URL(window.location.href);
+    const plainMapUrl = new URL(actionUrl.href);
+    plainMapUrl.searchParams.delete("action");
+    window.history.replaceState(window.history.state, "", plainMapUrl.href);
+    window.history.pushState(window.history.state, "", actionUrl.href);
+    nearbyHistoryPreparedRef.current = true;
+  }, [nearbyCheckInAvailable, router, searchParams]);
+
+  const openNearbyCheckIn = useCallback(() => {
+    if (
+      !nearbyCheckInAvailable ||
+      !rendererReady ||
+      demoMode ||
+      searchParams.get("action") === "check-in"
+    ) {
+      return;
+    }
+    setTrayExpanded(false);
+    nearbyHistoryPreparedRef.current = true;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("action", "check-in");
+    router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+      scroll: false,
+    });
+  }, [
+    demoMode,
+    nearbyCheckInAvailable,
+    rendererReady,
+    router,
+    searchParams,
+  ]);
+
+  const closeNearbyCheckIn = useCallback(() => {
+    setNearbyCheckInOpen(false);
+    if (
+      typeof window !== "undefined" &&
+      new URL(window.location.href).searchParams.get("action") === "check-in"
+    ) {
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const mobileQuery = window.matchMedia("(max-width: 767px)");
+    const syncTouchState = () => {
+      if (nearbyCheckInOpen && mobileQuery.matches) {
+        void map.disableTouch();
+        return;
+      }
+      if (!closing) void map.enableTouch();
+    };
+    syncTouchState();
+    mobileQuery.addEventListener("change", syncTouchState);
+    return () => mobileQuery.removeEventListener("change", syncTouchState);
+  }, [closing, mapReady, nearbyCheckInOpen]);
+
+  useEffect(() => {
+    setNearbyPresenceState({ presence: null, attendees: [] });
+  }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
   const captureCurrentLocation =
     useCallback((): Promise<PlainLocationPoint> => {
@@ -827,15 +936,19 @@ export function LocationImmersiveMap() {
   useEffect(() => {
     if (!isNative() || getPlatform() !== "android") return;
     let listener: { remove: () => Promise<void> } | undefined;
-    void CapacitorApp.addListener("backButton", () => closeMap()).then(
-      (handle) => {
-        listener = handle;
-      },
-    );
+    void CapacitorApp.addListener("backButton", () => {
+      if (nearbyCheckInOpen) {
+        closeNearbyCheckIn();
+        return;
+      }
+      closeMap();
+    }).then((handle) => {
+      listener = handle;
+    });
     return () => {
       void listener?.remove();
     };
-  }, [closeMap]);
+  }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
 
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;
@@ -896,13 +1009,37 @@ export function LocationImmersiveMap() {
         >
           <X className="h-5 w-5 stroke-[2.25]" />
         </ShellActionSurface>
+        {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+          <ShellActionSurface
+            variant="pill"
+            className={`pointer-events-auto min-w-0 border shadow-lg backdrop-blur-md ${
+              nearbyPresenceState.presence
+                ? MAP_ACCENT_ACTIVE_CLASSNAME
+                : MAP_ACCENT_CONTROL_CLASSNAME
+            }`}
+            aria-label={
+              nearbyPresenceState.presence
+                ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                : "Check in nearby"
+            }
+            data-testid="one-location-map-nearby-check-in"
+            onClick={openNearbyCheckIn}
+          >
+            <UsersRound className="h-4 w-4 shrink-0" />
+            <span className="truncate">
+              {nearbyPresenceState.presence
+                ? `Nearby ${nearbyPresenceState.attendees.length}`
+                : "Check in"}
+            </span>
+          </ShellActionSurface>
+        ) : null}
         {!demoMode && (activeShareCount ?? 0) > 0 ? (
           <span
             data-testid="one-location-map-sharing-status"
             aria-label={`You are sharing your location with ${activeShareCount} ${
               activeShareCount === 1 ? "person" : "people"
             }`}
-            className="pointer-events-none flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+            className="pointer-events-none hidden min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md md:flex dark:text-[var(--app-accent-bright)]"
           >
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
@@ -932,9 +1069,11 @@ export function LocationImmersiveMap() {
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Your Map renders active private shares with Google Maps. One sends
-            Google only the map request; coordinates stay encrypted until this
-            device decrypts an approved share.
+            Your Map decrypts approved private shares only on this device, then
+            sends the coordinates needed to Google Maps to render them. Hussh
+            servers do not receive those decrypted points. Nearby Check-In sends
+            your current point once to Google to suggest places; Hussh does not
+            store that raw GPS fix, and other users never receive it.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
@@ -1241,6 +1380,22 @@ export function LocationImmersiveMap() {
             </div>
           </div>
         </section>
+      ) : null}
+      {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+        <NearbyCheckInSheet
+          open={nearbyCheckInOpen}
+          ownerId={auth.userId}
+          vaultOwnerToken={vaultOwnerToken}
+          captureCurrentPosition={captureCurrentLocation}
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) {
+              openNearbyCheckIn();
+              return;
+            }
+            closeNearbyCheckIn();
+          }}
+          onStateChange={setNearbyPresenceState}
+        />
       ) : null}
     </main>
   );

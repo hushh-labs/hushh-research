@@ -210,7 +210,8 @@ class HushhLocationPlugin : Plugin() {
     private fun captureCurrentPosition(call: PluginCall) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val enableHighAccuracy = call.getBoolean("enableHighAccuracy", true) ?: true
-        val timeoutMs = call.getInt("timeoutMs", 15_000) ?: 15_000
+        val timeoutMs = (call.getInt("timeoutMs", 15_000) ?: 15_000)
+            .coerceIn(3_000, 30_000)
         val providers = preferredProviders(locationManager, enableHighAccuracy)
 
         if (providers.isEmpty()) {
@@ -219,7 +220,9 @@ class HushhLocationPlugin : Plugin() {
         }
 
         val freshLocation = providers
-            .mapNotNull { provider -> locationManager.getLastKnownLocation(provider) }
+            .mapNotNull { provider ->
+                runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
+            }
             .maxByOrNull { location -> location.time }
 
         if (freshLocation != null && System.currentTimeMillis() - freshLocation.time <= 30_000) {
@@ -245,15 +248,27 @@ class HushhLocationPlugin : Plugin() {
             override fun onProviderDisabled(provider: String) = Unit
         }
 
-        val provider = providers.first()
         mainHandler.post {
-            try {
-                locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
-            } catch (error: Exception) {
-                if (!completed) {
-                    completed = true
-                    call.reject("Precise location unavailable: ${error.message}")
+            var requestedProvider = false
+            var lastError: Exception? = null
+            for (provider in providers) {
+                try {
+                    locationManager.requestSingleUpdate(
+                        provider,
+                        listener,
+                        Looper.getMainLooper()
+                    )
+                    requestedProvider = true
+                } catch (error: Exception) {
+                    lastError = error
                 }
+            }
+            if (!requestedProvider && !completed) {
+                completed = true
+                call.reject(
+                    "Precise location unavailable: " +
+                        (lastError?.message ?: "no permitted provider")
+                )
             }
         }
         mainHandler.postDelayed({
@@ -339,7 +354,12 @@ class HushhLocationPlugin : Plugin() {
         locationManager: LocationManager,
         enableHighAccuracy: Boolean
     ): List<String> {
-        val candidates = if (enableHighAccuracy) {
+        val fineGranted = hasAndroidPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        val candidates = if (!fineGranted) {
+            // Android's approximate-only grant does not authorize GPS access on
+            // every OS/device combination. Network is the truthful coarse lane.
+            listOf(LocationManager.NETWORK_PROVIDER)
+        } else if (enableHighAccuracy) {
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
         } else {
             listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)

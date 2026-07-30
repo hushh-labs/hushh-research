@@ -9,18 +9,34 @@ from __future__ import annotations
 
 import hmac
 import os
+from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.google_maps_service import GoogleMapsError, GoogleMapsService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
     location_error_detail,
+)
+from hushh_mcp.services.one_location_nearby_presence_service import (
+    NearbyPresenceError,
+    OneLocationNearbyPresenceService,
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
@@ -107,6 +123,15 @@ class SubmitPublicInviteRequest(_CamelModel):
 class MapsAutocompleteRequest(_CamelModel):
     input: str = Field(min_length=1, max_length=200)
     session_token: str | None = Field(default=None, alias="sessionToken", max_length=120)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+
+
+class MapsNearbyPlacesRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
 
 
 class MapsPlaceDetailsRequest(_CamelModel):
@@ -125,8 +150,38 @@ class MapsRouteEtaRequest(_CamelModel):
     dest_lng: float = Field(alias="destLng", ge=-180, le=180)
 
 
+class NearbyPresenceCheckInRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+    current_lat: float = Field(alias="currentLat", ge=-90, le=90)
+    current_lng: float = Field(alias="currentLng", ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, alias="accuracyM", ge=0, le=5_000)
+    captured_at: datetime = Field(alias="capturedAt")
+    duration_minutes: int = Field(
+        default=60,
+        alias="durationMinutes",
+    )
+    consent_accepted: bool = Field(alias="consentAccepted")
+    allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
+
+
+class NearbyConnectionRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    participant_alias: str = Field(
+        alias="participantAlias",
+        min_length=1,
+        max_length=128,
+    )
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
+
+
+def _nearby_presence_service() -> OneLocationNearbyPresenceService:
+    return OneLocationNearbyPresenceService()
 
 
 def _user_id(token_data: dict[str, Any]) -> str:
@@ -144,6 +199,11 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, NearbyPresenceError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
     if isinstance(exc, OneLocationAgentError):
         return HTTPException(status_code=exc.status_code, detail=location_error_detail(exc))
     if exc.__class__.__name__ == "DatabaseExecutionError":
@@ -167,6 +227,38 @@ def _retention_auth_enabled() -> bool:
         enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
         return enabled or not local_or_test
     return True
+
+
+def _nearby_presence_simulation_enabled() -> bool:
+    """Expose the spoofable radius simulation only in non-production lanes."""
+
+    environment = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
+    )
+    safe_environments = {"development", "dev", "local", "test", "uat", "staging"}
+    if environment not in safe_environments:
+        return False
+    mode = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_MODE") or "").strip().lower()
+    if mode:
+        return mode == "uat_simulation" and environment in safe_environments
+    return True
+
+
+def _require_nearby_presence_simulation() -> None:
+    if _nearby_presence_simulation_enabled():
+        return
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={
+            "code": "NEARBY_PRESENCE_UNAVAILABLE",
+            "message": "Nearby check-in simulation is not available in this environment.",
+        },
+    )
+
+
+def _set_private_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
 
 
 def _require_retention_auth(request: Request) -> None:
@@ -277,7 +369,11 @@ def get_location_activity(
 def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
     try:
-        return _service().purge_terminal_work(older_than_hours=older_than_hours)
+        result = _service().purge_terminal_work(older_than_hours=older_than_hours)
+        result["nearby_presence"] = _nearby_presence_service().purge_terminal(
+            older_than_hours=older_than_hours
+        )
+        return result
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -430,14 +526,25 @@ def _maps_service() -> GoogleMapsService:
 
 
 @router.post("/location/maps/autocomplete")
+@limiter.limit(RateLimits.ONE_LOCATION_MAPS_PROVIDER)
 async def maps_autocomplete(
+    request: Request,
+    response: Response,
     payload: MapsAutocompleteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     _user_id(token_data)  # auth-gate only; result is not user-scoped
+    _set_private_no_store(response)
     try:
+        location_bias = (
+            {"lat": payload.lat, "lng": payload.lng}
+            if payload.lat is not None and payload.lng is not None
+            else {}
+        )
         suggestions = await _maps_service().autocomplete(
-            payload.input, session_token=payload.session_token
+            payload.input,
+            session_token=payload.session_token,
+            **location_bias,
         )
         return {"suggestions": suggestions}
     except GoogleMapsError as exc:
@@ -448,11 +555,15 @@ async def maps_autocomplete(
 
 
 @router.post("/location/maps/place-details")
+@limiter.limit(RateLimits.ONE_LOCATION_MAPS_PROVIDER)
 async def maps_place_details(
+    request: Request,
+    response: Response,
     payload: MapsPlaceDetailsRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     _user_id(token_data)
+    _set_private_no_store(response)
     try:
         place = await _maps_service().place_details(payload.place_id)
         return {"place": place}
@@ -461,6 +572,126 @@ async def maps_place_details(
             status_code=exc.status_code,
             detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
         ) from exc
+
+
+@router.post("/location/maps/nearby-places")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_READ)
+async def maps_nearby_places(
+    request: Request,
+    response: Response,
+    payload: MapsNearbyPlacesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation()
+    _user_id(token_data)
+    _set_private_no_store(response)
+    try:
+        suggestions = await _maps_service().nearby_places(
+            lat=payload.lat,
+            lng=payload.lng,
+        )
+        return {"suggestions": suggestions}
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/location/nearby-presence/check-in")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+async def check_in_nearby(
+    request: Request,
+    response: Response,
+    payload: NearbyPresenceCheckInRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Publish a short-lived presence after verifying a fresh nearby-place fix."""
+
+    _require_nearby_presence_simulation()
+    _set_private_no_store(response)
+    try:
+        place = await _maps_service().place_details(payload.place_id)
+        service = _nearby_presence_service()
+        state = await run_in_threadpool(
+            service.check_in,
+            user_id=_user_id(token_data),
+            place_id=str(place.get("placeId") or payload.place_id),
+            place_label=str(place.get("label") or "Selected place"),
+            current_lat=payload.current_lat,
+            current_lng=payload.current_lng,
+            place_lat=float(place.get("latitude")),
+            place_lng=float(place.get("longitude")),
+            accuracy_m=payload.accuracy_m,
+            captured_at=payload.captured_at,
+            duration_minutes=payload.duration_minutes,
+            consent_accepted=payload.consent_accepted,
+            allow_connection_requests=payload.allow_connection_requests,
+        )
+        return state
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "ONE_LOCATION_MAPS_FAILED",
+                "message": "The selected place did not return a valid location.",
+            },
+        ) from exc
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/nearby-presence")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_READ)
+def get_nearby_presence(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation()
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().get_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/nearby-presence")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+def checkout_nearby(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().checkout(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/nearby-presence/connection-request")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_CONNECT)
+def request_nearby_connection(
+    request: Request,
+    response: Response,
+    payload: NearbyConnectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation()
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().request_connection(
+            user_id=_user_id(token_data),
+            participant_alias=payload.participant_alias,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
 
 
 @router.post("/location/maps/reverse-geocode")

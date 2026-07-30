@@ -87,6 +87,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import type {
   EmergencyInfo,
   EmergencyNumberLookupStatus,
@@ -350,6 +351,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
@@ -508,9 +510,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       });
       return;
     }
-    const desired: FlowKind = action
-      ? (ACTION_TO_FLOW[action] ?? "none")
+    const flowAction = action === "event-check-in" ? "check-in" : action;
+    const requested: FlowKind = flowAction
+      ? (ACTION_TO_FLOW[flowAction] ?? "none")
       : "none";
+    if (
+      nearbyCheckInAvailable &&
+      (action === "check-in" || action === "event-check-in")
+    ) {
+      router.replace(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`, {
+        scroll: false,
+      });
+      return;
+    }
+    const desired = requested;
     if (desired === "none" && pendingFlowRef.current !== "none") {
       return;
     }
@@ -524,7 +537,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     // only so this runs on every URL change (open/close) without re-firing on
     // unrelated vm re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, router, searchParams]);
+  }, [nearbyCheckInAvailable, pathname, router, searchParams]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
   // the 3-step share flow and return to the main One Location hub.
@@ -661,7 +674,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             <NowHub
               vm={vm}
               onStartShare={() => openFlow("share")}
-              onCheckIn={() => openFlow("check-in")}
+              onCheckIn={() =>
+                nearbyCheckInAvailable
+                  ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
+                  : openFlow("check-in")
+              }
+              checkInSubtitle={
+                nearbyCheckInAvailable ? "See people nearby" : "Share now"
+              }
               onSos={() => openFlow("sos")}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
@@ -706,6 +726,7 @@ function NowHub({
   vm,
   onStartShare,
   onCheckIn,
+  checkInSubtitle,
   onSos,
   onOpenMap,
   onOpenActiveShares,
@@ -716,6 +737,7 @@ function NowHub({
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
+  checkInSubtitle: string;
   onSos: () => void;
   onOpenMap: () => void;
   onOpenActiveShares: () => void;
@@ -790,7 +812,7 @@ function NowHub({
           tone="green"
           icon={<ShieldCheck className="h-5 w-5" />}
           title="Check-In"
-          subtitle="Share now"
+          subtitle={checkInSubtitle}
           onClick={onCheckIn}
         />
         <QuickActionCard

@@ -5959,7 +5959,7 @@ export function OneLocationAgentPageContent({
       return (
         <>
           <NativeTestBeacon {...nativeTestConfig} />
-          <LocationImmersiveMap />
+          <LocationImmersiveMap key={auth.userId ?? "anonymous"} />
         </>
       );
     }
