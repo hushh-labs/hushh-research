@@ -39,6 +39,7 @@ const serviceHarness = vi.hoisted(() => ({
   })),
   getMapState: vi.fn(),
   getState: vi.fn(),
+  requestNearbyConnection: vi.fn(),
   storeEnvelope: vi.fn(),
   updateMapPreferences: vi.fn(),
 }));
@@ -146,13 +147,16 @@ vi.mock(
   "@/components/one-location/nearby-check-in/nearby-check-in-sheet",
   () => ({
     NearbyCheckInSheet: ({
-      onPrivateShare,
+      open,
       onStateChange,
     }: {
-      onPrivateShare: () => void;
+      open: boolean;
       onStateChange: (state: unknown) => void;
     }) => (
-      <div>
+      <div
+        data-testid="nearby-check-in-sheet-mock"
+        data-open={open ? "true" : "false"}
+      >
         <button
           type="button"
           data-testid="publish-nearby-state"
@@ -175,18 +179,17 @@ vi.mock(
                   relationship: "connected",
                   canConnect: false,
                 },
+                {
+                  participantAlias: "rotating-aarav",
+                  displayName: "Aarav Shah",
+                  relationship: "none",
+                  canConnect: true,
+                },
               ],
             })
           }
         >
           Publish nearby state
-        </button>
-        <button
-          type="button"
-          data-testid="open-private-check-in"
-          onClick={onPrivateShare}
-        >
-          Open private check-in
         </button>
       </div>
     ),
@@ -229,6 +232,9 @@ beforeEach(() => {
   serviceHarness.getState.mockResolvedValue({
     recipients: [],
     ownerGrants: [],
+  });
+  serviceHarness.requestNearbyConnection.mockResolvedValue({
+    relationship: "pending_outgoing",
   });
   serviceHarness.storeEnvelope.mockResolvedValue(undefined);
   serviceHarness.updateMapPreferences.mockResolvedValue({
@@ -328,12 +334,21 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
       width:
         "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))",
-      height: "168px",
+      height:
+        "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)",
       borderRadius: "1.75rem",
     });
     expect(screen.getByTestId("one-location-map-tray-body")).toHaveClass(
+      "min-h-0",
+      "flex-1",
       "translate-y-0",
       "opacity-100",
+    );
+    expect(screen.getByTestId("one-location-map-tray-scroll")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "overflow-y-auto",
+      "overscroll-contain",
     );
 
     fireEvent.click(screen.getByTestId("one-location-map-locate"));
@@ -398,19 +413,54 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+      "data-open",
+      "false",
+    );
+    fireEvent.click(screen.getByTestId("one-location-map-nearby-check-in"));
+    expect(navigationHarness.push).toHaveBeenCalledWith(
+      "/one/location/map?action=check-in",
+      { scroll: false },
+    );
+
     fireEvent.click(screen.getByTestId("publish-nearby-state"));
 
-    expect(
-      await screen.findByTestId("one-location-map-nearby-people"),
-    ).toHaveTextContent("Within 500 m");
+    const nearbyRoster = await screen.findByTestId(
+      "one-location-map-nearby-people",
+    );
+    expect(nearbyRoster).not.toHaveClass(
+      "bg-emerald-500/[0.08]",
+      "border-emerald-500/20",
+    );
+    expect(nearbyRoster).not.toHaveTextContent("Checked in nearby");
     expect(screen.getByText("Neelesh Meena")).toBeInTheDocument();
+    expect(screen.getByText("Aarav Shah")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText(/Precise locations are not pinned/i),
+      screen.getByText(/Within 500 m.*precise nearby locations stay private/i),
     ).toBeInTheDocument();
     expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(
       "Neelesh Meena",
     );
+
+    fireEvent.click(screen.getByTestId("one-location-map-tray-toggle"));
+    const connectButton = screen.getByRole("button", {
+      name: "Connect with Aarav Shah",
+    });
+    expect(connectButton).toHaveClass("shrink-0");
+    expect(
+      screen.getByRole("button", {
+        name: "Open nearby actions for Aarav Shah",
+      }),
+    ).toHaveClass("min-w-0", "flex-1");
+    fireEvent.click(connectButton);
+    await waitFor(() => {
+      expect(serviceHarness.requestNearbyConnection).toHaveBeenCalledWith({
+        vaultOwnerToken: "in-memory-owner-token",
+        participantAlias: "rotating-aarav",
+      });
+    });
+    expect(screen.getByText("Requested")).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -419,14 +469,6 @@ describe("LocationImmersiveMap demo experience", () => {
     );
     expect(navigationHarness.push).toHaveBeenCalledWith(
       "/one/location/map?action=check-in",
-      { scroll: false },
-    );
-
-    fireEvent.click(screen.getByTestId("open-private-check-in"));
-    expect(navigationHarness.replace).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^\/one\/location\?action=private-check-in&source=nearby&returnToken=[A-Za-z0-9-]+$/,
-      ),
       { scroll: false },
     );
   });

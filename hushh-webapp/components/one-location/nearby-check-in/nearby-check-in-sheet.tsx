@@ -11,7 +11,6 @@ import {
   Check,
   Clock3,
   Loader2,
-  LockKeyhole,
   MapPin,
   Search,
   ShieldCheck,
@@ -176,7 +175,6 @@ export function NearbyCheckInSheet({
   captureCurrentPosition,
   onOpenChange,
   onStateChange,
-  onPrivateShare,
 }: {
   open: boolean;
   ownerId: string | null;
@@ -184,7 +182,6 @@ export function NearbyCheckInSheet({
   captureCurrentPosition: () => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
-  onPrivateShare?: () => void;
 }) {
   const router = useRouter();
   const ownerEpochRef = useRef(0);
@@ -1020,36 +1017,6 @@ export function NearbyCheckInSheet({
                   </div>
                 )}
               </section>
-
-              {onPrivateShare ? (
-                <section
-                  className="rounded-2xl border border-[var(--app-accent-border)] bg-[var(--app-accent-surface)] p-4"
-                  data-testid="nearby-private-share-card"
-                >
-                  <div className="flex items-start gap-3">
-                    <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-                    <div className="min-w-0 flex-1">
-                      <h2 className="font-semibold">
-                        Share privately with trusted people
-                      </h2>
-                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                        Nearby people see your name only. Choose trusted
-                        connections to receive your encrypted precise location.
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    className="mt-3 w-full"
-                    variant="secondary"
-                    disabled={busy !== null}
-                    onClick={onPrivateShare}
-                  >
-                    <LockKeyhole className="h-4 w-4" />
-                    Choose trusted people
-                  </Button>
-                </section>
-              ) : null}
 
               <Button
                 type="button"

@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   LocateFixed,
+  Loader2,
   MapPin,
   Search,
   UsersRound,
@@ -36,8 +37,6 @@ import {
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
-  beginNearbyPrivateReturn,
-  buildNearbyPrivateCheckInHref,
   consumeNearbyPrivateReturn,
   NEARBY_PRIVATE_RESUME_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
@@ -91,7 +90,7 @@ function personInitials(label: string): string {
 
 function nearbyRelationshipLabel(attendee: OneLocationNearbyAttendee): string {
   if (attendee.relationship === "connected") return "Connected";
-  if (attendee.relationship === "pending_outgoing") return "Request sent";
+  if (attendee.relationship === "pending_outgoing") return "Checked in nearby";
   if (attendee.relationship === "pending_incoming") return "Wants to connect";
   return attendee.canConnect ? "Available to connect" : "Checked in nearby";
 }
@@ -180,7 +179,6 @@ export function LocationImmersiveMap() {
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
-  const peopleTrayBodyRef = useRef<HTMLDivElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
@@ -191,6 +189,16 @@ export function LocationImmersiveMap() {
   const nearbyHistoryPreparedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
+  const nearbyConnectInFlightRef = useRef(false);
+  const nearbyConnectGenerationRef = useRef(0);
+  const nearbyConnectOwnerRef = useRef({
+    userId: auth.userId,
+    vaultOwnerToken,
+  });
+  nearbyConnectOwnerRef.current = {
+    userId: auth.userId,
+    vaultOwnerToken,
+  };
   const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
@@ -207,7 +215,6 @@ export function LocationImmersiveMap() {
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
-  const [trayExpandedHeight, setTrayExpandedHeight] = useState(224);
   const [closing, setClosing] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [entryLocationSettled, setEntryLocationSettled] = useState(false);
@@ -215,12 +222,17 @@ export function LocationImmersiveMap() {
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
+  const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
+    string | null
+  >(null);
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
   const [nearbyPresenceState, setNearbyPresenceState] =
     useState<OneLocationNearbyPresenceState>({
       presence: null,
       attendees: [],
     });
+  const nearbyPresenceStateRef = useRef(nearbyPresenceState);
+  nearbyPresenceStateRef.current = nearbyPresenceState;
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
 
@@ -332,6 +344,9 @@ export function LocationImmersiveMap() {
   }, [closing, mapReady, nearbyCheckInOpen]);
 
   useEffect(() => {
+    nearbyConnectGenerationRef.current += 1;
+    nearbyConnectInFlightRef.current = false;
+    setNearbyConnectionBusyAlias(null);
     setNearbyPresenceState({ presence: null, attendees: [] });
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
@@ -684,31 +699,6 @@ export function LocationImmersiveMap() {
   );
 
   useEffect(() => {
-    if (!rendererReady || !peopleTrayBodyRef.current) return;
-    const body = peopleTrayBodyRef.current;
-    let frame: number | null = null;
-    const publishHeight = () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        frame = null;
-        const bodyHeight = Math.ceil(body.getBoundingClientRect().height);
-        // The expanded header is 72px. The body owns its viewport cap, so this
-        // remains a concrete pixel height that WebKit can interpolate reliably.
-        setTrayExpandedHeight(Math.max(168, 72 + bodyHeight));
-      });
-    };
-    publishHeight();
-    const observer = new ResizeObserver(publishHeight);
-    observer.observe(body);
-    window.addEventListener("resize", publishHeight);
-    return () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener("resize", publishHeight);
-    };
-  }, [rendererReady]);
-
-  useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     let paddingTimer: number | null = null;
@@ -961,18 +951,26 @@ export function LocationImmersiveMap() {
   const drawerEntryCount = markers.length + nearbyAttendees.length;
 
   const peopleDrawerLabel = useMemo(() => {
-    if (nearbyAttendees.length > 0 && markers.length > 0) {
-      return `${nearbyAttendees.length} nearby · ${markers.length} sharing`;
-    }
-    if (nearbyAttendees.length > 0) {
-      return `${nearbyAttendees.length} ${
-        nearbyAttendees.length === 1 ? "person" : "people"
-      } checked in nearby`;
+    if (nearbyPresenceState.presence) {
+      if (nearbyAttendees.length > 0 && markers.length > 0) {
+        return `${nearbyAttendees.length} nearby · ${markers.length} sharing`;
+      }
+      if (nearbyAttendees.length > 0) {
+        return `${nearbyAttendees.length} ${
+          nearbyAttendees.length === 1 ? "person" : "people"
+        } checked in nearby`;
+      }
+      if (markers.length > 0) {
+        return `${markers.length} ${
+          markers.length === 1 ? "person" : "people"
+        } sharing · no one nearby`;
+      }
+      return "No one checked in nearby";
     }
     return `${markers.length} ${
       markers.length === 1 ? "person" : "people"
     } sharing with you`;
-  }, [markers.length, nearbyAttendees.length]);
+  }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   const peopleDrawerSubtitle = nearbyPresenceState.presence
     ? `Within ${nearbyPresenceState.presence.radiusMeters} m · precise nearby locations stay private`
@@ -980,12 +978,74 @@ export function LocationImmersiveMap() {
       ? `People sharing with you · you're sharing with ${activeShareCount}`
       : "People sharing their location with you";
 
-  const openPrivateCheckIn = useCallback(() => {
-    const returnToken = beginNearbyPrivateReturn();
-    router.replace(buildNearbyPrivateCheckInHref(returnToken), {
-      scroll: false,
-    });
-  }, [router]);
+  const connectNearbyAttendee = useCallback(
+    async (attendee: OneLocationNearbyAttendee) => {
+      const ownerSnapshot = nearbyConnectOwnerRef.current;
+      const presenceCheckedInAt =
+        nearbyPresenceStateRef.current.presence?.checkedInAt;
+      if (
+        !ownerSnapshot.userId ||
+        !ownerSnapshot.vaultOwnerToken ||
+        !presenceCheckedInAt ||
+        !attendee.canConnect ||
+        nearbyConnectInFlightRef.current
+      ) {
+        return;
+      }
+
+      const generation = ++nearbyConnectGenerationRef.current;
+      nearbyConnectInFlightRef.current = true;
+      setNearbyConnectionBusyAlias(attendee.participantAlias);
+      const requestIsCurrent = () => {
+        const currentOwner = nearbyConnectOwnerRef.current;
+        const currentPresence = nearbyPresenceStateRef.current;
+        return (
+          mountedRef.current &&
+          nearbyConnectGenerationRef.current === generation &&
+          currentOwner.userId === ownerSnapshot.userId &&
+          currentOwner.vaultOwnerToken === ownerSnapshot.vaultOwnerToken &&
+          currentPresence.presence?.checkedInAt === presenceCheckedInAt &&
+          currentPresence.attendees.some(
+            (item) =>
+              item.participantAlias === attendee.participantAlias,
+          )
+        );
+      };
+      try {
+        const result = await OneLocationService.requestNearbyConnection({
+          vaultOwnerToken: ownerSnapshot.vaultOwnerToken,
+          participantAlias: attendee.participantAlias,
+        });
+        if (!requestIsCurrent()) return;
+        setNearbyPresenceState((current) => ({
+          ...current,
+          attendees: current.attendees.map((item) =>
+            item.participantAlias === attendee.participantAlias
+              ? {
+                  ...item,
+                  relationship: result.relationship,
+                  canConnect:
+                    result.relationship === "none" ? item.canConnect : false,
+                }
+              : item,
+          ),
+        }));
+        toast.success("Connection request sent.");
+      } catch {
+        if (requestIsCurrent()) {
+          toast.error(
+            "That person may no longer be nearby. Open Check in and refresh the list.",
+          );
+        }
+      } finally {
+        if (nearbyConnectGenerationRef.current === generation) {
+          nearbyConnectInFlightRef.current = false;
+          if (mountedRef.current) setNearbyConnectionBusyAlias(null);
+        }
+      }
+    },
+    [],
+  );
 
   const closeMap = useCallback(() => {
     if (closeRequestedRef.current) return;
@@ -1183,7 +1243,7 @@ export function LocationImmersiveMap() {
       {rendererReady && status !== "unavailable" ? (
         <section
           ref={peopleTrayRef}
-          className="absolute left-1/2 z-20 isolate overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
+          className="absolute left-1/2 z-20 isolate flex min-h-0 flex-col overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
           data-testid="one-location-map-people-tray"
           data-state={trayExpanded ? "expanded" : "collapsed"}
           style={{
@@ -1192,7 +1252,9 @@ export function LocationImmersiveMap() {
             width: trayExpanded
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
-            height: trayExpanded ? `${trayExpandedHeight}px` : "3.5rem",
+            height: trayExpanded
+              ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
+              : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
               `width ${motionDurations.xl}ms ${motionEasings.emphasized}`,
@@ -1205,7 +1267,7 @@ export function LocationImmersiveMap() {
         >
           <button
             type="button"
-            className={`group relative flex w-full touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
+            className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
                 ? "h-[4.5rem] px-3 pb-2 pt-2.5"
                 : "h-14 justify-center p-0"
@@ -1272,7 +1334,7 @@ export function LocationImmersiveMap() {
                   .map((attendee) => (
                     <span
                       key={attendee.participantAlias}
-                      className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-emerald-500 text-[10px] font-semibold text-white"
+                      className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-[var(--app-accent)] text-[10px] font-semibold text-[var(--app-accent-fg)]"
                     >
                       {personInitials(attendee.displayName)}
                     </span>
@@ -1300,7 +1362,7 @@ export function LocationImmersiveMap() {
           </button>
 
           <div
-            className={`absolute inset-x-0 top-[4.5rem] motion-reduce:transition-none ${
+            className={`min-h-0 flex-1 motion-reduce:transition-none ${
               trayExpanded
                 ? "translate-y-0 opacity-100"
                 : "pointer-events-none translate-y-2 opacity-0"
@@ -1316,8 +1378,8 @@ export function LocationImmersiveMap() {
             inert={!trayExpanded}
           >
             <div
-              ref={peopleTrayBodyRef}
-              className="max-h-[min(25rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              data-testid="one-location-map-tray-scroll"
             >
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1334,51 +1396,83 @@ export function LocationImmersiveMap() {
 
               {nearbyPresenceState.presence ? (
                 <section
-                  className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.08] p-3"
+                  className="mt-2"
                   data-testid="one-location-map-nearby-people"
+                  aria-label="People checked in nearby"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">
-                        Checked in nearby
-                      </h3>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        Within {nearbyPresenceState.presence.radiusMeters} m.
-                        Precise locations are not pinned.
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                      {nearbyAttendees.length}
-                    </span>
-                  </div>
                   {filteredNearbyAttendees.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {filteredNearbyAttendees.map((attendee) => (
-                        <button
-                          key={attendee.participantAlias}
-                          type="button"
-                          className="flex min-h-11 w-full items-center gap-2 rounded-xl px-1.5 text-left transition-colors hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
-                          aria-label={`Open nearby actions for ${attendee.displayName}`}
-                          data-testid="one-location-map-nearby-person"
-                          onClick={openNearbyCheckIn}
-                        >
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500 text-[11px] font-semibold text-white">
-                            {personInitials(attendee.displayName)}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">
-                              {attendee.displayName}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {nearbyRelationshipLabel(attendee)}
-                            </span>
-                          </span>
-                          <ChevronDown className="h-4 w-4 -rotate-90 text-muted-foreground" />
-                        </button>
-                      ))}
+                    <div className="space-y-1">
+                      {filteredNearbyAttendees.map((attendee) => {
+                        const connectionBusy =
+                          nearbyConnectionBusyAlias ===
+                          attendee.participantAlias;
+                        return (
+                          <div
+                            key={attendee.participantAlias}
+                            className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                            data-testid="one-location-map-nearby-person"
+                          >
+                            <button
+                              type="button"
+                              className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                              aria-label={`Open nearby actions for ${attendee.displayName}`}
+                              onClick={openNearbyCheckIn}
+                            >
+                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
+                                {personInitials(attendee.displayName)}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium">
+                                  {attendee.displayName}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {nearbyRelationshipLabel(attendee)}
+                                </span>
+                              </span>
+                            </button>
+                            {attendee.canConnect &&
+                            attendee.relationship === "none" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 shrink-0 rounded-full px-3"
+                                aria-label={`Connect with ${attendee.displayName}`}
+                                disabled={nearbyConnectionBusyAlias !== null}
+                                onClick={() =>
+                                  void connectNearbyAttendee(attendee)
+                                }
+                              >
+                                {connectionBusy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Connect"
+                                )}
+                              </Button>
+                            ) : attendee.relationship === "pending_outgoing" ? (
+                              <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+                                Requested
+                              </span>
+                            ) : attendee.relationship === "pending_incoming" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 shrink-0 rounded-full px-3"
+                                aria-label={`Respond to ${attendee.displayName}`}
+                                onClick={openNearbyCheckIn}
+                              >
+                                Respond
+                              </Button>
+                            ) : (
+                              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <p className="mt-2 py-1 text-sm text-muted-foreground">
+                    <p className="px-1 py-2 text-sm text-muted-foreground">
                       {nearbyAttendees.length > 0
                         ? "No nearby check-ins match your search."
                         : "No one else is checked in nearby yet."}
@@ -1550,7 +1644,6 @@ export function LocationImmersiveMap() {
             closeNearbyCheckIn();
           }}
           onStateChange={setNearbyPresenceState}
-          onPrivateShare={openPrivateCheckIn}
         />
       ) : null}
     </main>
