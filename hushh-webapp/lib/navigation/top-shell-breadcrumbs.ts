@@ -563,8 +563,9 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // The setup hub itself (`/one/setup`). Back returns to the One home so a user
-  // who opened setup from the dashboard can step out without completing it.
+  // The setup hub itself (`/one/setup`) follows completed phone verification.
+  // There is no confirmed previous step in this root flow, so never offer a
+  // top-shell path that can retrace a person into phone verification.
   if (pathname === ROUTES.ONE_SETUP) {
     const returnHref =
       normalizeInternalRouteHref(searchParams?.get("return_to")) || ROUTES.HOME;
@@ -572,7 +573,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: returnHref,
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: returnHref }, { label: "Setup" }],
     };
   }

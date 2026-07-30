@@ -72,11 +72,25 @@ vi.mock("lucide-react", () => ({
   MapPin: () => <span />,
   Mail: () => <span />,
   Phone: () => <span />,
+  UsersRound: () => <span />,
+  FileCheck2: () => <span />,
+  BookMarked: () => <span />,
+  KeyRound: () => <span />,
+  Store: () => <span />,
+  ContactRound: () => <span />,
 }));
 
 vi.mock("@/components/app-ui/fullscreen-flow-shell", () => ({
   FullscreenFlowShell: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="flow-shell">{children}</div>
+  ),
+}));
+
+// This suite owns the RIA workflow contract. The cinematic intro has separate
+// coverage, so bypass its session-only presentation layer here.
+vi.mock("@/components/onboarding/setup/capability-cinematic-intro", () => ({
+  CapabilityCinematicIntroGate: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
   ),
 }));
 
@@ -279,6 +293,8 @@ vi.mock("@/lib/navigation/routes", () => ({
       ? candidate
       : null;
   },
+  buildOneSetupCapabilityRoute: (capabilityId: string) =>
+    `/one/setup/${capabilityId}`,
 }));
 
 vi.mock("@/lib/navigation/profile-routes", () => ({
@@ -1057,7 +1073,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/profile/regulatory");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
     });
   });
 
@@ -1186,7 +1202,7 @@ describe("RiaOnboardingPage", () => {
 
     // Onboarding completes → routed to the RIA profile, no error, draft cleared.
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/profile/regulatory");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
     });
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.draftService.clear).toHaveBeenCalledWith("user-ria-1");

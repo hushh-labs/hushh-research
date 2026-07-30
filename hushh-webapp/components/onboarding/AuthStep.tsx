@@ -336,9 +336,7 @@ export function AuthStep({
       const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return (
-          lastResolvedNavigationPathRef.current ||
-          targetPath ||
-          ROUTES.ONE_HOME
+          lastResolvedNavigationPathRef.current || targetPath || ROUTES.ONE_HOME
         );
       }
       lastNavigationKeyRef.current = navigationKey;
@@ -1071,10 +1069,6 @@ export function AuthStep({
           >
             Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
           </h1>
-          <p className="mt-3 max-w-[19rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Sign in to open your private vault. It unlocks with you, and only
-            you.
-          </p>
         </div>
 
         {/* Buttons sit directly on the shared hero background (no card/sheet
@@ -1132,17 +1126,17 @@ export function AuthStep({
               </span>
             </div>
 
-            <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
-              By continuing, you agree to One&apos;s{" "}
+            <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+              By continuing, you agree to the{" "}
               <button
                 type="button"
                 onClick={() => void openLegalDoc("terms")}
                 data-voice-control-id="auth_terms"
                 className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
               >
-                Terms
-              </button>{" "}
-              and{" "}
+                Terms of Service
+              </button>
+              <span aria-hidden="true"> and </span>
               <button
                 type="button"
                 onClick={() => void openLegalDoc("privacy")}

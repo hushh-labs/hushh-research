@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlugZap } from "lucide-react";
+import { LockKeyhole, PlugZap } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -16,6 +16,8 @@ import {
 } from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -72,6 +74,8 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
     userId: string | null;
     state: "loading" | "required" | "complete";
@@ -178,30 +182,32 @@ export function OneSetupHub() {
     title: "Set up One",
     purpose:
       "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: hubStateLoading ? [] : [
-      ...visibleItems.map((item) => ({
-        id: item.id,
-        actionId: getOneSetupCapability(item.id)?.setupActionId,
-        label: item.copy.setupTitle,
-        purpose: `${item.copy.setupBlurb} ${
-          isCapabilitySetupComplete(item.status)
-            ? "This setup is complete."
-            : "This setup is still remaining."
-        }`,
-      })),
-      ...(dismissing || !runtimeChoiceComplete
-        ? []
-        : [
-            {
-              id: "master_ack",
-              actionId: "setup.hub_master_ack",
-              label: masterActionLabel,
-              purpose: masterSkipped
-                ? "Skip setup for now and go home."
-                : "Finish setup for now and go home.",
-            },
-          ]),
-    ],
+    actions: hubStateLoading
+      ? []
+      : [
+          ...visibleItems.map((item) => ({
+            id: item.id,
+            actionId: getOneSetupCapability(item.id)?.setupActionId,
+            label: item.copy.setupTitle,
+            purpose: `${item.copy.setupBlurb} ${
+              isCapabilitySetupComplete(item.status)
+                ? "This setup is complete."
+                : "This setup is still remaining."
+            }`,
+          })),
+          ...(dismissing || !runtimeChoiceComplete
+            ? []
+            : [
+                {
+                  id: "master_ack",
+                  actionId: "setup.hub_master_ack",
+                  label: masterActionLabel,
+                  purpose: masterSkipped
+                    ? "Skip setup for now and go home."
+                    : "Finish setup for now and go home.",
+                },
+              ]),
+        ],
   });
 
   // Either way, resolving the master ack SATISFIES the root setup gate so the
@@ -258,10 +264,11 @@ export function OneSetupHub() {
         };
       }
 
-      // Resolve the master gate and go home immediately. acknowledgeOneSetupExit
-      // primes the local completion latch synchronously (so the guard admits
-      // /one right away); the durable backend writes settle in the background,
-      // so a slow or failing network can never strand the person on the hub.
+      // Resolve the master gate before offering the optional vault introduction.
+      // acknowledgeOneSetupExit primes the local completion latch synchronously
+      // (so the guard admits /one right away); the durable backend writes settle
+      // in the background, so a slow or failing network can never strand the
+      // person on this screen.
       void acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: masterSkipped,
@@ -274,6 +281,14 @@ export function OneSetupHub() {
           error,
         );
       });
+      if (!isVaultUnlocked) {
+        setVaultInvitationOpen(true);
+        return {
+          status: "succeeded" as const,
+          summary:
+            "Setup is complete. Choose whether to set up your private vault.",
+        };
+      }
       router.replace(completionTarget);
       return {
         status: "succeeded" as const,
@@ -298,6 +313,12 @@ export function OneSetupHub() {
     : allReady
       ? "Everything's set up. You're good to go."
       : `${done} of ${total} ready, ${remaining} left to set up.`;
+  const showVaultInvitation =
+    vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
+  const leaveAfterVaultChoice = () => {
+    setVaultInvitationOpen(false);
+    router.replace(completionTarget);
+  };
 
   return (
     <AppPageShell
@@ -314,15 +335,25 @@ export function OneSetupHub() {
       <AppPageHeaderRegion>
         <div className="relative">
           <PageHeader
-            title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
-            description={summary}
+            title={
+              showVaultInvitation
+                ? "A private place for what matters"
+                : !hubStateLoading && allReady
+                  ? "You're all set"
+                  : "Finish setting up One"
+            }
+            description={
+              showVaultInvitation
+                ? "Set up a vault when you are ready. You can also do this later."
+                : summary
+            }
             accent="neutral"
             className={styles.setupHeader}
           />
           {/* Mobile surfaces the master Skip/Finish action top-right in the
               header so it is always reachable and never hides behind the fixed
               "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading ? (
+          {!hubStateLoading && !showVaultInvitation ? (
             <button
               type="button"
               onClick={() => void handleMasterAck()}
@@ -342,133 +373,195 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {hubStateLoading ? (
+        {showVaultInvitation ? (
+          <section
+            className="motion-step-enter mx-auto flex min-h-[18rem] w-full max-w-[30rem] flex-col items-center justify-center text-center"
+            aria-labelledby="one-setup-vault-invitation-title"
+            data-testid="one-setup-vault-invitation"
+          >
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--app-accent-tint)] text-[var(--app-accent-deep)]"
+              aria-hidden="true"
+            >
+              <LockKeyhole className="h-6 w-6" />
+            </div>
+            <h2
+              id="one-setup-vault-invitation-title"
+              className="mt-5 text-balance type-title2 text-foreground"
+            >
+              Like a locked backpack for the things you choose to save.
+            </h2>
+            <p className="mt-3 max-w-[28rem] text-pretty type-subhead text-muted-foreground">
+              When One saves something private, it locks it first. Only you can
+              open it.
+            </p>
+            <div className="mt-8 flex w-full max-w-[24rem] flex-col gap-3">
+              <Button
+                type="button"
+                variant="blue-gradient"
+                effect="fill"
+                size="lg"
+                fullWidth
+                className="min-h-14 justify-center text-center"
+                onClick={() => setVaultDialogOpen(true)}
+                data-testid="one-setup-vault-invitation-open"
+              >
+                Set up vault
+              </Button>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="lg"
+                fullWidth
+                className="min-h-12 justify-center text-center"
+                onClick={leaveAfterVaultChoice}
+                data-testid="one-setup-vault-invitation-later"
+              >
+                Not now
+              </Button>
+            </div>
+          </section>
+        ) : hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
           <>
-        {total > 0 ? (
-          <div
-            className={styles.segmentedProgress}
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={done}
-            aria-label={`${done} of ${total} set up`}
-          >
-            {Array.from({ length: total }).map((_, index) => (
-              <span
-                key={index}
-                data-filled={index < done ? "true" : undefined}
-              />
-            ))}
-          </div>
-        ) : null}
-        <div className={styles.flatChecklist}>
-          <SettingsGroup
-            title="Remaining"
-            testId="one-setup-capabilities-remaining"
-            separatorInset
-          >
-            {!runtimeChoiceComplete ? (
-              <SetupNavigationTile
-                id="connections"
-                title="Connections"
-                description="Use Hushh managed Gemini or your own Google AI Studio key."
-                href={ROUTES.ONE_SETUP_CONNECTIONS}
-                voiceControlId="one_setup_tile_connections"
-                icon={lucideCapabilityIcon(PlugZap)}
-                tone="connected"
-                statusLabel="Required"
-              />
+            {total > 0 ? (
+              <div
+                className={styles.segmentedProgress}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={total}
+                aria-valuenow={done}
+                aria-label={`${done} of ${total} set up`}
+              >
+                {Array.from({ length: total }).map((_, index) => (
+                  <span
+                    key={index}
+                    data-filled={index < done ? "true" : undefined}
+                  />
+                ))}
+              </div>
             ) : null}
-            {remainingItems.map((item) => (
-              <CapabilitySetupTile
-                key={item.id}
-                capabilityId={item.id}
-                title={item.copy.setupTitle}
-                description={item.copy.setupBlurb}
-                actionLabel={item.copy.actionLabel}
-                resumeActionLabel={item.copy.resumeActionLabel}
-                href={item.copy.href}
-                voiceControlId={item.voiceControlId}
-                icon={item.icon}
-                tone={item.tone}
-                status={item.status}
-                isExploreOnly={item.isExploreOnly}
-                isCurrent={item.isCurrent}
-              />
-            ))}
-          </SettingsGroup>
-          {completeItems.length > 0 || runtimeChoiceComplete ? (
-            <SettingsGroup
-              title="Complete"
-              testId="one-setup-capabilities-complete"
-              separatorInset
-            >
-              {runtimeChoiceComplete ? (
-                <SetupNavigationTile
-                  id="connections"
-                  title="Connections"
-                  description="Change how One runs."
-                  href={ROUTES.ONE_SETUP_CONNECTIONS}
-                  voiceControlId="one_setup_tile_connections"
-                  icon={lucideCapabilityIcon(PlugZap)}
-                  tone="connected"
-                  statusLabel="Selected"
-                  isComplete
-                />
+            <div className={styles.flatChecklist}>
+              <SettingsGroup
+                title="Remaining"
+                testId="one-setup-capabilities-remaining"
+                separatorInset
+              >
+                {!runtimeChoiceComplete ? (
+                  <SetupNavigationTile
+                    id="connections"
+                    title="Connections"
+                    description="Use Hushh managed Gemini or your own Google AI Studio key."
+                    href={ROUTES.ONE_SETUP_CONNECTIONS}
+                    voiceControlId="one_setup_tile_connections"
+                    icon={lucideCapabilityIcon(PlugZap)}
+                    tone="connected"
+                    statusLabel="Required"
+                  />
+                ) : null}
+                {remainingItems.map((item) => (
+                  <CapabilitySetupTile
+                    key={item.id}
+                    capabilityId={item.id}
+                    title={item.copy.setupTitle}
+                    description={item.copy.setupBlurb}
+                    actionLabel={item.copy.actionLabel}
+                    resumeActionLabel={item.copy.resumeActionLabel}
+                    href={item.copy.href}
+                    voiceControlId={item.voiceControlId}
+                    icon={item.icon}
+                    tone={item.tone}
+                    status={item.status}
+                    isExploreOnly={item.isExploreOnly}
+                    isCurrent={item.isCurrent}
+                  />
+                ))}
+              </SettingsGroup>
+              {completeItems.length > 0 || runtimeChoiceComplete ? (
+                <SettingsGroup
+                  title="Complete"
+                  testId="one-setup-capabilities-complete"
+                  separatorInset
+                >
+                  {runtimeChoiceComplete ? (
+                    <SetupNavigationTile
+                      id="connections"
+                      title="Connections"
+                      description="Change how One runs."
+                      href={ROUTES.ONE_SETUP_CONNECTIONS}
+                      voiceControlId="one_setup_tile_connections"
+                      icon={lucideCapabilityIcon(PlugZap)}
+                      tone="connected"
+                      statusLabel="Selected"
+                      isComplete
+                    />
+                  ) : null}
+                  {completeItems.map((item) => (
+                    <CapabilitySetupTile
+                      key={item.id}
+                      capabilityId={item.id}
+                      title={item.copy.setupTitle}
+                      description={item.copy.setupBlurb}
+                      actionLabel={item.copy.actionLabel}
+                      resumeActionLabel={item.copy.resumeActionLabel}
+                      href={item.copy.href}
+                      voiceControlId={item.voiceControlId}
+                      icon={item.icon}
+                      tone={item.tone}
+                      status={item.status}
+                      isExploreOnly={item.isExploreOnly}
+                      isCurrent={false}
+                    />
+                  ))}
+                </SettingsGroup>
               ) : null}
-              {completeItems.map((item) => (
-                <CapabilitySetupTile
-                  key={item.id}
-                  capabilityId={item.id}
-                  title={item.copy.setupTitle}
-                  description={item.copy.setupBlurb}
-                  actionLabel={item.copy.actionLabel}
-                  resumeActionLabel={item.copy.resumeActionLabel}
-                  href={item.copy.href}
-                  voiceControlId={item.voiceControlId}
-                  icon={item.icon}
-                  tone={item.tone}
-                  status={item.status}
-                  isExploreOnly={item.isExploreOnly}
-                  isCurrent={false}
-                />
-              ))}
-            </SettingsGroup>
-          ) : null}
-        </div>
-        {/* Desktop keeps the calm in-flow terminal action; mobile uses the
+            </div>
+            {/* Desktop keeps the calm in-flow terminal action; mobile uses the
             top-right header action instead (the fixed agent bar would cover a
             bottom footer on phones). */}
-        <div className="hidden sm:block">
-          <SetupCompletionFooter
-            label={masterActionLabel}
-            onComplete={() => void handleMasterAck()}
-            busy={dismissing}
-            disabled={!runtimeChoiceComplete}
-            controlId="one-setup-master-ack"
-            actionId="setup.hub_master_ack"
-            testId="one-setup-master-ack"
-            purpose={
-              masterSkipped
-                ? "Skip the remaining setup for now and go home."
-                : "Finish setup for now and go home."
-            }
-            supportingText={
-              !runtimeChoiceComplete
-                ? "Choose a Connections option before continuing."
-                : masterSkipped
-                ? "You can set up these capabilities any time."
-                : "Your completed setup stays in place. You can add more any time."
-            }
-            variant={masterSkipped ? "none" : "blue-gradient"}
-            effect={masterSkipped ? "fade" : "fill"}
-          />
-        </div>
+            <div className="hidden sm:block">
+              <SetupCompletionFooter
+                label={masterActionLabel}
+                onComplete={() => void handleMasterAck()}
+                busy={dismissing}
+                disabled={!runtimeChoiceComplete}
+                controlId="one-setup-master-ack"
+                actionId="setup.hub_master_ack"
+                testId="one-setup-master-ack"
+                purpose={
+                  masterSkipped
+                    ? "Skip the remaining setup for now and go home."
+                    : "Finish setup for now and go home."
+                }
+                supportingText={
+                  !runtimeChoiceComplete
+                    ? "Choose a Connections option before continuing."
+                    : masterSkipped
+                      ? "You can set up these capabilities any time."
+                      : "Your completed setup stays in place. You can add more any time."
+                }
+                variant={masterSkipped ? "none" : "blue-gradient"}
+                effect={masterSkipped ? "fade" : "fill"}
+              />
+            </div>
           </>
         )}
       </AppPageContentRegion>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={setVaultDialogOpen}
+          title="Set up your private vault"
+          description="Create a private place for the details you choose to save."
+          onSuccess={() => {
+            setVaultDialogOpen(false);
+            leaveAfterVaultChoice();
+          }}
+        />
+      ) : null}
     </AppPageShell>
   );
 }

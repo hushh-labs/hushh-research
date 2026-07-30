@@ -61,6 +61,11 @@ BACKEND_VOICE_REQUIRED = (
     "VOICE_RUNTIME_CONFIG_JSON",
 )
 
+BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
+    "OMNIGATEWAY_CLIENT_ID",
+    "OMNIGATEWAY_CLIENT_SECRET",
+)
+
 BACKEND_REVIEWER_SMOKE_REQUIRED = (
     "REVIEWER_UID",
     "REVIEWER_VAULT_PASSPHRASE",
@@ -132,6 +137,8 @@ BACKEND_RUNTIME_REQUIRED = (
     "DB_USER",
     "DB_PASSWORD",
 )
+
+BACKEND_CONNECTED_SYSTEMS_RUNTIME_REQUIRED = BACKEND_CONNECTED_SYSTEMS_REQUIRED
 
 FRONTEND_RUNTIME_REQUIRED = (
     "BACKEND_URL",
@@ -753,6 +760,14 @@ def main() -> int:
         help="Also require backend voice runtime secrets for voice parity.",
     )
     parser.add_argument(
+        "--require-connected-systems",
+        action="store_true",
+        help=(
+            "Also require Omni Gateway credentials for the database-backed "
+            "Connected Systems CRM registry."
+        ),
+    )
+    parser.add_argument(
         "--require-reviewer-smoke",
         action="store_true",
         help="Also require non-production reviewer smoke secrets on the backend runtime.",
@@ -794,6 +809,8 @@ def main() -> int:
         required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
     if checks_backend and args.require_voice:
         required.extend(BACKEND_VOICE_REQUIRED)
+    if checks_backend and args.require_connected_systems:
+        required.extend(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
     if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if checks_backend and args.require_prod_phone_test:
@@ -822,6 +839,9 @@ def main() -> int:
             else [],
             "voice": list(BACKEND_VOICE_REQUIRED)
             if checks_backend and args.require_voice
+            else [],
+            "connected_systems": list(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+            if checks_backend and args.require_connected_systems
             else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
             if checks_backend and args.require_reviewer_smoke
@@ -884,6 +904,12 @@ def main() -> int:
         print(
             "Required voice backend secrets "
             f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
+        )
+    if checks_backend and args.require_connected_systems:
+        print(
+            "Required Connected Systems backend secrets "
+            f"({len(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}): "
+            f"{_format_names(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}"
         )
     if checks_backend and args.require_reviewer_smoke:
         print(
@@ -1012,6 +1038,12 @@ def main() -> int:
                 )
                 for key in BACKEND_VOICE_REQUIRED
             ]
+        backend_connected_systems_entries = []
+        if checks_backend and args.require_connected_systems:
+            backend_connected_systems_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_CONNECTED_SYSTEMS_RUNTIME_REQUIRED
+            ]
         backend_reviewer_smoke_entries = []
         if checks_backend and args.require_reviewer_smoke:
             backend_reviewer_smoke_entries = [
@@ -1024,6 +1056,9 @@ def main() -> int:
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
         report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
         report["runtime_contract"]["backend_voice"] = backend_voice_entries
+        report["runtime_contract"]["backend_connected_systems"] = (
+            backend_connected_systems_entries
+        )
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
         report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
         report["runtime_contract"]["backend_serving_revisions"] = backend_revisions
@@ -1049,6 +1084,9 @@ def main() -> int:
         )
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
         runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_connected_systems_entries)
+        )
+        runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
         )
         report["classifications"].extend(runtime_classifications)
@@ -1068,6 +1106,13 @@ def main() -> int:
             )
         if checks_backend and args.require_voice:
             print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
+        if checks_backend and args.require_connected_systems:
+            print(
+                _render_runtime_summary(
+                    "Backend Connected Systems runtime env contract",
+                    backend_connected_systems_entries,
+                )
+            )
         if checks_backend and args.require_reviewer_smoke:
             print(
                 _render_runtime_summary(
@@ -1084,6 +1129,7 @@ def main() -> int:
                 + backend_gmail_entries
                 + backend_one_email_entries
                 + backend_voice_entries
+                + backend_connected_systems_entries
                 + backend_reviewer_smoke_entries
             )
             if entry["status"] in {"legacy", "missing"}

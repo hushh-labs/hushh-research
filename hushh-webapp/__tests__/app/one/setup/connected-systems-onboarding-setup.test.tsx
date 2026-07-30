@@ -67,11 +67,13 @@ describe("Connected Systems onboarding", () => {
   beforeEach(() => {
     params.system = null;
     setupResolved = false;
+    window.sessionStorage.clear();
     routerReplaceMock.mockReset();
   });
 
   it("requires a real linked profile before finishing from the list", () => {
     render(<ConnectedSystemsOnboardingSetupClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("CRM panel list")).toBeTruthy();
     expect(screen.getByText("Finish CRM setup false")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Bind CRM record" }));
@@ -81,6 +83,7 @@ describe("Connected Systems onboarding", () => {
   it("keeps the finish action off CRM detail screens", () => {
     params.system = "crm-1";
     render(<ConnectedSystemsOnboardingSetupClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("CRM panel detail")).toBeTruthy();
     expect(screen.queryByText(/Finish CRM setup/)).toBeNull();
   });

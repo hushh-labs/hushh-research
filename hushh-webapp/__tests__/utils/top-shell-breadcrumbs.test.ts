@@ -196,12 +196,12 @@ describe("top shell breadcrumbs", () => {
     }
   });
 
-  it("gives the setup hub an authored onboarding parent and honors return_to", () => {
+  it("keeps the setup hub forward-only after phone verification", () => {
     expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
       backHref: "/",
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
@@ -209,7 +209,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/",
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
@@ -436,30 +436,16 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/one/profile/regulatory")).toEqual({
-      backHref: "/one/profile",
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: "/one/profile" },
-        { label: "Regulatory profile", href: undefined },
-      ],
-    });
+    // Regulatory profile lives in the RIA workspace. The legacy Profile route
+    // deliberately has no breadcrumb or visible Profile panel for it.
+    expect(resolveTopShellBreadcrumb("/one/profile/regulatory")).toBeNull();
 
     const regulatoryParams = new URLSearchParams();
     regulatoryParams.set("panel", "regulatory");
 
-    expect(resolveTopShellBreadcrumb("/one/profile", regulatoryParams)).toEqual(
-      {
-        backHref: "/one/profile",
-        width: "profile",
-        align: "center",
-        items: [
-          { label: "Profile", href: "/one/profile" },
-          { label: "Regulatory profile", href: undefined },
-        ],
-      },
-    );
+    expect(
+      resolveTopShellBreadcrumb("/one/profile", regulatoryParams)?.items,
+    ).not.toContainEqual({ label: "Regulatory profile", href: undefined });
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {

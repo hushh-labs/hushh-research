@@ -41,6 +41,8 @@ interface PortfolioImportViewProps {
   plaidConfigured?: boolean;
   /** Local development can target Plaid sandbox without exposing environment controls in One. */
   plaidLocalDualEnvironmentEnabled?: boolean;
+  /** Setup routes provide their own single terminal deferral action. */
+  showSkip?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export function PortfolioImportView({
   isConnectingPlaid = false,
   plaidConfigured = true,
   plaidLocalDualEnvironmentEnabled = false,
+  showSkip = true,
 }: PortfolioImportViewProps) {
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -233,17 +236,19 @@ export function PortfolioImportView({
           </p>
         ) : null}
 
-        <div className="pt-0.5 text-center">
-          <MorphyButton
-            variant="none"
-            effect="fade"
-            onClick={onSkip}
-            disabled={isBusy}
-            className="h-10 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
-          >
-            I&apos;ll link this later
-          </MorphyButton>
-        </div>
+        {showSkip ? (
+          <div className="pt-0.5 text-center">
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              onClick={onSkip}
+              disabled={isBusy}
+              className="h-10 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
+            >
+              I&apos;ll link this later
+            </MorphyButton>
+          </div>
+        ) : null}
       </AppPageContentRegion>
     </div>
   );

@@ -12,13 +12,22 @@ import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids
 
 const INTRO_SESSION_KEY_PREFIX = "one_capability_intro_seen_v1";
 
+/**
+ * Connections is a root setup prerequisite, not an agent capability. It uses
+ * the same presentational prologue without entering the capability catalog or
+ * generated action registry.
+ */
+export type CapabilityCinematicIntroId = OneSetupCapabilityId | "connections";
+
 export function capabilityCinematicIntroSessionKey(
-  capabilityId: OneSetupCapabilityId,
+  capabilityId: CapabilityCinematicIntroId,
 ): string {
   return `${INTRO_SESSION_KEY_PREFIX}:${capabilityId}`;
 }
 
-function hasSeenCapabilityIntro(capabilityId: OneSetupCapabilityId): boolean {
+function hasSeenCapabilityIntro(
+  capabilityId: CapabilityCinematicIntroId,
+): boolean {
   if (typeof window === "undefined") return false;
   try {
     return (
@@ -33,7 +42,7 @@ function hasSeenCapabilityIntro(capabilityId: OneSetupCapabilityId): boolean {
   }
 }
 
-function markCapabilityIntroSeen(capabilityId: OneSetupCapabilityId) {
+function markCapabilityIntroSeen(capabilityId: CapabilityCinematicIntroId) {
   try {
     window.sessionStorage.setItem(
       capabilityCinematicIntroSessionKey(capabilityId),
@@ -44,7 +53,24 @@ function markCapabilityIntroSeen(capabilityId: OneSetupCapabilityId) {
   }
 }
 
-function fallbackCopy(capabilityId: OneSetupCapabilityId): CapabilitySetupCopy {
+function fallbackCopy(
+  capabilityId: CapabilityCinematicIntroId,
+): CapabilitySetupCopy {
+  if (capabilityId === "connections") {
+    return {
+      id: capabilityId,
+      title: "Connections",
+      setupTitle: "Choose how One runs",
+      setupBlurb: "Pick the option that feels right for you.",
+      actionLabel: "Continue",
+      resumeActionLabel: "Continue",
+      href: "/one/setup/connections",
+      introPremise: "One gets more useful when you choose its starting point.",
+      introPromise:
+        "Choose the way One works for you. You can change it later.",
+    };
+  }
+
   return {
     id: capabilityId,
     title: capabilityId,
@@ -70,7 +96,7 @@ export function CapabilityCinematicIntroGate({
   children,
   embedded = false,
 }: {
-  capabilityId: OneSetupCapabilityId;
+  capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
@@ -93,14 +119,22 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className={`motion-step-enter mx-auto flex w-full max-w-[36rem] flex-col items-start ${
+      className={`motion-step-enter relative isolate mx-auto flex w-full max-w-[36rem] flex-col items-start overflow-hidden ${
         embedded
-          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height))] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
+          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
           : ""
       }`}
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
+      {/* Decorative only: copy remains semantic and immediately available. */}
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+        aria-hidden="true"
+      >
+        <span className="absolute -left-20 top-[18%] h-52 w-52 rounded-full bg-[var(--app-accent-tint)] blur-3xl" />
+        <span className="absolute -right-16 bottom-[14%] h-40 w-40 rounded-full bg-[var(--app-accent-tint)] blur-3xl" />
+      </div>
       <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
       <h1
         id={`capability-intro-${capabilityId}`}
@@ -111,12 +145,14 @@ export function CapabilityCinematicIntroGate({
       <p className="mt-5 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
         {promise}
       </p>
-      <div className="mt-10">
+      <div className="mt-10 w-full max-w-[30rem] self-center">
         <Button
           type="button"
           variant="blue-gradient"
           effect="fill"
           size="lg"
+          fullWidth
+          className="min-h-14 justify-center text-center"
           onClick={() => {
             markCapabilityIntroSeen(capabilityId);
             setShowIntro(false);
@@ -134,7 +170,7 @@ export function CapabilityCinematicIntroGate({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[100dvh] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
+      className="min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
     >
       {content}
     </FullscreenFlowShell>
