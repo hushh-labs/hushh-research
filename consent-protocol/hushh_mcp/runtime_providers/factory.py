@@ -289,6 +289,12 @@ def _build(
         from .openai_transport import GROK_BASE_URL, OpenAITransport
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
+    if provider == "musespark":
+        from .openai_transport import MUSE_SPARK_BASE_URL, OpenAITransport
+
+        return OpenAITransport(
+            api_key=api_key, base_url=MUSE_SPARK_BASE_URL, provider="musespark"
+        )
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 

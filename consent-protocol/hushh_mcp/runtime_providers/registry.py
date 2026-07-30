@@ -14,7 +14,7 @@ from typing import Literal
 
 from hushh_mcp.constants import GEMINI_MODEL
 
-ProviderId = Literal["gemini", "anthropic", "openai", "grok"]
+ProviderId = Literal["gemini", "anthropic", "openai", "grok", "musespark"]
 
 _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "gemini": "gemini",
@@ -28,6 +28,15 @@ _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "grok": "grok",
     "xai": "grok",
     "x.ai": "grok",
+    # Meta's Muse Spark, served by the Meta Model API. "meta" and "metaai" are
+    # accepted because that is what a person calls it; the canonical id names the
+    # model family rather than the vendor, matching how grok/x.ai resolves.
+    "musespark": "musespark",
+    "muse-spark": "musespark",
+    "muse": "musespark",
+    "meta": "musespark",
+    "metaai": "musespark",
+    "meta_ai": "musespark",
 }
 
 
@@ -90,6 +99,16 @@ _MODELS: tuple[ModelEntry, ...] = (
         aliases=("grok-default", "grok"),
     ),
     ModelEntry(provider="grok", model="grok-4-fast"),
+    # Muse Spark -- OpenAI-compatible wire format on Meta's own host; the Model
+    # API is in public preview. Structured output and parallel tool calling are
+    # documented, so function calling is on. Prompt caching and native realtime
+    # are NOT documented for this surface and stay off until measured against a
+    # live key rather than inferred from the wire format it borrows.
+    ModelEntry(
+        provider="musespark",
+        model="muse-spark-1.1",
+        aliases=("musespark-default", "muse-spark", "muse"),
+    ),
 )
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[ProviderId, ModelEntry] = {}

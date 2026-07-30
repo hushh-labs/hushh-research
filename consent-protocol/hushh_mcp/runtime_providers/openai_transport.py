@@ -1,8 +1,11 @@
 """Native OpenAI-compatible transport adapter.
 
-Serves both OpenAI (native realtime) and Grok/x.ai, which speaks the OpenAI
-wire format on its own host. Grok is configured via ``base_url`` so there is
-one code path for both.
+Serves OpenAI (native realtime) plus every provider that speaks the OpenAI wire
+format on its own host: Grok/x.ai and Meta's Muse Spark. Each is configured via
+``base_url`` so there is one code path for all of them.
+
+Adding an OpenAI-compatible provider is a base-URL constant here, a dispatch
+branch in factory.py, and a registry entry — never a new transport.
 """
 
 from __future__ import annotations
@@ -15,6 +18,9 @@ from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedRespo
 from .translate import NeutralRequest, NeutralTool
 
 GROK_BASE_URL = "https://api.x.ai/v1"
+# Meta's Model API (public preview). Ships as a deliberately OpenAI-compatible
+# surface, so it needs the base URL and nothing else.
+MUSE_SPARK_BASE_URL = "https://api.meta.ai/v1"
 
 
 def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
