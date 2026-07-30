@@ -7,6 +7,7 @@ disconnect/reconnect without losing an ongoing debate.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import uuid
@@ -91,11 +92,38 @@ class KaiAnalyzeRunManager:
         self,
         *,
         retention_seconds: int = 6 * 60 * 60,
+        on_checkpoint: Optional[Callable[["AnalyzeRunRecord", str], Any]] = None,
     ) -> None:
         self._retention_seconds = max(60, retention_seconds)
         self._runs_by_id: dict[str, AnalyzeRunRecord] = {}
         self._active_by_session: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        # Optional coarse-checkpoint sink. Called with (run, phase) where phase
+        # is "start" or "terminal". Kept deliberately generic so this manager
+        # never imports a storage backend; the stream layer supplies a
+        # flag-gated, best-effort persister. May be sync or async.
+        self._on_checkpoint = on_checkpoint
+
+    async def _emit_checkpoint(self, run: "AnalyzeRunRecord", phase: str) -> None:
+        """Fire the optional checkpoint sink. Best-effort — never raises.
+
+        The sink is itself expected to be best-effort, but we defend the run's
+        hot path here too so a misbehaving sink can never interrupt streaming.
+        """
+        callback = self._on_checkpoint
+        if callback is None:
+            return
+        try:
+            result = callback(run, phase)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # pragma: no cover - checkpoint is best-effort
+            logger.debug(
+                "[KaiRun] checkpoint sink failed for %s (%s)",
+                run.run_id,
+                phase,
+                exc_info=True,
+            )
 
     async def _append_frame(self, run: AnalyzeRunRecord, frame: RunFrame) -> dict[str, Any] | None:
         try:
@@ -116,10 +144,12 @@ class KaiAnalyzeRunManager:
             frame["data"] = json.dumps(envelope)
 
         just_completed = False
+        is_terminal = False
         async with run.condition:
             run.events.append(frame)
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
+                is_terminal = True
                 event_name = str(envelope.get("event") or "")
                 run.terminal_event = event_name or run.terminal_event
                 payload = envelope.get("payload")
@@ -146,6 +176,10 @@ class KaiAnalyzeRunManager:
                 actor_label="Kai",
                 metadata={"ticker": run.ticker},
             )
+        if is_terminal:
+            # Coarse terminal checkpoint (fires once per run, on any terminal
+            # event) so a cross-instance reconnect can replay the final frame.
+            await self._emit_checkpoint(run, "terminal")
         return envelope if isinstance(envelope, dict) else None
 
     async def _append_synthetic_terminal(
@@ -296,7 +330,12 @@ class KaiAnalyzeRunManager:
             run.worker_task = asyncio.create_task(self._run_worker(run, generator_factory))
             self._runs_by_id[run_id] = run
             self._active_by_session[session_key] = run_id
-            return "started", run
+
+        # Persist the coarse "start" checkpoint outside the manager lock so the
+        # durable-store write never serializes concurrent run starts. The run is
+        # already fully registered above, so this cannot race a reconnect.
+        await self._emit_checkpoint(run, "start")
+        return "started", run
 
     async def get_active(
         self,

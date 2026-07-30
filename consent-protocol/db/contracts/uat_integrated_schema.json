@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 124,
+  "expected_migration_version": 125,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -1079,6 +1079,20 @@
       "event_type",
       "created_at",
       "metadata"
+    ],
+    "kai_analyze_runs": [
+      "run_id",
+      "user_id",
+      "debate_session_id",
+      "ticker",
+      "risk_profile",
+      "status",
+      "terminal_event",
+      "terminal_payload",
+      "started_at",
+      "completed_at",
+      "created_at",
+      "updated_at"
     ]
   }
 }

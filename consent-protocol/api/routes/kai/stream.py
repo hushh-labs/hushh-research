@@ -19,6 +19,7 @@ from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from starlette.concurrency import run_in_threadpool
 
 from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import (
@@ -38,6 +39,7 @@ from hushh_mcp.operons.kai.llm import (
     stream_gemini_response,
     synthesize_debate_recommendation_card,
 )
+from hushh_mcp.services import kai_analyze_run_store
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
@@ -48,7 +50,66 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
-_RUN_MANAGER = KaiAnalyzeRunManager()
+
+
+def _durable_run_store_enabled() -> bool:
+    """Feature flag for the coarse-checkpoint durable analyze-run store.
+
+    Default OFF. With the flag unset no checkpoints are written and no
+    read-through occurs on 404, so run behavior is byte-for-byte the existing
+    in-memory path. Flip ``KAI_ANALYZE_DURABLE_RUN_STORE`` to enable
+    cross-instance terminal replay.
+    """
+    raw = str(os.getenv("KAI_ANALYZE_DURABLE_RUN_STORE", "false")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+async def _persist_run_checkpoint(run: Any, phase: str) -> None:
+    """Coarse-checkpoint sink wired into :class:`KaiAnalyzeRunManager`.
+
+    Best-effort and flag-gated: a no-op unless the durable store is enabled. The
+    store is synchronous, so writes run off the event loop via a threadpool. Any
+    failure is swallowed here (and again in the store) so a checkpoint can never
+    perturb the live stream.
+    """
+    if not _durable_run_store_enabled():
+        return
+    try:
+        if phase == "start":
+            await run_in_threadpool(
+                kai_analyze_run_store.save_start_checkpoint,
+                run_id=run.run_id,
+                user_id=run.user_id,
+                debate_session_id=run.debate_session_id,
+                ticker=run.ticker,
+                risk_profile=run.risk_profile,
+                started_at=run.started_at,
+                updated_at=run.updated_at,
+            )
+        elif phase == "terminal":
+            await run_in_threadpool(
+                kai_analyze_run_store.save_terminal_checkpoint,
+                run_id=run.run_id,
+                user_id=run.user_id,
+                status=run.status,
+                terminal_event=run.terminal_event,
+                terminal_payload=run.terminal_payload,
+                debate_session_id=run.debate_session_id,
+                ticker=run.ticker,
+                risk_profile=run.risk_profile,
+                completed_at=run.completed_at or run.updated_at,
+                updated_at=run.updated_at,
+            )
+    except Exception:  # pragma: no cover - best-effort mirror
+        logger.debug(
+            "[KaiStream] durable checkpoint persist failed for %s (%s)",
+            getattr(run, "run_id", "?"),
+            phase,
+            exc_info=True,
+        )
+
+
+_RUN_MANAGER = KaiAnalyzeRunManager(on_checkpoint=_persist_run_checkpoint)
 
 # ---------------------------------------------------------------------------
 # Input bounds (CWE-400 — Uncontrolled Resource Consumption)
@@ -2497,6 +2558,70 @@ def _parse_cursor(cursor: Optional[int]) -> int:
     return parsed
 
 
+async def _maybe_durable_terminal_replay(
+    *,
+    run_id: str,
+    user_id: str,
+) -> Optional[EventSourceResponse]:
+    """Cross-instance terminal replay for a run this instance never created.
+
+    On Cloud Run the in-memory ``_RUN_MANAGER`` is per-instance, so a reconnect
+    can land on an instance with no record of ``run_id`` and 404. When the
+    durable store is enabled we look up the run's coarse terminal checkpoint and,
+    if the run already finished, replay its single terminal SSE frame (e.g. the
+    DecisionCard) so the client completes instead of stalling.
+
+    Returns ``None`` when the flag is OFF, the store is unreachable, the run is
+    unknown/unowned, or the run has no terminal checkpoint yet (still running on
+    another instance). The caller then falls back to its existing 404, which the
+    web client already handles via the inline-stream fallback (#4737). Ownership
+    is enforced inside the store query (``user_id`` filter), and the callers here
+    have already validated the vault-owner token for ``user_id``.
+    """
+    if not _durable_run_store_enabled():
+        return None
+
+    checkpoint = await run_in_threadpool(
+        kai_analyze_run_store.load_terminal_checkpoint,
+        run_id=run_id,
+        user_id=user_id,
+    )
+    if not checkpoint:
+        return None
+
+    terminal_event = checkpoint.get("terminal_event")
+    if not terminal_event:
+        return None
+
+    payload = checkpoint.get("terminal_payload")
+    if not isinstance(payload, dict):
+        payload = {}
+    payload.setdefault("run_id", run_id)
+
+    # Match the canonical terminal envelope produced on the live path
+    # (KaiAnalyzeRunManager._append_synthetic_terminal) so a replayed frame is
+    # indistinguishable from a same-instance terminal frame to the client.
+    envelope = {
+        "schema_version": "1.0",
+        "stream_id": f"run_{run_id}",
+        "stream_kind": "stock_analyze",
+        "seq": 1,
+        "event": terminal_event,
+        "terminal": True,
+        "payload": payload,
+    }
+
+    async def _single_terminal() -> AsyncGenerator[dict, None]:
+        yield {"event": terminal_event, "id": "1", "data": json.dumps(envelope)}
+
+    logger.info(
+        "stream.durable_terminal_replay run_id=%s event=%s",
+        run_id,
+        terminal_event,
+    )
+    return _create_sse_response(_single_terminal())
+
+
 def _stream_factory(
     ticker: str,
     user_id: str,
@@ -2601,6 +2726,15 @@ async def analyze_stream_post(
     if body.run_id:
         run = await _RUN_MANAGER.get_run(body.run_id)
         if run is None:
+            # Cross-instance miss: if the durable store has this run's terminal
+            # checkpoint, replay it instead of 404ing. Falls through to the
+            # existing 404 (web inline-fallback #4737) when unavailable/unfinished.
+            replay = await _maybe_durable_terminal_replay(
+                run_id=body.run_id,
+                user_id=body.user_id,
+            )
+            if replay is not None:
+                return replay
             raise HTTPException(
                 status_code=404,
                 detail={
@@ -2739,6 +2873,12 @@ async def analyze_run_stream(
     await _require_vault_owner_token(user_id=user_id, authorization=authorization)
     run = await _RUN_MANAGER.get_run(run_id)
     if run is None or run.user_id != user_id:
+        # Cross-instance miss: replay the durable terminal checkpoint when the
+        # store has it (ownership enforced by the store query). Falls through to
+        # the existing 404 (web inline-fallback #4737) when unavailable/unfinished.
+        replay = await _maybe_durable_terminal_replay(run_id=run_id, user_id=user_id)
+        if replay is not None:
+            return replay
         raise HTTPException(
             status_code=404,
             detail={

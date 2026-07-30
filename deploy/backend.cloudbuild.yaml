@@ -213,6 +213,12 @@ steps:
         append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
         append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
+        # Cross-instance durable Kai/RIA "debate" run store (migration 125).
+        # Empty default => var not deployed => app treats it as "false" => the
+        # coarse-checkpoint store is dormant and prod behavior is unchanged. Flip
+        # the _KAI_ANALYZE_DURABLE_RUN_STORE substitution to "true" (per-env) to
+        # enable read-through replay of terminal frames on a cross-instance 404.
+        append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 
         # Join with '|' (not ',') so env VALUES may themselves contain commas.
         # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
@@ -350,6 +356,9 @@ substitutions:
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
+  # Dormant by default (empty => not deployed => app default "false"). Set to
+  # "true" per-environment to enable the durable Kai analyze run store.
+  _KAI_ANALYZE_DURABLE_RUN_STORE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _CONSENT_API_PUBLIC_ORIGIN: ""
   _DB_POOL_MIN_SIZE: "1"
