@@ -122,7 +122,6 @@ import {
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
