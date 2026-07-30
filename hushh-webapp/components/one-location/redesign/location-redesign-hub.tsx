@@ -36,7 +36,6 @@ import {
   MapPin,
   Navigation,
   Plus,
-  RefreshCw,
   Send,
   Shield,
   ShieldCheck,
@@ -174,7 +173,6 @@ export type LocationHubViewModel = {
   toggleRequestOwner: (id: string, surface?: string) => void;
 
   /* actions — wired 1:1 to existing handlers */
-  onRefresh: () => void;
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
   onRequestPermission: () => void;
@@ -315,12 +313,15 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div
       role="group"
-      aria-label="Location preview controls"
-      className="ml-auto flex shrink-0 items-center justify-end gap-2"
+      aria-label="Location preview control"
+      className="ml-auto flex max-w-full shrink-0 items-center justify-end"
       data-testid="one-location-header-actions"
     >
-      <div className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-black/[0.05] px-3 text-[13px] font-semibold text-foreground dark:bg-white/[0.07]">
-        <span aria-live="polite">
+      <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
+        <span
+          className="hidden whitespace-nowrap sm:inline"
+          aria-hidden="true"
+        >
           {locationOn ? "Location on" : "Location off"}
         </span>
         <Switch
@@ -334,22 +335,6 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           )}
         />
       </div>
-
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-label="Refresh location"
-        onClick={vm.onRefresh}
-        disabled={refreshing}
-        className="h-9 shrink-0 gap-2 rounded-full bg-black/[0.05] px-3 text-[13px] font-semibold text-foreground hover:bg-black/[0.08] hover:text-foreground dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
-      >
-        <RefreshCw
-          className={cn("h-4 w-4", refreshing && "animate-spin")}
-          aria-hidden="true"
-        />
-        <span className="hidden sm:inline">Refresh</span>
-      </Button>
     </div>
   );
 }
@@ -653,9 +638,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Location Agent"
+        title={
+          <span className="inline-flex h-9 items-center whitespace-nowrap">
+            Location Agent
+          </span>
+        }
         icon={MapPin}
         accent="neutral"
+        actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
 

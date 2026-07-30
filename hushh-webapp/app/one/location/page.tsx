@@ -5888,7 +5888,6 @@ export function OneLocationAgentPageContent({
     setShareReviewOpen,
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
-    onRefresh: () => void refresh(),
     onShowMyLocation: () => void handleShowMyLiveLocation(),
     onHideMyLocation: () => handleHideMyLiveLocation(),
     onRequestPermission: () => void handleRequestLocationPermission(),

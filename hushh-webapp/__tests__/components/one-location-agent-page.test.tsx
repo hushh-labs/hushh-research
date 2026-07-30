@@ -830,26 +830,37 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps the location preview switch and refresh action grouped in the header", async () => {
+  it("keeps the heading and location toggle inline as the only header action", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     const headerActions = screen.getByRole("group", {
-      name: "Location preview controls",
+      name: "Location preview control",
     });
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("justify-end");
+    expect(headerActions.className).toContain("max-w-full");
+    expect(
+      screen.queryByRole("button", { name: "Refresh location" }),
+    ).toBeNull();
 
-    const refreshCallsBeforeClick = mockGetState.mock.calls.length;
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh location" }),
+    const heading = screen.getByRole("heading", { name: "Location Agent" });
+    const headerRow = heading.closest('[data-slot="page-header-row"]');
+    expect(headerRow).toBeTruthy();
+    expect(headerRow).toHaveClass("flex", "items-start", "justify-between");
+    expect(heading.firstElementChild).toHaveClass(
+      "inline-flex",
+      "h-9",
+      "items-center",
+      "whitespace-nowrap",
     );
-    await waitFor(() =>
-      expect(mockGetState.mock.calls.length).toBeGreaterThan(
-        refreshCallsBeforeClick,
+    expect(
+      headerRow?.contains(
+        screen.getByRole("switch", { name: "Turn location on" }),
       ),
-    );
+    ).toBe(true);
+    expect(screen.getByText("Location off").className).toContain("sm:inline");
 
     mockCaptureCurrentPosition.mockClear();
     const locationOffSwitch = screen.getByRole("switch", {
