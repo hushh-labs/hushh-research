@@ -11,7 +11,11 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
-import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
+import {
+  isOwnerAutoSaveAuthorization,
+  type PkmUserConfirmation,
+  type PkmWriteAuthorization,
+} from "@/lib/personal-knowledge-model/mutation-plan";
 import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
@@ -112,6 +116,15 @@ export type AgentPkmSaveResult = {
   }>;
 };
 
+export class AgentPkmContextNotReadyError extends Error {
+  readonly code = "AGENT_PKM_CONTEXT_NOT_READY";
+
+  constructor(message = "Your private memory is not ready yet.") {
+    super(message);
+    this.name = "AgentPkmContextNotReadyError";
+  }
+}
+
 // The unlock orchestrator may warm this private-memory working set after the
 // owner unlocks. It stays process-memory-only, user-scoped, and coalesced with
 // any fallback warmup started by the Agent workspace.
@@ -176,12 +189,58 @@ export function getPkmConfirmationCards(
   cards: readonly AgentPkmPreviewCard[]
 ): AgentPkmPreviewCard[] {
   return cards.filter(
-    (card) => card.write_mode === "can_save" || card.write_mode === "confirm_first"
+    (card) =>
+      !isReservedPkmCard(card) &&
+      (card.write_mode === "confirm_first" ||
+        (card.write_mode === "can_save" &&
+          (card.sharing_impact?.active_recipient_count || 0) > 0))
+  );
+}
+
+export function getPkmAutoSaveCards(
+  cards: readonly AgentPkmPreviewCard[]
+): AgentPkmPreviewCard[] {
+  return cards.filter(
+    (card) =>
+      !isReservedPkmCard(card) &&
+      card.write_mode === "can_save" &&
+      (card.sharing_impact?.active_recipient_count || 0) === 0
   );
 }
 
 export function getIgnoredPkmCards(cards: readonly AgentPkmPreviewCard[]): AgentPkmPreviewCard[] {
   return cards.filter((card) => card.write_mode === "do_not_save");
+}
+
+export function isReservedPkmCard(card: AgentPkmPreviewCard): boolean {
+  const decision = toRecord(card.structure_decision);
+  const action = readString(decision.action).toLowerCase();
+  const hints = (card.validation_hints || []).map((hint) => readString(hint).toLowerCase());
+
+  return (
+    card.write_mode === "do_not_save" ||
+    action === "reject_reserved_target" ||
+    action === "reserved_target" ||
+    action === "reserved" ||
+    hints.some((hint) => hint.includes("reserved"))
+  );
+}
+
+export function isAgentPkmDependentRequest(message: string): boolean {
+  const text = String(message || "").trim().toLowerCase();
+  if (!text) return false;
+
+  return (
+    /\b(?:read|show|list|summari[sz]e|remember|recall|know)\b[^.?!]{0,80}\b(?:my|pkm|memory|vault|profile)\b/.test(
+      text
+    ) ||
+    /\bmy\s+(?:pkm|memory|vault|profile|preferences?|favo(?:u)?rites?|food|drinks?|games?|hobbies|interests?)\b/.test(
+      text
+    ) ||
+    /\b(?:what|which|who)\b[^.?!]{0,80}\b(?:i|my)\b[^.?!]{0,80}\b(?:prefer|like|saved|remember)\b/.test(
+      text
+    )
+  );
 }
 
 export async function previewAgentPkmMemory(params: {
@@ -258,10 +317,11 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
-  confirmation: PkmUserConfirmation;
+  confirmation: PkmWriteAuthorization;
 }): Promise<AgentPkmSaveResult> {
   const results: AgentPkmSaveResult["results"] = [];
-  if (!params.confirmation || params.confirmation.confirmedByUser !== true) {
+  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  if (!params.confirmation || (!automatic && params.confirmation.confirmedByUser !== true)) {
     return {
       attempted: params.cards.length,
       saved: 0,
@@ -279,6 +339,17 @@ export async function addToPKM(params: {
   }
 
   for (const card of params.cards) {
+    if (isReservedPkmCard(card)) {
+      results.push({
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: "Reserved, never shareable.",
+        success: false,
+        message: "This PKM target is reserved and cannot be saved from Agent chat.",
+      });
+      continue;
+    }
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
       results.push({
         cardId: card.card_id || "agent_pkm_card",
@@ -287,6 +358,20 @@ export async function addToPKM(params: {
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "This PKM preview is not eligible for confirmation and saving.",
+      });
+      continue;
+    }
+    if (
+      automatic &&
+      (card.write_mode !== "can_save" || (card.sharing_impact?.active_recipient_count || 0) > 0)
+    ) {
+      results.push({
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This PKM preview needs review before it can be saved.",
       });
       continue;
     }
@@ -350,28 +435,33 @@ export async function addToPKM(params: {
 
     try {
       const sharingImpact = card.sharing_impact;
+      const ownerConfirmation = automatic
+        ? null
+        : params.confirmation as PkmUserConfirmation;
       const result = await PkmWriteCoordinator.savePreparedDomain({
         userId: params.userId,
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
-        confirmation: {
-          ...params.confirmation,
-          sharingImpactAcknowledged:
-            (sharingImpact?.active_recipient_count || 0) > 0
-              ? params.confirmation.sharingImpactAcknowledged === true
-              : false,
-          sharingImpact: sharingImpact
-            ? {
-                activeRecipientCount: sharingImpact.active_recipient_count,
-                recipientLabels: sharingImpact.recipient_labels,
-                entersNextExportRevision: sharingImpact.enters_next_export_revision,
-                summary: sharingImpact.summary,
-                affectedGrantIds: sharingImpact.affected_grant_ids,
-                affectedExportIds: sharingImpact.affected_export_ids,
-              }
-            : undefined,
-        },
+        confirmation: automatic
+          ? params.confirmation
+          : {
+              ...ownerConfirmation!,
+              sharingImpactAcknowledged:
+                (sharingImpact?.active_recipient_count || 0) > 0
+                  ? ownerConfirmation!.sharingImpactAcknowledged === true
+                  : false,
+              sharingImpact: sharingImpact
+                ? {
+                    activeRecipientCount: sharingImpact.active_recipient_count,
+                    recipientLabels: sharingImpact.recipient_labels,
+                    entersNextExportRevision: sharingImpact.enters_next_export_revision,
+                    summary: sharingImpact.summary,
+                    affectedGrantIds: sharingImpact.affected_grant_ids,
+                    affectedExportIds: sharingImpact.affected_export_ids,
+                  }
+                : undefined,
+            },
         build: async () => ({
           domainData: candidatePayload,
           summary: {
@@ -494,7 +584,18 @@ export async function loadAgentPkmContext(params: {
    * a full encrypted blob.
    */
   metadataOnly?: boolean;
+  /**
+   * Personal-memory requests must fail closed until the decrypted, typed
+   * session inventory is available. Metadata is intentionally insufficient.
+   */
+  requireDecrypted?: boolean;
 }): Promise<AgentPkmContext> {
+  if (params.requireDecrypted && (!params.vaultKey || params.metadataOnly)) {
+    throw new AgentPkmContextNotReadyError(
+      "Unlock your vault before asking Agent about your private memory."
+    );
+  }
+
   if (params.vaultKey && !params.metadataOnly) {
     try {
       const workingContext = await AgentPkmContextStore.load({
@@ -508,14 +609,27 @@ export async function loadAgentPkmContext(params: {
       if (workingContext) {
         return workingContext;
       }
+      if (params.requireDecrypted) {
+        throw new AgentPkmContextNotReadyError(
+          "Your private memory is still preparing. Please try again in a moment."
+        );
+      }
       return {
         text: "",
         domains: [],
         totalAttributes: 0,
         updatedAt: null,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof AgentPkmContextNotReadyError) {
+        throw error;
+      }
       AgentPkmContextStore.invalidateUser(params.userId);
+      if (params.requireDecrypted) {
+        throw new AgentPkmContextNotReadyError(
+          "Your private memory could not be loaded. Please try again in a moment."
+        );
+      }
       return {
         text: "",
         domains: [],
@@ -523,6 +637,11 @@ export async function loadAgentPkmContext(params: {
         updatedAt: null,
       };
     }
+  }
+  if (params.requireDecrypted) {
+    throw new AgentPkmContextNotReadyError(
+      "Unlock your vault before asking Agent about your private memory."
+    );
   }
   const metadata = await PersonalKnowledgeModelService.getMetadata(
     params.userId,
@@ -557,6 +676,7 @@ export function warmAgentPkmContext(params: {
   const warmup = loadAgentPkmContext({
     ...params,
     message: "",
+    requireDecrypted: true,
   })
     .then(() => undefined)
     .finally(() => {
@@ -584,9 +704,13 @@ export function formatAgentPkmSaveSummary(result: AgentPkmSaveResult): string {
       : "No PKM memory was saved for this turn.";
   }
   const saved = result.results.filter((entry) => entry.success);
-  const locations = saved
-    .map((entry) => formatPkmLocation(entry.domain, entry.scope))
-    .filter(Boolean);
+  const locations = Array.from(
+    new Set(
+      saved
+        .map((entry) => formatPkmLocation(entry.domain, entry.scope))
+        .filter(Boolean)
+    )
+  );
   const posture = saved[0]?.sharingPosture;
   const locationText = locations.length > 0 ? `Saved in ${locations.join(", ")}.` : "Saved to your memory.";
   return `${locationText}${posture ? ` ${posture}` : ""}`;

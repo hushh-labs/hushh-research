@@ -1355,6 +1355,12 @@ export class PersonalKnowledgeModelService {
         summaryKey: "has_openai_api_key",
         consentLabel: "OpenAI API key",
       },
+      {
+        provider: "agent_memory",
+        jsonPath: "agent_memory.auto_save_policy",
+        summaryKey: "has_agent_memory_auto_save_policy",
+        consentLabel: "Private agent memory auto-save preference",
+      },
     ] as const;
     const providerPresence = providerDescriptors.map((descriptor) => ({
       ...descriptor,
@@ -1366,7 +1372,7 @@ export class PersonalKnowledgeModelService {
         ? credentialMode
         : "byok";
     const configuredProviders = providerPresence
-      .filter((descriptor) => descriptor.configured)
+      .filter((descriptor) => descriptor.configured && descriptor.provider !== "agent_memory")
       .map((descriptor) => descriptor.provider);
     const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
     const paths: PathDescriptor[] = [
@@ -1384,13 +1390,17 @@ export class PersonalKnowledgeModelService {
       ...providerDescriptors.map(
         (descriptor): PathDescriptor => ({
           json_path: descriptor.jsonPath,
-          parent_path: "llm",
+          parent_path: descriptor.jsonPath.startsWith("agent_memory.")
+            ? "agent_memory"
+            : "llm",
           path_type: "leaf",
           exposure_eligibility: false,
           consent_label: descriptor.consentLabel,
           sensitivity_label: "restricted",
-          segment_id: "llm",
-          scope_handle: "runtime_secrets.llm",
+          segment_id: descriptor.jsonPath.startsWith("agent_memory.") ? "agent_memory" : "llm",
+          scope_handle: descriptor.jsonPath.startsWith("agent_memory.")
+            ? "runtime_secrets.agent_memory"
+            : "runtime_secrets.llm",
           source_agent: "runtime_secret_settings",
         }),
       ),
@@ -1403,6 +1413,17 @@ export class PersonalKnowledgeModelService {
         sensitivity_label: "restricted",
         segment_id: "llm",
         scope_handle: "runtime_secrets.llm",
+        source_agent: "runtime_secret_settings",
+      },
+      {
+        json_path: "agent_memory",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Private agent memory preferences",
+        sensitivity_label: "restricted",
+        segment_id: "agent_memory",
+        scope_handle: "runtime_secrets.agent_memory",
         source_agent: "runtime_secret_settings",
       },
     ];
@@ -1430,7 +1451,7 @@ export class PersonalKnowledgeModelService {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
       json_paths: paths.map((path) => path.json_path),
-      top_level_scope_paths: ["llm"],
+      top_level_scope_paths: ["llm", "agent_memory"],
       externalizable_paths: [],
       summary_projection: summary,
       sensitivity_labels: {
@@ -1439,6 +1460,8 @@ export class PersonalKnowledgeModelService {
           providerDescriptors.map((descriptor) => [descriptor.jsonPath, "restricted"]),
         ),
         "llm.credential_mode": "restricted",
+        agent_memory: "restricted",
+        "agent_memory.auto_save_policy": "restricted",
       },
       confidence: 1,
       source_agent: "runtime_secret_settings",
@@ -1454,9 +1477,9 @@ export class PersonalKnowledgeModelService {
       upgraded_at: nowIso,
       structure_decision: structureDecision,
       summary_projection: summary,
-      top_level_scope_paths: ["llm"],
+      top_level_scope_paths: ["llm", "agent_memory"],
       externalizable_paths: [],
-      segment_ids: ["llm"],
+      segment_ids: ["llm", "agent_memory"],
       path_count: paths.length,
       externalizable_path_count: 0,
       last_structured_at: nowIso,
@@ -1478,6 +1501,24 @@ export class PersonalKnowledgeModelService {
             consumer_visible: false,
             internal_only: true,
             visibility_reason: "User-owned BYOK credentials stay private.",
+            storage_mode: "encrypted_domain",
+          },
+        },
+        {
+          scope_handle: "runtime_secrets.agent_memory",
+          scope_label: "Private agent memory preferences",
+          segment_ids: ["agent_memory"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "agent_memory",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "Private agent memory preferences stay private.",
             storage_mode: "encrypted_domain",
           },
         },
@@ -3779,6 +3820,7 @@ export class PersonalKnowledgeModelService {
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
       domainData,
+      scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
     });
   }
@@ -3812,6 +3854,7 @@ export class PersonalKnowledgeModelService {
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
       domainData,
+      scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
     });
   }
@@ -3822,6 +3865,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken: string;
     domain: string;
     domainData: Record<string, unknown>;
+    scopePath: string;
     confirmation: PkmUserConfirmation;
   }): Promise<StoreDomainDataResult> {
     const previousManifest = await this.getDomainManifest(
@@ -3843,6 +3887,7 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       currentManifest: previousManifest,
       targetManifest: artifacts.manifest,
+      scopePath: params.scopePath,
       operation: previousManifest ? "update" : "create",
       explanation: "The owner confirmed this encrypted runtime credential change.",
       confirmation: params.confirmation,

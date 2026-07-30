@@ -116,6 +116,35 @@ def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None
     assert preview["validation_hints"] == ["invalid_or_reserved_target_rejected"]
 
 
+def test_auto_save_lane_requires_high_confidence_and_non_destructive_intent() -> None:
+    def preview_for(confidence: float) -> dict:
+        return PKMAgentLabService._normalize_structure_preview(
+            message="I prefer espresso without sugar.",
+            current_domains=["food"],
+            registry_choices=_registry_choices(),
+            intent_frame={
+                "intent_class": "preference",
+                "mutation_intent": "create",
+                "confidence": confidence,
+                "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+            },
+            merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
+            financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+            parsed_structure={
+                "candidate_payload": {"preferences": {"drink": "espresso without sugar"}},
+                "structure_decision": {"target_domain": "food", "confidence": confidence},
+                "write_mode": "can_save",
+            },
+            fallback_target_domain="food",
+            simulated_state=None,
+        )
+
+    assert preview_for(0.9)["write_mode"] == "can_save"
+    low_confidence = preview_for(0.4)
+    assert low_confidence["write_mode"] == "confirm_first"
+    assert "auto_save_requires_review" in low_confidence["validation_hints"]
+
+
 def test_managed_client_uses_shared_adc_authority_without_api_key(monkeypatch) -> None:
     sentinel = object()
     calls: list[tuple[str, str]] = []
@@ -1204,7 +1233,11 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
     assert card["target_domain"] == expected_domain
     assert card["intent_class"] == expected_intent
     assert card["merge_mode"] == expected_merge
-    effective_write_mode = "confirm_first" if expected_write == "can_save" else expected_write
+    effective_write_mode = (
+        "confirm_first"
+        if expected_write == "can_save" and expected_intent in {"correction", "deletion"}
+        else expected_write
+    )
     assert card["write_mode"] == effective_write_mode
     if expected_scope:
         assert card["target_entity_scope"] == expected_scope

@@ -27,6 +27,8 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
+  getPkmAutoSaveCards,
+  getPkmConfirmationCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
@@ -85,6 +87,32 @@ describe("agent PKM memory helpers", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
+    const cards: AgentPkmPreviewCard[] = [
+      { card_id: "auto", source_text: "", write_mode: "can_save" },
+      {
+        card_id: "shared",
+        source_text: "",
+        write_mode: "can_save",
+        sharing_impact: {
+          active_recipient_count: 1,
+          recipient_labels: ["Advisor"],
+          enters_next_export_revision: true,
+          summary: "One recipient is affected.",
+          affected_grant_ids: ["grant"],
+          affected_export_ids: ["export"],
+        },
+      },
+      { card_id: "review", source_text: "", write_mode: "confirm_first" },
+    ];
+
+    expect(getPkmAutoSaveCards(cards).map((card) => card.card_id)).toEqual(["auto"]);
+    expect(getPkmConfirmationCards(cards).map((card) => card.card_id)).toEqual([
+      "shared",
+      "review",
+    ]);
   });
 
   it("loads decrypted session PKM when the vault key is available", async () => {
@@ -419,6 +447,40 @@ describe("agent PKM memory helpers", () => {
     expect(formatAgentPkmSaveSummary(result)).toBe(
       "Saved in Food > Drinks > Favorite. Private to your private agent. Consent is required before external sharing."
     );
+  });
+
+  it("lists each saved PKM location once in the receipt", () => {
+    expect(
+      formatAgentPkmSaveSummary({
+        attempted: 3,
+        saved: 3,
+        failed: 0,
+        domains: ["food"],
+        results: [
+          {
+            cardId: "one",
+            domain: "food",
+            scope: "preferences",
+            success: true,
+            sharingPosture: "Private to your private agent.",
+          },
+          {
+            cardId: "two",
+            domain: "food",
+            scope: "preferences",
+            success: true,
+            sharingPosture: "Private to your private agent.",
+          },
+          {
+            cardId: "three",
+            domain: "food",
+            scope: "preferences",
+            success: true,
+            sharingPosture: "Private to your private agent.",
+          },
+        ],
+      })
+    ).toBe("Saved in Food > Preferences. Private to your private agent.");
   });
 
   it("fails closed when owner confirmation evidence is absent", async () => {

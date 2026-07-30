@@ -57,6 +57,7 @@ _INTENT_CLASSES = {
 }
 _MUTATION_INTENTS = {"create", "extend", "update", "correct", "delete", "no_op"}
 _WRITE_MODES = {"can_save", "confirm_first", "do_not_save"}
+_AUTO_SAVE_MIN_CONFIDENCE = 0.64
 _FINANCIAL_GUARD_ROUTES = {
     "financial_core",
     "sanctioned_financial_memory",
@@ -3551,6 +3552,7 @@ class PKMAgentLabService:
                 in {
                     "non_financial_payload_replaced",
                     "financial_domain_requires_confirmation",
+                    "financial_payload_normalized",
                     "unresolved_domain_choice",
                 }
                 for hint in validation_hints
@@ -3592,16 +3594,36 @@ class PKMAgentLabService:
         if mutation_intent == "no_op" and write_mode == "can_save":
             write_mode = "do_not_save"
 
-        # PKM v5 has no semantic auto-save lane. Every durable create/update/
-        # move/merge/delete is shown to the owner as a review card first.
-        if write_mode != "do_not_save":
+        effective_confidence = min(
+            cls._clamp_confidence(intent_frame.get("confidence"), default=0.0),
+            cls._clamp_confidence(decision.get("confidence"), default=0.0),
+        )
+        requires_review_for_auto_save = (
+            mutation_intent not in {"create", "extend"}
+            or effective_confidence < _AUTO_SAVE_MIN_CONFIDENCE
+            or any(
+                hint
+                in {
+                    "new_domain_requires_extra_confidence",
+                    "custom_domain_pending_owner_confirmation",
+                    "possible_duplicate_memory",
+                    "financial_domain_requires_confirmation",
+                    "unresolved_domain_choice",
+                    "dynamic_scope_metadata_no_specific_match",
+                }
+                for hint in validation_hints
+            )
+        )
+        if write_mode == "can_save" and requires_review_for_auto_save:
             write_mode = "confirm_first"
+            validation_hints.append("auto_save_requires_review")
+
+        if write_mode == "confirm_first":
             intent_frame["requires_confirmation"] = True
             intent_frame["confirmation_reason"] = (
                 str(intent_frame.get("confirmation_reason") or "").strip()
                 or "Review the domain, scope, and sharing impact before this PKM change is saved."
             )
-            validation_hints.append("pkm_v5_owner_confirmation_required")
 
         parsed_validation_hints = raw_structure.get("validation_hints")
         if isinstance(parsed_validation_hints, list):
