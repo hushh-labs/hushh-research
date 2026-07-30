@@ -140,17 +140,22 @@ vi.mock("@/lib/morphy-ux/ui/swipe-views", () => ({
     options,
     activeValue,
     onSelectionChange,
+    viewportMinHeight,
   }: {
     children: ReactNode;
     options: readonly { label: string; value: string }[];
     activeValue: string;
     onSelectionChange?: (value: string) => void;
+    viewportMinHeight?: string;
   }) => {
     const activeIndex = options.findIndex(({ value }) => value === activeValue);
     const activeChild = Children.toArray(children)[activeIndex];
 
     return (
-      <div>
+      <div
+        data-testid="location-swipe-views"
+        data-viewport-min-height={viewportMinHeight}
+      >
         {options.map(({ label, value }) => (
           <button
             key={value}
@@ -804,6 +809,10 @@ describe("OneLocationAgentPage", () => {
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
     expect(pageShell?.className).not.toMatch(/\b(?:sm:|md:)?pb-/u);
+    expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
+      "data-viewport-min-height",
+      "0px",
+    );
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     expect(
@@ -983,6 +992,9 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Manage sharing" }),
+    ).toBeNull();
     expect(mockRouterPush).toHaveBeenCalledWith(
       "/one/location?action=settings",
       { scroll: false },

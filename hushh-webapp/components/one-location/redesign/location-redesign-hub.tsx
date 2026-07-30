@@ -617,7 +617,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "settings" ? (
           <LocationSettingsFlow
             smsContactCount={vm.smsContactUserIds.length}
-            onManageSharing={() => closeFlow("people")}
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
@@ -656,6 +655,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
+          viewportMinHeight="0px"
         >
           <LocationHubPanel>
             <NowHub
@@ -968,11 +968,9 @@ function LocationToggle({
 
 function LocationSettingsFlow({
   smsContactCount,
-  onManageSharing,
   onManageSmsContacts,
 }: {
   smsContactCount: number;
-  onManageSharing: () => void;
   onManageSmsContacts: () => void;
 }) {
   // Inert local state for now — real auto-share / pause wiring comes later.
@@ -1031,25 +1029,6 @@ function LocationSettingsFlow({
           access to anyone at any time.
         </p>
       </div>
-
-      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Who can see you
-      </p>
-      <button
-        type="button"
-        onClick={onManageSharing}
-        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-      >
-        <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-            Manage sharing
-          </p>
-          <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
-            See and change who has your live location
-          </p>
-        </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
-      </button>
 
       <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
         Safety
