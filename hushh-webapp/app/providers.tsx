@@ -56,6 +56,7 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   ROUTES,
   isFoundationPublicRoute,
+  isOneSetupSurfaceRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
@@ -228,9 +229,11 @@ function AppShellFrame({ children }: ProvidersProps) {
           ? "0px"
           : isRiaRoute(pathname)
             ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-            : hideGlobalChrome || isPublicStandaloneRoute
+            : isOneSetupSurfaceRoute(pathname)
               ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-              : "var(--bottom-chrome-stack-height)",
+              : hideGlobalChrome || isPublicStandaloneRoute
+                ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+                : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
