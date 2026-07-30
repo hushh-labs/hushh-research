@@ -2300,7 +2300,7 @@
       "native_surface_id": "native-route-kai-analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
       "pathname": "/one/kai/analysis",
-      "route_mode": "redirect",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -4344,7 +4344,7 @@
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "f293d17e7d739acf3052aba9436829df846d059e980395de733596bb23b95338",
-    "route_layout": "ec5c36519d39337986cd72767030ef180b36d7b7216fcca515d8fe971f365b47",
+    "route_layout": "1bdcfdfd0f02305d651d5e3aa887706bb40886ddf9d13d24da046e54ea6f0383",
     "surface_map": "27d7e06920b7f714373dd6e49ec3db747c66ced4822299d3525979ff863e6b35",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
