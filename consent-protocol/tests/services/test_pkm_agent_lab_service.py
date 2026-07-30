@@ -88,6 +88,34 @@ def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wai
     )
 
 
+def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None:
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="Remember this only in the reserved area.",
+        current_domains=["food"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "preference",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+        },
+        merge_decision={"target_domain": "__quarantine_v1", "merge_mode": "create_entity"},
+        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+        parsed_structure={
+            "candidate_payload": {"preferences": {"note": "must not move to food"}},
+            "structure_decision": {"target_domain": "__quarantine_v1"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="food",
+        simulated_state=None,
+    )
+
+    assert preview["write_mode"] == "do_not_save"
+    assert preview["candidate_payload"] == {}
+    assert preview["structure_decision"]["action"] == "reject_reserved_target"
+    assert preview["structure_decision"]["target_domain"] == ""
+    assert preview["validation_hints"] == ["invalid_or_reserved_target_rejected"]
+
+
 def test_managed_client_uses_shared_adc_authority_without_api_key(monkeypatch) -> None:
     sentinel = object()
     calls: list[tuple[str, str]] = []

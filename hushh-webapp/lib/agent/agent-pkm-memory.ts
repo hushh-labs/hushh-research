@@ -12,7 +12,10 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import {
+  AgentPkmContextStore,
+  type AgentPkmContextCoverage,
+} from "@/lib/agent/agent-pkm-context-store";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -90,6 +93,7 @@ export type AgentPkmContext = {
   detailCount?: number;
   source?: "metadata" | "decrypted_session_pkm";
   mode?: "summary" | "relevant" | "broad";
+  coverage?: AgentPkmContextCoverage;
 };
 
 export type AgentPkmSaveResult = {
@@ -100,6 +104,8 @@ export type AgentPkmSaveResult = {
   results: Array<{
     cardId: string;
     domain: string;
+    scope: string | null;
+    sharingPosture: string;
     success: boolean;
     message?: string;
     result?: PkmWriteCoordinatorResult;
@@ -225,6 +231,26 @@ function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
   );
 }
 
+function resolveCardScope(card: AgentPkmPreviewCard): string | null {
+  const value = readString(card.primary_json_path) || readString(card.target_entity_scope);
+  return value || null;
+}
+
+function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {
+  if ((card.sharing_impact?.active_recipient_count || 0) > 0) {
+    return "Approved for sharing with the recipients shown above.";
+  }
+  return "Private to your private agent. Consent is required before external sharing.";
+}
+
+function formatPkmLocation(domain: string, scope: string | null): string {
+  const path = String(scope || "")
+    .split(".")
+    .map((segment) => titleize(segment))
+    .filter(Boolean);
+  return [titleize(domain), ...path].filter(Boolean).join(" > ");
+}
+
 export async function addToPKM(params: {
   userId: string;
   cards: AgentPkmPreviewCard[];
@@ -244,6 +270,8 @@ export async function addToPKM(params: {
       results: params.cards.map((card) => ({
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "Explicit owner confirmation is required before saving to PKM.",
       })),
@@ -255,6 +283,8 @@ export async function addToPKM(params: {
       results.push({
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "This PKM preview is not eligible for confirmation and saving.",
       });
@@ -273,6 +303,8 @@ export async function addToPKM(params: {
       results.push({
         cardId,
         domain: targetDomain || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "PKM preview did not produce a valid target domain or payload.",
       });
@@ -354,6 +386,8 @@ export async function addToPKM(params: {
       results.push({
         cardId,
         domain: targetDomain,
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: result.success,
         message: result.message,
         result,
@@ -362,6 +396,8 @@ export async function addToPKM(params: {
       results.push({
         cardId,
         domain: targetDomain,
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: error instanceof Error ? error.message : "Failed to save PKM memory.",
       });
@@ -480,6 +516,12 @@ export async function loadAgentPkmContext(params: {
       };
     } catch {
       AgentPkmContextStore.invalidateUser(params.userId);
+      return {
+        text: "",
+        domains: [],
+        totalAttributes: 0,
+        updatedAt: null,
+      };
     }
   }
   const metadata = await PersonalKnowledgeModelService.getMetadata(
@@ -541,7 +583,11 @@ export function formatAgentPkmSaveSummary(result: AgentPkmSaveResult): string {
       ? "Agent could not save that PKM memory."
       : "No PKM memory was saved for this turn.";
   }
-  const domainText =
-    result.domains.length > 0 ? ` (${result.domains.map(titleize).join(", ")})` : "";
-  return `Saved ${result.saved} PKM memor${result.saved === 1 ? "y" : "ies"}${domainText}.`;
+  const saved = result.results.filter((entry) => entry.success);
+  const locations = saved
+    .map((entry) => formatPkmLocation(entry.domain, entry.scope))
+    .filter(Boolean);
+  const posture = saved[0]?.sharingPosture;
+  const locationText = locations.length > 0 ? `Saved in ${locations.join(", ")}.` : "Saved to your memory.";
+  return `${locationText}${posture ? ` ${posture}` : ""}`;
 }

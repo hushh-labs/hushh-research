@@ -254,6 +254,9 @@ RESERVED_DYNAMIC_DOMAIN_SLUGS = frozenset(
         "internal",
         "mcp",
         "pkm",
+        # `__quarantine_v1` normalizes to this slug. It is encrypted internal
+        # preservation storage, never a user-authored or shareable domain.
+        "quarantine_v1",
         "scope",
         "scopes",
         "system",

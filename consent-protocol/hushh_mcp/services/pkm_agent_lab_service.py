@@ -3352,10 +3352,30 @@ class PKMAgentLabService:
         try:
             target_domain = validate_dynamic_top_level_domain(target_domain)
         except ValueError:
-            validation_hints.append("invalid_or_reserved_custom_domain_rejected")
-            target_domain = validate_dynamic_top_level_domain(
-                recommended_domain or _DEFAULT_CONFIRMATION_DOMAINS[0]
-            )
+            # A model-proposed reserved or malformed domain must never be
+            # silently redirected into a general domain. That would turn a
+            # policy rejection into an owner-confirmable write to the wrong
+            # place. Return a terminal preview instead; callers already omit
+            # do_not_save cards from the save path.
+            return {
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "reject_reserved_target",
+                    "target_domain": "",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+                },
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": ["invalid_or_reserved_target_rejected"],
+            }
         keyword_ranked_domains = cls._keyword_ranked_domains(
             message=message,
             current_domains=current_domains,

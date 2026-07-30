@@ -72,6 +72,10 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/profile/regulatory")).toBe("profile_regulatory");
     expect(resolveRouteId("/one/profile/pkm")).toBe("profile_pkm");
     expect(resolveRouteId("/one/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
+    expect(resolveRouteId("/one/profile/security/devices")).toBe("profile_security_devices");
+    expect(resolveRouteId("/one/profile/security/devices/authorize")).toBe(
+      "profile_security_device_authorize"
+    );
     expect(resolveRouteId("/one/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/one/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");

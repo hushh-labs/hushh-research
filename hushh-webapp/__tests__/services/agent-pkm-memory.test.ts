@@ -26,6 +26,7 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 import {
   addToPKM,
   clearAgentPkmContext,
+  formatAgentPkmSaveSummary,
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
@@ -95,8 +96,14 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(context.source).toBe("decrypted_session_pkm");
-    expect(context.text).toContain("Source: decrypted client-side");
+    expect(context.text).toContain("Source: decrypted locally");
     expect(context.text).toContain("concise summaries");
+    expect(context.coverage).toMatchObject({
+      totalFactCount: 1,
+      matchedFactCount: 1,
+      selectedFactCount: 1,
+      budgetChars: 12000,
+    });
     expect(pkmLoadFullBlobMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user_1",
@@ -116,7 +123,9 @@ describe("agent PKM memory helpers", () => {
 
     expect(context.source).toBe("decrypted_session_pkm");
     expect(context.mode).toBe("broad");
-    expect(context.text).toContain("concise summaries");
+    expect(context.text).toContain("Preferences: 1 saved fact");
+    expect(context.text).not.toContain("concise summaries");
+    expect(context.coverage).toMatchObject({ inventoryOnly: true, selectedFactCount: 0 });
   });
 
   it("warms the Agent working set only in process memory", async () => {
@@ -144,7 +153,7 @@ describe("agent PKM memory helpers", () => {
     vi.setSystemTime(new Date("2026-07-20T12:06:00Z"));
     expect(
       peekAgentPkmContext({ userId: "user_1", message: "summarize my memory" })?.text,
-    ).toContain("concise summaries");
+    ).toContain("Preferences: 1 saved fact");
 
     let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
     pkmGetMetadataMock.mockReturnValueOnce(
@@ -219,7 +228,7 @@ describe("agent PKM memory helpers", () => {
     expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
   });
 
-  it("never projects runtime secrets into an Agent Chat PKM context", async () => {
+  it("never projects runtime secrets or quarantined information into an Agent Chat PKM context", async () => {
     pkmLoadFullBlobMock.mockResolvedValue({
       preferences: {
         writing: { default_style: "concise summaries" },
@@ -229,6 +238,9 @@ describe("agent PKM memory helpers", () => {
           gemini_api_key: "must-not-reach-agent-context",
           credential_mode: "byok",
         },
+      },
+      __quarantine_v1: {
+        saved_but_never_shareable: "must-not-reach-agent-context",
       },
     });
 
@@ -242,10 +254,36 @@ describe("agent PKM memory helpers", () => {
     expect(context.source).toBe("decrypted_session_pkm");
     expect(context.domains).toContain("preferences");
     expect(context.domains).not.toContain("runtime_secrets");
-    expect(context.text).toContain("concise summaries");
+    expect(context.domains).not.toContain("__quarantine_v1");
+    expect(context.text).toContain("Preferences: 1 saved fact");
     expect(context.text).not.toContain("runtime_secrets");
     expect(context.text).not.toContain("gemini_api_key");
     expect(context.text).not.toContain("must-not-reach-agent-context");
+  });
+
+  it("keeps a bounded local inventory and reports safety omissions", async () => {
+    const deeplyNested: Record<string, unknown> = { favorite: "tea" };
+    let cursor = deeplyNested;
+    for (let index = 0; index < 18; index += 1) {
+      cursor.next = {};
+      cursor = cursor.next as Record<string, unknown>;
+    }
+    pkmLoadFullBlobMock.mockResolvedValue({
+      food: {
+        drinks: { favorite: "tea" },
+        nested: deeplyNested,
+      },
+    });
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "What drinks do I like?",
+    });
+
+    expect(context.text).toContain("Food > Drinks > Favorite: tea");
+    expect(context.coverage?.safetyOmittedNodeCount).toBeGreaterThan(0);
   });
 
   it("previews PKM memory through the agent-lab structure route", async () => {
@@ -345,6 +383,42 @@ describe("agent PKM memory helpers", () => {
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
+  });
+
+  it("returns a scoped, private-agent save receipt for a reviewed preference", async () => {
+    const result = await addToPKM({
+      userId: "user_1",
+      cards: [
+        {
+          card_id: "food-drink-card",
+          source_text: "Remember that I prefer tea.",
+          write_mode: "can_save",
+          target_domain: "food",
+          primary_json_path: "drinks.favorite",
+          candidate_payload: { drinks: { favorite: "tea" } },
+          structure_decision: { target_domain: "food" },
+        },
+      ],
+      sourceMessage: "Remember that I prefer tea.",
+      vaultKey: "vault_key",
+      vaultOwnerToken: "vault_token",
+      source: "agent_chat",
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "agent_chat_review_button",
+      },
+    });
+
+    expect(result.results[0]).toMatchObject({
+      domain: "food",
+      scope: "drinks.favorite",
+      sharingPosture: "Private to your private agent. Consent is required before external sharing.",
+      success: true,
+    });
+    expect(formatAgentPkmSaveSummary(result)).toBe(
+      "Saved in Food > Drinks > Favorite. Private to your private agent. Consent is required before external sharing."
+    );
   });
 
   it("fails closed when owner confirmation evidence is absent", async () => {

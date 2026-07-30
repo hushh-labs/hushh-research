@@ -41,6 +41,30 @@ function cardDomain(card: AgentPkmPreviewCard): string {
   );
 }
 
+function cardScope(card: AgentPkmPreviewCard): string | null {
+  const scope = String(card.primary_json_path || card.target_entity_scope || "").trim();
+  if (!scope) return null;
+  return scope
+    .split(".")
+    .map((segment) => titleize(segment))
+    .filter(Boolean)
+    .join(" > ");
+}
+
+function cardSensitivity(card: AgentPkmPreviewCard): string {
+  const decision =
+    card.structure_decision && typeof card.structure_decision === "object"
+      ? card.structure_decision
+      : {};
+  const labels =
+    decision.sensitivity_labels && typeof decision.sensitivity_labels === "object"
+      ? (decision.sensitivity_labels as Record<string, unknown>)
+      : {};
+  const scope = String(card.primary_json_path || card.target_entity_scope || "").trim();
+  const value = scope ? String(labels[scope] || "").trim() : "";
+  return titleize(value || "confidential");
+}
+
 export function AgentPkmReviewPanel({
   cards,
   saving = false,
@@ -101,10 +125,14 @@ export function AgentPkmReviewPanel({
               <span className="rounded-md bg-muted px-2 py-1 font-medium text-foreground">
                 {titleize(cardDomain(card))}
               </span>
+              {cardScope(card) ? (
+                <span className="text-muted-foreground">{titleize(cardDomain(card))} &gt; {cardScope(card)}</span>
+              ) : null}
               {card.intent_class ? (
                 <span className="text-muted-foreground">{titleize(card.intent_class)}</span>
               ) : null}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">Sensitivity: {cardSensitivity(card)}</p>
             {cleanText(card.source_text) ? (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 {cleanText(card.source_text)}
@@ -121,7 +149,7 @@ export function AgentPkmReviewPanel({
               </p>
             ) : (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                No active recipients will receive this change.
+                Private to your private agent. Consent is required before external sharing.
               </p>
             )}
           </div>

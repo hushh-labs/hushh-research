@@ -519,6 +519,9 @@ export function PkmDomainDetailPanel({
         </SurfaceCardHeader>
         <SurfaceCardContent className="space-y-3">
           <SurfaceInset className="p-4 text-sm text-muted-foreground">{upgrade.description}</SurfaceInset>
+          <p className="px-1 text-xs leading-5 text-muted-foreground">
+            Reserved internal information is never shown here and can never be shared.
+          </p>
           {manifestError ? (
             <SurfaceInset className="flex items-start gap-2 p-4 text-sm text-amber-700 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
