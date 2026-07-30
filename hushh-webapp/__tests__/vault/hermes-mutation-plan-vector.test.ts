@@ -100,4 +100,31 @@ describe("Hermes mutation plan v2 golden vector", () => {
     expect(plan.source_scope_handle).toBe(vector.scope_handle);
     expect(plan).not.toHaveProperty("target_scope_handle");
   });
+
+  it("records a distinct owner auto-save authorization without claiming review", async () => {
+    const currentManifest = manifest();
+    const plan = await buildConfirmedPkmMutationPlanV2({
+      userId: vector.user_id,
+      domain: vector.domain,
+      currentManifest,
+      targetManifest: currentManifest,
+      scopePath: vector.scope_path,
+      operation: "update",
+      confirmation: {
+        authorizationMode: "owner_auto_save_policy",
+        surface: "chat",
+        source: "agent_chat_auto_save_policy",
+        autoSavePolicyVersion: 1,
+        autoSavePolicyEnabledAt: "2026-07-30T00:00:00.000Z",
+      },
+    });
+
+    expect(plan.confirmation_receipt).toMatchObject({
+      authorization_mode: "owner_auto_save_policy",
+      auto_save_policy_version: 1,
+      auto_save_policy_enabled_at: "2026-07-30T00:00:00.000Z",
+      sharing_impact_acknowledged: false,
+    });
+    expect(plan.explanation).toContain("enabled automatic saving");
+  });
 });

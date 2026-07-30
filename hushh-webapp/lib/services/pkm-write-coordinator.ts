@@ -7,6 +7,7 @@ import {
   buildConfirmedPkmMutationPlanV2,
   type PkmMutationOperation,
   type PkmUserConfirmation,
+  type PkmWriteAuthorization,
 } from "@/lib/personal-knowledge-model/mutation-plan";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
@@ -192,16 +193,18 @@ async function ensureWritableVersion(params: {
   vaultKey: string;
   vaultOwnerToken: string;
 }): Promise<{ upgraded: boolean }> {
-  const metadata = await PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    true,
-    params.vaultOwnerToken
-  ).catch(() => null);
-  const manifest = await PersonalKnowledgeModelService.getDomainManifest(
-    params.userId,
-    params.domain,
-    params.vaultOwnerToken
-  ).catch(() => null);
+  const [metadata, manifest] = await Promise.all([
+    PersonalKnowledgeModelService.getMetadata(
+      params.userId,
+      true,
+      params.vaultOwnerToken
+    ).catch(() => null),
+    PersonalKnowledgeModelService.getDomainManifest(
+      params.userId,
+      params.domain,
+      params.vaultOwnerToken
+    ).catch(() => null),
+  ]);
 
   if (metadata?.upgradeStatus === "client_update_required") {
     throw new Error(
@@ -378,7 +381,7 @@ export class PkmWriteCoordinator {
     domain: string;
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
-    confirmation: PkmUserConfirmation;
+    confirmation: PkmWriteAuthorization;
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
