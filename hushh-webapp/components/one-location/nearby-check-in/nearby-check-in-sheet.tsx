@@ -696,11 +696,9 @@ export function NearbyCheckInSheet({
     mutationInFlightRef.current = true;
     setBusy("check-in");
     try {
-      const capturedAge = Date.now() - Date.parse(point.capturedAt);
-      const freshPoint =
-        Number.isFinite(capturedAge) && capturedAge <= 60_000
-          ? point
-          : await captureCurrentPosition();
+      // The persisted radius anchor must describe where the owner confirms the
+      // check-in, not the earlier point used to load place suggestions.
+      const freshPoint = await captureCurrentPosition();
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
         presenceMutationGenerationRef.current !== generation
@@ -913,7 +911,8 @@ export function NearbyCheckInSheet({
                 </span>
               </div>
               <SheetDescription>
-                UAT simulation for opted-in people within 500 metres.
+                UAT simulation for people within 500 metres of each other’s
+                captured check-in points.
               </SheetDescription>
             </div>
           </div>
@@ -979,7 +978,9 @@ export function NearbyCheckInSheet({
                       People nearby
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      Only active, opted-in One users appear here.
+                      Nearby check-ins appear in this list, not as map pins. A
+                      pin appears only after that person explicitly shares
+                      their location with you.
                     </p>
                   </div>
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
@@ -1178,14 +1179,16 @@ export function NearbyCheckInSheet({
                   />
                   <span>
                     <span className="block text-sm font-semibold">
-                      Let nearby checked-in users see me
+                      Show me in the nearby people list
                     </span>
                     <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                      Your current point is sent once to Google to suggest nearby
-                      places; searching may send it again to improve results.
-                      Hussh does not store the raw GPS fix, and nearby people
-                      never receive it. If you check in, they see your name only.
-                      Closing the app does not check you out.
+                      Your current point is sent to Google to suggest nearby
+                      places; searching may send it again to improve results. At
+                      confirmation, Hussh stores your check-in point only as
+                      short-lived encrypted data to match opted-in people within
+                      500 metres. They see your display name in their list, never
+                      your point or exact distance. It is cleared on checkout or
+                      expiry. Closing the app does not check you out.
                     </span>
                   </span>
                 </label>

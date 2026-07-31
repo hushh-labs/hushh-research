@@ -14,6 +14,7 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
     _candidate_cell_tokens,
     _cell_epoch,
     _cell_token,
+    _decrypt_anchor,
     _derived_key,
     _encrypt_anchor,
     _roster_seed,
@@ -39,7 +40,8 @@ def _anchor_row(
 ) -> dict:
     envelope = _encrypt_anchor(
         {
-            "placeId": place_id,
+            "schemaVersion": 2,
+            "coordinateKind": "captured_check_in_point_v1",
             "label": label,
             "latitude": lat,
             "longitude": lng,
@@ -161,15 +163,23 @@ def _check_in(service, **overrides):
     return service.check_in(**values)
 
 
-def test_check_in_encrypts_selected_place_and_never_persists_raw_gps():
+def test_check_in_encrypts_captured_point_without_plaintext_location():
     store = FakeStore()
     service, _ = _service(store)
 
     state = _check_in(service)
+    encrypted_point = _decrypt_anchor(store.presence)
 
     assert state["presence"]["placeLabel"] == "Spot A"
     assert state["presence"]["radiusMeters"] == 500
     assert store.upsert_args["consent_version"] == NEARBY_PRESENCE_CONSENT_VERSION
+    assert encrypted_point == {
+        "coordinateKind": "captured_check_in_point_v1",
+        "label": "Spot A",
+        "latitude": pytest.approx(37.4275),
+        "longitude": pytest.approx(-122.1697),
+        "schemaVersion": 2,
+    }
     serialized = str(store.upsert_args)
     assert "37.4275" not in serialized
     assert "-122.1697" not in serialized
@@ -177,6 +187,82 @@ def test_check_in_encrypts_selected_place_and_never_persists_raw_gps():
     assert "Spot A" not in serialized
     assert "current_lat" not in store.upsert_args
     assert "current_lng" not in store.upsert_args
+
+
+def test_nearby_radius_uses_captured_points_not_different_selected_places():
+    viewer_store = FakeStore()
+    viewer_service, _ = _service(viewer_store)
+    _check_in(
+        viewer_service,
+        current_lat=0.0,
+        current_lng=0.0,
+        place_lat=0.0,
+        place_lng=-0.004,
+        place_label="West venue",
+        accuracy_m=10,
+    )
+
+    target_store = FakeStore()
+    target_service, _ = _service(target_store)
+    _check_in(
+        target_service,
+        user_id="target",
+        current_lat=0.0,
+        current_lng=0.001,
+        place_lat=0.0,
+        place_lng=0.005,
+        place_label="East venue",
+        accuracy_m=10,
+    )
+    viewer_store.candidates = [
+        {
+            **target_store.presence,
+            "participant_alias": TARGET_ALIAS,
+            "display_name": "Mira",
+            "relationship": "none",
+        }
+    ]
+
+    state = viewer_service.get_state(user_id="viewer")
+
+    assert [attendee["participantAlias"] for attendee in state["attendees"]] == [TARGET_ALIAS]
+
+
+def test_nearby_radius_rejects_far_captured_points_at_same_selected_place():
+    viewer_store = FakeStore()
+    viewer_service, _ = _service(viewer_store)
+    _check_in(
+        viewer_service,
+        current_lat=0.0,
+        current_lng=-0.004,
+        place_lat=0.0,
+        place_lng=0.0,
+        place_label="Shared venue",
+        accuracy_m=10,
+    )
+
+    target_store = FakeStore()
+    target_service, _ = _service(target_store)
+    _check_in(
+        target_service,
+        user_id="target",
+        current_lat=0.0,
+        current_lng=0.004,
+        place_lat=0.0,
+        place_lng=0.0,
+        place_label="Shared venue",
+        accuracy_m=10,
+    )
+    viewer_store.candidates = [
+        {
+            **target_store.presence,
+            "participant_alias": TARGET_ALIAS,
+            "display_name": "Mira",
+            "relationship": "none",
+        }
+    ]
+
+    assert viewer_service.get_state(user_id="viewer")["attendees"] == []
 
 
 def test_keys_are_vault_rooted_and_purpose_separated(monkeypatch):
@@ -301,6 +387,55 @@ def test_candidate_cell_is_only_broad_phase_and_exact_radius_filters_target():
     assert service.get_state(user_id="viewer")["attendees"] == []
 
 
+def test_exact_500_meter_boundary_is_inclusive(monkeypatch):
+    store = FakeStore()
+    store.presence = _anchor_row(
+        user_id="viewer",
+        alias="viewer-alias",
+        place_id="spot-a",
+        label="Spot A",
+        lat=0.0,
+        lng=0.0,
+    )
+    store.candidates = [
+        _anchor_row(
+            user_id="target",
+            alias=TARGET_ALIAS,
+            place_id="spot-b",
+            label="Spot B",
+            lat=0.0,
+            lng=0.01,
+        )
+    ]
+    service, _ = _service(store)
+
+    monkeypatch.setattr(nearby_presence, "_distance_meters", lambda **_: 500.0)
+    assert len(service.get_state(user_id="viewer")["attendees"]) == 1
+
+    monkeypatch.setattr(nearby_presence, "_distance_meters", lambda **_: 500.001)
+    assert service.get_state(user_id="viewer")["attendees"] == []
+
+
+def test_legacy_place_anchor_presence_is_checked_out_without_mixed_comparison():
+    store = FakeStore()
+    store.presence = _anchor_row(
+        user_id="viewer",
+        alias="viewer-alias",
+        place_id="legacy-place",
+        label="Legacy place",
+        lat=0.0,
+        lng=0.0,
+    )
+    store.presence["consent_version"] = "one-location-nearby-presence-v1"
+    service, _ = _service(store)
+
+    assert service.get_state(user_id="viewer") == {
+        "presence": None,
+        "attendees": [],
+    }
+    assert store.checkout_calls == 1
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected_code"),
     [
@@ -312,6 +447,13 @@ def test_candidate_cell_is_only_broad_phase_and_exact_radius_filters_target():
             {"captured_at": NOW - timedelta(minutes=6)},
             "NEARBY_PRESENCE_LOCATION_STALE",
         ),
+        (
+            {"captured_at": NOW + timedelta(seconds=61)},
+            "NEARBY_PRESENCE_LOCATION_STALE",
+        ),
+        ({"current_lat": float("nan")}, "NEARBY_PRESENCE_LOCATION_INVALID"),
+        ({"current_lat": 90.0001}, "NEARBY_PRESENCE_LOCATION_INVALID"),
+        ({"current_lng": 180.0001}, "NEARBY_PRESENCE_LOCATION_INVALID"),
         (
             {"place_lat": 37.4375},
             "NEARBY_PRESENCE_OUTSIDE_RADIUS",
@@ -483,6 +625,21 @@ def test_cell_cover_handles_epoch_and_antimeridian_boundaries():
     assert _cell_token(epoch=epoch, x=target_x, y=target_y) in tokens
 
 
+def test_cell_cover_uses_bounded_polar_bucket_without_false_negative():
+    target_x, target_y = _tile_xy(lat=89.999, lng=90.0)
+    epoch = _cell_epoch(NOW)
+    epochs, tokens = _candidate_cell_tokens(
+        lat=89.999,
+        lng=0.0,
+        radius_meters=500,
+        now=NOW,
+    )
+
+    assert (target_x, target_y) == (0, 0)
+    assert _cell_token(epoch=epoch, x=target_x, y=target_y) in tokens
+    assert len(tokens) <= 4
+
+
 def test_postgres_candidates_bind_viewer_version_and_bounded_stable_ranking(
     monkeypatch,
 ):
@@ -501,6 +658,7 @@ def test_postgres_candidates_bind_viewer_version_and_bounded_stable_ranking(
         store.read_active_candidates(
             viewer_user_id="viewer",
             viewer_version=4,
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
             cell_epochs=[1, 0],
             cell_tokens=["opaque"],
             roster_seed="stable",
@@ -511,6 +669,7 @@ def test_postgres_candidates_bind_viewer_version_and_bounded_stable_ranking(
 
     normalized_sql = " ".join(captured["sql"].split()).lower()
     assert "p.version = :viewer_version" in normalized_sql
+    assert "p.consent_version = :consent_version" in normalized_sql
     assert "p.anchor_cell_token = any(:cell_tokens)" in normalized_sql
     assert "order by random()" not in normalized_sql
     assert "hmac(" in normalized_sql

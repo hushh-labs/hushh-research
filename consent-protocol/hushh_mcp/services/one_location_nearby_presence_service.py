@@ -2,11 +2,11 @@
 
 This operon is deliberately separate from recipient-scoped live-location
 grants. A fresh foreground GPS fix proves that the owner is near a public place
-they selected, but the device point is never persisted. The selected public
-place anchor is encrypted at rest and indexed only by a short-epoch,
-server-keyed spatial token. Candidate tokens are a broad-phase optimization;
-the service decrypts both anchors and performs an exact Haversine check before
-returning a peer or authorizing a Connect request.
+they selected. The captured check-in point is then retained only as short-lived
+authenticated ciphertext and indexed by a short-epoch, server-keyed spatial
+token. Candidate tokens are a broad-phase optimization; the service decrypts
+both captured points and performs an exact Haversine check before returning a
+peer or authorizing a Connect request.
 
 Postgres is authoritative today. ``NearbyPresenceStore`` is the replaceable
 port for a future Redis/Memorystore active-presence index without changing the
@@ -35,7 +35,7 @@ from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
 
-NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v1"
+NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v2"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
 NEARBY_PRESENCE_DEFAULT_DURATION_MINUTES = 60
 NEARBY_PRESENCE_RADIUS_METERS = 500
@@ -50,10 +50,12 @@ _CELL_TILE_ZOOM = 16
 _MERCATOR_MAX_LATITUDE = 85.05112878
 _EARTH_RADIUS_METERS = 6_371_000.0
 _ANCHOR_ALGORITHM = "aes-256-gcm"
-_ANCHOR_AAD_PREFIX = b"hushh:one-location-nearby-presence:anchor:v1\0"
+_ANCHOR_SCHEMA_VERSION = 2
+_ANCHOR_COORDINATE_KIND = "captured_check_in_point_v1"
+_ANCHOR_AAD_PREFIX = b"hushh:one-location-nearby-presence:check-in-point:v2\0"
 _KEY_DERIVATION_SALT = b"hushh:one-location-nearby-presence:kdf:v1"
-_ANCHOR_KEY_INFO = b"hushh:one-location-nearby-presence:anchor-encryption:v1"
-_SPATIAL_CELL_KEY_INFO = b"hushh:one-location-nearby-presence:spatial-cell-token:v1"
+_ANCHOR_KEY_INFO = b"hushh:one-location-nearby-presence:check-in-point-encryption:v2"
+_SPATIAL_CELL_KEY_INFO = b"hushh:one-location-nearby-presence:spatial-cell-token:v2"
 _ROSTER_RANKING_KEY_INFO = b"hushh:one-location-nearby-presence:roster-ranking:v1"
 _DEFAULT_NEARBY_DISPLAY_NAME = "One attendee"
 _PHONE_LIKE_DISPLAY_NAME = re.compile(r"\+?[\d\s().-]{7,}")
@@ -123,6 +125,7 @@ class NearbyPresenceStore(Protocol):
         *,
         viewer_user_id: str,
         viewer_version: int,
+        consent_version: str,
         cell_epochs: list[int],
         cell_tokens: list[str],
         roster_seed: str,
@@ -134,6 +137,7 @@ class NearbyPresenceStore(Protocol):
         *,
         viewer_user_id: str,
         participant_alias: str,
+        consent_version: str,
     ) -> list[dict[str, Any]]: ...
 
     def checkout(self, user_id: str) -> bool: ...
@@ -314,6 +318,7 @@ class PostgresNearbyPresenceStore:
         *,
         viewer_user_id: str,
         viewer_version: int,
+        consent_version: str,
         cell_epochs: list[int],
         cell_tokens: list[str],
         roster_seed: str,
@@ -332,6 +337,7 @@ class PostgresNearbyPresenceStore:
                AND profile.phone_verified = TRUE
               WHERE p.owner_user_id = :viewer_user_id
                 AND p.version = :viewer_version
+                AND p.consent_version = :consent_version
                 AND p.status = 'active'
                 AND p.expires_at > NOW()
               LIMIT 1
@@ -382,6 +388,7 @@ class PostgresNearbyPresenceStore:
             JOIN one_location_nearby_presences p
               ON p.owner_user_id <> :viewer_user_id
              AND p.status = 'active'
+             AND p.consent_version = :consent_version
              AND p.expires_at > NOW()
              AND p.anchor_cell_epoch = ANY(:cell_epochs)
              AND p.anchor_cell_token = ANY(:cell_tokens)
@@ -394,6 +401,7 @@ class PostgresNearbyPresenceStore:
             {
                 "viewer_user_id": viewer_user_id,
                 "viewer_version": int(viewer_version),
+                "consent_version": consent_version,
                 "cell_epochs": cell_epochs,
                 "cell_tokens": cell_tokens,
                 "roster_seed": roster_seed,
@@ -409,6 +417,7 @@ class PostgresNearbyPresenceStore:
         *,
         viewer_user_id: str,
         participant_alias: str,
+        consent_version: str,
     ) -> list[dict[str, Any]]:
         self._expire_due()
         return self._execute_many(
@@ -432,6 +441,7 @@ class PostgresNearbyPresenceStore:
                 p.owner_user_id = :viewer_user_id
                 OR p.participant_alias = CAST(:participant_alias AS UUID)
               )
+              AND p.consent_version = :consent_version
               AND p.status = 'active'
               AND p.expires_at > NOW()
             ORDER BY p.owner_user_id
@@ -439,6 +449,7 @@ class PostgresNearbyPresenceStore:
             {
                 "viewer_user_id": viewer_user_id,
                 "participant_alias": participant_alias,
+                "consent_version": consent_version,
             },
         )
 
@@ -598,6 +609,10 @@ def _decrypt_anchor(row: dict[str, Any]) -> dict[str, Any]:
     value = json.loads(plaintext.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("invalid anchor")
+    if value.get("schemaVersion") != _ANCHOR_SCHEMA_VERSION:
+        raise ValueError("unsupported anchor schema")
+    if value.get("coordinateKind") != _ANCHOR_COORDINATE_KIND:
+        raise ValueError("unsupported anchor coordinate kind")
     lat = float(value.get("latitude"))
     lng = float(value.get("longitude"))
     if not _valid_coordinates(lat=lat, lng=lng):
@@ -612,12 +627,17 @@ def _cell_epoch(now: datetime) -> int:
 
 
 def _tile_xy(*, lat: float, lng: float) -> tuple[int, int]:
+    raw_lat = float(lat)
     normalized_lat = max(
         -_MERCATOR_MAX_LATITUDE,
-        min(_MERCATOR_MAX_LATITUDE, float(lat)),
+        min(_MERCATOR_MAX_LATITUDE, raw_lat),
     )
     normalized_lng = ((float(lng) + 180.0) % 360.0) - 180.0
     scale = 1 << _CELL_TILE_ZOOM
+    if raw_lat > _MERCATOR_MAX_LATITUDE:
+        return 0, 0
+    if raw_lat < -_MERCATOR_MAX_LATITUDE:
+        return 0, scale - 1
     x = int(math.floor(((normalized_lng + 180.0) / 360.0) * scale)) % scale
     lat_radians = math.radians(normalized_lat)
     mercator = math.asinh(math.tan(lat_radians))
@@ -651,28 +671,36 @@ def _tile_cover(
 ) -> set[tuple[int, int]]:
     """Return every z16 tile intersecting a conservative radius bounding box."""
 
-    bounded_lat = max(
-        -_MERCATOR_MAX_LATITUDE,
-        min(_MERCATOR_MAX_LATITUDE, float(lat)),
-    )
+    geodesic_lat = max(-90.0, min(90.0, float(lat)))
     angular = max(0.0, float(radius_meters)) / _EARTH_RADIUS_METERS
     latitude_delta = math.degrees(angular)
-    minimum_lat = max(
-        -_MERCATOR_MAX_LATITUDE,
-        bounded_lat - latitude_delta,
-    )
-    maximum_lat = min(
-        _MERCATOR_MAX_LATITUDE,
-        bounded_lat + latitude_delta,
-    )
-    cosine = abs(math.cos(math.radians(bounded_lat)))
-    longitude_delta = (
-        180.0
-        if cosine <= 1e-9
-        else math.degrees(math.asin(min(1.0, max(0.0, math.sin(angular) / cosine))))
-    )
+    geodesic_minimum_lat = max(-90.0, geodesic_lat - latitude_delta)
+    geodesic_maximum_lat = min(90.0, geodesic_lat + latitude_delta)
     scale = 1 << _CELL_TILE_ZOOM
     tiles: set[tuple[int, int]] = set()
+
+    # Web Mercator has no finite representation beyond +/-85.051 degrees.
+    # Collapse each polar cap into one broad-phase bucket, then keep exact
+    # Haversine distance authoritative after decryption. Add the cap bucket to
+    # crossing covers so pairs on opposite sides of the Mercator edge cannot be
+    # lost before the exact check.
+    if geodesic_maximum_lat > _MERCATOR_MAX_LATITUDE:
+        tiles.add((0, 0))
+    if geodesic_minimum_lat < -_MERCATOR_MAX_LATITUDE:
+        tiles.add((0, scale - 1))
+
+    minimum_lat = max(-_MERCATOR_MAX_LATITUDE, geodesic_minimum_lat)
+    maximum_lat = min(_MERCATOR_MAX_LATITUDE, geodesic_maximum_lat)
+    if minimum_lat > maximum_lat:
+        return tiles
+
+    cosine = abs(math.cos(math.radians(geodesic_lat)))
+    crosses_pole = abs(geodesic_lat) + latitude_delta >= 90.0
+    longitude_delta = (
+        180.0
+        if crosses_pole or cosine <= 1e-9
+        else math.degrees(math.asin(min(1.0, max(0.0, math.sin(angular) / cosine))))
+    )
     for minimum_lng, maximum_lng in _longitude_ranges(
         lng=lng,
         delta=longitude_delta,
@@ -865,15 +893,16 @@ class OneLocationNearbyPresenceService:
             )
 
         anchor = {
-            "placeId": normalized_place_id,
+            "schemaVersion": _ANCHOR_SCHEMA_VERSION,
+            "coordinateKind": _ANCHOR_COORDINATE_KIND,
             "label": str(place_label or "Selected place").strip()[:300],
-            "latitude": normalized_place_lat,
-            "longitude": normalized_place_lng,
+            "latitude": normalized_current_lat,
+            "longitude": normalized_current_lng,
         }
         envelope = _encrypt_anchor(anchor, owner_user_id=owner_user_id)
         tile_x, tile_y = _tile_xy(
-            lat=normalized_place_lat,
-            lng=normalized_place_lng,
+            lat=normalized_current_lat,
+            lng=normalized_current_lng,
         )
         epoch = _cell_epoch(now)
         self._store.upsert_presence(
@@ -893,6 +922,9 @@ class OneLocationNearbyPresenceService:
         self._require_verified_profile(owner_user_id)
         row = self._store.get_active_presence(owner_user_id)
         if not row:
+            return {"presence": None, "attendees": []}
+        if str(row.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION:
+            self._store.checkout(owner_user_id)
             return {"presence": None, "attendees": []}
         try:
             viewer_anchor = _decrypt_anchor(row)
@@ -915,6 +947,7 @@ class OneLocationNearbyPresenceService:
         candidates = self._store.read_active_candidates(
             viewer_user_id=owner_user_id,
             viewer_version=int(row.get("version") or 0),
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
             cell_epochs=epochs,
             cell_tokens=tokens,
             roster_seed=_roster_seed(now),
@@ -922,6 +955,8 @@ class OneLocationNearbyPresenceService:
         )
         attendees: list[dict[str, Any]] = []
         for candidate in candidates:
+            if str(candidate.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION:
+                continue
             try:
                 anchor = _decrypt_anchor(candidate)
             except Exception:
@@ -987,6 +1022,7 @@ class OneLocationNearbyPresenceService:
         rows = self._store.read_connection_pair(
             viewer_user_id=owner_user_id,
             participant_alias=normalized_alias,
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
         )
         viewer = next(
             (row for row in rows if str(row.get("owner_user_id") or "") == owner_user_id),
@@ -1001,6 +1037,8 @@ class OneLocationNearbyPresenceService:
             or not target
             or str(target.get("owner_user_id") or "") == owner_user_id
             or not bool(target.get("allow_connection_requests"))
+            or str(viewer.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION
+            or str(target.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION
         ):
             raise NearbyPresenceError(
                 "NEARBY_ATTENDEE_UNAVAILABLE",

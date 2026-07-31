@@ -56,10 +56,11 @@ uses an opaque, short-lived per-tab return token so Cancel, success, top-shell
 Back, iOS edge Back, and Android Back return to the existing sheet history
 boundary without leaving a replayable duplicate entry.
 
-Nearby matching uses a fixed 500-meter radius between independently selected
-public-place anchors, so people at Spot A and Spot B can see one another without
-typing or sharing an event code. Peers appear only in the accessible roster,
-never as precise pins or distance ordering. Responses expose a rotating alias,
+Nearby matching uses exact Haversine distance between independently captured
+confirmation points, with an inclusive fixed 500-meter radius. The selected
+place remains admission and display context; it does not substitute for the
+user's check-in point. Peers appear only in the accessible roster, never as
+precise pins or distance ordering. Responses expose a rotating alias,
 safe display label, relationship, and Connect posture only. Check out clears
 encrypted anchor/index material synchronously. At expiry the user disappears
 from rosters and Connect synchronously; the backend scrubs due material on the

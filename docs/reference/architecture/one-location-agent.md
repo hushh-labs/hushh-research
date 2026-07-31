@@ -206,28 +206,29 @@ It never widens a private live-location grant, and a Connect relationship never
 grants nearby or live-location visibility.
 
 1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
-   captures one fresh foreground point, shows nearby provider places, and lets
-   the owner choose or search the exact public place before continuing. There
-   is no event code.
+   captures a foreground point to show nearby provider places, then lets the
+   owner choose or search the public place used for admission and display
+   context. There is no event code.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and
    defaults off.
-3. On confirmation, the backend resolves the selected place itself and requires
-   the fresh point's complete accuracy envelope to remain inside 500 meters.
-   Accuracy never expands the admission radius.
-4. Raw device coordinates and accuracy exist only in request memory. The
-   selected public-place anchor is persisted only as an AES-256-GCM envelope,
-   alongside a server-keyed six-hour spatial candidate token, rotating alias,
-   consent posture, fixed radius, and expiry metadata. Checkout clears all
-   anchor ciphertext and candidate material synchronously. At `expires_at`,
-   roster visibility and Connect authorization stop synchronously; encrypted
-   material is scrubbed by the next feature operation or the hosted hourly
-   retention job.
+3. On confirmation, One captures a new foreground point. The backend resolves
+   the selected place itself and requires that point's complete accuracy
+   envelope to remain inside 500 meters of it. Accuracy never expands the
+   admission radius.
+4. The confirmed check-in point and safe place label are persisted only inside
+   a short-lived AES-256-GCM envelope, alongside a server-keyed six-hour spatial
+   candidate token, rotating alias, consent posture, fixed radius, and expiry
+   metadata. Accuracy is not persisted. Checkout clears all point ciphertext
+   and candidate material synchronously. At `expires_at`, roster visibility and
+   Connect authorization stop synchronously; encrypted material is scrubbed by
+   the next feature operation or the hosted hourly retention job.
 5. The candidate token is never accepted as proof of proximity. The service
-   decrypts candidate anchors and applies exact Haversine distance before
-   returning at most 20 active people. Spot A and Spot B therefore match when
-   their selected public-place anchors are within 500 meters. Peers never
+   decrypts candidate check-in points and applies exact Haversine distance
+   before returning at most 20 active people. Two people therefore match only
+   when their independently confirmed points are at most 500 meters apart.
+   Peers never
    receive one another's place, coordinates, distance, direction, contact
    details, or stable user id.
 6. Presence uses server-authoritative expiry and has no watcher, heartbeat,
@@ -336,7 +337,7 @@ freshness trails, ciphertext, token values, or debug terminology.
 ## Retention Contract
 
 Expired or revoked One Location work is short-lived. Checkout synchronously
-clears nearby selected-place anchor ciphertext and candidate tokens. Expiry is
+clears nearby captured-point ciphertext and candidate tokens. Expiry is
 fail-closed for roster visibility and Connect authorization at `expires_at`;
 the next feature operation also scrubs due material.
 Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
