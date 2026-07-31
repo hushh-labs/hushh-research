@@ -41,10 +41,13 @@ The same selector produces the `uat-verification-plan` artifact with the
 required/skipped lane reasons; do not reproduce its path policy in another
 workflow or deploy script.
 For a PKM upgrade release, the hosted structure evaluator uses the
-coverage-balanced `release_chain_24` phase and stops immediately on
-zero-tolerance infrastructure, schema, or domain failures. The 60- and
-120-prompt matrices remain available for offline research and deep rehearsal;
-they are not repeated in the UAT release critical path.
+coverage-balanced `release_chain_24` phase immediately after the backend
+candidate is built and before the frontend build begins. Its model-quality
+result is recorded as a release warning, not a traffic or rollback authority;
+runtime identity, provenance, parity, schema, semantic, reviewer, and passkey
+gates remain blocking. The 60- and 120-prompt matrices remain available for
+offline research and deep rehearsal; they are not repeated in the UAT release
+critical path.
 
 ### Backend Deployment
 
