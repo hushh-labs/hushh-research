@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, Edit3, Loader2, Lock, Minus, ShieldAlert, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, Edit3, Loader2, Lock, Minus, ShieldAlert, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { PkmDataManagerPanel } from "@/components/profile/pkm-data-manager";
@@ -147,6 +147,9 @@ export function PkmNaturalPanel({
   const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
   const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
   const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
+  const [autoSavePolicyRetryValue, setAutoSavePolicyRetryValue] = useState<
+    boolean | null
+  >(null);
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
@@ -226,17 +229,25 @@ export function PkmNaturalPanel({
     let cancelled = false;
     if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      setAutoSavePolicyError(null);
+      setAutoSavePolicyRetryValue(null);
       setAutoSavePolicyLoading(false);
       return undefined;
     }
     setAutoSavePolicyLoading(true);
+    setAutoSavePolicyError(null);
+    setAutoSavePolicyRetryValue(null);
     void loadAgentPkmAutoSavePolicy({
       userId: user.uid,
       vaultKey,
       vaultOwnerToken,
     })
       .then((policy) => {
-        if (!cancelled) setAutoSavePolicy(policy);
+        if (!cancelled) {
+          setAutoSavePolicy(policy);
+          setAutoSavePolicyError(null);
+          setAutoSavePolicyRetryValue(null);
+        }
       })
       .catch(() => {
         if (!cancelled) setAutoSavePolicyError("Automatic memory saving couldn’t be loaded.");
@@ -577,6 +588,7 @@ export function PkmNaturalPanel({
     if (!user || !vaultKey || !vaultOwnerToken) return;
     setAutoSavePolicySaving(true);
     setAutoSavePolicyError(null);
+    setAutoSavePolicyRetryValue(enabled);
     const operation = saveAgentPkmAutoSavePolicy({
         userId: user.uid,
         vaultKey,
@@ -592,12 +604,18 @@ export function PkmNaturalPanel({
       void morphyToast.promise(operation, {
         loading: "Updating automatic memory saving…",
         success: "Automatic memory saving updated.",
-        error: "Automatic memory saving couldn’t be updated. Unlock your vault again and retry.",
+        error: "Automatic memory saving couldn’t be updated. Try again.",
       });
       const nextPolicy = await operation;
       setAutoSavePolicy(nextPolicy);
+      setAutoSavePolicyError(null);
+      setAutoSavePolicyRetryValue(null);
     } catch {
-      setAutoSavePolicyError("Automatic memory saving couldn’t be updated. Unlock your vault again and retry.");
+      // ApiService asks VaultLockGuard to re-open the existing vault unlock
+      // dialog when a VAULT_OWNER token is rejected. Other failures are not
+      // evidence that the vault is locked, so keep the recovery local and
+      // retryable instead of sending people to hunt for an unlock screen.
+      setAutoSavePolicyError("Automatic memory saving couldn’t be updated. Try again.");
     } finally {
       setAutoSavePolicySaving(false);
     }
@@ -875,8 +893,29 @@ export function PkmNaturalPanel({
             {memoryActionError ? <p className="text-sm text-destructive">{memoryActionError}</p> : null}
             {sharingImpactError ? <p className="text-sm text-destructive">{sharingImpactError}</p> : null}
             {domainMemoryCards.length > 0 ? (
-              <SurfaceInset className="divide-y divide-[color:var(--app-card-border-standard)] px-4">
-                {domainMemoryCards.map((card) => <div key={card.id}>{renderMemoryCard(card)}</div>)}
+              <SurfaceInset className="p-4">
+                <details className="group">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                    <span className="min-w-0 space-y-0.5">
+                      <span className="block text-sm font-semibold text-foreground">Review individual fields</span>
+                      <span className="block text-sm text-muted-foreground">
+                        {domainMemoryCards.length} saved detail{domainMemoryCards.length === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+                      aria-hidden
+                    />
+                  </summary>
+                  <div className="mt-3 border-t border-[color:var(--app-card-border-standard)] pt-2">
+                    <p className="px-6 py-2 text-xs leading-5 text-muted-foreground">
+                      Open a detail only when you need to correct or remove it.
+                    </p>
+                    <div className="divide-y divide-[color:var(--app-card-border-standard)]">
+                      {domainMemoryCards.map((card) => <div key={card.id}>{renderMemoryCard(card)}</div>)}
+                    </div>
+                  </div>
+                </details>
               </SurfaceInset>
             ) : null}
           </div>
@@ -912,18 +951,36 @@ export function PkmNaturalPanel({
               "Private preferences only. Everything else asks first."
             }
             tone={autoSavePolicyError ? "destructive" : "default"}
+            stackTrailingOnMobile
             trailing={
-              <Switch
-                checked={autoSavePolicy.enabled}
-                onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
-                disabled={autoSavePolicyLoading || autoSavePolicySaving}
-                aria-label={
-                  autoSavePolicy.enabled
-                    ? "Turn automatic memory saving off"
-                    : "Turn automatic memory saving on"
-                }
-                className="shrink-0"
-              />
+              <div className="flex min-h-11 w-full items-center justify-end gap-2 sm:w-auto">
+                {autoSavePolicyError && autoSavePolicyRetryValue !== null ? (
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => void updateAutoSavePolicy(autoSavePolicyRetryValue)}
+                    disabled={autoSavePolicySaving || autoSavePolicyLoading}
+                  >
+                    Retry
+                  </Button>
+                ) : null}
+                <span aria-live="polite" className="text-xs font-medium text-muted-foreground">
+                  {autoSavePolicy.enabled ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={autoSavePolicy.enabled}
+                  onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
+                  disabled={autoSavePolicyLoading || autoSavePolicySaving}
+                  aria-label={
+                    autoSavePolicy.enabled
+                      ? "Turn automatic memory saving off"
+                      : "Turn automatic memory saving on"
+                  }
+                  className="shrink-0"
+                />
+              </div>
             }
           />
         </SettingsGroup>

@@ -36,7 +36,9 @@ describe("buildPkmSectionPreviewPresentation", () => {
     expect(presentation.groups[0].items[0]?.title).toBe("I live in New York City now.");
     expect(presentation.groups[0].items[0]?.subtitle).toBe("correction · active");
     expect(presentation.groups[0].items[0]?.deletable).toBe(true);
+    expect(presentation.groups[0].items[0]?.fields).toEqual([]);
     expect(JSON.stringify(presentation)).not.toContain("sf_residence_001");
+    expect(JSON.stringify(presentation)).not.toMatch(/created at|updated at/i);
     expect(
       presentation.groups[0].items[0]?.fields.some((field) => field.label === "Entity Id")
     ).toBe(false);
