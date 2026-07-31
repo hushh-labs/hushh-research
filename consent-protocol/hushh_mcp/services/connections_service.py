@@ -24,6 +24,35 @@ logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
 
+# Single source of truth for connection-capability display metadata. Both the
+# offer catalog and the receiver-facing proposal list read from here so the two
+# surfaces can never disagree on what a handle means. Keyed by capability_key.
+_CAPABILITY_METADATA: dict[str, dict[str, str]] = {
+    _RIA_ACTIVE_PICKS_CAPABILITY: {
+        "label": "RIA Picks",
+        "description": "Use this RIA's published investment picks in Market and Kai debates.",
+    },
+}
+
+
+def _capability_label(capability_key: str | None) -> str:
+    meta = _CAPABILITY_METADATA.get((capability_key or "").strip())
+    if meta:
+        return meta["label"]
+    # Unknown/future capability: derive a distinct, human-readable label from the
+    # key itself so two different capabilities can never collapse into one row.
+    slug = (capability_key or "").strip()
+    if not slug:
+        return "Connection capability"
+    return slug.replace("_", " ").replace(".", " ").strip().title()
+
+
+def _capability_description(capability_key: str | None) -> str:
+    meta = _CAPABILITY_METADATA.get((capability_key or "").strip())
+    if meta:
+        return meta["description"]
+    return "A connection capability selected by the other person."
+
 
 class ConnectionsError(RuntimeError):
     def __init__(self, code: str, message: str, *, status_code: int = 400) -> None:
@@ -191,12 +220,16 @@ class ConnectionsService:
         return f"scp_{hashlib.sha256(material).hexdigest()[:32]}"
 
     def _scope_catalog_for_owner(self, owner_user_id: str) -> list[dict[str, str]]:
+        # Must track ria_iam_service._RIA_VERIFIED_STATUSES. The verification
+        # success path writes 'verified' (migration 028 retired 'finra_verified'
+        # and 'active' is never written), so omitting 'verified' here would hand a
+        # genuinely verified RIA an empty catalog and silently block RIA Picks.
         ria = self._execute_one(
             """
             SELECT id
             FROM ria_profiles
             WHERE user_id = :user_id
-              AND verification_status IN ('active', 'finra_verified')
+              AND verification_status IN ('active', 'verified', 'finra_verified')
             LIMIT 1
             """,
             {"user_id": owner_user_id},
@@ -207,8 +240,8 @@ class ConnectionsService:
             {
                 "handle": self._scope_handle(owner_user_id, _RIA_ACTIVE_PICKS_CAPABILITY),
                 "capabilityKey": _RIA_ACTIVE_PICKS_CAPABILITY,
-                "label": "RIA Picks",
-                "description": "Use this RIA's published investment picks in Market and Kai debates.",
+                "label": _capability_label(_RIA_ACTIVE_PICKS_CAPABILITY),
+                "description": _capability_description(_RIA_ACTIVE_PICKS_CAPABILITY),
             }
         ]
 
@@ -383,16 +416,8 @@ class ConnectionsService:
                 "id": str(row.get("id") or ""),
                 "scopeHandle": str(row.get("scope_handle") or ""),
                 "direction": str(row.get("direction") or ""),
-                "label": (
-                    "RIA Picks"
-                    if row.get("capability_key") == _RIA_ACTIVE_PICKS_CAPABILITY
-                    else "Requested capability"
-                ),
-                "description": (
-                    "Use this RIA's published investment picks in Market and Kai debates."
-                    if row.get("capability_key") == _RIA_ACTIVE_PICKS_CAPABILITY
-                    else "A connection capability selected by the other person."
-                ),
+                "label": _capability_label(row.get("capability_key")),
+                "description": _capability_description(row.get("capability_key")),
                 "status": str(row.get("status") or "pending"),
                 "createdAt": row.get("created_at"),
                 "expiresAt": row.get("expires_at"),
@@ -957,11 +982,13 @@ class ConnectionsService:
         """
         provider_user_id = str(proposal.get("owner_user_id") or "").strip()
         investor_user_id = str(proposal.get("receiver_user_id") or "").strip()
+        # Same verified-status set as _scope_catalog_for_owner: activation must not
+        # fail closed for a 'verified' RIA whose catalog we just offered.
         ria = self._execute_one(
             """
             SELECT id FROM ria_profiles
             WHERE user_id = :user_id
-              AND verification_status IN ('active', 'finra_verified')
+              AND verification_status IN ('active', 'verified', 'finra_verified')
             LIMIT 1
             """,
             {"user_id": provider_user_id},

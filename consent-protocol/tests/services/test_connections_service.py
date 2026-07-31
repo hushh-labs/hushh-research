@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from hushh_mcp.services.connections_service import (
+    _RIA_ACTIVE_PICKS_CAPABILITY,
     ConnectionsError,
     ConnectionsService,
 )
@@ -90,6 +91,125 @@ def test_scope_catalog_is_directory_bounded_and_separates_offerable_scopes():
     with pytest.raises(ConnectionsError) as exc:
         svc.get_scope_catalog("investor-user", "hidden-user")
     assert exc.value.code == "CONNECTION_SCOPE_TARGET_FORBIDDEN"
+
+
+def test_scope_catalog_gate_accepts_every_verified_status():
+    """Regression: the catalog gate must accept the exact status the RIA
+    verification success path writes ('verified'). Migration 028 retired
+    'finra_verified' and 'active' is never written, so a gate that omitted
+    'verified' handed a genuinely verified RIA an empty catalog — the root
+    cause of "no capabilities available yet" for real advisors."""
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    _RIA_VERIFIED_STATUSES = RIAIAMService._RIA_VERIFIED_STATUSES
+
+    svc = _svc()
+    captured = {}
+
+    def fake_execute_one(sql, params=None):
+        captured["sql"] = sql
+        return {"id": "ria-1"}
+
+    svc._execute_one = fake_execute_one
+    items = svc._scope_catalog_for_owner("ria-user")
+
+    for status in _RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in captured["sql"], f"catalog gate omits '{status}'"
+    assert len(items) == 1
+    assert items[0]["capabilityKey"] == _RIA_ACTIVE_PICKS_CAPABILITY
+    assert items[0]["label"] == "RIA Picks"
+    assert items[0]["description"]
+
+
+def test_scope_catalog_empty_for_unverified_owner():
+    svc = _svc()
+    svc._execute_one = lambda _sql, _params=None: None
+    assert svc._scope_catalog_for_owner("nobody") == []
+
+
+def test_activate_ria_picks_gate_accepts_every_verified_status():
+    """The activation gate mirrors the catalog gate: a 'verified' RIA whose
+    capability we just offered must not fail closed at accept time."""
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    _RIA_VERIFIED_STATUSES = RIAIAMService._RIA_VERIFIED_STATUSES
+
+    svc = _svc()
+    sqls: list[str] = []
+
+    def fake_execute_one(sql, _params=None):
+        sqls.append(sql)
+        return None  # RIA lookup returns nothing -> activation returns False
+
+    svc._execute_one = fake_execute_one
+    result = svc._activate_ria_picks_scope(
+        {"owner_user_id": "ria-user", "receiver_user_id": "investor-user"}, "req-1"
+    )
+
+    assert result is False
+    gate_sql = sqls[0]
+    for status in _RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in gate_sql, f"activation gate omits '{status}'"
+
+
+def test_proposal_items_distinct_capabilities_have_distinct_labels():
+    """Two distinct capability handles must never collapse to the same label.
+    The previous hardcoded fallback labelled every non-RIA capability
+    "Requested capability", so any two future capabilities would be
+    indistinguishable in the receiver's review dialog."""
+    svc = _svc()
+    rows = [
+        {
+            "id": "p1",
+            "scope_handle": "scp-alpha",
+            "capability_key": "alpha_feed_v1",
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        },
+        {
+            "id": "p2",
+            "scope_handle": "scp-beta",
+            "capability_key": "beta_feed_v1",
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        },
+    ]
+    svc._execute_many = lambda _sql, _params=None: rows
+
+    items = svc._proposal_items("req-1")
+    handles = [item["scopeHandle"] for item in items]
+    labels = [item["label"] for item in items]
+
+    assert len(set(handles)) == len(handles)
+    assert len(set(labels)) == len(labels), f"distinct scope ids share a label: {labels}"
+    assert all(item["description"] for item in items)
+
+
+def test_proposal_items_ria_picks_label_matches_catalog():
+    """The receiver-facing proposal view and the offer catalog read the same
+    single source of capability metadata, so labels cannot drift apart."""
+    svc = _svc()
+    svc._execute_many = lambda _sql, _params=None: [
+        {
+            "id": "p1",
+            "scope_handle": "scp-ria",
+            "capability_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        }
+    ]
+    items = svc._proposal_items("req-1")
+    assert items[0]["label"] == "RIA Picks"
+    assert "picks" in items[0]["description"].lower()
 
 
 def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
@@ -805,3 +925,144 @@ def test_nearby_alias_request_fails_closed_without_current_eligibility():
         "execute",
         "commit",
     ]
+
+
+# --- Receiver scope modification: intersection enforcement (accept path) -----
+#
+# The accept transaction defers all scope authority to _resolve_scope_proposals.
+# These exercise that resolver directly so the security-critical intersection
+# (requested x receiver-approved) and its fail-closed edges are pinned down
+# without coupling to the full transaction's SQL ordering.
+
+
+def _pending_proposal(scope_handle, capability_key, direction="requested"):
+    return {
+        "id": scope_handle,
+        "scope_handle": scope_handle,
+        "capability_key": capability_key,
+        "direction": direction,
+        "owner_user_id": "ria-user",
+        "receiver_user_id": "investor-user",
+        "status": "pending",
+    }
+
+
+def _wire_resolver(svc, pending_rows):
+    """Record proposal UPDATEs and audit events emitted by the resolver."""
+    updates: list[dict[str, object]] = []
+    events: list[dict[str, object]] = []
+    svc._execute_many = lambda _sql, _params=None: pending_rows
+
+    def fake_execute_one(_sql, params=None):
+        updates.append(dict(params or {}))
+        return {"id": (params or {}).get("proposal_id")}
+
+    def fake_record_event(proposal_id, *, event_type, actor_user_id, reason=None):
+        events.append({"proposal_id": proposal_id, "event_type": event_type, "reason": reason})
+
+    svc._execute_one = fake_execute_one
+    svc._record_scope_event = fake_record_event
+    return updates, events
+
+
+def test_resolve_scope_proposals_activates_only_receiver_selected_subset():
+    """Receiver approves a subset: only selected scopes activate; every
+    deselected scope is declined. Effective access is the intersection of the
+    requested scopes and the receiver-approved scopes."""
+    svc = _svc()
+    pending = [
+        _pending_proposal("scp-alpha", "alpha_feed_v1"),
+        _pending_proposal("scp-beta", "beta_feed_v1"),
+    ]
+    updates, events = _wire_resolver(svc, pending)
+
+    results = svc._resolve_scope_proposals(
+        request_id="req-1",
+        actor_user_id="investor-user",
+        selected_requested_scope_handles=["scp-alpha"],
+        selected_offered_scope_handles=[],
+    )
+
+    by_handle = {r["scopeHandle"]: r for r in results}
+    assert by_handle["scp-alpha"]["status"] == "active"
+    assert by_handle["scp-beta"]["status"] == "declined"
+    # Each pending proposal resolved exactly once, to the expected status.
+    assert {u["proposal_id"]: u["status"] for u in updates} == {
+        "scp-alpha": "active",
+        "scp-beta": "declined",
+    }
+    # Audit trail names the deselected scope as declined, not silently dropped.
+    assert {e["proposal_id"]: e["event_type"] for e in events} == {
+        "scp-alpha": "ACTIVATED",
+        "scp-beta": "DECLINED",
+    }
+
+
+def test_resolve_scope_proposals_rejects_scope_not_in_request():
+    """A selected handle that was never part of the pending request is refused
+    with 409 before any proposal is mutated: the requester cannot receive a
+    scope they never asked for, and the receiver cannot invent one."""
+    svc = _svc()
+    updates, events = _wire_resolver(svc, [_pending_proposal("scp-alpha", "alpha_feed_v1")])
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc._resolve_scope_proposals(
+            request_id="req-1",
+            actor_user_id="investor-user",
+            selected_requested_scope_handles=["scp-alpha", "scp-forged"],
+            selected_offered_scope_handles=[],
+        )
+
+    assert exc.value.code == "CONNECTION_SCOPE_SELECTION_INVALID"
+    assert exc.value.status_code == 409
+    # Fail closed: nothing was resolved or audited.
+    assert updates == []
+    assert events == []
+
+
+def test_resolve_scope_proposals_declines_reserved_scope_when_activation_fails():
+    """A selected RIA-reserved capability that cannot be materialized fails
+    closed: the scope is declined, never granted. Authorization is not bypassed
+    just because a downstream capability step failed."""
+    svc = _svc()
+    updates, events = _wire_resolver(
+        svc, [_pending_proposal("scp-ria", _RIA_ACTIVE_PICKS_CAPABILITY)]
+    )
+    svc._activate_ria_picks_scope = lambda _proposal, _request_id: False
+
+    results = svc._resolve_scope_proposals(
+        request_id="req-1",
+        actor_user_id="investor-user",
+        selected_requested_scope_handles=["scp-ria"],
+        selected_offered_scope_handles=[],
+    )
+
+    assert results[0]["status"] == "declined"
+    assert results[0]["activated"] is False
+    assert updates[0]["status"] == "declined"
+    assert events[0]["event_type"] == "DECLINED"
+    assert events[0]["reason"] == "capability_activation_failed"
+
+
+def test_resolve_pending_scope_proposals_declines_all_and_audits():
+    """Full rejection: every still-pending proposal is marked declined and an
+    audit event is written for each, so no proposal is left dangling."""
+    svc = _svc()
+    svc._execute_many = lambda _sql, _params=None: [{"id": "p1"}, {"id": "p2"}]
+    events: list[dict[str, object]] = []
+
+    def fake_record_event(proposal_id, *, event_type, actor_user_id, reason=None):
+        events.append({"proposal_id": proposal_id, "event_type": event_type, "reason": reason})
+
+    svc._record_scope_event = fake_record_event
+
+    svc._resolve_pending_scope_proposals(
+        "req-1",
+        status="declined",
+        actor_user_id="investor-user",
+        reason="connection_rejected",
+    )
+
+    assert [e["proposal_id"] for e in events] == ["p1", "p2"]
+    assert {e["event_type"] for e in events} == {"DECLINED"}
+    assert {e["reason"] for e in events} == {"connection_rejected"}
