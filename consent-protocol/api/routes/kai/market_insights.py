@@ -434,10 +434,11 @@ async def _resolve_pick_source_rows(
     renaissance_service = get_renaissance_service()
     default_rows = await renaissance_service.get_all_investable()
     sources = [_default_pick_source()]
+    ria_iam = RIAIAMService()
 
     if ria_sources is None:
         try:
-            ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
+            ria_sources = await ria_iam.list_investor_pick_sources(user_id)
         except Exception as exc:
             logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
             ria_sources = []
@@ -447,9 +448,22 @@ async def _resolve_pick_source_rows(
 
     if active_pick_source != DEFAULT_PICK_SOURCE_ID:
         try:
-            ria_rows = await RIAIAMService().get_pick_rows_for_source(user_id, active_pick_source)
-            if ria_rows:
-                return ria_rows, sources, active_pick_source
+            resolved = await ria_iam.resolve_investor_pick_source(user_id, active_pick_source)
+            package = resolved.get("package") if resolved else None
+            ria_rows = package.get("top_picks") if isinstance(package, dict) else None
+            if isinstance(ria_rows, list) and resolved:
+                canonical_source = {
+                    key: value
+                    for key, value in resolved.items()
+                    if key not in {"package", "snapshot"}
+                }
+                sources = [
+                    source
+                    for source in sources
+                    if str(source.get("id") or "") != canonical_source["id"]
+                ]
+                sources.append(canonical_source)
+                return ria_rows, sources, str(canonical_source["id"])
         except Exception as exc:
             logger.debug(
                 "[Kai Market] pick source %s unavailable for %s: %s",
@@ -3353,7 +3367,6 @@ async def get_stock_preview(
     classification = get_symbol_master_service().classify(repaired_symbol)
     normalized_symbol = classification.symbol
     active_pick_source = _normalize_pick_source(pick_source)
-    selected_pick_source = active_pick_source
     pick_rows_source, pick_sources, resolved_pick_source = await _resolve_pick_source_rows(
         user_id,
         active_pick_source,
@@ -3362,7 +3375,7 @@ async def get_stock_preview(
         (
             source
             for source in pick_sources
-            if str(source.get("id") or "").strip() == selected_pick_source
+            if str(source.get("id") or "").strip() == resolved_pick_source
         ),
         None,
     )
@@ -3401,10 +3414,11 @@ async def get_stock_preview(
         break
 
     advisor_summary: dict[str, Any] | None = None
-    if selected_pick_source.startswith("ria:"):
-        ria_package = await RIAIAMService().get_pick_package_for_source(
-            user_id, selected_pick_source
+    if resolved_pick_source.startswith("ria:"):
+        resolved_ria_source = await RIAIAMService().resolve_investor_pick_source(
+            user_id, resolved_pick_source
         )
+        ria_package = (resolved_ria_source or {}).get("package") or {}
         top_picks = ria_package.get("top_picks") if isinstance(ria_package, dict) else []
         avoid_rows = ria_package.get("avoid_rows") if isinstance(ria_package, dict) else []
         screening_sections = (
@@ -3439,7 +3453,7 @@ async def get_stock_preview(
         elif has_screening_rows:
             ticker_status = "screened"
         advisor_summary = {
-            "source_id": selected_pick_source,
+            "source_id": resolved_pick_source,
             "source_label": str((selected_source_meta or {}).get("label") or "Advisor list"),
             "kind": "ria",
             "state": selected_state,
@@ -3453,7 +3467,7 @@ async def get_stock_preview(
             "ticker_status": ticker_status,
             "avoid_reason": str(_pick_row_value(matched_avoid_row, "reason", "") or "").strip()
             or None,
-            "resolved_with_fallback": resolved_pick_source != selected_pick_source,
+            "resolved_with_fallback": resolved_pick_source != active_pick_source,
         }
 
     quote_price = _safe_float(quote_payload.get("price"))

@@ -160,6 +160,12 @@ flowchart TB
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before a user confirms encrypted BYOK storage; distinguishes invalid credentials, exhausted quota/rate limits, billing blocks, unsupported model access, and temporary provider failure without logging or storing the key |
 
+`POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
+carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
+managed Gemini or `byok_pending_vault`; a Gemini key is never accepted by this
+pre-vault contract. The key can only be validated and saved after setup through
+the existing vault-owner encrypted PKM mutation path.
+
 ### One Email KYC
 
 One mailbox intake is One-led and approval-gated. KYC workspace routes require
@@ -326,16 +332,24 @@ auth-required response.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/ria/clients` | Advisor-facing relationship summary list, including implicit relationship-share status |
-| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including scoped grants and included advisor-picks benefit |
+| GET | `/api/ria/clients` | Advisor-facing list limited to investors with an active explicit RIA capability |
+| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including explicit scoped grants |
 | GET | `/api/ria/workspace/{investor_user_id}` | Advisor workspace over investor-consented data plus relationship-share status |
+| GET | `/api/ria/picks` | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable |
+| POST | `/api/ria/picks` | Sync an already encrypted `ria.advisor_package` projection to currently authorized explicit Picks share artifacts |
 | GET | `/api/kai/market/insights/{user_id}` | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata |
+| GET | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal |
+| POST | `/api/one/connections/requests` | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]` |
+| GET | `/api/one/connections/requests/{request_id}/scopes` | Participant-visible scope statuses and immutable proposal history |
+| POST | `/api/one/connections/requests/{request_id}/accept` | Accept with separate selected requested/offered opaque handles |
 
 RIA relationship bundle note:
 
-- investor private data -> RIA stays on explicit scope consent
-- RIA active picks feed -> investor is an implicit relationship share (`ria_active_picks_feed_v1`)
-- advisor picks are gated by both relationship approval and an active relationship-share grant, not by a second consent prompt
+- investor private information -> RIA stays on explicit scope consent
+- RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
+- connection acceptance is social only; it grants no information access
+- advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
+- legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
 #### Personal Knowledge Model
 

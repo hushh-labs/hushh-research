@@ -194,8 +194,23 @@ describe("One setup hub terminal action contract", () => {
       source.indexOf("setVaultInvitationOpen(true);"),
     );
     expect(source).toContain('data-testid="one-setup-vault-invitation"');
-    expect(source).toContain("Set up vault");
-    expect(source).toContain("Not now");
+    expect(source).toContain("Set up private vault");
+    expect(source).toContain("I’ll do this later");
     expect(source).toContain("<VaultUnlockDialog");
+  });
+
+  it("does not allow a setup route to create a first vault before Finish setup", () => {
+    const setupVaultSurfaces = [
+      "app/one/setup/email/email-onboarding-setup-client.tsx",
+      "app/one/setup/kai/page.tsx",
+      "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
+      "components/onboarding/setup/kyc-identity-preface.tsx",
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
+    ];
+
+    for (const relativePath of setupVaultSurfaces) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).toContain("allowVaultCreation={false}");
+    }
   });
 });

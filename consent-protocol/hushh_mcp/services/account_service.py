@@ -628,26 +628,6 @@ class AccountService:
                 params,
             )
         results["ria_pick_share_artifacts"] = True
-        if self._table_exists(conn, "ria_pick_uploads"):
-            if self._table_exists(conn, "ria_profiles"):
-                conn.execute(
-                    text(
-                        """
-                        DELETE FROM ria_pick_uploads
-                        WHERE uploaded_by_user_id = :user_id
-                           OR ria_profile_id IN (
-                             SELECT id FROM ria_profiles WHERE user_id = :user_id
-                           )
-                        """
-                    ),
-                    params,
-                )
-            else:
-                conn.execute(
-                    text("DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"),
-                    params,
-                )
-        results["ria_pick_uploads"] = True
         if self._table_exists(conn, "advisor_investor_relationships"):
             if self._table_exists(conn, "ria_profiles"):
                 conn.execute(
@@ -858,7 +838,6 @@ class AccountService:
             "relationship_share_events": False,
             "relationship_share_grants": False,
             "ria_pick_share_artifacts": False,
-            "ria_pick_uploads": False,
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
@@ -1019,28 +998,6 @@ class AccountService:
                         params,
                     )
                 results["ria_pick_share_artifacts"] = True
-                if self._table_exists(conn, "ria_pick_uploads"):
-                    if self._table_exists(conn, "ria_profiles"):
-                        conn.execute(
-                            text(
-                                """
-                                DELETE FROM ria_pick_uploads
-                                WHERE uploaded_by_user_id = :user_id
-                                   OR ria_profile_id IN (
-                                     SELECT id FROM ria_profiles WHERE user_id = :user_id
-                                   )
-                                """
-                            ),
-                            params,
-                        )
-                    else:
-                        conn.execute(
-                            text(
-                                "DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"
-                            ),
-                            params,
-                        )
-                results["ria_pick_uploads"] = True
                 if self._table_exists(conn, "advisor_investor_relationships"):
                     if self._table_exists(conn, "ria_profiles"):
                         conn.execute(

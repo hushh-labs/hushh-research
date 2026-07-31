@@ -36,6 +36,7 @@ import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-
 import { ApiRetryState } from "@/components/system/api-retry-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -116,6 +117,44 @@ type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
 type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
 type ConsentTrailEvent = NonNullable<ConsentTrail["events"]>[number];
+type ConnectionScopeProposalPresentation = {
+  scopeHandle: string;
+  direction: "requested" | "offered";
+  label: string;
+  description: string;
+  status: string;
+};
+
+function connectionScopeProposals(
+  entry: ConsentCenterEntry | null,
+): ConnectionScopeProposalPresentation[] {
+  const raw = entry?.metadata?.scope_proposals;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const proposal = item as Partial<ConnectionScopeProposalPresentation>;
+    if (
+      typeof proposal.scopeHandle !== "string" ||
+      (proposal.direction !== "requested" && proposal.direction !== "offered")
+    ) {
+      return [];
+    }
+    return [
+      {
+        scopeHandle: proposal.scopeHandle,
+        direction: proposal.direction,
+        label:
+          typeof proposal.label === "string"
+            ? proposal.label
+            : "Connection capability",
+        description:
+          typeof proposal.description === "string" ? proposal.description : "",
+        status:
+          typeof proposal.status === "string" ? proposal.status : "pending",
+      },
+    ];
+  });
+}
 
 const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
@@ -493,77 +532,13 @@ function relationshipSortValue(entry: ConsentCenterEntry) {
   return candidates.length > 0 ? Math.max(...candidates) : 0;
 }
 
-function relationshipPriority(entry: ConsentCenterEntry) {
-  if (
-    entry.kind === "active_grant" ||
-    entry.status === "active" ||
-    entry.status === "approved"
-  ) {
-    return 3;
-  }
-  if (
-    entry.kind === "incoming_request" ||
-    entry.kind === "outgoing_request" ||
-    entry.status === "pending" ||
-    entry.status === "request_pending"
-  ) {
-    return 2;
-  }
-  if (entry.kind === "invite") {
-    return 1;
-  }
-  return 0;
-}
-
 function buildConnectionEntries(
   center: ConsentCenterResponse | null,
 ): ConsentCenterEntry[] {
   if (!center) return [];
-
-  const grouped = new Map<string, ConsentCenterEntry[]>();
-  const sourceEntries = [
-    ...center.incoming_requests,
-    ...center.outgoing_requests,
-    ...center.active_grants,
-    ...center.history,
-    ...center.invites,
-  ];
-
-  for (const entry of sourceEntries) {
-    const counterpartKey = `${entry.counterpart_type}:${entry.counterpart_id || entry.counterpart_email || entry.counterpart_label || entry.id}`;
-    const bucket = grouped.get(counterpartKey) || [];
-    bucket.push(entry);
-    grouped.set(counterpartKey, bucket);
-  }
-
-  const resolved: ConsentCenterEntry[] = [];
-  for (const [key, entries] of grouped.entries()) {
-    const sorted = [...entries].sort((left, right) => {
-      const priorityDelta =
-        relationshipPriority(right) - relationshipPriority(left);
-      if (priorityDelta !== 0) return priorityDelta;
-      return relationshipSortValue(right) - relationshipSortValue(left);
-    });
-    const primary = sorted[0];
-    if (!primary) continue;
-    const scopeLabels = Array.from(
-      new Set(
-        entries
-          .map((entry) => entry.scope_description || entry.scope)
-          .filter(Boolean),
-      ),
-    );
-    resolved.push({
-      ...primary,
-      id: `connection:${key}`,
-      additional_access_summary:
-        scopeLabels.length > 0
-          ? `${scopeLabels.length} scope${scopeLabels.length === 1 ? "" : "s"} shared in this connection`
-          : primary.additional_access_summary,
-    });
-  }
-
-  return resolved.sort(
+  // Relationship metadata and ordinary consent rows must never become a
+  // connection review. The backend returns only explicit proposal envelopes.
+  return [...(center.connection_requests || [])].sort(
     (left, right) => relationshipSortValue(right) - relationshipSortValue(left),
   );
 }
@@ -904,7 +879,14 @@ function ConsentEntryDetail({
 }: {
   actor: ConsentCenterActor;
   entry: ConsentCenterEntry | null;
-  onApprove: (entry: ConsentCenterEntry, durationHours?: number) => void;
+  onApprove: (
+    entry: ConsentCenterEntry,
+    durationHours?: number,
+    scopeSelection?: {
+      requestedScopeHandles: string[];
+      offeredScopeHandles: string[];
+    },
+  ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
   onRevokeScope: (scope: string) => void;
@@ -930,6 +912,33 @@ function ConsentEntryDetail({
   useEffect(() => {
     setSelectedDuration(defaultDuration);
   }, [defaultDuration, entry?.id]);
+  const proposals = connectionScopeProposals(entry);
+  const requestedProposals = proposals.filter(
+    (proposal) =>
+      proposal.direction === "requested" && proposal.status === "pending",
+  );
+  const offeredProposals = proposals.filter(
+    (proposal) =>
+      proposal.direction === "offered" && proposal.status === "pending",
+  );
+  const [selectedRequestedScopes, setSelectedRequestedScopes] = useState<
+    string[]
+  >([]);
+  const [selectedOfferedScopes, setSelectedOfferedScopes] = useState<string[]>(
+    [],
+  );
+  const requestedProposalKey = requestedProposals
+    .map((proposal) => proposal.scopeHandle)
+    .sort()
+    .join("|");
+  useEffect(() => {
+    // Information owners' requested scopes are selected by default; offers
+    // demand a deliberate recipient opt-in.
+    setSelectedRequestedScopes(
+      requestedProposalKey ? requestedProposalKey.split("|") : [],
+    );
+    setSelectedOfferedScopes([]);
+  }, [entry?.id, requestedProposalKey]);
 
   if (!entry) {
     return (
@@ -1134,6 +1143,77 @@ function ConsentEntryDetail({
         </dl>
       ) : null}
 
+      {isConnectionDecision && proposals.length > 0 ? (
+        <div className="space-y-3">
+          {requestedProposals.length > 0 ? (
+            <SettingsGroup embedded title="They’re requesting">
+              {requestedProposals.map((proposal) => {
+                const checked = selectedRequestedScopes.includes(
+                  proposal.scopeHandle,
+                );
+                return (
+                  <SettingsRow
+                    key={proposal.scopeHandle}
+                    title={proposal.label}
+                    description={proposal.description}
+                    trailing={
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) =>
+                          setSelectedRequestedScopes((current) =>
+                            next
+                              ? Array.from(
+                                  new Set([...current, proposal.scopeHandle]),
+                                )
+                              : current.filter(
+                                  (handle) => handle !== proposal.scopeHandle,
+                                ),
+                          )
+                        }
+                        aria-label={`Share ${proposal.label}`}
+                      />
+                    }
+                  />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+          {offeredProposals.length > 0 ? (
+            <SettingsGroup embedded title="They’ve offered">
+              {offeredProposals.map((proposal) => {
+                const checked = selectedOfferedScopes.includes(
+                  proposal.scopeHandle,
+                );
+                return (
+                  <SettingsRow
+                    key={proposal.scopeHandle}
+                    title={proposal.label}
+                    description={proposal.description}
+                    trailing={
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) =>
+                          setSelectedOfferedScopes((current) =>
+                            next
+                              ? Array.from(
+                                  new Set([...current, proposal.scopeHandle]),
+                                )
+                              : current.filter(
+                                  (handle) => handle !== proposal.scopeHandle,
+                                ),
+                          )
+                        }
+                        aria-label={`Accept ${proposal.label}`}
+                      />
+                    }
+                  />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+        </div>
+      ) : null}
+
       {isPendingDecision ? (
         <section
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
@@ -1174,6 +1254,12 @@ function ConsentEntryDetail({
                 isConnectionDecision || isMarketplaceDecision
                   ? undefined
                   : effectiveDurationHours,
+                isConnectionDecision
+                  ? {
+                      requestedScopeHandles: selectedRequestedScopes,
+                      offeredScopeHandles: selectedOfferedScopes,
+                    }
+                  : undefined,
               )
             }
             data-voice-control-id="consent_approve"
@@ -1676,7 +1762,14 @@ export function ConsentCenterPage() {
     [],
   );
   const approveEntry = useCallback(
-    (entry: ConsentCenterEntry, durationHours?: number) => {
+    (
+      entry: ConsentCenterEntry,
+      durationHours?: number,
+      scopeSelection?: {
+        requestedScopeHandles: string[];
+        offeredScopeHandles: string[];
+      },
+    ) => {
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1685,8 +1778,11 @@ export function ConsentCenterPage() {
             await ConnectionsService.accept({
               idToken,
               requestId: entry.request_id || entry.id,
+              selectedRequestedScopeHandles:
+                scopeSelection?.requestedScopeHandles,
+              selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
-            CacheSyncService.onConsentMutated(user.uid);
+            CacheSyncService.onConnectionCapabilityMutated(user.uid);
             window.dispatchEvent(
               new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
             );
@@ -1729,7 +1825,7 @@ export function ConsentCenterPage() {
               idToken,
               requestId: entry.request_id || entry.id,
             });
-            CacheSyncService.onConsentMutated(user.uid);
+            CacheSyncService.onConnectionCapabilityMutated(user.uid);
             window.dispatchEvent(
               new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
             );
@@ -2902,11 +2998,11 @@ export function ConsentCenterPage() {
           <ConsentEntryDetail
             actor={actor}
             entry={selectedEntry}
-            onApprove={(entry, durationHours) => {
+            onApprove={(entry, durationHours, scopeSelection) => {
               // Dismiss the panel immediately; the list already optimistically
               // removes the row and any failure surfaces via toast.
               closeDetailPanel();
-              approveEntry(entry, durationHours);
+              approveEntry(entry, durationHours, scopeSelection);
             }}
             onDeny={(entry) => {
               closeDetailPanel();

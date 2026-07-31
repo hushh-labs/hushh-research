@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, Edit3, Loader2, Lock, ShieldAlert, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, Edit3, Loader2, Lock, Minus, ShieldAlert, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { PkmDataManagerPanel } from "@/components/profile/pkm-data-manager";
+import { PkmMemoryBrowser } from "@/components/profile/pkm-memory-browser";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow, SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -20,6 +21,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
@@ -29,14 +31,21 @@ import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildPkmDomainPresentation,
   buildPkmProfileSummaryPresentation,
-  isConsumerVisiblePkmDomain,
+  isConsumerBrowsablePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
 import { ROUTES } from "@/lib/navigation/routes";
-import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import {
+  addToPKM,
+  clearAgentPkmContext,
+  getIgnoredPkmCards,
+  previewAgentPkmMemory,
+  type AgentPkmPreviewCard,
+} from "@/lib/agent/agent-pkm-memory";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   loadAgentPkmAutoSavePolicy,
@@ -49,6 +58,11 @@ import {
   updatePkmDomainValue,
   type PkmMemoryCard,
 } from "@/lib/pkm/pkm-memory-cards";
+import {
+  buildPkmShareBundles,
+  pkmShareBundleState,
+} from "@/lib/profile/pkm-memory-tree";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   ConsentCenterService,
   type ConsentCenterEntry,
@@ -68,6 +82,9 @@ type DomainDetailState = {
   loading: boolean;
   error: boolean;
 };
+
+type MemoryWorkspaceTab = "browse" | "add" | "sharing";
+const MEMORY_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_MEMORY_WORKSPACE_ENABLED === "true";
 
 const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
   manifest: null,
@@ -126,6 +143,15 @@ export function PkmNaturalPanel({
   const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
   const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
   const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
+  const [captureText, setCaptureText] = useState("");
+  const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const [captureLoading, setCaptureLoading] = useState(false);
+  const [captureSaving, setCaptureSaving] = useState(false);
+  const [captureMessage, setCaptureMessage] = useState<string | null>(null);
+  const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
+  const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
+  const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,7 +246,7 @@ export function PkmNaturalPanel({
   }, [isVaultUnlocked, user, vaultKey, vaultOwnerToken]);
 
   const visibleMetadataDomains = useMemo(
-    () => (metadata?.domains || []).filter(isConsumerVisiblePkmDomain),
+    () => (metadata?.domains || []).filter(isConsumerBrowsablePkmDomain),
     [metadata?.domains]
   );
 
@@ -404,6 +430,33 @@ export function PkmNaturalPanel({
     };
   }, [isVaultUnlocked, selectedMetadataDomain, user, vaultKey, vaultOwnerToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (workspaceTab !== "sharing" || !user || !vaultOwnerToken || visibleMetadataDomains.length === 0) {
+      return undefined;
+    }
+    setSharingManifestsLoading(true);
+    void Promise.all(
+      visibleMetadataDomains.map(async (domain) => [
+        domain.key,
+        await PersonalKnowledgeModelService.getDomainManifest(
+          user.uid,
+          domain.key,
+          vaultOwnerToken
+        ).catch(() => null),
+      ] as const)
+    )
+      .then((entries) => {
+        if (!cancelled) setSharingManifests(Object.fromEntries(entries));
+      })
+      .finally(() => {
+        if (!cancelled) setSharingManifestsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, vaultOwnerToken, visibleMetadataDomains, workspaceTab]);
+
   function resetMemoryActionState() {
     setEditingCardId(null);
     setEditValue("");
@@ -520,8 +573,7 @@ export function PkmNaturalPanel({
     if (!user || !vaultKey || !vaultOwnerToken) return;
     setAutoSavePolicySaving(true);
     setAutoSavePolicyError(null);
-    try {
-      const nextPolicy = await saveAgentPkmAutoSavePolicy({
+    const operation = saveAgentPkmAutoSavePolicy({
         userId: user.uid,
         vaultKey,
         vaultOwnerToken,
@@ -532,14 +584,191 @@ export function PkmNaturalPanel({
           source: "pkm_memory_auto_save_toggle",
         },
       });
+    try {
+      void morphyToast.promise(operation, {
+        loading: "Updating automatic memory saving…",
+        success: "Automatic memory saving updated.",
+        error: "Automatic memory saving couldn’t be updated. Unlock your vault again and retry.",
+      });
+      const nextPolicy = await operation;
       setAutoSavePolicy(nextPolicy);
-    } catch (error) {
-      setAutoSavePolicyError(
-        error instanceof Error ? error.message : "Automatic memory saving couldn’t be updated."
-      );
+    } catch {
+      setAutoSavePolicyError("Automatic memory saving couldn’t be updated. Unlock your vault again and retry.");
     } finally {
       setAutoSavePolicySaving(false);
     }
+  }
+
+  async function previewMemoryCapture() {
+    if (!user || !vaultOwnerToken || !captureText.trim()) return;
+    setCaptureLoading(true);
+    setCaptureMessage(null);
+    try {
+      const localDuplicate = AgentPkmContextStore.findLocalDuplicate({
+        userId: user.uid,
+        candidate: captureText.trim(),
+      });
+      if (localDuplicate?.kind === "exact") {
+        setCaptureCards([]);
+        setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
+        return;
+      }
+      const preview = await previewAgentPkmMemory({
+        userId: user.uid,
+        message: captureText.trim(),
+        currentDomains: visibleMetadataDomains.map((domain) => domain.key),
+        vaultOwnerToken,
+      });
+      setCaptureCards(preview.cards);
+      setCaptureMessage(
+        localDuplicate?.kind === "possible"
+          ? "A related saved detail may already exist. Review this suggestion before saving."
+          : preview.cards.length
+          ? "Review the proposed saved detail before adding it."
+          : "Nothing new needs to be saved from that note."
+      );
+    } catch {
+      setCaptureMessage("That note couldn’t be prepared. Unlock your vault again and retry.");
+    } finally {
+      setCaptureLoading(false);
+    }
+  }
+
+  async function saveMemoryCapture() {
+    if (!user || !vaultKey || !vaultOwnerToken || captureCards.length === 0) return;
+    setCaptureSaving(true);
+    try {
+      const operation = addToPKM({
+          userId: user.uid,
+          cards: captureCards,
+          sourceMessage: captureText.trim(),
+          vaultKey,
+          vaultOwnerToken,
+          source: "memory_workspace",
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "memory_workspace_add",
+          },
+        });
+      void morphyToast.promise(operation, {
+        loading: "Saving reviewed memory…",
+        success: "Reviewed memory saved.",
+        error: "Memory couldn’t be saved. Unlock your vault again and retry.",
+      });
+      const result = await operation;
+      clearAgentPkmContext(user.uid);
+      setCaptureMessage(
+        result.saved > 0
+          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.`
+          : "Nothing was saved; the proposed detail needs a correction first."
+      );
+      if (result.saved > 0) {
+        setCaptureText("");
+        setCaptureCards([]);
+        setRefreshNonce((value) => value + 1);
+      }
+    } catch {
+      setCaptureMessage("Memory couldn’t be saved. Unlock your vault again and retry.");
+    } finally {
+      setCaptureSaving(false);
+    }
+  }
+
+  async function updateSharingBundles(params: {
+    domain: string;
+    manifest: DomainManifest;
+    scopeHandles: string[];
+    enabled: boolean;
+  }) {
+    if (!user || !vaultOwnerToken || params.scopeHandles.length === 0) return;
+    const actionKey = `${params.domain}:${params.scopeHandles.join(",")}`;
+    setSharingActionKey(actionKey);
+    try {
+      const operation = PersonalKnowledgeModelService.updateScopeExposure({
+          userId: user.uid,
+          domain: params.domain,
+          expectedManifestVersion: params.manifest.manifest_version,
+          vaultOwnerToken,
+          changes: params.scopeHandles.map((scopeHandle) => ({
+            scopeHandle,
+            visibilityPosture: params.enabled ? "consent_required" : "private",
+          })),
+        });
+      void morphyToast.promise(operation, {
+        loading: "Updating sharing choices…",
+        success: params.enabled ? "These bundles can now be requested with your approval." : "These bundles are private.",
+        error: "Sharing choices changed elsewhere. Refresh and try again.",
+      });
+      const result = await operation;
+      if (result.manifest) {
+        setSharingManifests((current) => ({ ...current, [params.domain]: result.manifest }));
+      }
+      setRefreshNonce((value) => value + 1);
+    } catch {
+      // The toast is intentionally redacted. Scope exposure never exposes server detail.
+    } finally {
+      setSharingActionKey(null);
+    }
+  }
+
+  function renderMemoryCard(card: PkmMemoryCard) {
+    const editing = editingCardId === card.id;
+    const saving = memoryActionId === `${card.id}:edited`;
+    const deleting = memoryActionId === `${card.id}:deleted`;
+    const sharingImpact = sharingImpacts[cardScopePath(card)];
+    return (
+      <div className="space-y-2 py-3 pl-6 first:pt-1 last:pb-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <p className="break-words text-sm font-medium text-foreground">{card.title}</p>
+            <p className="text-xs text-muted-foreground">{card.detail}</p>
+            {sharingImpact?.activeRecipientCount ? (
+              <p className="text-xs text-muted-foreground">{formatSharingImpactDisclosure(sharingImpact)}</p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 gap-1">
+            {editing ? (
+              <>
+                <Button type="button" variant="none" effect="fade" disabled={saving || !sharingImpact} aria-label="Save corrected detail" onClick={() => void persistMemoryCardChange({ card, action: "edited", nextValue: editValue })}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Check className="h-4 w-4" aria-hidden />}
+                </Button>
+                <Button type="button" variant="none" effect="fade" disabled={saving} aria-label="Cancel correction" onClick={resetMemoryActionState}>
+                  <X className="h-4 w-4" aria-hidden />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="none" effect="fade" disabled={sharingImpactLoading || !sharingImpact} aria-label="Correct saved detail" onClick={() => { setEditingCardId(card.id); setEditValue(card.value); setMemoryActionError(null); setMemoryActionMessage(null); }}>
+                  <Edit3 className="h-4 w-4" aria-hidden />
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="none" effect="fade" disabled={deleting || sharingImpactLoading || !sharingImpact} aria-label="Remove saved detail">
+                      {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent size="sm">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove this saved detail?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Other details in {card.domainTitle} will stay unchanged.
+                        {sharingImpact?.activeRecipientCount ? ` ${formatSharingImpactDisclosure(sharingImpact)}` : ""}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" onClick={() => void persistMemoryCardChange({ card, action: "deleted" })}>Remove</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+          </div>
+        </div>
+        {editing ? <Input value={editValue} onChange={(event) => setEditValue(event.target.value)} aria-label="Corrected detail value" /> : null}
+      </div>
+    );
   }
 
   if (authLoading) {
@@ -638,152 +867,21 @@ export function PkmNaturalPanel({
           <div className="space-y-4">
             <PkmSectionPreview presentation={domainDetail.preview} />
 
-            {domainMemoryCards.length > 0 ? (
+            {memoryActionMessage ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{memoryActionMessage}</p> : null}
+            {memoryActionError ? <p className="text-sm text-destructive">{memoryActionError}</p> : null}
+            {sharingImpactError ? <p className="text-sm text-destructive">{sharingImpactError}</p> : null}
+            {domainMemoryCards.length > 0 && !MEMORY_WORKSPACE_ENABLED ? (
               <SurfaceInset className="space-y-3 p-4">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-foreground">Correct saved details</p>
-                  <p className="text-sm text-muted-foreground">
-                    Changes apply only to the selected detail in this encrypted category.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Changes apply only to the selected detail in this encrypted category.</p>
                 </div>
-                {memoryActionMessage ? (
-                  <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                    {memoryActionMessage}
-                  </p>
-                ) : null}
-                {memoryActionError ? (
-                  <p className="text-sm text-destructive">{memoryActionError}</p>
-                ) : null}
-                {sharingImpactError ? (
-                  <p className="text-sm text-destructive">{sharingImpactError}</p>
-                ) : null}
                 <div className="divide-y divide-[color:var(--app-card-border-standard)]">
-                  {domainMemoryCards.map((card) => {
-                    const editing = editingCardId === card.id;
-                    const saving = memoryActionId === `${card.id}:edited`;
-                    const deleting = memoryActionId === `${card.id}:deleted`;
-                    const sharingImpact = sharingImpacts[cardScopePath(card)];
-                    return (
-                      <div key={card.id} className="space-y-3 py-3 first:pt-0 last:pb-0">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 space-y-1">
-                            <p className="break-words text-sm font-medium text-foreground">
-                              {card.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{card.detail}</p>
-                            {sharingImpact?.activeRecipientCount ? (
-                              <p className="text-xs text-muted-foreground">
-                                {formatSharingImpactDisclosure(sharingImpact)}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="flex shrink-0 gap-1">
-                            {editing ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="none"
-                                  effect="fade"
-                                  disabled={saving || !sharingImpact}
-                                  aria-label="Save corrected detail"
-                                  onClick={() =>
-                                    void persistMemoryCardChange({
-                                      card,
-                                      action: "edited",
-                                      nextValue: editValue,
-                                    })
-                                  }
-                                >
-                                  {saving ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                  ) : (
-                                    <Check className="h-4 w-4" aria-hidden />
-                                  )}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="none"
-                                  effect="fade"
-                                  disabled={saving}
-                                  aria-label="Cancel correction"
-                                  onClick={resetMemoryActionState}
-                                >
-                                  <X className="h-4 w-4" aria-hidden />
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="none"
-                                  effect="fade"
-                                  disabled={sharingImpactLoading || !sharingImpact}
-                                  aria-label="Correct saved detail"
-                                  onClick={() => {
-                                    setEditingCardId(card.id);
-                                    setEditValue(card.value);
-                                    setMemoryActionError(null);
-                                    setMemoryActionMessage(null);
-                                  }}
-                                >
-                                  <Edit3 className="h-4 w-4" aria-hidden />
-                                </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      type="button"
-                                      variant="none"
-                                      effect="fade"
-                                      disabled={deleting || sharingImpactLoading || !sharingImpact}
-                                      aria-label="Remove saved detail"
-                                    >
-                                      {deleting ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                      ) : (
-                                        <Trash2 className="h-4 w-4" aria-hidden />
-                                      )}
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent size="sm">
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Remove this saved detail?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Other details in {card.domainTitle} will stay unchanged.
-                                        {sharingImpact?.activeRecipientCount
-                                          ? ` ${formatSharingImpactDisclosure(sharingImpact)}`
-                                          : ""}
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        variant="destructive"
-                                        onClick={() =>
-                                          void persistMemoryCardChange({ card, action: "deleted" })
-                                        }
-                                      >
-                                        Remove
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {editing ? (
-                          <Input
-                            value={editValue}
-                            onChange={(event) => setEditValue(event.target.value)}
-                            aria-label="Corrected detail value"
-                          />
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                  {domainMemoryCards.map((card) => <div key={card.id}>{renderMemoryCard(card)}</div>)}
                 </div>
               </SurfaceInset>
             ) : null}
+            {domainMemoryCards.length > 0 && MEMORY_WORKSPACE_ENABLED ? <PkmMemoryBrowser cards={domainMemoryCards} renderCard={renderMemoryCard} /> : null}
           </div>
         ) : null}
       </div></>
@@ -794,6 +892,18 @@ export function PkmNaturalPanel({
     <>
       {nativeBeacon}
       <div className="space-y-4">
+        {MEMORY_WORKSPACE_ENABLED ? (
+          <SettingsSegmentedTabs
+            value={workspaceTab}
+            onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
+            options={[
+              { value: "browse", label: "Browse" },
+              { value: "add", label: "Add" },
+              { value: "sharing", label: "Sharing" },
+            ]}
+            mobileColumns={3}
+          />
+        ) : null}
         <SettingsGroup separatorInset testId="memory-auto-save-group">
           <SettingsRow
             testId="memory-auto-save-row"
@@ -823,24 +933,88 @@ export function PkmNaturalPanel({
             }
           />
         </SettingsGroup>
-        <PkmDataManagerPanel
-          signedIn
-          loading={bootstrapLoading}
-          metadataReady={metadata !== null}
-          metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
-          sharingReady={sharingResolved}
-          sharingError={sharingError}
-          needsVaultCreation={false}
-          needsUnlock={false}
-          summary={summary}
-          domains={domainPresentations}
-          loadingManifestsByDomain={{}}
-          manifestErrorsByDomain={{}}
-          onOpenSharing={() => router.push(ROUTES.CONSENTS)}
-          onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
-          onRefresh={() => setRefreshNonce((value) => value + 1)}
-          onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
-        />
+        {!MEMORY_WORKSPACE_ENABLED || workspaceTab === "browse" ? (
+          <PkmDataManagerPanel
+            signedIn
+            loading={bootstrapLoading}
+            metadataReady={metadata !== null}
+            metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
+            sharingReady={sharingResolved}
+            sharingError={sharingError}
+            needsVaultCreation={false}
+            needsUnlock={false}
+            summary={summary}
+            domains={domainPresentations}
+            loadingManifestsByDomain={{}}
+            manifestErrorsByDomain={{}}
+            onOpenSharing={() => setWorkspaceTab("sharing")}
+            onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
+            onRefresh={() => setRefreshNonce((value) => value + 1)}
+            onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
+          />
+        ) : null}
+        {MEMORY_WORKSPACE_ENABLED && workspaceTab === "add" ? (
+          <SurfaceInset className="space-y-4 p-4" data-pkm-memory-capture="true">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Add a memory</p>
+              <p className="text-sm text-muted-foreground">Write a note in your own words. One prepares a private, review-first suggestion before anything is saved.</p>
+            </div>
+            <Textarea value={captureText} onChange={(event) => setCaptureText(event.target.value)} placeholder="For example: I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="muted" effect="fade" disabled={captureLoading || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
+                {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Prepare review
+              </Button>
+              {captureCards.length > 0 ? <Button type="button" effect="fade" disabled={captureSaving} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save reviewed memory</Button> : null}
+            </div>
+            {captureMessage ? <p className="text-sm text-muted-foreground">{captureMessage}</p> : null}
+            {captureCards.length > 0 ? (
+              <div className="divide-y divide-[color:var(--app-card-border-standard)] rounded-xl border border-[color:var(--app-card-border-standard)] px-3">
+                {captureCards.map((card) => (
+                  <div key={card.card_id} className="space-y-1 py-3 text-sm">
+                    <p className="font-medium text-foreground">{String(card.merge_mode || card.mutation_intent || "Proposed update").replaceAll("_", " ")}</p>
+                    <p className="text-muted-foreground">{String(card.target_domain || "Saved details").replaceAll("_", " ")}{card.primary_json_path ? ` › ${String(card.primary_json_path).replaceAll(".", " › ")}` : ""}</p>
+                    {card.sharing_impact?.active_recipient_count ? <p className="text-xs text-muted-foreground">This change affects an existing shared bundle and will be reviewed before it is saved.</p> : null}
+                  </div>
+                ))}
+                {getIgnoredPkmCards(captureCards).length > 0 ? <p className="py-3 text-xs text-muted-foreground">Some content was kept out because it is private, reserved, or not suitable for a saved memory.</p> : null}
+              </div>
+            ) : null}
+          </SurfaceInset>
+        ) : null}
+        {MEMORY_WORKSPACE_ENABLED && workspaceTab === "sharing" ? (
+          <SurfaceInset className="space-y-4 p-4" data-pkm-memory-sharing="true">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Sharing preferences</p>
+              <p className="text-sm text-muted-foreground">These are the existing top-level bundles that can be requested with your approval. Folders inside a bundle inherit this setting.</p>
+            </div>
+            {sharingManifestsLoading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />Checking saved bundles…</p> : null}
+            {!sharingManifestsLoading && visibleMetadataDomains.map((domain) => {
+              const manifest = sharingManifests[domain.key] || null;
+              const bundles = buildPkmShareBundles(manifest);
+              if (!manifest || bundles.length === 0) return null;
+              const state = pkmShareBundleState(bundles);
+              const allHandles = bundles.map((bundle) => bundle.scopeHandle).filter((value): value is string => Boolean(value));
+              const busy = sharingActionKey === `${domain.key}:${allHandles.join(",")}`;
+              return (
+                <div key={domain.key} className="space-y-2 rounded-xl border border-[color:var(--app-card-border-standard)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><p className="text-sm font-medium text-foreground">{domain.displayName}</p><p className="text-xs text-muted-foreground">{state === "indeterminate" ? "Some bundles can be requested" : state === "checked" ? "All available bundles can be requested" : "All available bundles are private"}</p></div>
+                    <button type="button" role="checkbox" aria-checked={state === "indeterminate" ? "mixed" : state === "checked"} aria-label={`Set all ${domain.displayName} bundles ${state === "checked" ? "private" : "to ask first"}`} disabled={busy || allHandles.length === 0} onClick={() => void updateSharingBundles({ domain: domain.key, manifest, scopeHandles: allHandles, enabled: state !== "checked" })} className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-muted text-foreground disabled:opacity-50">
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : state === "checked" ? <Check className="h-4 w-4" aria-hidden /> : state === "indeterminate" ? <Minus className="h-4 w-4" aria-hidden /> : null}
+                    </button>
+                  </div>
+                  <div className="divide-y divide-[color:var(--app-card-border-standard)]">
+                    {bundles.map((bundle) => {
+                      const bundleKey = `${domain.key}:${bundle.scopeHandle || bundle.topLevelScopePath}`;
+                      return <SettingsRow key={bundleKey} title={bundle.label} description="Ask first before sharing this bundle." trailing={<Switch checked={bundle.enabled} disabled={sharingActionKey === bundleKey || !bundle.scopeHandle} onCheckedChange={(enabled) => bundle.scopeHandle && void updateSharingBundles({ domain: domain.key, manifest, scopeHandles: [bundle.scopeHandle], enabled })} aria-label={`${bundle.enabled ? "Make private" : "Allow requests for"} ${bundle.label}`} />} />;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {!sharingManifestsLoading && visibleMetadataDomains.length > 0 && Object.values(sharingManifests).every((manifest) => buildPkmShareBundles(manifest).length === 0) ? <p className="text-sm text-muted-foreground">There are no saved bundles available for sharing yet.</p> : null}
+          </SurfaceInset>
+        ) : null}
       </div>
     </>
   );

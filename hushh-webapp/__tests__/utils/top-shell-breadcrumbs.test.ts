@@ -669,7 +669,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -682,7 +682,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -696,7 +696,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },
@@ -715,20 +715,21 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks", href: "/ria/picks" },
         { label: "Debate" },
       ],
     });
 
-    // Without the view param, bare Picks is untouched: three crumbs, Back to RIA.
+    // Without the view param, bare Picks is untouched: three crumbs, Back to
+    // the canonical RIA Profile tab.
     expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
-      backHref: "/ria",
+      backHref: "/ria/profile",
       width: "content",
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks" },
       ],
     });
@@ -736,12 +737,12 @@ describe("top shell breadcrumbs", () => {
 
   it("keeps bare Picks for unknown or wrong-case view values", () => {
     const barePicks = {
-      backHref: "/ria",
+      backHref: "/ria/profile",
       width: "content" as const,
       align: "center" as const,
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks" },
       ],
     };

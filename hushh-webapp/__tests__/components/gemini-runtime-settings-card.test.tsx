@@ -3,12 +3,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 
-const validateGeminiRuntimeCredentialMock = vi.fn();
-const loadRuntimeSecretMock = vi.fn();
-const storeRuntimeSecretMock = vi.fn();
+const {
+  validateGeminiRuntimeCredentialMock,
+  loadRuntimeSecretMock,
+  storeRuntimeSecretMock,
+  toastErrorMock,
+  toastSuccessMock,
+} = vi.hoisted(() => ({
+  validateGeminiRuntimeCredentialMock: vi.fn(),
+  loadRuntimeSecretMock: vi.fn(),
+  storeRuntimeSecretMock: vi.fn(),
+  toastErrorMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
+}));
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+vi.mock("@/lib/morphy-ux/morphy", () => ({
+  morphyToast: { error: toastErrorMock, success: toastSuccessMock },
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -35,7 +45,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     loadRuntimeSecretMock.mockResolvedValue(null);
-    storeRuntimeSecretMock.mockResolvedValue(undefined);
+    storeRuntimeSecretMock.mockResolvedValue({ success: true });
     validateGeminiRuntimeCredentialMock.mockResolvedValue({ status: "ready" });
   });
 
@@ -80,6 +90,77 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
+    expect(onSelectionReadyChange).toHaveBeenCalledWith("hushh_managed_vertex");
+  });
+
+  it("records a pending BYOK choice without opening a vault or writing a credential during setup", async () => {
+    const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
+    const onRequestVaultCreation = vi.fn();
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={onRequestVaultCreation}
+        requiresExplicitSelection
+        initiallyConfigured={false}
+        onSelectionReadyChange={onSelectionReadyChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini API key/i }));
+
+    await waitFor(() =>
+      expect(onSelectionReadyChange).toHaveBeenCalledWith("byok_pending_vault"),
+    );
+    expect(onRequestVaultCreation).not.toHaveBeenCalled();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Your key has not been entered or saved/i),
+    ).toBeTruthy();
+  });
+
+  it("keeps the active provider when the encrypted mode write is rejected", async () => {
+    loadRuntimeSecretMock.mockImplementation(
+      ({ credentialRef }: { credentialRef: string }) =>
+        Promise.resolve(
+          credentialRef.includes("credential_mode") ? "byok" : null,
+        ),
+    );
+    storeRuntimeSecretMock.mockResolvedValue({ success: false, conflict: true });
+
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="existing-user"
+        vaultKey="memory-only-vault-key"
+        vaultOwnerToken="memory-only-owner-token"
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Use my Gemini API key/i }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /Hushh managed Gemini/i }),
+    );
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "This setting changed on another device. Refresh and try again.",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /Use my Gemini API key/i }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("requires a responding Gemini key before confirmation and encrypted storage", async () => {

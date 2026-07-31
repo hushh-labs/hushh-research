@@ -333,7 +333,7 @@ function routeForPersona(params: {
     return params.lastKaiPath || ROUTES.KAI_HOME;
   }
   // Defensive: never re-enter the onboarding wizard from a stale lastRiaPath —
-  // let riaEntryRoute (switch → RIA_HOME, else onboarding) decide. Pairs with the
+  // let riaEntryRoute (switch → RIA_PROFILE, else onboarding) decide. Pairs with the
   // navbar guard that stops recording /ria/onboarding as lastRiaPath.
   const lastRiaPath =
     params.lastRiaPath === ROUTES.RIA_ONBOARDING ||
@@ -373,7 +373,11 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
  * owns single-step back; this trail is the multi-level "go back and forth"
  * affordance. Uses currentColor so it tracks the ambient top-surface tone.
  */
-function TopShellBreadcrumbTrail({ items }: { items: TopShellBreadcrumbItem[] }) {
+function TopShellBreadcrumbTrail({
+  items,
+}: {
+  items: TopShellBreadcrumbItem[];
+}) {
   if (!items.length) return null;
   return (
     <nav
@@ -452,9 +456,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const connectedSystemId = useMemo(() => {
     const detailPrefix = `${ROUTES.CONNECTED_SYSTEMS}/`;
     if (normalizedPathname.startsWith(detailPrefix)) {
-      const segment = normalizedPathname
-        .slice(detailPrefix.length)
-        .split("/", 1)[0] || "";
+      const segment =
+        normalizedPathname.slice(detailPrefix.length).split("/", 1)[0] || "";
       try {
         return decodeURIComponent(segment);
       } catch {
@@ -487,9 +490,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // navigation (pathname change) so a freshly-resolved user is honored.
     const setupDismissed = Boolean(
       user?.uid &&
-        (OneSetupCompletionHintService.isResolved(user.uid) ||
-          PreVaultUserStateService.getCachedBootstrapState(user.uid)
-            ?.setupCompleted === true),
+      (OneSetupCompletionHintService.isResolved(user.uid) ||
+        PreVaultUserStateService.getCachedBootstrapState(user.uid)
+          ?.setupCompleted === true),
     );
     return (
       resolveTopShellBreadcrumb(normalizedPathname, searchParams, {
@@ -514,8 +517,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
   const [primaryHeaderOutOfView, setPrimaryHeaderOutOfView] = useState(false);
-  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] =
-    useState(false);
+  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] = useState(false);
   // A route-owned tab row stays as the compact navigation anchor once the
   // shared top row has fully collapsed. The page heading still independently
   // owns title handoff, but it must not prevent an upward gesture from
@@ -928,7 +930,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     // Collapse the fixed side gutter to the back button's width
                     // when a breadcrumb trail is showing, so the trail sits
                     // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail ? "auto" : "var(--top-bar-side-w)",
+                    width: hasBreadcrumbTrail
+                      ? "auto"
+                      : "var(--top-bar-side-w)",
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
@@ -1141,7 +1145,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         >
                           <Avatar className="h-9 w-9">
                             {effectiveAvatarUrl ? (
-
                               <AvatarImage src={effectiveAvatarUrl} alt="" />
                             ) : null}
                             <AvatarFallback className="bg-transparent text-current">

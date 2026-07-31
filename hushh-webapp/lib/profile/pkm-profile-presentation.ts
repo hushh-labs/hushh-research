@@ -202,6 +202,28 @@ export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
   return true;
 }
 
+/**
+ * Memory-only visibility rule.  Reserved empty scopes remain canonical for
+ * future writes, but they should not create an empty folder in the consumer
+ * workspace.  Legacy `unknown` state deliberately remains visible: hiding it
+ * could hide saved information that has not yet been restructured.
+ */
+export function isConsumerBrowsablePkmDomain(domain: DomainSummary): boolean {
+  if (!isConsumerVisiblePkmDomain(domain)) return false;
+  const raw = domain.summary?.scope_materialization;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+  const entries = Object.values(raw as Record<string, unknown>).filter(
+    (entry): entry is Record<string, unknown> =>
+      Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
+  );
+  if (entries.length === 0) return true;
+  return !entries.every(
+    (entry) =>
+      String(entry.state || "").trim().toLowerCase() === "empty" &&
+      Number(entry.materialized_leaf_count || 0) === 0
+  );
+}
+
 function friendlySourceLabel(value: string | null | undefined): string | null {
   const label = String(value || "").trim();
   const normalized = label.toLowerCase();

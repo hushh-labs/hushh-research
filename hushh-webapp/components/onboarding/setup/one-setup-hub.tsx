@@ -389,11 +389,11 @@ export function OneSetupHub() {
               id="one-setup-vault-invitation-title"
               className="mt-5 text-balance type-title2 text-foreground"
             >
-              Like a locked backpack for the things you choose to save.
+              One last step: protect what you save.
             </h2>
             <p className="mt-3 max-w-[28rem] text-pretty type-subhead text-muted-foreground">
-              When One saves something private, it locks it first. Only you can
-              open it.
+              Your private vault gives One end-to-end encryption. Only you hold
+              the key.
             </p>
             <div className="mt-8 flex w-full max-w-[24rem] flex-col gap-3">
               <Button
@@ -406,7 +406,7 @@ export function OneSetupHub() {
                 onClick={() => setVaultDialogOpen(true)}
                 data-testid="one-setup-vault-invitation-open"
               >
-                Set up vault
+                Set up private vault
               </Button>
               <Button
                 type="button"
@@ -418,7 +418,7 @@ export function OneSetupHub() {
                 onClick={leaveAfterVaultChoice}
                 data-testid="one-setup-vault-invitation-later"
               >
-                Not now
+                I’ll do this later
               </Button>
             </div>
           </section>

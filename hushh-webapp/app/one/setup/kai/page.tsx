@@ -583,6 +583,7 @@ function KaiOnboardingPageContent({
           onOpenChange={setVaultOpen}
           title="Open your private vault"
           description="Continue Finance setup after your private vault is ready."
+          allowVaultCreation={false}
           onSuccess={() => setVaultOpen(false)}
         />
       </SetupKaiStageRegion>

@@ -73,7 +73,7 @@ async def test_resolve_pick_source_rows_uses_preloaded_ria_sources(monkeypatch):
                 "state": "ready",
                 "is_default": False,
                 "share_status": "active",
-                "share_origin": "relationship_implicit",
+                "share_origin": "connection_scope_proposal",
                 "share_granted_at": "2026-03-25T00:00:00Z",
                 "upload_id": "upload_1",
             }

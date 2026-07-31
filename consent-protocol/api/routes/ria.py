@@ -161,7 +161,6 @@ class RIAPicksSyncRequest(BaseModel):
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
     source_data_version: int | None = None
     source_manifest_revision: int | None = None
-    retire_legacy: bool = True
 
 
 class RIAInviteTarget(BaseModel):
@@ -186,10 +185,6 @@ class RIAMarketplaceDiscoverabilityRequest(BaseModel):
     enabled: bool
     headline: str | None = Field(None, max_length=512)
     strategy_summary: str | None = Field(None, max_length=5000)
-
-
-class RIAPicksShareStateRequest(BaseModel):
-    enabled: bool
 
 
 class RIAClientDetailResponse(BaseModel):
@@ -642,7 +637,8 @@ async def renaissance_screening(firebase_uid: str = Depends(require_firebase_aut
 
 
 @router.get("/picks")
-async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
+async def get_active_ria_pick_package(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the authenticated RIA's encrypted active Picks package."""
     service = RIAIAMService()
     try:
         return await service.get_active_ria_pick_package(firebase_uid)
@@ -692,7 +688,6 @@ async def upload_ria_picks(
             screening_sections=payload.screening_sections,
             source_data_version=payload.source_data_version,
             source_manifest_revision=payload.source_manifest_revision,
-            retire_legacy=payload.retire_legacy,
         )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
@@ -708,25 +703,6 @@ async def ria_workspace(
     service = RIAIAMService()
     try:
         return await service.get_ria_workspace(firebase_uid, investor_user_id)
-    except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
-    except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post("/clients/{investor_user_id}/picks-share")
-async def set_ria_client_picks_share(
-    investor_user_id: _InvestorUserId,
-    payload: RIAPicksShareStateRequest,
-    firebase_uid: str = Depends(_require_ria_verified),
-):
-    service = RIAIAMService()
-    try:
-        return await service.set_ria_pick_share_state(
-            firebase_uid,
-            investor_user_id=investor_user_id,
-            enabled=payload.enabled,
-        )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:

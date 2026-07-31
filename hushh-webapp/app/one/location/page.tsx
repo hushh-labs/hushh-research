@@ -201,6 +201,7 @@ import {
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
 import { CacheService } from "@/lib/services/cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   loadPersistedDriveSession,
   restoreDriveSession,
@@ -5343,6 +5344,7 @@ export function OneLocationAgentPageContent({
               : person,
           ),
         );
+        CacheSyncService.onConnectionCapabilityMutated(auth.user.uid);
         toast.success(
           `${sentUserIds.length} connection request${sentUserIds.length === 1 ? "" : "s"} sent.`,
         );
@@ -5554,12 +5556,7 @@ export function OneLocationAgentPageContent({
 
   const handleSaveOnboardingLocation = useCallback(
     async (category: SavedLocationCategory, label: string) => {
-      if (
-        !auth.userId ||
-        !vaultKey ||
-        !vaultOwnerToken ||
-        !saveLocationPoint
-      ) {
+      if (!auth.userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
         toast.error("Unlock your vault before saving this location.");
         return;
       }

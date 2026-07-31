@@ -276,6 +276,26 @@ describe("SettingsSegmentedTabs", () => {
     expect(inactive.getAttribute("data-state")).toBe("inactive");
     expect(inactive.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("disables the whole segmented control while its selection is settling", () => {
+    const handleValueChange = vi.fn();
+    render(
+      <SettingsSegmentedTabs
+        value="statement"
+        onValueChange={handleValueChange}
+        disabled
+        options={[
+          { value: "statement", label: "Statement" },
+          { value: "plaid", label: "Brokerage" },
+        ]}
+      />,
+    );
+
+    const brokerage = screen.getByRole("button", { name: "Brokerage" });
+    expect(brokerage).toBeDisabled();
+    fireEvent.click(brokerage);
+    expect(handleValueChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("SettingsDetailPanel", () => {

@@ -19,6 +19,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -32,14 +33,23 @@ export function GeminiRuntimeConfigurationPage({
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [hasVault, setHasVault] = useState<boolean | null>(
+    setupMode ? true : null,
+  );
   const [hasRuntimeChoice, setHasRuntimeChoice] = useState<boolean | null>(
     setupMode ? null : true,
+  );
+  const [setupChoice, setSetupChoice] = useState<OneRuntimeSetupChoice | null>(
+    null,
   );
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
+    if (setupMode) {
+      setHasVault(true);
+      return;
+    }
     if (authLoading || !user?.uid) return;
     if (isVaultUnlocked) {
       setHasVault(true);
@@ -56,7 +66,7 @@ export function GeminiRuntimeConfigurationPage({
     return () => {
       active = false;
     };
-  }, [authLoading, isVaultUnlocked, user?.uid]);
+  }, [authLoading, isVaultUnlocked, setupMode, user?.uid]);
 
   useEffect(() => {
     if (!setupMode) {
@@ -68,6 +78,7 @@ export function GeminiRuntimeConfigurationPage({
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setHasRuntimeChoice(PreVaultUserStateService.hasOneRuntimeChoice(cached));
+      setSetupChoice(cached.oneRuntimeSetupChoice);
       return;
     }
     void PreVaultUserStateService.bootstrapState(user.uid)
@@ -76,6 +87,7 @@ export function GeminiRuntimeConfigurationPage({
           setHasRuntimeChoice(
             PreVaultUserStateService.hasOneRuntimeChoice(state),
           );
+          setSetupChoice(state.oneRuntimeSetupChoice);
         }
       })
       .catch(() => {
@@ -94,10 +106,12 @@ export function GeminiRuntimeConfigurationPage({
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = Boolean(
+  const needsVaultCreation = !setupMode && Boolean(
     user && !isVaultUnlocked && hasVault === false,
   );
-  const needsUnlock = Boolean(user && !isVaultUnlocked && hasVault === true);
+  const needsUnlock = !setupMode && Boolean(
+    user && !isVaultUnlocked && hasVault === true,
+  );
   const finishConnections = useCallback(async () => {
     if (!hasRuntimeChoice) {
       return {
@@ -137,7 +151,7 @@ export function GeminiRuntimeConfigurationPage({
   usePublishVoiceSurfaceMetadata({
     screenId: setupMode ? "one_setup_connections" : "one_connections_settings",
     title: setupMode ? "Connections setup" : "Gemini settings",
-    purpose: "Choose the Gemini runtime used for private-agent turns.",
+    purpose: "Choose how the private agent reaches Gemini.",
     actions:
       setupMode && hasRuntimeChoice && !finishing
         ? [
@@ -175,8 +189,8 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "Connections" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose one option to continue setting up One."
-              : "Manage the Gemini provider for your private-agent turns."
+              ? "Choose Hushh managed Gemini, or choose your own key to configure privately after setup."
+              : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
         />
@@ -192,11 +206,15 @@ export function GeminiRuntimeConfigurationPage({
           onRequestVaultUnlock={() => setUnlockOpen(true)}
           requiresExplicitSelection={setupMode}
           initiallyConfigured={hasRuntimeChoice === true}
+          initialSetupChoice={setupChoice}
           onSelectionReadyChange={
             setupMode && user?.uid
-              ? async (ready) => {
-                  if (!ready) return;
-                  await PreVaultUserStateService.markOneRuntimeChoice(user.uid);
+              ? async (choice) => {
+                  const state = await PreVaultUserStateService.markOneRuntimeChoice(
+                    user.uid,
+                    choice,
+                  );
+                  setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
                 }
               : undefined
@@ -215,7 +233,7 @@ export function GeminiRuntimeConfigurationPage({
           supportingText="Choose one runtime before continuing."
         />
       ) : null}
-      {user ? (
+      {!setupMode && user ? (
         <VaultUnlockDialog
           user={user}
           open={unlockOpen}

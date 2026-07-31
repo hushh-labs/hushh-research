@@ -12,10 +12,15 @@ function read(relativePath: string) {
 describe("RIA shared header regression contract", () => {
   it("keeps the main RIA routes on shared header primitives", () => {
     const riaHome = read("app/ria/page.tsx");
+    const riaProfile = read("app/ria/profile/page.tsx");
     const riaClients = read("app/ria/clients/page.tsx");
     const riaPicks = read("app/ria/picks/page.tsx");
 
-    expect(riaHome).toContain("RiaPageShell");
+    // `/ria` deliberately remains a thin compatibility redirect. The canonical
+    // Profile tab owns the shared RIA shell and header contract.
+    expect(riaHome).toContain("ClientRedirect");
+    expect(riaHome).toContain("ROUTES.RIA_PROFILE");
+    expect(riaProfile).toContain("RiaPageShell");
     expect(riaClients).toContain("PageHeader");
     expect(riaPicks).toContain("PageHeader");
     expect(riaPicks).toContain("SettingsSegmentedTabs");
@@ -23,10 +28,11 @@ describe("RIA shared header regression contract", () => {
   });
 
   it("keeps the consent workspace on the shared page header", () => {
-    const consentCenterView = read("components/consent/consent-center-view.tsx");
+    const consentCenterPage = read("components/consent/consent-center-page.tsx");
 
-    expect(consentCenterView).toContain("PageHeader");
-    expect(consentCenterView).toContain("AppPageHeaderRegion");
+    expect(consentCenterPage).toContain("AppPageShell");
+    expect(consentCenterPage).toContain("SettingsDetailPanel");
+    expect(consentCenterPage).toContain("isConnectionRequestEntry");
   });
 
   it("keeps the RIA shell on the shared Foundation header and accent tokens", () => {

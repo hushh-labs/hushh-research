@@ -1350,11 +1350,20 @@ class OneLocationAgentService:
         rows = self._optional_signal_rows(
             signal_name="mutual_kai_relationships",
             sql="""
-            SELECT rel.investor_user_id, rel.status, rel.created_at, rel.updated_at,
+            SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
                    rp.user_id AS ria_user_id
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            WHERE rel.status IN ('approved', 'request_pending', 'discovered')
+            JOIN relationship_share_grants share
+              ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
+             AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
+            WHERE rel.status = 'approved'
             ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
             LIMIT 500
             """,
@@ -1422,9 +1431,15 @@ class OneLocationAgentService:
               share.granted_at AS relationship_share_granted_at
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            LEFT JOIN relationship_share_grants share
+            JOIN relationship_share_grants share
               ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
              AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
             WHERE rel.investor_user_id = :owner_user_id
                OR rp.user_id = :owner_user_id
             ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
@@ -1444,7 +1459,7 @@ class OneLocationAgentService:
             signal = signals[other_user_id]
             status = str(row.get("status") or "").lower()
             share_status = str(row.get("relationship_share_status") or "").lower()
-            if status == "approved" or share_status == "active":
+            if status == "approved" and share_status == "active":
                 self._add_recommendation_reason(
                     signal,
                     code="approved_professional_relationship",
@@ -1452,20 +1467,9 @@ class OneLocationAgentService:
                     weight=38,
                 )
                 signal["trusted"] = True
-            elif status == "request_pending":
-                self._add_recommendation_reason(
-                    signal,
-                    code="pending_professional_relationship",
-                    label="Pending advisor/investor relationship",
-                    weight=20,
-                )
             else:
-                self._add_recommendation_reason(
-                    signal,
-                    code="professional_graph_proximity",
-                    label="Advisor/investor network connection",
-                    weight=16,
-                )
+                # Defensive fail-closed posture for partially migrated rows.
+                continue
             signal["professional"] = True
             signal["relationship_type"] = signal.get("relationship_type") or relationship_label
             if str(row.get("ria_verification_status") or "").lower() in {"verified", "active"}:
@@ -2899,6 +2903,15 @@ class OneLocationAgentService:
                       SELECT 1
                       FROM advisor_investor_relationships air
                       JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      JOIN relationship_share_grants share
+                        ON share.relationship_id = air.id
+                       AND share.grant_key = 'ria_active_picks_feed_v1'
+                       AND share.status = 'active'
+                       AND share.connection_scope_proposal_id IS NOT NULL
+                      JOIN connection_scope_proposals proposal
+                        ON proposal.id = share.connection_scope_proposal_id
+                       AND proposal.status = 'active'
+                       AND proposal.capability_key = 'ria_active_picks_feed_v1'
                       WHERE air.status = 'approved'
                         AND (
                           (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)

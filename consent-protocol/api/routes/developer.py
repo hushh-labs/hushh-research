@@ -41,6 +41,7 @@ from hushh_mcp.consent.connector_crypto_profiles import (
     get_connector_crypto_profile,
 )
 from hushh_mcp.consent.export_envelope import digest_bytes, scope_handle_for_machine_scope
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import (
@@ -1776,6 +1777,14 @@ async def _request_consent_impl(
     )
 
     normalized_scope = normalize_scope(payload.scope)
+    if is_private_pkm_export_scope(normalized_scope):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "Private analysis source material cannot be requested or exported.",
+            },
+        )
     if normalized_scope in RETIRED_SCOPE_VALUES:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -2283,6 +2292,14 @@ async def _load_scoped_export_or_raise(
                 "message": f"Consent validation failed: {reason or 'unknown error'}",
             },
         )
+    if is_private_pkm_export_scope(str(token_obj.scope or "")):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This encrypted export was retired by the private-analysis policy.",
+            },
+        )
 
     if str(token_obj.user_id) != user_id:
         raise HTTPException(
@@ -2648,6 +2665,8 @@ async def get_scoped_export_resource(
     valid, _reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None or str(token_obj.agent_id) != principal.agent_id:
         raise HTTPException(status_code=401, detail={"error_code": "INVALID_CONSENT_TOKEN"})
+    if is_private_pkm_export_scope(str(token_obj.scope or "")):
+        raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
     if int(export_data.get("export_revision") or 0) != revision:
         raise HTTPException(status_code=404, detail={"error_code": "EXPORT_REVISION_NOT_FOUND"})
     if str(export_data.get("refresh_status") or "") != "current":

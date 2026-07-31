@@ -247,7 +247,7 @@ export const Navbar = ({
       // Never record the onboarding wizard as the RIA entry path — otherwise an
       // established advisor who opens onboarding once (e.g. via profile "Edit
       // licence") gets sent back into the wizard on every later RIA open,
-      // overriding the correct riaEntryRoute (switch → RIA_HOME) and causing the
+      // overriding the correct riaEntryRoute (switch → RIA_PROFILE) and causing the
       // onboarding→profile flash.
       const isOnboardingRoute =
         pathname === ROUTES.RIA_ONBOARDING ||

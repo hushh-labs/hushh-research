@@ -15,12 +15,15 @@ export function SegmentedTabs({
   onValueChange,
   options,
   mobileColumns,
+  disabled = false,
   className,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   options: SegmentedTabOption[];
   mobileColumns?: number;
+  /** Disable every option while the owning selection is settling. */
+  disabled?: boolean;
   className?: string;
 }) {
   const resolvedDesktopColumns = Math.max(options.length, 1);
@@ -48,15 +51,17 @@ export function SegmentedTabs({
             key={option.value}
             type="button"
             aria-pressed={isActive}
+            disabled={disabled}
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
-              if (!isActive) onValueChange(option.value);
+              if (!disabled && !isActive) onValueChange(option.value);
             }}
             className={cn(
               "press-scale relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
               isActive
                 ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[0_0_0_1px_var(--app-segmented-active-border),var(--shadow-xs)]"
-                : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+              disabled && "cursor-not-allowed opacity-60"
             )}
           >
             {/* Ripple sits BEHIND the label (z-0) and never intercepts taps. */}

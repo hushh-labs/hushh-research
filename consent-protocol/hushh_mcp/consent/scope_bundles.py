@@ -36,15 +36,14 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
     "full_portfolio_review": ScopeBundle(
         bundle_key="full_portfolio_review",
         label="Full Portfolio Review",
-        description="Complete financial data including analysis history and decisions",
+        description="Portfolio, profile, documents, and compact decisions",
         icon_name="briefcase",
         color_hex="#D4AF37",
         scopes=(
             "attr.financial.portfolio.*",
             "attr.financial.profile.*",
             "attr.financial.documents.*",
-            "attr.financial.analysis_history.*",
-            "attr.financial.decisions.*",
+            "attr.financial.analysis.decisions.*",
         ),
     ),
     "risk_assessment": ScopeBundle(

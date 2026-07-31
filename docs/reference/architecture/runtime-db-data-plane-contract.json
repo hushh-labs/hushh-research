@@ -290,14 +290,15 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "connection_scope_proposal*",
         "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants and preserve append-only scope-proposal audit metadata.",
       "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
-      "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
+      "trust_boundary": "Professional and relationship metadata only; scope proposals contain opaque handles and capability lifecycle metadata, never decrypted investor PKM or an information export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
     },

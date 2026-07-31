@@ -286,7 +286,12 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
                             "decision_type": "BUY",
                             "confidence": 0.91,
                             "created_at": "2026-03-27T12:00:00Z",
-                            "metadata": {"source": "analysis_history"},
+                            "metadata": {
+                                "source": "analysis_history",
+                                "final_statement": "MODEL PROSE MUST NOT ENTER EVENTS",
+                                "agent_votes": {"analyst": "BUY"},
+                                "raw_card": {"private": "source artifact"},
+                            },
                         }
                     ]
                 },
@@ -345,6 +350,9 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert "friendly_domain_name" not in str(event_rows[0]["metadata"])
     assert event_rows[2]["metadata"]["projection_mode"] == "replace_all"
     assert event_rows[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
+    assert "MODEL PROSE MUST NOT ENTER EVENTS" not in json.dumps(event_rows[2]["metadata"])
+    assert "agent_votes" not in json.dumps(event_rows[2]["metadata"])
+    assert "raw_card" not in json.dumps(event_rows[2]["metadata"])
 
 
 @pytest.mark.asyncio

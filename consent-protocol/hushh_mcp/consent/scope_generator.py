@@ -14,6 +14,7 @@ import logging
 from typing import Optional
 
 from db.db_client import get_db
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,11 @@ class DynamicScopeGenerator:
         """
         domain = domain.lower().strip()
         return f"{self.SCOPE_PREFIX}{domain}{self.WILDCARD_SUFFIX}"
+
+    @classmethod
+    def _is_exportable_scope(cls, *, domain: str, path: str | None = None) -> bool:
+        suffix = f".{path}" if path else ""
+        return not is_private_pkm_export_scope(f"{cls.SCOPE_PREFIX}{domain}{suffix}.*")
 
     def parse_scope(self, scope: str) -> tuple[Optional[str], Optional[str], bool]:
         """
@@ -562,6 +568,8 @@ class DynamicScopeGenerator:
                 or None,
             )
             top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
+            if domain and not self._is_exportable_scope(domain=domain, path=top_level_path or None):
+                continue
             if domain and top_level_path:
                 materialization = materialization_by_top_level.get((domain, top_level_path), {})
                 registry_state = (
@@ -618,6 +626,8 @@ class DynamicScopeGenerator:
 
         for domain in sorted(known_domains):
             domain_internal = self._is_internal_only_domain(domain)
+            if not self._is_exportable_scope(domain=domain):
+                continue
             domain_top_levels = all_consumer_top_levels_by_domain.get(domain, set())
             enabled_top_levels = enabled_consumer_top_levels_by_domain.get(domain, set())
             if (
@@ -686,6 +696,8 @@ class DynamicScopeGenerator:
                 for path in (row.get("top_level_scope_paths") or [])
             ]
             for path in [path for path in top_level_paths if path]:
+                if not self._is_exportable_scope(domain=domain, path=path):
+                    continue
                 registry_meta = registry_by_top_level.get((domain, path), {})
                 materialization = materialization_by_top_level.get((domain, path), {})
                 if materialization.get("materialization_state") == "empty":
@@ -728,6 +740,8 @@ class DynamicScopeGenerator:
             for raw_path in row.get("externalizable_paths") or []:
                 path = self._normalize_scope_path(raw_path)
                 if not path:
+                    continue
+                if not self._is_exportable_scope(domain=domain, path=path):
                     continue
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
@@ -779,6 +793,8 @@ class DynamicScopeGenerator:
             domain = self._normalize_domain_key(row.get("domain"))
             path = self._normalize_scope_path(row.get("json_path"))
             if not domain or not path:
+                continue
+            if not self._is_exportable_scope(domain=domain, path=path):
                 continue
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]

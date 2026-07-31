@@ -29,6 +29,7 @@ export function LocationOnboardingSetupClient() {
       <CapabilityVaultPrerequisite
         capabilityLabel="Location"
         routeKey="/one/setup/location"
+        allowVaultCreation={false}
       >
         <OneLocationAgentPage
           mode="setup"

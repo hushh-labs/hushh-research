@@ -423,13 +423,17 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
-  // RIA workspace home (level 2 for the adviser persona): back returns to /one.
-  if (pathname === ROUTES.RIA_HOME) {
+  // Profile is the RIA home. `/ria` remains a compatibility redirect only.
+  if (pathname === ROUTES.RIA_HOME || pathname === ROUTES.RIA_PROFILE) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "RIA" }],
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA" },
+        { label: "Profile" },
+      ],
     };
   }
 
@@ -448,7 +452,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA", href: ROUTES.RIA_HOME },
+        { label: "RIA", href: ROUTES.RIA_PROFILE },
         { label: "Picks", href: ROUTES.RIA_PICKS },
         { label: "Debate" },
       ],
@@ -465,12 +469,12 @@ function resolveTopShellBreadcrumbInner(
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
       return {
-        backHref: ROUTES.RIA_HOME,
+        backHref: ROUTES.RIA_PROFILE,
         width: "content",
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label },
         ],
       };
@@ -586,10 +590,10 @@ function resolveTopShellBreadcrumbInner(
 
   if (pathname === ROUTES.RIA_CLIENTS) {
     return {
-      backHref: ROUTES.RIA_HOME,
+      backHref: ROUTES.RIA_PROFILE,
       width: "profile",
       align: "center",
-      items: [{ label: "RIA", href: ROUTES.RIA_HOME }, { label: "Clients" }],
+      items: [{ label: "RIA", href: ROUTES.RIA_PROFILE }, { label: "Clients" }],
     };
   }
 
@@ -607,7 +611,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace" },
         ],
@@ -621,7 +625,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Account detail" },
@@ -635,7 +639,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Request detail" },

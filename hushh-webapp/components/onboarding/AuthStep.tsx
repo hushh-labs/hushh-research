@@ -1048,105 +1048,114 @@ export function AuthStep({
         data-auth-content-block
       >
         {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. */}
-        <div className="flex flex-none flex-col items-center px-6 pb-2 text-center">
-          {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-              chrome (badge circle removed by design). */}
-          <div
-            className="relative flex h-[92px] w-[92px] items-center justify-center"
-            aria-hidden="true"
-          >
-            <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-            <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-              🤫
-            </span>
-          </div>
-          <h1
-            role="heading"
-            aria-level={1}
-            aria-label="Welcome to One"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
-          >
-            Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
-          </h1>
-        </div>
-
-        {/* Buttons sit directly on the shared hero background (no card/sheet
-            behind them), matching the welcome ("/") page's direct-on-canvas
-            CTA. The outer app scroll root already reserves clearance for the
-            fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
-            app/providers.tsx), so this is a plain content gap rather than a
-            second bar-height reservation. */}
-        <div className="relative px-6 pt-2 pb-6">
-          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-3">
-            {providerAttempt?.phase === "attention_required" ? (
-              <p
-                role="status"
-                className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
-              >
-                The provider window needs attention. You can retry the same
-                sign-in option securely.
-              </p>
-            ) : null}
-            {authOptions.map((option) => (
-              <AuthProviderButton
-                key={option.id}
-                label={option.label}
-                icon={option.icon}
-                onClick={() => {
-                  void option.onClick();
-                }}
-                disabled={providerBusy}
-                voiceControlId={`auth_${option.id}`}
-                className={cn(
-                  option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
-                )}
-              />
-            ))}
-
-            {showReviewer ? (
-              <AuthProviderButton
-                label="Continue as Reviewer"
-                icon={<Icon icon={Shield} size="md" />}
-                onClick={handleReviewerLogin}
-                disabled={providerBusy}
-                className={REVIEWER_BTN_CLASS}
-              />
-            ) : null}
-
-            {/* Consent-first reassurance chip. */}
-            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
-              <Icon
-                icon={Shield}
-                size="sm"
-                className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
-              />
-              <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                Consent-first. Nothing moves without your yes.
+            fixed Back control remains independently anchored above it. The
+            clusters use one deliberate rhythm: identity, provider actions,
+            then the consent and legal context. */}
+        <div
+          className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          data-auth-signin-clusters
+        >
+          <div className="flex flex-col items-center gap-4">
+            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
+                chrome (badge circle removed by design). */}
+            <div
+              className="relative flex h-[92px] w-[92px] items-center justify-center"
+              aria-hidden="true"
+            >
+              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
+              <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+                🤫
               </span>
             </div>
+            <h1
+              role="heading"
+              aria-level={1}
+              aria-label="Welcome to One"
+              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+            >
+              Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
+            </h1>
+          </div>
 
-            <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
-              By continuing, you agree to the{" "}
-              <button
-                type="button"
-                onClick={() => void openLegalDoc("terms")}
-                data-voice-control-id="auth_terms"
-                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-              >
-                Terms of Service
-              </button>
-              <span aria-hidden="true"> and </span>
-              <button
-                type="button"
-                onClick={() => void openLegalDoc("privacy")}
-                data-voice-control-id="auth_privacy"
-                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-              >
-                Privacy Policy
-              </button>
-              .
-            </p>
+          {/* Buttons sit directly on the shared hero background (no card/sheet
+              behind them), matching the welcome ("/") page's direct-on-canvas
+              CTA. The outer app scroll root already reserves clearance for the
+              fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
+              app/providers.tsx), so this is a plain content gap rather than a
+              second bar-height reservation. */}
+          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-4">
+            <div className="space-y-3" data-auth-provider-actions>
+              {providerAttempt?.phase === "attention_required" ? (
+                <p
+                  role="status"
+                  className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
+                >
+                  The provider window needs attention. You can retry the same
+                  sign-in option securely.
+                </p>
+              ) : null}
+              {authOptions.map((option) => (
+                <AuthProviderButton
+                  key={option.id}
+                  label={option.label}
+                  icon={option.icon}
+                  onClick={() => {
+                    void option.onClick();
+                  }}
+                  disabled={providerBusy}
+                  voiceControlId={`auth_${option.id}`}
+                  className={cn(
+                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                  )}
+                />
+              ))}
+
+              {showReviewer ? (
+                <AuthProviderButton
+                  label="Continue as Reviewer"
+                  icon={<Icon icon={Shield} size="md" />}
+                  onClick={handleReviewerLogin}
+                  disabled={providerBusy}
+                  className={REVIEWER_BTN_CLASS}
+                />
+              ) : null}
+            </div>
+
+            <div className="flex flex-col items-center gap-3" data-auth-supporting-content>
+              {/* Consent-first reassurance chip. */}
+              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
+                <Icon
+                  icon={Shield}
+                  size="sm"
+                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
+                />
+                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
+                  Consent-first. Nothing moves without your yes.
+                </span>
+              </div>
+
+              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+                By continuing, you agree to the{" "}
+                <button
+                  type="button"
+                  onClick={() => void openLegalDoc("terms")}
+                  data-voice-control-id="auth_terms"
+                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+                >
+                  Terms of Service
+                </button>
+                <span aria-hidden="true"> and </span>
+                <button
+                  type="button"
+                  onClick={() => void openLegalDoc("privacy")}
+                  data-voice-control-id="auth_privacy"
+                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+                >
+                  Privacy Policy
+                </button>
+                .
+              </p>
+            </div>
           </div>
         </div>
       </div>

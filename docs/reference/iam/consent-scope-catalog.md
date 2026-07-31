@@ -31,6 +31,11 @@ Define canonical scope families and template policy for Investor + RIA consent r
 6. Public profiles are owner-published resources addressed by an opaque
    `public_profile_handle`; they are not `attr.*` scopes and never authorize
    private PKM access.
+7. One-to-One capabilities are proposed with server-issued opaque handles in
+   `connection_scope_proposals`. A connection is accepted separately from its
+   scopes; only the capability owner can activate a requested handle, and an
+   offered handle requires recipient opt-in. Proposal metadata never contains
+   PKM content or authorizes an `attr.*` export.
 
 ## Display Metadata Contract
 

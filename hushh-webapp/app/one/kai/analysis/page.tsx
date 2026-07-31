@@ -459,9 +459,6 @@ export function KaiAnalysisPageContent() {
   const handleWorkspaceTabChange = useCallback(
     (value: string) => {
       setWorkspaceView(value as WorkspaceTab);
-      requestAnimationFrame(() => {
-        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      });
     },
     [setWorkspaceView],
   );
@@ -767,16 +764,6 @@ export function KaiAnalysisPageContent() {
       router.replace(buildKaiMarketRoute("analysis", { focus: "active" }));
       return;
     }
-    const previewSource =
-      stockPreview?.pick_sources.find((source) => source.id === previewPickSource) ?? null;
-    const resolvedPickSourceLabel =
-      previewSource?.label ||
-      (previewPickSource === "default"
-        ? "Default list"
-        : previewPickSource.startsWith("ria:")
-          ? "Connected advisor list"
-          : previewPickSource);
-
     setStartingPreviewDebate(true);
     void getStockContext(currentPreviewTicker, vaultOwnerToken)
       .then((context) => {
@@ -791,7 +778,6 @@ export function KaiAnalysisPageContent() {
           launchConfirmed: true,
           userContext: context,
           pickSource: previewPickSource,
-          pickSourceLabel: resolvedPickSourceLabel,
         });
         setShowHistoryWhileActive(false);
         setWorkspaceTab("debate");
@@ -817,7 +803,6 @@ export function KaiAnalysisPageContent() {
     router,
     setAnalysisParams,
     showWorkspace,
-    stockPreview?.pick_sources,
     userId,
     vaultOwnerToken,
   ]);
@@ -1158,8 +1143,6 @@ export function KaiAnalysisPageContent() {
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
-                    pickSourceLabel={analysisParams?.pickSourceLabel}
-                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
                     onDecisionReady={handleLiveDecisionReady}
                     onDecisionPersisted={handleLiveDecisionPersisted}
@@ -1176,8 +1159,6 @@ export function KaiAnalysisPageContent() {
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
-                    pickSourceLabel={analysisParams?.pickSourceLabel}
-                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
                     onDecisionReady={handleLiveDecisionReady}
                     onDecisionPersisted={handleLiveDecisionPersisted}
@@ -1193,8 +1174,6 @@ export function KaiAnalysisPageContent() {
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
-                    pickSourceLabel={analysisParams?.pickSourceLabel}
-                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
                     onDecisionReady={handleLiveDecisionReady}
                     onDecisionPersisted={handleLiveDecisionPersisted}

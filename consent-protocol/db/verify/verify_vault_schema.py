@@ -25,6 +25,7 @@ REQUIRED_COLUMNS = {
         "recovery_encrypted_vault_key",
         "recovery_salt",
         "recovery_iv",
+        "one_runtime_setup_choice",
         "created_at",
         "updated_at",
     },
