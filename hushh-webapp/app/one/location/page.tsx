@@ -58,6 +58,7 @@ import {
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import {
   addSavedLocation,
+  DuplicateSavedLocationError,
   loadSavedLocations,
   type SavedLocationCategory,
 } from "@/lib/one-location/saved-locations";
@@ -5791,8 +5792,12 @@ export function OneLocationAgentPageContent({
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         toast.success("Location saved securely.");
-      } catch {
-        toast.error("Could not save this location. Please try again.");
+      } catch (error) {
+        toast.error(
+          error instanceof DuplicateSavedLocationError
+            ? error.message
+            : "Could not save this location. Please try again.",
+        );
       } finally {
         setSaveLocationSaving(false);
       }

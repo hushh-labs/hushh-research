@@ -233,6 +233,7 @@ vi.mock("@/lib/one-location/service", () => ({
 }));
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
+  DuplicateSavedLocationError: class extends Error {},
   addSavedLocation: mockAddSavedLocation,
   loadSavedLocations: mockLoadSavedLocations,
 }));

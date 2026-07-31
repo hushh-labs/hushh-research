@@ -17,6 +17,9 @@ import { SaveLocationModal } from "@/components/one-location/onboarding/save-loc
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
+  duplicateSavedLocationMessage,
+  DuplicateSavedLocationError,
+  findDuplicateSavedLocation,
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
@@ -264,6 +267,15 @@ export function SavedLocationsSection() {
         return;
       }
 
+      const duplicate = findDuplicateSavedLocation(
+        locations,
+        saveLocationPoint,
+      );
+      if (duplicate) {
+        toast.error(duplicateSavedLocationMessage(duplicate));
+        return;
+      }
+
       setSaveLocationSaving(true);
       const session = { userId, vaultKey, vaultOwnerToken };
       try {
@@ -282,9 +294,13 @@ export function SavedLocationsSection() {
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         toast.success("Location saved securely.");
-      } catch {
+      } catch (error) {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not save this location. Please try again.");
+        toast.error(
+          error instanceof DuplicateSavedLocationError
+            ? error.message
+            : "Could not save this location. Please try again.",
+        );
       } finally {
         if (isCurrentVaultSession(session)) {
           setSaveLocationSaving(false);
@@ -294,6 +310,7 @@ export function SavedLocationsSection() {
     [
       saveLocationAddress,
       saveLocationPoint,
+      locations,
       isCurrentVaultSession,
       userId,
       vaultKey,

@@ -96,6 +96,11 @@ live-location grants:
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
+- one physical place may have only one saved category; a candidate within 25
+  metres of any existing Home, Work, or Other place is rejected with a reminder
+  to remove the existing place first. The encrypted persistence mutation
+  rechecks this invariant against the latest PKM state after write conflicts,
+  while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
   onboarding prompt; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
