@@ -48,8 +48,8 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     server-resolved active binding and preserves workflow/audit history.
 11. Nearby presence defaults to absent, requires fresh owner confirmation and
     phone verification, and is visible only to another explicitly active
-    check-in whose independently selected public-place anchor is inside the
-    fixed exact radius.
+    check-in whose independently confirmed point is inside the fixed exact
+    radius.
 12. Nearby roster and Connect responses expose rotating aliases and safe display
     labels only—never peer coordinates, distance, selected place, email, phone,
     or stable user ids.
@@ -59,7 +59,7 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     and leaves only bounded metadata for account deletion and the 12-hour
     Location retention purge.
 14. Candidate tokens are short-epoch, server-keyed, and broad-phase only.
-    Exact distance is rechecked after decryption; Connect binds that result to
+    Exact point-to-point distance is rechecked after decryption; Connect binds that result to
     both presence versions and atomically rechecks eligibility on insert.
 15. GPS-only nearby simulation is unavailable in production even when its
     mode is misconfigured; Check out remains available while discovery is

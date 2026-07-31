@@ -112,13 +112,13 @@ capability vocabulary and are not externally requestable.
 
 | Scope | Intended Use |
 | --- | --- |
-| `cap.location.nearby.publish` | Publish a 30/60/120-minute opted-in presence after one-time selected-place verification |
+| `cap.location.nearby.publish` | Publish a 30/60/120-minute opted-in presence after final-point and selected-place verification |
 | `cap.location.nearby.discover` | Read only the caller's active, exact-radius, mutually opted-in nearby projection |
 | `cap.location.nearby.revoke` | Check out, clear anchor material, and immediately remove the caller from discovery |
 
-These scopes never authorize a location grant. Raw device coordinates and
-accuracy are request-memory-only. Allowed active persistence is limited to the
-selected public-place anchor as AES-256-GCM ciphertext, a short-epoch keyed
+These scopes never authorize a location grant. Accuracy is request-memory-only.
+Allowed active persistence is limited to the confirmed check-in point and safe
+place label inside AES-256-GCM ciphertext, a short-epoch keyed
 candidate token, rotating attendee alias, fixed radius, consent/audience
 posture, status, and expiry metadata. Plaintext coordinates, exact distance,
 provider place ids, place labels, roster contents, email, phone, and stable

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 130,
+  "expected_migration_version": 131,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",

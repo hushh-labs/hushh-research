@@ -209,7 +209,7 @@ const routeOverrides = {
       baseline_transport:
         "Active recipient-scoped ciphertext only; no public or iframe fallback",
       coordinate_storage:
-        "Map coordinates stay in foreground renderer memory. Nearby presence stores only the selected public-place anchor under AES-256-GCM plus a rotating spatial token; raw device GPS is request-memory only.",
+        "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
       location_capture:
         "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
       visibility:

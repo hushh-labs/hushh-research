@@ -1226,8 +1226,10 @@ export function LocationImmersiveMap() {
             Your Map decrypts approved private shares only on this device, then
             sends the coordinates needed to Google Maps to render them. Hussh
             servers do not receive those decrypted points. Nearby Check-In sends
-            your current point once to Google to suggest places; Hussh does not
-            store that raw GPS fix, and other users never receive it.
+            your current point to Google to suggest places. If you confirm,
+            Hussh retains that check-in point only as short-lived encrypted data
+            for 500-metre matching; other users never receive the point or exact
+            distance.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
@@ -1509,7 +1511,9 @@ export function LocationImmersiveMap() {
                       Live locations shared with you
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      Only explicit private shares appear as map pins.
+                      Nearby check-ins stay in the list and never become map
+                      pins. A pin appears only after that person explicitly
+                      shares their location with you.
                     </p>
                   </div>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">

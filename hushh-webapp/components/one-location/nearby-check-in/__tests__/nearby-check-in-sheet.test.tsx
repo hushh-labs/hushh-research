@@ -79,7 +79,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -89,7 +89,15 @@ describe("NearbyCheckInSheet", () => {
   });
 
   it("captures a fresh point, preselects the nearest place, and keeps consent explicit", async () => {
-    const capture = vi.fn().mockResolvedValue(point);
+    const confirmationPoint = {
+      ...point,
+      latitude: 37.4277,
+      capturedAt: new Date(Date.now() + 1_000).toISOString(),
+    };
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce(point)
+      .mockResolvedValueOnce(confirmationPoint);
     render(
       <NearbyCheckInSheet
         open
@@ -116,9 +124,12 @@ describe("NearbyCheckInSheet", () => {
       }),
     ).toHaveAttribute("data-state", "unchecked");
     expect(
-      screen.getByText(/current point is sent once to Google/i),
+      screen.getByText(/current point is sent to Google/i),
     ).toHaveTextContent(
-      /Hussh does not store the raw GPS fix, and nearby people never receive it/i,
+      /Hussh stores your check-in point only as short-lived encrypted data/i,
+    );
+    expect(screen.getByText(/current point is sent to Google/i)).toHaveTextContent(
+      /They see your display name in their list, never your point or exact distance/i,
     );
 
     const submit = screen.getByRole("button", {
@@ -130,7 +141,7 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Let nearby checked-in users see me/,
+        name: /Show me in the nearby people list/,
       }),
     );
     expect(submit).toBeEnabled();
@@ -140,12 +151,46 @@ describe("NearbyCheckInSheet", () => {
       expect(service.checkInNearby).toHaveBeenCalledWith({
         vaultOwnerToken: "owner-token",
         placeId: "stanford-main",
-        point,
+        point: confirmationPoint,
         durationMinutes: 60,
         consentAccepted: true,
         allowConnectionRequests: false,
       });
     });
+    expect(capture).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks check-in when the final confirmation point is too approximate", async () => {
+    const approximatePoint = { ...point, accuracyM: 101 };
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce(point)
+      .mockResolvedValueOnce(approximatePoint);
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    expect(
+      await screen.findByText(/This location is too approximate/i),
+    ).toBeInTheDocument();
+    expect(service.checkInNearby).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a persistent retry after the initial presence read fails", async () => {
@@ -203,7 +248,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -262,7 +307,7 @@ describe("NearbyCheckInSheet", () => {
           audience: "all_opted_in",
           radiusMeters: 500,
           allowConnectionRequests: false,
-          consentVersion: "one-location-nearby-presence-v1",
+          consentVersion: "one-location-nearby-presence-v2",
           checkedInAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
           placeLabel: "Stanford University",
@@ -306,7 +351,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in" as const,
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -360,7 +405,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in" as const,
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -421,7 +466,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -480,7 +525,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -522,7 +567,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v1",
+        consentVersion: "one-location-nearby-presence-v2",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -563,7 +608,7 @@ describe("NearbyCheckInSheet", () => {
           audience: "all_opted_in",
           radiusMeters: 500,
           allowConnectionRequests: false,
-          consentVersion: "one-location-nearby-presence-v1",
+          consentVersion: "one-location-nearby-presence-v2",
           checkedInAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
           placeLabel: "Stanford University",

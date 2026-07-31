@@ -113,14 +113,14 @@ Private data is always consent-gated and scoped.
 3. `pkm_index` stores sanitized metadata only.
 4. RIA verification/compliance and relationship workflow do not belong in the PKM.
 5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
-6. Nearby presence is an explicit, short-lived workflow. One fresh device point
-   may exist transiently in authenticated request memory for selected-place
-   verification. The selected public-place anchor is persisted only as an
-   authenticated encryption envelope plus a short-epoch server-keyed candidate
-   token. Checkout clears both synchronously. Expiry synchronously blocks roster
+6. Nearby presence is an explicit, short-lived workflow. A fresh point is used
+   to resolve suggestions, and a new point is captured at final confirmation.
+   The confirmed check-in point is persisted only as an authenticated encryption
+   envelope plus a short-epoch server-keyed candidate token; accuracy is not
+   persisted. Checkout clears both synchronously. Expiry synchronously blocks roster
    and Connect access; the next feature operation or required hosted hourly
    retention job scrubs the due envelope and token. Candidate tokens are
-   broad-phase only: exact radius is rechecked against decrypted anchors before
+   broad-phase only: exact radius is rechecked against decrypted check-in points before
    roster or Connect authorization. Both people must remain explicitly active;
    a Connect edge or phone-verification flag alone is never presence consent.
    The GPS-spoofable verifier is non-production simulation code and fails
