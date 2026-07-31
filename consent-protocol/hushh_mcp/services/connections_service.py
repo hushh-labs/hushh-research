@@ -44,6 +44,28 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     return OneLocationAgentService().list_directory_candidates(owner_user_id=owner_user_id)
 
 
+def _default_directory_search(
+    owner_user_id: str, *, query: str, page: int, limit: int
+) -> dict[str, Any]:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().search_directory_candidates(
+        owner_user_id=owner_user_id,
+        query=query,
+        page=page,
+        limit=limit,
+    )
+
+
+def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bool:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().is_directory_candidate(
+        owner_user_id=owner_user_id,
+        candidate_user_id=candidate_user_id,
+    )
+
+
 def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
     """Best-effort real push (deferred import keeps Firebase off the import path)."""
     from hushh_mcp.services.push_notifications import send_connection_request_push
@@ -56,9 +78,13 @@ class ConnectionsService:
         self,
         *,
         directory_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
+        directory_search: Callable[..., dict[str, Any]] | None = None,
+        directory_visible: Callable[[str, str], bool] | None = None,
         notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
+        self._directory_search = directory_search or _default_directory_search
+        self._directory_visible = directory_visible or _default_directory_visible
         self._notifier = notifier if notifier is not None else _default_notifier
 
     # ---- DB seam ----
@@ -195,6 +221,15 @@ class ConnectionsService:
         }
 
     def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
+        directory_visible = getattr(self, "_directory_visible", None)
+        if directory_visible is not None:
+            if directory_visible(viewer_user_id, counterpart_user_id):
+                return
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
         visible_user_ids = {
             str(person.get("userId") or "").strip()
             for person in self._directory_lookup(viewer_user_id)
@@ -1516,11 +1551,20 @@ class ConnectionsService:
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
         # relationship is annotated on top.
-        people = self._directory_lookup(user_id) or []
-        if needle:
-            people = [
-                p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-            ]
+        directory_search = getattr(self, "_directory_search", None)
+        if directory_search is not None:
+            directory_page = directory_search(user_id, query=needle, page=page, limit=limit)
+            people = directory_page.get("items") or []
+            has_more = bool(directory_page.get("hasMore"))
+        else:
+            people = self._directory_lookup(user_id) or []
+            if needle:
+                people = [
+                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
+                ]
+            offset = (page - 1) * limit
+            has_more = offset + limit < len(people)
+            people = people[offset : offset + limit]
 
         # Load the caller's pending requests (both directions) and active
         # connections once, then classify each person in Python.
@@ -1565,11 +1609,6 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        total = len(people)
-        offset = (page - 1) * limit
-        window = people[offset : offset + limit]
-        has_more = offset + limit < total
-
         return {
             "items": [
                 {
@@ -1579,7 +1618,7 @@ class ConnectionsService:
                     "email": p.get("email"),
                     "relationship": relationship(str(p.get("userId") or "")),
                 }
-                for p in window
+                for p in people
             ],
             "page": page,
             "hasMore": has_more,

@@ -2015,6 +2015,35 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "a.user_id <> :owner_user_id" in service.sql
 
 
+def test_directory_candidate_search_filters_before_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecipientDirectoryProbe()
+    monkeypatch.setattr(
+        service,
+        "_apply_kai_circle_recommendations",
+        lambda **kwargs: kwargs["recipients"],
+    )
+
+    result = service.search_directory_candidates(
+        owner_user_id="owner",
+        query="cara",
+        page=3,
+        limit=20,
+    )
+
+    assert result == {"items": [], "page": 3, "hasMore": False}
+    assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    assert service.params == {
+        "owner_user_id": "owner",
+        "candidate_user_id": None,
+        "query": "cara",
+        "fetch_limit": 21,
+        "offset": 40,
+    }
+
+
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
     service = FourUserMemoryService()
     now = datetime.now(timezone.utc)

@@ -338,8 +338,10 @@ auth-required response.
 | GET | `/api/ria/picks` | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable |
 | POST | `/api/ria/picks` | Sync an already encrypted `ria.advisor_package` projection to currently authorized explicit Picks share artifacts |
 | GET | `/api/kai/market/insights/{user_id}` | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata |
+| GET | `/api/one/connections/directory` | Paginated, privacy-filtered Connect directory; display-name search only |
 | GET | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal |
 | POST | `/api/one/connections/requests` | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]` |
+| POST | `/api/one/connections/requests/{request_id}/cancel` | Requester cancels a pending connection request and its pending proposals |
 | GET | `/api/one/connections/requests/{request_id}/scopes` | Participant-visible scope statuses and immutable proposal history |
 | POST | `/api/one/connections/requests/{request_id}/accept` | Accept with separate selected requested/offered opaque handles |
 
