@@ -67,9 +67,7 @@ def test_ordinary_pkm_agent_change_does_not_run_upgrade_gate() -> None:
 
 
 def test_release_migration_head_assertion_does_not_run_upgrade_gate() -> None:
-    plan = plan_for(
-        {"consent-protocol/tests/test_pkm_v7_recovery_migration.py"}
-    )
+    plan = plan_for({"consent-protocol/tests/test_pkm_v7_recovery_migration.py"})
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is False
 
@@ -78,6 +76,17 @@ def test_pkm_upgrade_change_keeps_full_zero_loss_gate() -> None:
     plan = plan_for({"consent-protocol/hushh_mcp/services/pkm_upgrade_service.py"})
     assert plan.pkm_evaluator_runs == 1
     assert plan.run_pkm_upgrade_gate is True
+
+
+def test_evaluator_workflow_change_runs_evaluator_without_full_pkm_gate() -> None:
+    plan = plan_for({".github/workflows/deploy-uat.yml"})
+    assert plan.pkm_evaluator_runs == 1
+    assert plan.run_pkm_upgrade_gate is False
+    assert plan.as_dict()["lanes"]["candidate_pkm_evaluator"] == {
+        "required": True,
+        "reason": "pkm_upgrade_or_evaluator_contract_changed",
+    }
+    assert plan.reason == "changed_paths:pkm_evaluator"
 
 
 def test_selector_change_relies_on_always_on_policy_contract_tests() -> None:
@@ -99,9 +108,7 @@ def test_unknown_path_keeps_expensive_lanes_skipped() -> None:
 
 
 def test_frontend_vault_change_requires_byok_browser() -> None:
-    plan = plan_for(
-        {"hushh-webapp/lib/services/vault-service.ts"}, backend=False, frontend=True
-    )
+    plan = plan_for({"hushh-webapp/lib/services/vault-service.ts"}, backend=False, frontend=True)
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_reviewer_byok is True
     assert plan.as_dict()["requires_web_dependencies"] is True
@@ -238,6 +245,7 @@ def main() -> int:
         test_ordinary_pkm_agent_change_does_not_run_upgrade_gate,
         test_release_migration_head_assertion_does_not_run_upgrade_gate,
         test_pkm_upgrade_change_keeps_full_zero_loss_gate,
+        test_evaluator_workflow_change_runs_evaluator_without_full_pkm_gate,
         test_selector_change_relies_on_always_on_policy_contract_tests,
         test_pkm_gate_policy_change_relies_on_always_on_contract_tests,
         test_unknown_path_keeps_expensive_lanes_skipped,
