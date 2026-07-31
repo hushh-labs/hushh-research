@@ -1,6 +1,10 @@
 import { HushhKeychain } from "@/lib/capacitor";
 import { isNative } from "@/lib/capacitor/platform";
-import { decryptData, encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
+import {
+  decryptData,
+  encryptData,
+  type EncryptedPayload,
+} from "@/lib/vault/encrypt";
 import type {
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
@@ -79,18 +83,23 @@ function openKeyDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME, { keyPath: "userId" });
       }
     };
-    request.onerror = () => reject(request.error || new Error("Unable to open key storage."));
+    request.onerror = () =>
+      reject(request.error || new Error("Unable to open key storage."));
     request.onsuccess = () => resolve(request.result);
   });
 }
 
-async function readIdbRecord(userId: string): Promise<StoredRecipientRecord | null> {
+async function readIdbRecord(
+  userId: string,
+): Promise<StoredRecipientRecord | null> {
   const db = await openKeyDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
     const request = tx.objectStore(STORE_NAME).get(userId);
-    request.onerror = () => reject(request.error || new Error("Unable to read key."));
-    request.onsuccess = () => resolve((request.result as StoredRecipientRecord | undefined) || null);
+    request.onerror = () =>
+      reject(request.error || new Error("Unable to read key."));
+    request.onsuccess = () =>
+      resolve((request.result as StoredRecipientRecord | undefined) || null);
     tx.oncomplete = () => db.close();
   });
 }
@@ -110,13 +119,18 @@ async function writeIdbRecord(record: StoredRecipientRecord): Promise<void> {
 
 // ---- Durable native backup (iOS Keychain; no-op with in-memory fallback on web) ----
 
-async function readKeychainBackup(userId: string): Promise<StoredRecipientRecord | null> {
+async function readKeychainBackup(
+  userId: string,
+): Promise<StoredRecipientRecord | null> {
   if (!isNative()) return null;
   try {
-    const { value } = await HushhKeychain.get({ key: keychainBackupKey(userId) });
+    const { value } = await HushhKeychain.get({
+      key: keychainBackupKey(userId),
+    });
     if (!value) return null;
     const parsed = JSON.parse(value) as StoredRecipientRecord;
-    if (!parsed?.keyId || !parsed.privateKeyJwk || !parsed.publicKeyJwk) return null;
+    if (!parsed?.keyId || !parsed.privateKeyJwk || !parsed.publicKeyJwk)
+      return null;
     return { ...parsed, userId };
   } catch {
     // Keychain read is best-effort; never block decryption on it.
@@ -157,7 +171,10 @@ function toBase64Url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
 }
 
 function exactArrayBuffer(view: Uint8Array): ArrayBuffer {
@@ -167,10 +184,10 @@ function exactArrayBuffer(view: Uint8Array): ArrayBuffer {
 }
 
 function fromBase64Url(value: string): ArrayBuffer {
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(
-    Math.ceil(value.length / 4) * 4,
-    "=",
-  );
+  const padded = value
+    .replaceAll("-", "+")
+    .replaceAll("_", "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
@@ -181,8 +198,14 @@ function fromBase64Url(value: string): ArrayBuffer {
 
 async function keyFingerprint(publicKeyJwk: JsonWebKey): Promise<string> {
   const crypto = requireCrypto();
-  const payload = JSON.stringify(publicKeyJwk, Object.keys(publicKeyJwk).sort());
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
+  const payload = JSON.stringify(
+    publicKeyJwk,
+    Object.keys(publicKeyJwk).sort(),
+  );
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload),
+  );
   return toBase64Url(digest);
 }
 
@@ -206,7 +229,11 @@ async function importPrivateKey(privateKeyJwk: JsonWebKey): Promise<CryptoKey> {
   );
 }
 
-async function deriveAesKey(privateKey: CryptoKey, publicKey: CryptoKey, usage: KeyUsage) {
+async function deriveAesKey(
+  privateKey: CryptoKey,
+  publicKey: CryptoKey,
+  usage: KeyUsage,
+) {
   return requireCrypto().subtle.deriveKey(
     { name: "ECDH", public: publicKey },
     privateKey,
@@ -222,7 +249,9 @@ async function deriveAesKey(privateKey: CryptoKey, publicKey: CryptoKey, usage: 
  * eviction, repopulating IndexedDB with the SAME keyId). Legacy IndexedDB records
  * that only hold a CryptoKey are migrated to the portable JWK form + backed up.
  */
-async function readStoredKey(userId: string): Promise<ResolvedRecipientKey | null> {
+async function readStoredKey(
+  userId: string,
+): Promise<ResolvedRecipientKey | null> {
   const idbRecord = await readIdbRecord(userId).catch(() => null);
   if (idbRecord) {
     return resolveFromRecord(userId, idbRecord);
@@ -374,7 +403,9 @@ export async function ensureLocationRecipientKey(userId: string): Promise<{
 // holds the SAME keypair — so a share encrypted for one stable keyId decrypts on all
 // of the user's devices. Reuses `lib/vault/encrypt` (the same crypto PKM uses).
 
-function toEncryptedPrivateKey(payload: EncryptedPayload): OneLocationEncryptedPrivateKey {
+function toEncryptedPrivateKey(
+  payload: EncryptedPayload,
+): OneLocationEncryptedPrivateKey {
   return {
     ciphertext: payload.ciphertext,
     iv: payload.iv,
@@ -383,7 +414,9 @@ function toEncryptedPrivateKey(payload: EncryptedPayload): OneLocationEncryptedP
   };
 }
 
-function toEncryptedPayload(blob: OneLocationEncryptedPrivateKey): EncryptedPayload {
+function toEncryptedPayload(
+  blob: OneLocationEncryptedPrivateKey,
+): EncryptedPayload {
   return {
     ciphertext: blob.ciphertext,
     iv: blob.iv,
@@ -397,7 +430,9 @@ async function encryptPrivateKeyForVault(
   privateKeyJwk: JsonWebKey,
   vaultKey: string,
 ): Promise<OneLocationEncryptedPrivateKey> {
-  return toEncryptedPrivateKey(await encryptData(JSON.stringify(privateKeyJwk), vaultKey));
+  return toEncryptedPrivateKey(
+    await encryptData(JSON.stringify(privateKeyJwk), vaultKey),
+  );
 }
 
 async function decryptPrivateKeyFromVault(
@@ -511,7 +546,10 @@ export async function ensureVaultSyncedRecipientKey(params: {
     algorithm: ALGORITHM,
     createdAt,
   });
-  const encryptedPrivateKeyJwk = await encryptPrivateKeyForVault(privateKeyJwk, vaultKey);
+  const encryptedPrivateKeyJwk = await encryptPrivateKeyForVault(
+    privateKeyJwk,
+    vaultKey,
+  );
   return {
     keyId,
     publicKeyJwk,
@@ -527,16 +565,26 @@ export async function encryptLocationForRecipient(params: {
   recipientKeyId: string;
 }): Promise<OneLocationEncryptedEnvelope> {
   const crypto = requireCrypto();
-  const recipientPublicKey = await importPublicKey(params.recipientPublicKeyJwk);
+  const recipientPublicKey = await importPublicKey(
+    params.recipientPublicKeyJwk,
+  );
   const ephemeralPair = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveKey"],
   );
-  const aesKey = await deriveAesKey(ephemeralPair.privateKey, recipientPublicKey, "encrypt");
+  const aesKey = await deriveAesKey(
+    ephemeralPair.privateKey,
+    recipientPublicKey,
+    "encrypt",
+  );
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(params.point));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plaintext);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    plaintext,
+  );
   const senderEphemeralPublicKeyJwk = await crypto.subtle.exportKey(
     "jwk",
     ephemeralPair.publicKey,
@@ -551,8 +599,10 @@ export async function encryptLocationForRecipient(params: {
     capturedAt: params.point.capturedAt,
     sourcePlatform: params.point.sourcePlatform,
     metadata: {
-      payload: "coordinate_envelope",
+      payload: "coordinate_envelope.v2",
       plaintext: false,
+      locationMode: params.point.locationMode ?? "precise",
+      approximateRadiusM: params.point.approximateRadiusM ?? null,
     },
   };
 }
@@ -565,8 +615,14 @@ export async function decryptLocationEnvelope(params: {
   if (!stored || stored.keyId !== params.envelope.recipientKeyId) {
     throw new Error(RECIPIENT_KEY_UNAVAILABLE_MESSAGE);
   }
-  const senderPublicKey = await importPublicKey(params.envelope.senderEphemeralPublicKeyJwk);
-  const aesKey = await deriveAesKey(stored.privateKey, senderPublicKey, "decrypt");
+  const senderPublicKey = await importPublicKey(
+    params.envelope.senderEphemeralPublicKeyJwk,
+  );
+  const aesKey = await deriveAesKey(
+    stored.privateKey,
+    senderPublicKey,
+    "decrypt",
+  );
   const plaintext = await requireCrypto().subtle.decrypt(
     { name: "AES-GCM", iv: fromBase64Url(params.envelope.iv) },
     aesKey,

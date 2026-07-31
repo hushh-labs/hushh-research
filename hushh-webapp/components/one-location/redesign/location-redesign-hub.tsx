@@ -206,13 +206,13 @@ export type LocationHubViewModel = {
   onSyncContacts: () => void;
   onShareToContacts: () => void;
   onOpenShareReview: () => void;
-  onConfirmShare: () => void;
+  onConfirmShare: (locationMode: LocationTypeValue) => void;
   onSendRequest: () => void;
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
-  onCreatePublicInvite: () => void;
+  onCreatePublicInvite: (locationMode: LocationTypeValue) => void;
   onCopyPublicInvite: () => void;
   onSharePublicInvite: () => void;
   onRevokePublicInvite: (invite: OneLocationPublicInvite) => void;
@@ -352,10 +352,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
       data-testid="one-location-header-actions"
     >
       <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
-        <span
-          className="hidden whitespace-nowrap sm:inline"
-          aria-hidden="true"
-        >
+        <span className="hidden whitespace-nowrap sm:inline" aria-hidden="true">
           {statusLabel}
         </span>
         <Switch
@@ -731,7 +728,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actions={<LocationHeaderActions vm={vm} />}
       />
 
-
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
           tabSetId={LOCATION_TAB_DEFINITION.id}
@@ -938,7 +934,11 @@ function LocationDetailFlow({
                 icon={UsersRound}
                 iconTone="purple"
                 title={vm.grantRecipientLabel(grant)}
-                description={vm.expiresCountdownLabel(grant.expiresAt)}
+                description={`${
+                  grant.locationMode === "approximate"
+                    ? "Approximate area"
+                    : "Precise live location"
+                } · ${vm.expiresCountdownLabel(grant.expiresAt)}`}
                 trailing={
                   <Button
                     variant="ghost"
@@ -971,16 +971,22 @@ function LocationDetailFlow({
                 <SharedWithMeCard
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
-                  statusLine={vm.expiresLabel(grant.expiresAt)}
+                  statusLine={`${
+                    grant.locationMode === "approximate"
+                      ? "Approximate area"
+                      : "Precise live location"
+                  } · ${vm.expiresLabel(grant.expiresAt)}`}
                   previewExpanded={expanded}
-                  mapHref={point ? vm.mapLocationHref(point) : undefined}
+                  mapHref={
+                    point && point.locationMode !== "approximate"
+                      ? vm.mapLocationHref(point)
+                      : undefined
+                  }
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
                   viewBusy={vm.busy === "view"}
                   message={
-                    point?.checkIn?.message ??
-                    grant.shareMessage ??
-                    undefined
+                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
                   }
                 >
                   {expanded && point ? vm.renderMapPreview(point, false) : null}
@@ -1593,12 +1599,9 @@ function SosFlow({
       recipientLabel={vm.recipientLabel}
       isRecipientShareReady={vm.isRecipientShareReady}
       emergency={lookupStartedForMount ? vm.sosEmergency : null}
-      emergencyStatus={
-        lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-      }
+      emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
       onResolveEmergencyNumber={onResolveSosLocation}
     />
-
   );
 }
 
@@ -1627,9 +1630,8 @@ function ShareFlow({
   );
   const selectedReady = vm.selectedRecipientIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter(
-      (recipient): recipient is OneLocationRecipient =>
-        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    .filter((recipient): recipient is OneLocationRecipient =>
+      Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
@@ -1685,7 +1687,7 @@ function ShareFlow({
         </SectionCard>
         <div className="space-y-2.5">
           <Button
-            onClick={vm.onConfirmShare}
+            onClick={() => vm.onConfirmShare(locationType)}
             isLoading={vm.busy === "share"}
             className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
@@ -1732,9 +1734,7 @@ function ShareFlow({
                 <textarea
                   id="one-location-share-note"
                   value={vm.shareMessage}
-                  onChange={(event) =>
-                    vm.setShareMessage(event.target.value)
-                  }
+                  onChange={(event) => vm.setShareMessage(event.target.value)}
                   rows={2}
                   aria-invalid={shareNoteLimitExceeded}
                   aria-describedby={
@@ -1802,11 +1802,7 @@ function ShareFlow({
               <TrustedPersonCard
                 key={r.userId}
                 name={vm.recipientLabel(r)}
-                subtitle={
-                  ready
-                    ? undefined
-                    : "Invite first to enable sharing"
-                }
+                subtitle={ready ? undefined : "Invite first to enable sharing"}
                 tone={ready ? "ready" : "pending"}
                 actionLabel={
                   ready ? (selected ? "Selected" : "Select") : undefined
@@ -1845,13 +1841,7 @@ function ShareFlow({
   );
 }
 
-function ReviewRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function ReviewRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
       <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2184,7 +2174,7 @@ function TemporaryLinkFlow({
         description="Public location links are safer when they expire quickly."
       />
       <Button
-        onClick={vm.onCreatePublicInvite}
+        onClick={() => vm.onCreatePublicInvite(locationType)}
         isLoading={vm.busy === "publicInvite"}
         className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >

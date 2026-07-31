@@ -12,12 +12,14 @@ from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
+    _assert_envelope_precision_metadata,
     _contains_plaintext_location_key,
     _identity_notification_label,
     _json_param,
     _notification_safe_data,
     _redact_location_metadata,
 )
+from hushh_mcp.services.one_location_precision import approximate_area_center
 
 PUBLIC_LOCATION_SNAPSHOT = {
     "latitude": 28.6139,
@@ -53,6 +55,26 @@ def test_plaintext_coordinate_key_detection_is_recursive() -> None:
     assert _contains_plaintext_location_key({"metadata": {"lat": 1}}) is True
     assert _contains_plaintext_location_key({"metadata": [{"address": "home"}]}) is True
     assert _contains_plaintext_location_key({"payload": "coordinate_envelope"}) is False
+
+
+def test_envelope_precision_metadata_is_bound_to_grant() -> None:
+    _assert_envelope_precision_metadata(
+        {
+            "metadata": {
+                "locationMode": "approximate",
+                "approximateRadiusM": 1_250,
+            }
+        },
+        location_mode="approximate",
+        approximate_radius_m=1_250,
+    )
+    with pytest.raises(OneLocationAgentError) as mismatch:
+        _assert_envelope_precision_metadata(
+            {"metadata": {"locationMode": "precise"}},
+            location_mode="approximate",
+            approximate_radius_m=1_250,
+        )
+    assert mismatch.value.code == "LOCATION_ENVELOPE_PRECISION_MISMATCH"
 
 
 def test_notification_identity_label_never_falls_back_to_phone() -> None:
@@ -2544,6 +2566,8 @@ def test_public_invite_with_snapshot_returns_location_on_resolve_without_private
     assert resolved["invite"]["locationAvailable"] is True
     assert resolved["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
     assert resolved["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
+    assert resolved["publicLocation"]["locationMode"] == "precise"
+    assert resolved["publicLocation"]["approximateRadiusM"] is None
 
     submitted = service.submit_public_invite_request(
         public_token=token,
@@ -2559,6 +2583,32 @@ def test_public_invite_with_snapshot_returns_location_on_resolve_without_private
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
+
+
+def test_public_approximate_snapshot_is_canonicalized_before_storage() -> None:
+    service = FourUserMemoryService()
+    raw = {
+        **PUBLIC_LOCATION_SNAPSHOT,
+        "locationMode": "approximate",
+        "approximateRadiusM": 1_000,
+    }
+
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=raw,
+    )
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    expected_latitude, expected_longitude = approximate_area_center(
+        latitude=raw["latitude"],
+        longitude=raw["longitude"],
+    )
+
+    assert resolved["publicLocation"]["latitude"] == round(expected_latitude, 7)
+    assert resolved["publicLocation"]["longitude"] == round(expected_longitude, 7)
+    assert resolved["publicLocation"]["locationMode"] == "approximate"
+    assert resolved["publicLocation"]["approximateRadiusM"] == 1_000
+    assert resolved["publicLocation"]["schemaVersion"] == "one_location_public_point.v2"
 
 
 def test_public_invite_submission_without_key_never_creates_access() -> None:

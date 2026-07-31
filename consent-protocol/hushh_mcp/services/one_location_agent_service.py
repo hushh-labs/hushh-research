@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 import uuid
@@ -22,6 +23,12 @@ from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
     normalize_duration_hours,
     normalize_source_platform,
+)
+from hushh_mcp.services.one_location_precision import (
+    approximate_area_center,
+    approximate_area_radius_m,
+    normalize_approximate_radius_m,
+    normalize_location_mode,
 )
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
@@ -59,6 +66,21 @@ COORDINATE_METADATA_KEYS = {
 }
 LOCATION_TERMINAL_RETENTION_HOURS = 12
 ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
+
+
+def _validated_location_precision(
+    *, location_mode: Any, approximate_radius_m: Any
+) -> tuple[str, int | None]:
+    try:
+        mode = normalize_location_mode(location_mode)
+        radius = normalize_approximate_radius_m(mode=mode, value=approximate_radius_m)
+    except (TypeError, ValueError) as exc:
+        raise OneLocationAgentError(
+            "LOCATION_PRECISION_MODE_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    return mode, radius
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -237,6 +259,38 @@ def _validated_envelope_fields(
     }
 
 
+def _assert_envelope_precision_metadata(
+    envelope: dict[str, Any],
+    *,
+    location_mode: str,
+    approximate_radius_m: int | None,
+) -> None:
+    """Bind public envelope metadata to the grant's precision authority."""
+
+    metadata = envelope.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    try:
+        envelope_mode = normalize_location_mode(
+            metadata.get("locationMode") or metadata.get("location_mode")
+        )
+        envelope_radius = normalize_approximate_radius_m(
+            mode=envelope_mode,
+            value=metadata.get("approximateRadiusM", metadata.get("approximate_radius_m")),
+        )
+    except (TypeError, ValueError) as exc:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_PRECISION_INVALID",
+            "Envelope precision metadata is invalid.",
+            status_code=422,
+        ) from exc
+    if envelope_mode != location_mode or envelope_radius != approximate_radius_m:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_PRECISION_MISMATCH",
+            "Envelope precision does not match the approved grant.",
+            status_code=422,
+        )
+
+
 def _private_share_operation_fingerprint(
     *,
     recipient_user_id: str,
@@ -244,6 +298,8 @@ def _private_share_operation_fingerprint(
     duration_hours: float,
     reason: str | None,
     share_kind: str,
+    location_mode: str,
+    approximate_radius_m: int | None,
     confirmed_at: datetime,
     envelope_fields: dict[str, Any],
 ) -> str:
@@ -256,6 +312,8 @@ def _private_share_operation_fingerprint(
             "duration_hours": duration_hours,
             "reason": reason or "",
             "share_kind": share_kind,
+            "location_mode": location_mode,
+            "approximate_radius_m": approximate_radius_m,
             "confirmed_at": confirmed_at.isoformat(),
             "algorithm": envelope_fields["algorithm"],
             "ciphertext": envelope_fields["ciphertext"],
@@ -1836,6 +1894,12 @@ class OneLocationAgentService:
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
             "shareKind": share_kind,
             "shareMessage": share_message,
+            "locationMode": str(row.get("location_mode") or "precise"),
+            "approximateRadiusM": (
+                int(row["approximate_radius_m"])
+                if row.get("approximate_radius_m") is not None
+                else None
+            ),
         }
 
     @staticmethod
@@ -2016,7 +2080,12 @@ class OneLocationAgentService:
                 "Public location links need valid latitude and longitude.",
                 status_code=422,
             ) from exc
-        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not (-90 <= latitude <= 90)
+            or not (-180 <= longitude <= 180)
+        ):
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_INVALID",
                 "Public location coordinates are outside the valid range.",
@@ -2027,7 +2096,7 @@ class OneLocationAgentService:
         if accuracy_raw is not None:
             try:
                 parsed_accuracy = float(accuracy_raw)
-                if parsed_accuracy > 0:
+                if math.isfinite(parsed_accuracy) and parsed_accuracy > 0:
                     accuracy_m = round(parsed_accuracy, 2)
             except (TypeError, ValueError):
                 accuracy_m = None
@@ -2035,7 +2104,39 @@ class OneLocationAgentService:
             value.get("capturedAt") or value.get("captured_at"),
             field_name="capturedAt",
         )
+        try:
+            location_mode = normalize_location_mode(
+                value.get("locationMode") or value.get("location_mode")
+            )
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_LOCATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        approximate_radius: int | None = None
+        if location_mode == "approximate":
+            latitude, longitude = approximate_area_center(
+                latitude=latitude,
+                longitude=longitude,
+            )
+            if value.get("approximateRadiusM") is not None:
+                try:
+                    approximate_radius = normalize_approximate_radius_m(
+                        mode=location_mode,
+                        value=value.get("approximateRadiusM"),
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise OneLocationAgentError(
+                        "LOCATION_PUBLIC_LOCATION_INVALID",
+                        str(exc),
+                        status_code=422,
+                    ) from exc
+            else:
+                approximate_radius = approximate_area_radius_m(accuracy_m)
+            accuracy_m = float(approximate_radius)
         return {
+            "schemaVersion": "one_location_public_point.v2",
             "latitude": round(latitude, 7),
             "longitude": round(longitude, 7),
             "accuracyM": accuracy_m,
@@ -2043,6 +2144,8 @@ class OneLocationAgentService:
             "sourcePlatform": normalize_source_platform(
                 value.get("sourcePlatform") or value.get("source_platform")
             ),
+            "locationMode": location_mode,
+            "approximateRadiusM": approximate_radius,
         }
 
     @staticmethod
@@ -3277,6 +3380,7 @@ class OneLocationAgentService:
                 "duration_hours": str(duration),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
+                "location_mode": str(grant.get("locationMode") or "precise"),
                 **(
                     {
                         "notification_profile": "one_location_sms_emergency",
@@ -3298,6 +3402,8 @@ class OneLocationAgentService:
         duration_hours: float,
         reason: str | None = None,
         share_kind: str | None = None,
+        location_mode: str = "precise",
+        approximate_radius_m: int | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
         _key_writer_guarded: bool = False,
@@ -3320,6 +3426,8 @@ class OneLocationAgentService:
                     duration_hours=duration_hours,
                     reason=reason,
                     share_kind=share_kind,
+                    location_mode=location_mode,
+                    approximate_radius_m=approximate_radius_m,
                     require_recipient_phone_verified=require_recipient_phone_verified,
                     enforce_connection=enforce_connection,
                     _key_writer_guarded=True,
@@ -3352,6 +3460,10 @@ class OneLocationAgentService:
                 status_code=422,
             ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        mode, radius = _validated_location_precision(
+            location_mode=location_mode,
+            approximate_radius_m=approximate_radius_m,
+        )
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -3388,12 +3500,13 @@ class OneLocationAgentService:
             INSERT INTO one_location_share_grants (
               owner_user_id, recipient_user_id, recipient_key_id, status,
               consent_scope, capability_scopes, duration_hours, expires_at,
-              created_at, updated_at, metadata
+              location_mode, approximate_radius_m, created_at, updated_at, metadata
             )
             VALUES (
               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-              :duration_hours, :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              :duration_hours, :expires_at, :location_mode, :approximate_radius_m,
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *,
               :recipient_display_name AS recipient_display_name,
@@ -3406,6 +3519,8 @@ class OneLocationAgentService:
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
                 "expires_at": expires_at,
+                "location_mode": mode,
+                "approximate_radius_m": radius,
                 "metadata_json": _json_param(
                     {
                         "reason": reason or "owner_approved",
@@ -3431,7 +3546,7 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             grant_id=grant["id"],
             event_type="location_share_created",
-            metadata={"duration_hours": duration},
+            metadata={"duration_hours": duration, "location_mode": mode},
         )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
@@ -3460,6 +3575,8 @@ class OneLocationAgentService:
         envelope: dict[str, Any],
         reason: str | None = None,
         share_kind: str | None = None,
+        location_mode: str = "precise",
+        approximate_radius_m: int | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
@@ -3501,6 +3618,15 @@ class OneLocationAgentService:
                 status_code=422,
             ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        mode, radius = _validated_location_precision(
+            location_mode=location_mode,
+            approximate_radius_m=approximate_radius_m,
+        )
+        _assert_envelope_precision_metadata(
+            envelope,
+            location_mode=mode,
+            approximate_radius_m=radius,
+        )
         # Check-In notes are recipient information, not audit metadata. The web
         # client encrypts the note with the point; this fixed marker is the only
         # Check-In reason persisted or sent through notification metadata.
@@ -3528,6 +3654,8 @@ class OneLocationAgentService:
             duration_hours=duration,
             reason=stored_reason,
             share_kind=resolved_kind,
+            location_mode=mode,
+            approximate_radius_m=radius,
             confirmed_at=confirmed_at_value,
             envelope_fields=envelope_fields,
         )
@@ -3551,6 +3679,8 @@ class OneLocationAgentService:
                 "client_operation_id": operation_id,
                 "client_operation_fingerprint": operation_fingerprint,
                 "confirmed_at": confirmed_at_value.isoformat(),
+                "location_mode": mode,
+                "approximate_radius_m": radius,
             }
         )
         row = self._execute_atomic_private_share(
@@ -3639,13 +3769,15 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, created_at, updated_at, metadata
+                expires_at, location_mode, approximate_radius_m,
+                created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at, NOW(), NOW(),
+                :duration_hours, :expires_at, :location_mode, :approximate_radius_m,
+                NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
               CROSS JOIN (SELECT COUNT(*) FROM revoked_grants) revoke_barrier
@@ -3683,7 +3815,10 @@ class OneLocationAgentService:
               SELECT
                 g.owner_user_id, g.owner_user_id, g.recipient_user_id, g.id,
                 'location_share_created',
-                jsonb_build_object('duration_hours', g.duration_hours),
+                jsonb_build_object(
+                  'duration_hours', g.duration_hours,
+                  'location_mode', g.location_mode
+                ),
                 NOW()
               FROM completed_grant g
               RETURNING id
@@ -3748,6 +3883,8 @@ class OneLocationAgentService:
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
                 "expires_at": expires_at,
+                "location_mode": mode,
+                "approximate_radius_m": radius,
                 "metadata_json": metadata_json,
                 "freshness_valid": freshness_error is None,
                 "confirmed_at": confirmed_at_value,
@@ -3954,6 +4091,15 @@ class OneLocationAgentService:
         # Grants minted before per-grant tokens fall back to the DB checks above.
         self._assert_grant_capability_token(grant_row)
         recipient_key_id = str(grant_row.get("recipient_key_id") or "")
+        mode, radius = _validated_location_precision(
+            location_mode=grant_row.get("location_mode"),
+            approximate_radius_m=grant_row.get("approximate_radius_m"),
+        )
+        _assert_envelope_precision_metadata(
+            envelope,
+            location_mode=mode,
+            approximate_radius_m=radius,
+        )
         envelope_fields = _validated_envelope_fields(
             envelope,
             recipient_key_id=recipient_key_id,

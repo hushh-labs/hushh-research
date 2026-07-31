@@ -140,6 +140,14 @@ import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
+  approximateAreaRadiusM,
+  grantLocationMode,
+  prepareLocationPointForGrant,
+  prepareLocationPointForSharing,
+  validateLocationPointForGrant,
+} from "@/lib/one-location/location-precision";
+import {
   syncOneLocationContactSignals,
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
@@ -189,6 +197,7 @@ import {
 import type {
   DriveDestination,
   DriveSharePayload,
+  LocationSharingMode,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -835,7 +844,11 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
 function isLocationPointStale(point: PlainLocationPoint): boolean {
   const capturedAt = new Date(point.capturedAt).getTime();
   if (!Number.isFinite(capturedAt)) return false;
-  return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
+  const threshold =
+    point.locationMode === "approximate"
+      ? APPROXIMATE_AREA_UPDATE_INTERVAL_MS * 3
+      : LIVE_LOCATION_STALE_THRESHOLD_MS;
+  return Date.now() - capturedAt > threshold;
 }
 
 // Great-circle distance in metres between two points (Haversine). Used to decide
@@ -895,6 +908,12 @@ function locationAccuracyLabel(point: PlainLocationPoint): string | null {
   return `Accuracy +/- ${Math.round(accuracyM)} m`;
 }
 
+function approximateAreaRadiusLabel(radiusM: number): string {
+  if (radiusM < 1_000) return `${Math.round(radiusM)} m radius`;
+  const kilometers = radiusM / 1_000;
+  return `${kilometers >= 10 ? Math.round(kilometers) : kilometers.toFixed(radiusM % 1_000 === 0 ? 0 : 1)} km radius`;
+}
+
 function locationSourceLabel(
   sourcePlatform: PlainLocationPoint["sourcePlatform"],
 ): string {
@@ -924,33 +943,51 @@ function LocalMapPreview({
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
+  const approximate = point.locationMode === "approximate";
+  const approximateRadius =
+    point.approximateRadiusM ??
+    (approximate ? approximateAreaRadiusM(point.accuracyM) : null);
   const freshness = liveFreshness(
     point.capturedAt,
     Date.now(),
-    LIVE_LOCATION_STALE_THRESHOLD_MS,
+    approximate
+      ? APPROXIMATE_AREA_UPDATE_INTERVAL_MS * 3
+      : LIVE_LOCATION_STALE_THRESHOLD_MS,
   );
   const statusLabel =
     freshness.state === "live"
-      ? `Live · ${freshness.agoLabel}`
+      ? approximate
+        ? `Approximate area · ${freshness.agoLabel}`
+        : `Live · ${freshness.agoLabel}`
       : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <LiveMap point={point} />
+        <LiveMap
+          point={point}
+          mode={approximate ? "approximate" : "precise"}
+          approximateRadiusM={approximateRadius ?? undefined}
+        />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
               "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-semibold shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-xl",
               isStale
                 ? "border-amber-400/40 bg-amber-950/70 text-amber-50"
-                : "border-emerald-300/40 bg-emerald-950/70 text-emerald-50",
+                : approximate
+                  ? "border-[color:var(--app-accent-border)] bg-background/90 text-foreground"
+                  : "border-emerald-300/40 bg-emerald-950/70 text-emerald-50",
             )}
           >
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
-                isStale ? "bg-amber-300" : "animate-pulse bg-emerald-300",
+                isStale
+                  ? "bg-amber-300"
+                  : approximate
+                    ? "bg-[color:var(--app-accent)]"
+                    : "animate-pulse bg-emerald-300",
               )}
               aria-hidden="true"
             />
@@ -963,8 +1000,12 @@ function LocalMapPreview({
         <div className="min-w-0">
           <p className="break-words text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">
             Updated {captured}
-            {accuracy ? ` - ${accuracy}` : ""} -{" "}
-            {locationSourceLabel(point.sourcePlatform)}
+            {approximate && approximateRadius
+              ? ` - Approximate ${approximateAreaRadiusLabel(approximateRadius)}`
+              : accuracy
+                ? ` - ${accuracy}`
+                : ""}{" "}
+            - {locationSourceLabel(point.sourcePlatform)}
           </p>
         </div>
 
@@ -980,7 +1021,7 @@ function LocalMapPreview({
           </div>
         ) : null}
 
-        {showNavigation ? (
+        {showNavigation && !approximate ? (
           <div className="grid gap-2">
             <Button
               asChild
@@ -999,6 +1040,12 @@ function LocalMapPreview({
               </a>
             </Button>
           </div>
+        ) : null}
+        {approximate ? (
+          <p className="rounded-xl bg-[color:var(--app-accent-tint)] p-3 text-xs leading-5 text-muted-foreground">
+            Only this general area was shared. The exact position and
+            turn-by-turn directions stay private.
+          </p>
         ) : null}
       </div>
 
@@ -1935,6 +1982,7 @@ export function OneLocationAgentPageContent({
   const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  const lastApproximatePublishAtRef = useRef<Map<string, number>>(new Map());
   // Throttles updates to the owner's OWN live-preview marker so it refreshes at
   // the same cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS),
   // instead of re-rendering/animating on every raw GPS fix (~1s), which needlessly
@@ -2077,6 +2125,13 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
+  );
+  const activePreciseOwnerGrants = useMemo(
+    () =>
+      activeOwnerGrants.filter(
+        (grant) => grantLocationMode(grant) === "precise",
+      ),
+    [activeOwnerGrants],
   );
   const locationEnabled =
     !locationControl.paused &&
@@ -2950,8 +3005,9 @@ export function OneLocationAgentPageContent({
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
+      const sharedPoint = prepareLocationPointForGrant(point, grant);
       const envelope = await encryptLocationForRecipient({
-        point,
+        point: sharedPoint,
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
@@ -2960,6 +3016,9 @@ export function OneLocationAgentPageContent({
         grantId: grant.id,
         envelope,
       });
+      if (grantLocationMode(grant) === "approximate") {
+        lastApproximatePublishAtRef.current.set(grant.id, Date.now());
+      }
     },
     [vaultOwnerToken],
   );
@@ -3075,88 +3134,103 @@ export function OneLocationAgentPageContent({
     setRequestMessage("");
   }, []);
 
-  const handleShare = useCallback(async () => {
-    if (
-      !vaultOwnerToken ||
-      !shareReadySelectedRecipients.length ||
-      setupNeededSelectedRecipients.length ||
-      shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
-      locationPermissionBlocksSharing(permission)
-    )
-      return;
-    setBusy("share");
-    let successCount = 0;
-    try {
-      const readiness = await ensureForegroundLocationReady({
-        capturePoint: true,
-        autoOpenSettings: true,
-      });
-      if (!readiness.ready || !readiness.point) {
+  const handleShare = useCallback(
+    async (locationMode: LocationSharingMode = "precise") => {
+      if (
+        !vaultOwnerToken ||
+        !shareReadySelectedRecipients.length ||
+        setupNeededSelectedRecipients.length ||
+        shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
+        locationPermissionBlocksSharing(permission)
+      )
         return;
-      }
-      const point = readiness.point;
-      for (const recipient of shareReadySelectedRecipients) {
-        const grant = await OneLocationService.createGrant({
-          vaultOwnerToken,
-          recipientUserId: recipient.userId,
-          recipientKeyId: recipient.keyId,
-          durationHours: Number(shareDurationHours),
-          reason: shareMessage.trim() || undefined,
-          shareKind: "share",
+      setBusy("share");
+      let successCount = 0;
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
         });
-        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-        successCount += 1;
+        if (!readiness.ready || !readiness.point) {
+          return;
+        }
+        if (locationMode === "precise" && permission?.precise === false) {
+          toast.error(
+            "Turn on Precise Location in your device settings to share a precise live location.",
+          );
+          return;
+        }
+        const point = readiness.point;
+        const preparedPoint = prepareLocationPointForSharing(
+          point,
+          locationMode,
+        );
+        for (const recipient of shareReadySelectedRecipients) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: Number(shareDurationHours),
+            reason: shareMessage.trim() || undefined,
+            shareKind: "share",
+            locationMode,
+            approximateRadiusM: preparedPoint.approximateRadiusM ?? null,
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          successCount += 1;
+        }
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, 0),
+          selected_count: shareReadySelectedRecipients.length,
+          success_count: successCount,
+          failure_count: 0,
+          duration_bucket: oneLocationDurationBucket(shareDurationHours),
+          review_required: shareReviewOpen,
+        });
+        toast.success(
+          `Location shared with ${peopleCountLabel(
+            shareReadySelectedRecipients.length,
+          )}.`,
+        );
+        resetShareComposer();
+        // Signal the redesign hub to close the 3-step share flow and return to
+        // the main One Location screen now that sharing finished.
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        const failureCount =
+          shareReadySelectedRecipients.length - successCount || 1;
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: shareReadySelectedRecipients.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          duration_bucket: oneLocationDurationBucket(shareDurationHours),
+          review_required: shareReviewOpen,
+        });
+        toast.error(
+          error instanceof Error ? error.message : "Could not share location.",
+        );
+      } finally {
+        setBusy(null);
       }
-      trackEvent("one_location_share_confirmed", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, 0),
-        selected_count: shareReadySelectedRecipients.length,
-        success_count: successCount,
-        failure_count: 0,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
-        review_required: shareReviewOpen,
-      });
-      toast.success(
-        `Location shared with ${peopleCountLabel(
-          shareReadySelectedRecipients.length,
-        )}.`,
-      );
-      resetShareComposer();
-      // Signal the redesign hub to close the 3-step share flow and return to
-      // the main One Location screen now that sharing finished.
-      setShareCompletedTick((value) => value + 1);
-      await refresh();
-    } catch (error) {
-      const failureCount =
-        shareReadySelectedRecipients.length - successCount || 1;
-      trackEvent("one_location_share_confirmed", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, failureCount),
-        selected_count: shareReadySelectedRecipients.length,
-        success_count: successCount,
-        failure_count: failureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
-        review_required: shareReviewOpen,
-      });
-      toast.error(
-        error instanceof Error ? error.message : "Could not share location.",
-      );
-    } finally {
-      setBusy(null);
-    }
-  }, [
-    ensureForegroundLocationReady,
-    permission,
-    publishEnvelopeWithRetry,
-    refresh,
-    resetShareComposer,
-    setupNeededSelectedRecipients.length,
-    shareDurationHours,
-    shareMessage,
-    shareReviewOpen,
-    shareReadySelectedRecipients,
-    vaultOwnerToken,
-  ]);
+    },
+    [
+      ensureForegroundLocationReady,
+      permission,
+      publishEnvelopeWithRetry,
+      refresh,
+      resetShareComposer,
+      setupNeededSelectedRecipients.length,
+      shareDurationHours,
+      shareMessage,
+      shareReviewOpen,
+      shareReadySelectedRecipients,
+      vaultOwnerToken,
+    ],
+  );
 
   const resolveSosLocation = useCallback(() => {
     const inFlight = sosLocationResolutionRef.current;
@@ -3419,9 +3493,13 @@ export function OneLocationAgentPageContent({
               grantId: grant.id,
             });
             try {
-              return await decryptLocationEnvelope({
+              const decrypted = await decryptLocationEnvelope({
                 userId: activeUserId,
                 envelope: response.envelope,
+              });
+              return validateLocationPointForGrant({
+                point: decrypted,
+                grant,
               });
             } catch (decryptError) {
               // Brand-new device (or not-yet-synced): pull the vault-synced key
@@ -3437,9 +3515,13 @@ export function OneLocationAgentPageContent({
                   vaultKey,
                   remoteBackup: state.myRecipientKey,
                 }).catch(() => {});
-                return await decryptLocationEnvelope({
+                const decrypted = await decryptLocationEnvelope({
                   userId: activeUserId,
                   envelope: response.envelope,
+                });
+                return validateLocationPointForGrant({
+                  point: decrypted,
+                  grant,
                 });
               }
               throw decryptError;
@@ -3631,14 +3713,35 @@ export function OneLocationAgentPageContent({
         if (!automaticPrivatePublishingAllowedRef.current) return;
         for (const grant of activeOwnerGrants) {
           if (!automaticPrivatePublishingAllowedRef.current) return;
+          const persistedPublishAt = grant.latestEnvelopeId
+            ? new Date(grant.updatedAt ?? "").getTime()
+            : Number.NaN;
+          const lastApproximatePublishAt = Math.max(
+            lastApproximatePublishAtRef.current.get(grant.id) ?? 0,
+            Number.isFinite(persistedPublishAt) ? persistedPublishAt : 0,
+          );
+          if (
+            grantLocationMode(grant) === "approximate" &&
+            Date.now() - lastApproximatePublishAt <
+              APPROXIMATE_AREA_UPDATE_INTERVAL_MS
+          ) {
+            continue;
+          }
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            point,
-          );
+          try {
+            await publishEnvelopeWithRetry(
+              grant,
+              recipient,
+              "foreground_interval",
+              point,
+            );
+          } catch (error) {
+            console.warn(
+              `[OneLocationAgent] Update skipped for grant ${grant.id}:`,
+              error,
+            );
+          }
         }
       } catch (error) {
         void refreshLocationPermission();
@@ -3653,12 +3756,15 @@ export function OneLocationAgentPageContent({
 
     const interval = window.setInterval(
       () => void publishActiveGrants(),
-      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+      activePreciseOwnerGrants.length
+        ? LIVE_LOCATION_UPDATE_INTERVAL_MS
+        : APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
     );
     void publishActiveGrants();
     return () => window.clearInterval(interval);
   }, [
     activeOwnerGrants,
+    activePreciseOwnerGrants.length,
     busy,
     locationControl.autoShareEnabled,
     locationControl.paused,
@@ -3679,7 +3785,7 @@ export function OneLocationAgentPageContent({
   // watch is foreground-only and cleans up on unmount or when sharing stops.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!vaultOwnerToken || !activeOwnerGrants.length) return;
+    if (!vaultOwnerToken || !activePreciseOwnerGrants.length) return;
     if (locationControl.paused) return;
     if (!locationControl.autoShareEnabled) return;
     if (
@@ -3731,18 +3837,25 @@ export function OneLocationAgentPageContent({
 
       livePublishInFlightRef.current = true;
       try {
-        for (const grant of activeOwnerGrants) {
+        for (const grant of activePreciseOwnerGrants) {
           if (!automaticPrivatePublishingAllowedRef.current) return;
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
           const driven = await drivePointForGrant(grant, point);
           const pointForGrant = pickupPointForGrant(grant, driven);
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            pointForGrant,
-          );
+          try {
+            await publishEnvelopeWithRetry(
+              grant,
+              recipient,
+              "foreground_interval",
+              pointForGrant,
+            );
+          } catch (error) {
+            console.warn(
+              `[OneLocationAgent] Movement update skipped for grant ${grant.id}:`,
+              error,
+            );
+          }
         }
         lastPublishedPointRef.current = point;
         lastWatchPublishAtRef.current = Date.now();
@@ -3780,7 +3893,7 @@ export function OneLocationAgentPageContent({
       }
     };
   }, [
-    activeOwnerGrants,
+    activePreciseOwnerGrants,
     locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
@@ -3911,7 +4024,10 @@ export function OneLocationAgentPageContent({
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.
   useEffect(() => {
-    if (!vaultOwnerToken) return;
+    if (!vaultOwnerToken) {
+      void OneLocationService.stopBackgroundShare();
+      return;
+    }
     const session = buildBackgroundShareSession({
       activeGrants: activeOwnerGrants,
       recipients,
@@ -3919,6 +4035,7 @@ export function OneLocationAgentPageContent({
       backendBaseUrl: getApiBaseUrl(),
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+      approximateIntervalMs: APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
     });
     void syncBackgroundShare({
       enabled:
@@ -4175,50 +4292,69 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleCreatePublicInvite = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy("publicInvite");
-    try {
-      const point = await OneLocationService.captureCurrentPosition();
-      const response = await OneLocationService.createPublicInvite({
-        vaultOwnerToken,
-        durationHours: Number(durationHours),
-        locationSnapshot: point,
-      });
-      const url = publicInviteUrlLabel(response.publicUrl);
-      setPublicInviteUrl(url);
-      const copiedToClipboard = url ? await copyToClipboard(url) : false;
-      trackEvent("one_location_public_link_created", {
-        route_id: "one_location",
-        result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: copiedToClipboard,
-        active_invite_count: activePublicInvites.length + 1,
-      });
-      toast.success(
-        copiedToClipboard
-          ? "Public location link created and copied."
-          : "Public location link created.",
-      );
-      await refresh();
-    } catch (error) {
-      trackEvent("one_location_public_link_created", {
-        route_id: "one_location",
-        result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: false,
-        active_invite_count: activePublicInvites.length,
-      });
-      toast.error(
-        oneLocationErrorMessage(
-          error,
-          "Could not create public location link.",
-        ),
-      );
-    } finally {
-      setBusy(null);
-    }
-  }, [activePublicInvites.length, durationHours, refresh, vaultOwnerToken]);
+  const handleCreatePublicInvite = useCallback(
+    async (locationMode: LocationSharingMode = "precise") => {
+      if (!vaultOwnerToken) return;
+      setBusy("publicInvite");
+      try {
+        const point = await OneLocationService.captureCurrentPosition();
+        if (locationMode === "precise" && permission?.precise === false) {
+          toast.error(
+            "Turn on Precise Location in your device settings to create a precise location link.",
+          );
+          return;
+        }
+        const preparedPoint = prepareLocationPointForSharing(
+          point,
+          locationMode,
+        );
+        const response = await OneLocationService.createPublicInvite({
+          vaultOwnerToken,
+          durationHours: Number(durationHours),
+          locationSnapshot: preparedPoint,
+        });
+        const url = publicInviteUrlLabel(response.publicUrl);
+        setPublicInviteUrl(url);
+        const copiedToClipboard = url ? await copyToClipboard(url) : false;
+        trackEvent("one_location_public_link_created", {
+          route_id: "one_location",
+          result: "success",
+          duration_bucket: oneLocationDurationBucket(durationHours),
+          copied_to_clipboard: copiedToClipboard,
+          active_invite_count: activePublicInvites.length + 1,
+        });
+        toast.success(
+          copiedToClipboard
+            ? "Public location link created and copied."
+            : "Public location link created.",
+        );
+        await refresh();
+      } catch (error) {
+        trackEvent("one_location_public_link_created", {
+          route_id: "one_location",
+          result: "error",
+          duration_bucket: oneLocationDurationBucket(durationHours),
+          copied_to_clipboard: false,
+          active_invite_count: activePublicInvites.length,
+        });
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not create public location link.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      activePublicInvites.length,
+      durationHours,
+      permission?.precise,
+      refresh,
+      vaultOwnerToken,
+    ],
+  );
 
   const handleCopyPublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
@@ -6218,13 +6354,14 @@ export function OneLocationAgentPageContent({
     onSyncContacts: () => void handleSyncContactSignal(),
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
-    onConfirmShare: () => void handleShare(),
+    onConfirmShare: (locationMode) => void handleShare(locationMode),
     onSendRequest: () => void handleRequestAccess(),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
-    onCreatePublicInvite: () => void handleCreatePublicInvite(),
+    onCreatePublicInvite: (locationMode) =>
+      void handleCreatePublicInvite(locationMode),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
     onRevokePublicInvite: (invite) => void handleRevokePublicInvite(invite),

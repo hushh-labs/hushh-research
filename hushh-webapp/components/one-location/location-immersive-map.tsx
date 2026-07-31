@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GoogleMap, LatLngBounds, type Marker } from "@capacitor/google-maps";
+import {
+  GoogleMap,
+  LatLngBounds,
+  type Circle,
+  type Marker,
+} from "@capacitor/google-maps";
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
@@ -30,6 +35,10 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import {
+  prepareLocationPointForGrant,
+  validateLocationPointForGrant,
+} from "@/lib/one-location/location-precision";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
   DARK_MAP_STYLES,
@@ -112,6 +121,8 @@ function markerSignature(markers: RenderMarker[]): string {
         marker.point.latitude.toFixed(6),
         marker.point.longitude.toFixed(6),
         marker.point.capturedAt,
+        marker.point.locationMode ?? "precise",
+        marker.point.approximateRadiusM ?? "",
       ].join(":"),
     )
     .join("|");
@@ -138,7 +149,10 @@ async function frameMarkers(
         lat: marker.point.latitude,
         lng: marker.point.longitude,
       },
-      zoom: 15,
+      zoom:
+        marker.point.locationMode === "approximate"
+          ? zoomForAccuracy(marker.point.approximateRadiusM)
+          : 15,
       animate: true,
     });
     return;
@@ -182,6 +196,8 @@ export function LocationImmersiveMap() {
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
+  const circleIdsRef = useRef<string[]>([]);
+  const markerByCircleIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const markerSignatureRef = useRef("");
@@ -310,13 +326,7 @@ export function LocationImmersiveMap() {
     router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
       scroll: false,
     });
-  }, [
-    demoMode,
-    nearbyCheckInAvailable,
-    rendererReady,
-    router,
-    searchParams,
-  ]);
+  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
 
   const closeNearbyCheckIn = useCallback(() => {
     setNearbyCheckInOpen(false);
@@ -460,9 +470,13 @@ export function LocationImmersiveMap() {
       const resolved = await Promise.all(
         state.markers.map(async (marker): Promise<RenderMarker | null> => {
           try {
-            const point = await decryptLocationEnvelope({
+            const decryptedPoint = await decryptLocationEnvelope({
               userId: auth.userId!,
               envelope: marker.envelope,
+            });
+            const point = validateLocationPointForGrant({
+              point: decryptedPoint,
+              grant: marker.grant,
             });
             return {
               key:
@@ -517,6 +531,8 @@ export function LocationImmersiveMap() {
       mountedRef.current = false;
       markerIdsRef.current = [];
       markerByMapIdRef.current.clear();
+      circleIdsRef.current = [];
+      markerByCircleIdRef.current.clear();
       void mapRef.current?.destroy();
       mapRef.current = null;
       // Android draws the native map behind the WebView. Restore every layer on
@@ -653,6 +669,19 @@ export function LocationImmersiveMap() {
             animate: true,
           });
         });
+        await map.setOnCircleClickListener((event) => {
+          const marker = markerByCircleIdRef.current.get(event.circleId);
+          if (!marker) return;
+          setSelected(marker);
+          void map.setCamera({
+            coordinate: {
+              lat: marker.point.latitude,
+              lng: marker.point.longitude,
+            },
+            zoom: zoomForAccuracy(marker.point.approximateRadiusM),
+            animate: true,
+          });
+        });
         setMapReady(true);
       })
       .catch(() => {
@@ -713,6 +742,25 @@ export function LocationImmersiveMap() {
     [markers, selfMarker],
   );
 
+  const visiblePointMarkers = useMemo(
+    () =>
+      visibleMarkers.filter(
+        (marker) =>
+          marker.kind === "self" || marker.point.locationMode !== "approximate",
+      ),
+    [visibleMarkers],
+  );
+
+  const visibleApproximateAreas = useMemo(
+    () =>
+      visibleMarkers.filter(
+        (marker) =>
+          marker.kind === "person" &&
+          marker.point.locationMode === "approximate",
+      ),
+    [visibleMarkers],
+  );
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -769,7 +817,9 @@ export function LocationImmersiveMap() {
     void (async () => {
       if (markerIdsRef.current.length)
         await map.removeMarkers(markerIdsRef.current);
-      const mapMarkers: Marker[] = visibleMarkers.map((marker) => ({
+      if (circleIdsRef.current.length)
+        await map.removeCircles(circleIdsRef.current);
+      const mapMarkers: Marker[] = visiblePointMarkers.map((marker) => ({
         coordinate: { lat: marker.point.latitude, lng: marker.point.longitude },
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
@@ -782,16 +832,44 @@ export function LocationImmersiveMap() {
         tintColor: marker.tint,
         zIndex: marker.kind === "self" ? 10 : 1,
       }));
+      const accentColor =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--app-accent")
+          .trim() || "blue";
+      const mapCircles: Circle[] = visibleApproximateAreas.map((marker) => ({
+        center: { lat: marker.point.latitude, lng: marker.point.longitude },
+        radius: Number(marker.point.approximateRadiusM),
+        fillColor: accentColor,
+        fillOpacity: 0.16,
+        strokeColor: accentColor,
+        strokeWeight: 2,
+        clickable: true,
+        title: "Private approximate area",
+      }));
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
-      if (cancelled) return;
+      const circleIds = mapCircles.length
+        ? await map.addCircles(mapCircles)
+        : [];
+      if (cancelled) {
+        if (ids.length) await map.removeMarkers(ids);
+        if (circleIds.length) await map.removeCircles(circleIds);
+        return;
+      }
       markerIdsRef.current = ids;
+      circleIdsRef.current = circleIds;
       markerByMapIdRef.current = new Map(
         ids.flatMap((id, index) => {
-          const marker = visibleMarkers[index];
+          const marker = visiblePointMarkers[index];
           return marker ? [[id, marker] as const] : [];
         }),
       );
-      if (visibleMarkers.length > 8) {
+      markerByCircleIdRef.current = new Map(
+        circleIds.flatMap((id, index) => {
+          const marker = visibleApproximateAreas[index];
+          return marker ? [[id, marker] as const] : [];
+        }),
+      );
+      if (visiblePointMarkers.length > 8) {
         await map.enableClustering(4);
       } else {
         await map.disableClustering();
@@ -810,7 +888,13 @@ export function LocationImmersiveMap() {
     return () => {
       cancelled = true;
     };
-  }, [entryLocationSettled, mapReady, visibleMarkers]);
+  }, [
+    entryLocationSettled,
+    mapReady,
+    visibleApproximateAreas,
+    visibleMarkers,
+    visiblePointMarkers,
+  ]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -870,7 +954,10 @@ export function LocationImmersiveMap() {
         lat: marker.point.latitude,
         lng: marker.point.longitude,
       },
-      zoom: 15,
+      zoom:
+        marker.point.locationMode === "approximate"
+          ? zoomForAccuracy(marker.point.approximateRadiusM)
+          : 15,
       animate: true,
     });
   }, []);
@@ -913,8 +1000,9 @@ export function LocationImmersiveMap() {
             `${grant.recipientUserId}:${grant.recipientKeyId}`,
           );
           if (!recipient?.publicKeyJwk || !recipient.keyId) return;
+          const sharePoint = prepareLocationPointForGrant(point, grant);
           const envelope = await encryptLocationForRecipient({
-            point,
+            point: sharePoint,
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: recipient.keyId,
           });
@@ -1025,8 +1113,7 @@ export function LocationImmersiveMap() {
           currentOwner.vaultOwnerToken === ownerSnapshot.vaultOwnerToken &&
           currentPresence.presence?.checkedInAt === presenceCheckedInAt &&
           currentPresence.attendees.some(
-            (item) =>
-              item.participantAlias === attendee.participantAlias,
+            (item) => item.participantAlias === attendee.participantAlias,
           )
         );
       };
@@ -1577,7 +1664,9 @@ export function LocationImmersiveMap() {
                     <p className="text-xs text-muted-foreground">
                       {selected.kind === "self"
                         ? "Your current location"
-                        : "Sharing privately now"}
+                        : selected.point.locationMode === "approximate"
+                          ? "Sharing an approximate area privately"
+                          : "Sharing a precise location privately"}
                     </p>
                   </div>
                   <Button

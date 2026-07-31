@@ -64,6 +64,17 @@ reverse-geocoded enrichment.
 
 The web/native client creates one envelope per grant update:
 
+- `precise` grants contain the exact captured point, use the live foreground
+  heartbeat/movement watch, and may expose exact-pin navigation to the recipient
+- `approximate` grants quantize the point on-device to a deterministic 1 km Web
+  Mercator cell before encryption, display a radius of at least 1 km, update no
+  more often than every five minutes, and never expose an exact pin or directions
+- the radius widens when device uncertainty is greater; an update that cannot
+  fit inside the consented radius fails closed rather than silently becoming
+  more precise or misleading
+- legacy grants with no authored mode remain `precise`; mixed precise and
+  approximate grants are prepared independently from the same device fix
+
 ```json
 {
   "algorithm": "ECDH-P256-AES256-GCM",
@@ -288,7 +299,9 @@ request-only links.
 2. The backend returns the raw token once and stores only its hash.
 3. If the owner attached a `publicLocation` snapshot, the public resolve
    response returns safe owner/link metadata plus that snapshot. The public page
-   displays the map immediately with no name, phone, or message form.
+   displays the map immediately with no name, phone, or message form. The
+   snapshot carries its explicit `precise` or `approximate` mode; approximate
+   snapshots are re-quantized server-side and never offer directions.
 4. If no snapshot is attached, the link is request-only and the public resolve
    response exposes only a safe owner label, status, duration, and expiry. By
    default the safe label is "a trusted person".
@@ -357,13 +370,14 @@ boundary.
 
 ## Native Contract
 
-v1 is foreground-only.
-
-- iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
-  Capacitor plugin.
+- iOS uses the `HushhLocation` Capacitor plugin. Foreground capture requires
+  When In Use; owner-opted background private sharing requires Always access.
 - Android uses fine/coarse location permissions and the `HushhLocation`
   Capacitor plugin.
-- No iOS background location mode is added.
+- iOS background publishing encrypts per grant while JavaScript is suspended.
+  It preserves the selected mode: precise grants use movement cadence and
+  approximate grants are quantized before encryption at the five-minute cadence.
+  Reduced Accuracy cannot be published under a precise grant.
 - No Android background location permission is added.
 - Nearby Check-In reuses the same one-shot foreground capture on web, iOS, and
   Android. It adds no native method, geofence, or background permission.
@@ -372,8 +386,8 @@ v1 is foreground-only.
 - iOS one-shot capture enforces the caller's bounded timeout so a missing
   CoreLocation callback cannot strand the confirmation screen.
 
-Denied, unavailable, approximate, and foreground-only states must be visible in
-the web control surface.
+Denied, unavailable, reduced-accuracy, and foreground-only states must be
+visible in the web control surface.
 
 ## Migration From KAI Prototype
 
@@ -401,7 +415,11 @@ The implementation must prove:
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
   explicit public snapshot, while request-only links never reveal location
-- web, iOS, and Android have foreground permission parity
+- web, iOS, and Android have foreground permission parity; iOS background
+  publishing preserves each grant's precision mode and Android remains
+  foreground-only
+- approximate encrypted updates are grid-aligned, radius-bound, cadence-limited,
+  and rejected by recipients when payload mode does not match grant mode
 - saved places round-trip through encrypted Location PKM without plaintext
   local storage or a plaintext backend table
 - A/B/C/D flow is covered at service, authenticated API route, and browser

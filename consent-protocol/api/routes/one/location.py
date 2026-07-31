@@ -69,6 +69,13 @@ class CreateGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
+    location_mode: str = Field(default="precise", alias="locationMode", max_length=20)
+    approximate_radius_m: int | None = Field(
+        default=None,
+        alias="approximateRadiusM",
+        ge=1_000,
+        le=20_000,
+    )
 
 
 class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
@@ -763,6 +770,8 @@ def create_location_grant(
                 duration_hours=payload.duration_hours,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
+                location_mode=payload.location_mode,
+                approximate_radius_m=payload.approximate_radius_m,
                 enforce_connection=True,
             )
         }
@@ -788,6 +797,8 @@ def create_location_grant_with_envelope(
             envelope=payload.envelope,
             reason=payload.reason,
             share_kind=payload.share_kind,
+            location_mode=payload.location_mode,
+            approximate_radius_m=payload.approximate_radius_m,
             enforce_connection=True,
         )
     except Exception as exc:

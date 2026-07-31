@@ -2,19 +2,38 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
-    captureCurrentPosition: vi.fn(async () => ({ latitude: 1, longitude: 2, capturedAt: "t" })),
+    captureCurrentPosition: vi.fn(async () => ({
+      latitude: 1,
+      longitude: 2,
+      capturedAt: "t",
+    })),
     getState: vi.fn(async () => ({
       recipients: [
-        { keyId: "k1", publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" } },
-        { keyId: "k2", publicKeyJwk: { kty: "EC", crv: "P-256", x: "cc", y: "dd" } },
+        {
+          keyId: "k1",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" },
+        },
+        {
+          keyId: "k2",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "cc", y: "dd" },
+        },
+      ],
+      ownerGrants: [
+        { id: "g1", status: "active", locationMode: "precise" },
+        { id: "g2", status: "active", locationMode: "precise" },
       ],
     })),
     storeEnvelope: vi.fn(async () => ({ ok: true })),
-    createPublicInvite: vi.fn(async () => ({ publicUrl: "https://one.example/p/abc" })),
+    createPublicInvite: vi.fn(async () => ({
+      publicUrl: "https://one.example/p/abc",
+    })),
   },
 }));
 vi.mock("@/lib/one-location/encryption", () => ({
-  encryptLocationForRecipient: vi.fn(async () => ({ ciphertext: "x", iv: "y" })),
+  encryptLocationForRecipient: vi.fn(async () => ({
+    ciphertext: "x",
+    iv: "y",
+  })),
 }));
 
 import { runLocationDirective } from "@/lib/agent/specialist-directive-runtime";
@@ -71,9 +90,52 @@ describe("runLocationDirective publish_share", () => {
     );
   });
 
+  it("coarsens an approximate grant before encrypting its point", async () => {
+    vi.mocked(OneLocationService.getState).mockResolvedValueOnce({
+      recipients: [
+        {
+          keyId: "k1",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" },
+        },
+      ],
+      ownerGrants: [
+        {
+          id: "g1",
+          status: "active",
+          locationMode: "approximate",
+          approximateRadiusM: 1_000,
+        },
+      ],
+    } as any);
+
+    const result = await runLocationDirective({
+      kind: "action",
+      payload: {
+        id: "act-approximate",
+        type: "publish_share",
+        shares: [{ grantId: "g1", recipientKeyId: "k1", label: "Mom" }],
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(encryptLocationForRecipient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: expect.objectContaining({
+          locationMode: "approximate",
+          approximateRadiusM: 1_000,
+        }),
+      }),
+    );
+    const encryptedPoint = vi.mocked(encryptLocationForRecipient).mock
+      .calls[0]?.[0].point;
+    expect(encryptedPoint?.latitude).not.toBe(1);
+    expect(encryptedPoint?.longitude).not.toBe(2);
+  });
+
   it("fails with a friendly error when the recipient has no server key", async () => {
     vi.mocked(OneLocationService.getState).mockResolvedValueOnce({
       recipients: [{ keyId: "k1", publicKeyJwk: null }],
+      ownerGrants: [{ id: "g1", status: "active", locationMode: "precise" }],
     } as any);
     const result = await runLocationDirective({
       kind: "action",

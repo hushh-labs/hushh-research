@@ -1,9 +1,5 @@
 import { HushhLocation } from "@/lib/capacitor";
-import {
-  ApiError,
-  apiErrorCode,
-  apiJson,
-} from "@/lib/services/api-client";
+import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -28,6 +24,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
+  LocationSharingMode,
   RouteEta,
 } from "@/lib/one-location/types";
 
@@ -142,7 +139,6 @@ export class OneLocationService {
     return HushhLocation.stopBackgroundShare();
   }
 
-
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
     keyId: string;
@@ -204,7 +200,9 @@ export class OneLocationService {
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
-  static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+  static async getMapState(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapState> {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });
@@ -409,6 +407,8 @@ export class OneLocationService {
     durationHours: number;
     reason?: string;
     shareKind?: string;
+    locationMode?: LocationSharingMode;
+    approximateRadiusM?: number | null;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
@@ -421,6 +421,8 @@ export class OneLocationService {
           durationHours: params.durationHours,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          locationMode: params.locationMode ?? "precise",
+          approximateRadiusM: params.approximateRadiusM ?? null,
         }),
       },
     );
@@ -441,6 +443,8 @@ export class OneLocationService {
     envelope: OneLocationEncryptedEnvelope;
     reason?: string;
     shareKind?: string;
+    locationMode?: LocationSharingMode;
+    approximateRadiusM?: number | null;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
@@ -460,6 +464,8 @@ export class OneLocationService {
           envelope: params.envelope,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          locationMode: params.locationMode ?? "precise",
+          approximateRadiusM: params.approximateRadiusM ?? null,
         }),
       },
       1,

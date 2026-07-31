@@ -117,6 +117,8 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
             "clientOperationId": "123e4567-e89b-12d3-a456-426614174000",
             "confirmedAt": captured_at,
             "shareKind": "check_in",
+            "locationMode": "approximate",
+            "approximateRadiusM": 1250,
             "envelope": {
                 **encrypted_envelope("recipient-key"),
                 "capturedAt": captured_at,
@@ -129,6 +131,8 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert service.calls[0]["owner_user_id"] == "owner-from-token"
     assert service.calls[0]["recipient_user_id"] == "recipient"
     assert service.calls[0]["enforce_connection"] is True
+    assert service.calls[0]["location_mode"] == "approximate"
+    assert service.calls[0]["approximate_radius_m"] == 1250
 
 
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:

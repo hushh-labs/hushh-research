@@ -48,10 +48,7 @@ export function DurationSelector({
   return (
     <div className="space-y-2">
       {label ? (
-        <p
-          id={labelId}
-          className="text-sm font-semibold text-foreground"
-        >
+        <p id={labelId} className="text-sm font-semibold text-foreground">
           {label}
         </p>
       ) : null}
@@ -122,12 +119,12 @@ export function LocationTypeSelector({
     {
       value: "approximate",
       title: "Approximate area",
-      description: "Better for privacy and battery life",
+      description: "Shows a 1 km+ general area, refreshed about every 5 min",
     },
     {
       value: "precise",
       title: "Precise live location",
-      description: "Updates while you move for your loved ones",
+      description: "Shows your exact moving pin, updated live",
     },
   ];
   return (
@@ -152,7 +149,8 @@ export function LocationTypeSelector({
               className={cn(
                 SUBCARD_SURFACE,
                 "flex items-center justify-between p-3.5 text-left transition-colors",
-                active && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+                active &&
+                  "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
               )}
             >
               <span>
@@ -184,10 +182,7 @@ export function LocationTypeSelector({
 }
 
 export type ReasonValue =
-  | "Safety check-in"
-  | "Meeting nearby"
-  | "Pick-up"
-  | "Other";
+  "Safety check-in" | "Meeting nearby" | "Pick-up" | "Other";
 
 export const REASON_CHIPS: ReasonValue[] = [
   "Safety check-in",

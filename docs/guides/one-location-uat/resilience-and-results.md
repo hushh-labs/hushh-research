@@ -9,6 +9,8 @@ Canonical visual owner: [Guides Index](../README.md). Local parent: [One Locatio
 If exposed in UAT:
 
 - Links -> Create temporary link creates a copyable/shareable active link.
+- A precise public link displays a labelled snapshot and directions; an
+  approximate public link displays a shaded general area with no directions.
 - Visitor submit is rate-limited and creates a public location request for the owner.
 - Revoke temporary link removes the active link.
 - People -> Invite trusted person creates a Circle invite.

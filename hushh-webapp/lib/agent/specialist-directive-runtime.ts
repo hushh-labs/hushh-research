@@ -1,6 +1,7 @@
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
+import { prepareLocationPointForGrant } from "@/lib/one-location/location-precision";
 import {
   isSosShareReadyRecipient,
   runSosPanic,
@@ -87,14 +88,24 @@ export async function runLocationDirective(
       const position = await OneLocationService.captureCurrentPosition();
       const state = await OneLocationService.getState(vaultOwnerToken);
       for (const share of shares) {
+        const grant = (state.ownerGrants ?? []).find(
+          (candidate) =>
+            candidate.id === share.grantId && candidate.status === "active",
+        );
+        if (!grant) {
+          throw new Error(
+            `${share.label}'s location permission is no longer active`,
+          );
+        }
         const recipient = (state.recipients ?? []).find(
           (r) => r.keyId === share.recipientKeyId,
         );
         if (!recipient?.publicKeyJwk) {
           throw new Error(`${share.label} hasn't set up location sharing yet`);
         }
+        const sharePoint = prepareLocationPointForGrant(position, grant);
         const envelope = await encryptLocationForRecipient({
-          point: position,
+          point: sharePoint,
           recipientPublicKeyJwk: recipient.publicKeyJwk,
           recipientKeyId: share.recipientKeyId,
         });
@@ -115,7 +126,8 @@ export async function runLocationDirective(
 
     if (type === "create_public_link") {
       // Real field is `locationSnapshot` (not `publicLocation` as brief guessed)
-      const locationSnapshot = await OneLocationService.captureCurrentPosition();
+      const locationSnapshot =
+        await OneLocationService.captureCurrentPosition();
       const { publicUrl } = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
         durationHours: Number(payload.durationHours ?? 1),
@@ -173,8 +185,9 @@ export async function runLocationDirective(
         recipients: ready,
         point,
         publish: async (grant, recipient, pt) => {
+          const sharePoint = prepareLocationPointForGrant(pt, grant);
           const envelope = await encryptLocationForRecipient({
-            point: pt,
+            point: sharePoint,
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: recipient.keyId,
           });
@@ -219,7 +232,13 @@ export async function runLocationDirective(
       );
       const ready = connected.filter(isSosShareReadyRecipient);
       if (!ready.length) {
-        return { delegate_agent_id: "agent_location", kind: "action", id, type, status: "cancelled" };
+        return {
+          delegate_agent_id: "agent_location",
+          kind: "action",
+          id,
+          type,
+          status: "cancelled",
+        };
       }
       const point = await OneLocationService.captureCurrentPosition();
       await runCheckIn({
@@ -229,15 +248,26 @@ export async function runLocationDirective(
         durationHours: Number(payload.durationHours) || 1,
         note: payload.note ?? null,
         publish: async (grant, recipient, pt) => {
+          const sharePoint = prepareLocationPointForGrant(pt, grant);
           const envelope = await encryptLocationForRecipient({
-            point: pt,
+            point: sharePoint,
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: recipient.keyId,
           });
-          await OneLocationService.storeEnvelope({ vaultOwnerToken, grantId: grant.id, envelope });
+          await OneLocationService.storeEnvelope({
+            vaultOwnerToken,
+            grantId: grant.id,
+            envelope,
+          });
         },
       });
-      return { delegate_agent_id: "agent_location", kind: "action", id, type, status: "completed" };
+      return {
+        delegate_agent_id: "agent_location",
+        kind: "action",
+        id,
+        type,
+        status: "completed",
+      };
     }
 
     return {

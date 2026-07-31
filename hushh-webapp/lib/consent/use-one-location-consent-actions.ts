@@ -35,6 +35,7 @@ import {
 } from "@/lib/consent/location-consent";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { OneLocationService } from "@/lib/one-location/service";
+import { prepareLocationPointForGrant } from "@/lib/one-location/location-precision";
 import type {
   ConsentActionKind,
   ConsentActionState,
@@ -108,7 +109,11 @@ export function useOneLocationConsentActions(
   );
 
   const emitComplete = useCallback(
-    (detail: { action: ConsentActionKind; requestId?: string; scope?: string }) => {
+    (detail: {
+      action: ConsentActionKind;
+      requestId?: string;
+      scope?: string;
+    }) => {
       onActionComplete?.();
       // Both the consent center and the One Location page listen for this event,
       // so a CTA in either surface refreshes the other.
@@ -163,7 +168,10 @@ export function useOneLocationConsentActions(
    * publish the envelope. Mirrors `handleApprove` in the One Location page.
    */
   const handleApprove = useCallback(
-    (entry: LocationConsentActionEntry, durationHours?: number): Promise<void> => {
+    (
+      entry: LocationConsentActionEntry,
+      durationHours?: number,
+    ): Promise<void> => {
       const ref = parseLocationConsentEntry(entry);
       const requestId = ref.requestId;
       if (!requestId) {
@@ -200,8 +208,12 @@ export function useOneLocationConsentActions(
               durationHours: clampApprovalDurationHours(durationHours),
             });
             const point = await OneLocationService.captureCurrentPosition();
-            const envelope = await encryptLocationForRecipient({
+            const sharePoint = prepareLocationPointForGrant(
               point,
+              response.grant,
+            );
+            const envelope = await encryptLocationForRecipient({
+              point: sharePoint,
               recipientPublicKeyJwk: requester.publicKeyJwk,
               recipientKeyId: requester.keyId,
             });
@@ -217,7 +229,8 @@ export function useOneLocationConsentActions(
             id: actionKey,
             loading: "Approving location request...",
             success: (message) => `✅ ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not approve request.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not approve request.")}`,
             duration: 3000,
           });
 
@@ -251,7 +264,10 @@ export function useOneLocationConsentActions(
           if (!vaultOwnerToken) return;
 
           const promise = (async () => {
-            await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
+            await OneLocationService.denyRequest({
+              vaultOwnerToken,
+              requestId,
+            });
             return "Request denied.";
           })();
 
@@ -259,7 +275,8 @@ export function useOneLocationConsentActions(
             id: actionKey,
             loading: "Denying location request...",
             success: (message) => `❌ ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not deny request.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not deny request.")}`,
             duration: 3000,
           });
 
@@ -325,7 +342,8 @@ export function useOneLocationConsentActions(
             id: actionKey,
             loading: "Revoking location access...",
             success: (message) => `🔒 ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not revoke access.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not revoke access.")}`,
             duration: 3000,
           });
 

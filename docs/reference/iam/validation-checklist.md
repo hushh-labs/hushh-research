@@ -64,6 +64,11 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 15. GPS-only nearby simulation is unavailable in production even when its
     mode is misconfigured; Check out remains available while discovery is
     disabled.
+16. Approximate location grants expose only a 1 km+ grid-aligned area, never an
+    exact pin or directions, and update no more often than every five minutes.
+17. Precise/approximate mode and radius survive refresh, background/resume, and
+    mixed-grant publishing. Payload/grant mismatch, reduced iOS accuracy on a
+    precise grant, and stale native callbacks all fail closed.
 
 ## Ecosystem Checks
 

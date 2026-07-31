@@ -4,10 +4,9 @@ import CoreLocation
 import UIKit
 
 /**
- * HushhLocationPlugin - foreground-only one-shot location capture.
- *
- * One Location Agent v1 does not request background location. Coordinates are
- * returned only to the local web layer so it can encrypt before persistence.
+ * HushhLocationPlugin - foreground capture plus explicit iOS background share.
+ * Coordinates are encrypted for a consented grant before leaving the device;
+ * approximate grants are coarsened natively while JavaScript is suspended.
  */
 @objc(HushhLocationPlugin)
 public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -226,9 +225,39 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             guard
                 let grantId = g["grantId"] as? String,
                 let keyId = g["recipientKeyId"] as? String,
-                let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+                let jwk = g["recipientPublicKeyJwk"] as? [String: Any],
+                let locationMode = g["locationMode"] as? String,
+                locationMode == "precise" || locationMode == "approximate"
             else { return nil }
-            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+            if #available(iOS 14.0, *),
+               locationMode == "precise",
+               manager.accuracyAuthorization != .fullAccuracy {
+                // Reduced Accuracy must never be labelled as a precise grant.
+                return nil
+            }
+            let radius = g["approximateRadiusM"] as? Double
+            if locationMode == "approximate" {
+                guard
+                    let radius,
+                    radius >= 1_000,
+                    radius <= 20_000,
+                    radius.truncatingRemainder(dividingBy: 250) == 0
+                else { return nil }
+            }
+            let lastPublishedAt: Date? = {
+                guard let raw = g["lastPublishedAt"] as? String else { return nil }
+                let fractional = ISO8601DateFormatter()
+                fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                return fractional.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+            }()
+            return BackgroundShareGrantNative(
+                grantId: grantId,
+                recipientKeyId: keyId,
+                recipientPublicKeyJwk: jwk,
+                locationMode: locationMode,
+                approximateRadiusM: locationMode == "approximate" ? radius : nil,
+                lastPublishedAt: lastPublishedAt
+            )
         }
         guard !grants.isEmpty else {
             call.resolve(["started": false, "reason": "no-grants"])
@@ -239,7 +268,11 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             backendBaseUrl: base,
             grants: grants,
             minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
-            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
+            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000,
+            approximateIntervalMs: max(
+                call.getDouble("approximateIntervalMs") ?? 300_000,
+                300_000
+            )
         )
         backgroundPublisher.start(session: session)
         DispatchQueue.main.async { self.manager.startUpdatingLocation() }

@@ -179,12 +179,16 @@ Native parity for authenticated flows now includes the verified phone mandate af
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
-- One Location Agent requires foreground-only location parity:
+- One Location Agent requires foreground location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
   Android, and the `HushhLocation` plugin on web, iOS, and Android.
-- One Location Agent v1 must not add iOS background location mode or Android
-  background location permission.
+- One Location Agent supports explicitly opted-in iOS background private
+  sharing with Always authorization. The native publisher must preserve every
+  grant's precise/approximate mode before encryption, enforce a minimum
+  five-minute approximate cadence, and discard stale-session callbacks after
+  stop/restart. Android must not request background location permission and
+  remains foreground-only.
 - `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is

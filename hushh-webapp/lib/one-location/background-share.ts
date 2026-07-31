@@ -6,6 +6,7 @@ import type {
   OneLocationGrant,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
+import { grantLocationMode } from "@/lib/one-location/location-precision";
 
 /**
  * Build the native background-share session from the owner's active grants and
@@ -22,6 +23,7 @@ export function buildBackgroundShareSession(params: {
   backendBaseUrl: string;
   minMoveMeters: number;
   minIntervalMs: number;
+  approximateIntervalMs: number;
 }): BackgroundShareSession {
   const grants: BackgroundShareGrant[] = [];
   for (const grant of params.activeGrants) {
@@ -32,10 +34,20 @@ export function buildBackgroundShareSession(params: {
         candidate.keyId === grant.recipientKeyId,
     );
     if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
+    const locationMode = grantLocationMode(grant);
+    const approximateRadiusM = grant.approximateRadiusM ?? null;
+    if (locationMode === "approximate" && approximateRadiusM === null) {
+      continue;
+    }
     grants.push({
       grantId: grant.id,
       recipientKeyId: recipient.keyId,
       recipientPublicKeyJwk: recipient.publicKeyJwk,
+      locationMode,
+      approximateRadiusM,
+      lastPublishedAt: grant.latestEnvelopeId
+        ? (grant.updatedAt ?? null)
+        : null,
     });
   }
   return {
@@ -43,6 +55,7 @@ export function buildBackgroundShareSession(params: {
     backendBaseUrl: params.backendBaseUrl,
     minMoveMeters: params.minMoveMeters,
     minIntervalMs: params.minIntervalMs,
+    approximateIntervalMs: params.approximateIntervalMs,
     grants,
   };
 }

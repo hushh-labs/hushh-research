@@ -1,9 +1,5 @@
 export type LocationSourcePlatform =
-  | "web"
-  | "ios"
-  | "android"
-  | "native"
-  | "unknown";
+  "web" | "ios" | "android" | "native" | "unknown";
 
 export type OneLocationRecommendationTier =
   | "needs_action"
@@ -162,6 +158,10 @@ export type OneLocationGrant = {
    * coordinate-free and bounded by the backend; shown verbatim to the recipient.
    */
   shareMessage?: string | null;
+  /** Immutable precision contract for every point published under this grant. */
+  locationMode?: LocationSharingMode;
+  /** Public radius of an approximate grant. Null for precise grants. */
+  approximateRadiusM?: number | null;
 };
 
 export type OneLocationAccessRequest = {
@@ -345,10 +345,7 @@ export type OneLocationNearbyPlaceSuggestion = {
 };
 
 export type OneLocationNearbyRelationship =
-  | "none"
-  | "pending_outgoing"
-  | "pending_incoming"
-  | "connected";
+  "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
 export type OneLocationNearbyAttendee = {
   /** Rotating, presence-scoped alias. A stable user id is never returned. */
@@ -417,6 +414,10 @@ export type PlainLocationPoint = {
   accuracyM?: number | null;
   capturedAt: string;
   sourcePlatform: LocationSourcePlatform;
+  /** Encrypted with private points and explicit on public snapshots. */
+  locationMode?: LocationSharingMode;
+  /** Area radius shown instead of a pin when locationMode is approximate. */
+  approximateRadiusM?: number | null;
   /**
    * Present only for Drive-To shares. Encrypted together with the point, so the
    * backend never sees the destination or ETA.
@@ -427,6 +428,8 @@ export type PlainLocationPoint = {
    */
   checkIn?: CheckInSharePayload | null;
 };
+
+export type LocationSharingMode = "approximate" | "precise";
 
 export type OneLocationEncryptedEnvelope = {
   id?: string;
@@ -445,9 +448,7 @@ export type OneLocationEncryptedEnvelope = {
    * eligible for Your Map; direct/background shares are never promoted.
    */
   publicationContext?:
-    | "private_background"
-    | "private_foreground"
-    | "foreground_map_visible";
+    "private_background" | "private_foreground" | "foreground_map_visible";
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
 };
@@ -476,7 +477,12 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic" | "check_in";
+export type ClientActionType =
+  | "publish_share"
+  | "view_envelope"
+  | "create_public_link"
+  | "sos_panic"
+  | "check_in";
 
 export interface ClientAction {
   id: string;

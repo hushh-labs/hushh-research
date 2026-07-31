@@ -11,6 +11,10 @@ import {
   ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import {
+  prepareLocationPointForGrant,
+  validateLocationPointForGrant,
+} from "@/lib/one-location/location-precision";
 import type {
   ActionResult,
   ClientAction,
@@ -61,12 +65,19 @@ export function useLocationChat(params: {
   vaultKey?: string | null;
   onStateChanged?: () => void;
 }): UseLocationChat {
-  const { vaultOwnerToken, userId = "", vaultKey = null, onStateChanged } = params;
+  const {
+    vaultOwnerToken,
+    userId = "",
+    vaultKey = null,
+    onStateChanged,
+  } = params;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<ClientAction | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<ClientPrompt | null>(null);
-  const [viewedPoint, setViewedPoint] = useState<PlainLocationPoint | null>(null);
+  const [viewedPoint, setViewedPoint] = useState<PlainLocationPoint | null>(
+    null,
+  );
   const conversationIdRef = useRef<string | null>(null);
   const lastSentRef = useRef<string | null>(null);
   const seqRef = useRef(0);
@@ -78,7 +89,12 @@ export function useLocationChat(params: {
       conversationIdRef.current = result.conversationId;
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", text: result.response, stateChanged: result.stateChanged },
+        {
+          id: nextId(),
+          role: "assistant",
+          text: result.response,
+          stateChanged: result.stateChanged,
+        },
       ]);
       setPendingAction(result.clientAction ?? null);
       setPendingPrompt(result.clientPrompt ?? null);
@@ -92,7 +108,9 @@ export function useLocationChat(params: {
       setBusy(true);
       // Retry case: drop a trailing errored assistant bubble before re-asking.
       setMessages((prev) =>
-        prev.length && prev[prev.length - 1]?.errored ? prev.slice(0, -1) : prev,
+        prev.length && prev[prev.length - 1]?.errored
+          ? prev.slice(0, -1)
+          : prev,
       );
       try {
         const result = await OneLocationService.chat({
@@ -145,7 +163,12 @@ export function useLocationChat(params: {
       } catch {
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: LOCATION_CHAT_ERROR_TEXT, errored: true },
+          {
+            id: nextId(),
+            role: "assistant",
+            text: LOCATION_CHAT_ERROR_TEXT,
+            errored: true,
+          },
         ]);
       } finally {
         setBusy(false);
@@ -168,7 +191,12 @@ export function useLocationChat(params: {
       } catch {
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: LOCATION_CHAT_ERROR_TEXT, errored: true },
+          {
+            id: nextId(),
+            role: "assistant",
+            text: LOCATION_CHAT_ERROR_TEXT,
+            errored: true,
+          },
         ]);
       } finally {
         setBusy(false);
@@ -181,10 +209,18 @@ export function useLocationChat(params: {
     async (raw: string) => {
       const message = raw.trim();
       if (!message || busy) return;
-      setMessages((prev) => [...prev, { id: nextId(), role: "user", text: message }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: message },
+      ]);
       const prompt = pendingPrompt;
       if (prompt) {
-        await reportSelection({ id: prompt.id, kind: prompt.kind, freeText: message, status: "answered" });
+        await reportSelection({
+          id: prompt.id,
+          kind: prompt.kind,
+          freeText: message,
+          status: "answered",
+        });
         return;
       }
       lastSentRef.current = message;
@@ -202,7 +238,13 @@ export function useLocationChat(params: {
         ...prev,
         { id: nextId(), role: "user", text: display, kind: "selection" },
       ]);
-      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered", display });
+      await reportSelection({
+        id: prompt.id,
+        kind: prompt.kind,
+        selected: refs,
+        status: "answered",
+        display,
+      });
     },
     [pendingPrompt, busy, reportSelection, nextId],
   );
@@ -216,7 +258,13 @@ export function useLocationChat(params: {
         ...prev,
         { id: nextId(), role: "user", text: display, kind: "selection" },
       ]);
-      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered", display });
+      await reportSelection({
+        id: prompt.id,
+        kind: prompt.kind,
+        confirmed: yes,
+        status: "answered",
+        display,
+      });
     },
     [pendingPrompt, busy, reportSelection, nextId],
   );
@@ -229,7 +277,12 @@ export function useLocationChat(params: {
       ...prev,
       { id: nextId(), role: "user", text: display, kind: "selection" },
     ]);
-    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled", display });
+    await reportSelection({
+      id: prompt.id,
+      kind: prompt.kind,
+      status: "cancelled",
+      display,
+    });
   }, [pendingPrompt, busy, reportSelection, nextId]);
 
   const confirmAction = useCallback(async () => {
@@ -241,14 +294,26 @@ export function useLocationChat(params: {
         const point = await OneLocationService.captureCurrentPosition();
         const state = await OneLocationService.getState(vaultOwnerToken);
         for (const share of action.shares ?? []) {
+          const grant = (state.ownerGrants ?? []).find(
+            (candidate) =>
+              candidate.id === share.grantId && candidate.status === "active",
+          );
+          if (!grant) {
+            throw new Error(
+              `${share.label}'s location permission is no longer active`,
+            );
+          }
           const recipient = (state.recipients ?? []).find(
             (r) => r.keyId === share.recipientKeyId,
           );
           if (!recipient?.publicKeyJwk) {
-            throw new Error(`${share.label} hasn't set up location sharing yet`);
+            throw new Error(
+              `${share.label} hasn't set up location sharing yet`,
+            );
           }
+          const sharePoint = prepareLocationPointForGrant(point, grant);
           const envelope = await encryptLocationForRecipient({
-            point,
+            point: sharePoint,
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: share.recipientKeyId,
           });
@@ -261,7 +326,12 @@ export function useLocationChat(params: {
         await report({ id: action.id, type: action.type, status: "completed" });
       } else if (action.type === "view_envelope") {
         if (!userId) {
-          await report({ id: action.id, type: action.type, status: "failed", detail: "userId not configured" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "failed",
+            detail: "userId not configured",
+          });
           return;
         }
         const grantId = action.grantId;
@@ -270,10 +340,27 @@ export function useLocationChat(params: {
           vaultOwnerToken,
           grantId,
         });
+        const state = await OneLocationService.getState(vaultOwnerToken);
+        const grant = (state.receivedGrants ?? []).find(
+          (candidate) =>
+            candidate.id === grantId && candidate.status === "active",
+        );
+        if (!grant) {
+          throw new Error("This location permission is no longer active");
+        }
+        const decryptAndValidate = async () =>
+          validateLocationPointForGrant({
+            point: await decryptLocationEnvelope({ userId, envelope }),
+            grant,
+          });
         try {
-          const point = await decryptLocationEnvelope({ userId, envelope });
+          const point = await decryptAndValidate();
           setViewedPoint(point);
-          await report({ id: action.id, type: action.type, status: "completed" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "completed",
+          });
         } catch (decryptError) {
           if (
             decryptError instanceof Error &&
@@ -283,16 +370,19 @@ export function useLocationChat(params: {
             // the user's devices and retry once before giving up.
             if (vaultKey) {
               try {
-                const state = await OneLocationService.getState(vaultOwnerToken);
                 if (state.myRecipientKey?.encryptedPrivateKeyJwk) {
                   await ensureVaultSyncedRecipientKey({
                     userId,
                     vaultKey,
                     remoteBackup: state.myRecipientKey,
                   });
-                  const point = await decryptLocationEnvelope({ userId, envelope });
+                  const point = await decryptAndValidate();
                   setViewedPoint(point);
-                  await report({ id: action.id, type: action.type, status: "completed" });
+                  await report({
+                    id: action.id,
+                    type: action.type,
+                    status: "completed",
+                  });
                   return;
                 }
               } catch {
@@ -318,7 +408,8 @@ export function useLocationChat(params: {
           throw decryptError;
         }
       } else if (action.type === "create_public_link") {
-        const locationSnapshot = await OneLocationService.captureCurrentPosition();
+        const locationSnapshot =
+          await OneLocationService.captureCurrentPosition();
         const { publicUrl } = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
           durationHours: action.durationHours ?? 1,
@@ -342,7 +433,11 @@ export function useLocationChat(params: {
           state.smsContactUserIds,
         ).filter(isSosShareReadyRecipient);
         if (!ready.length) {
-          await report({ id: action.id, type: action.type, status: "cancelled" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "cancelled",
+          });
           return;
         }
         const point = await OneLocationService.captureCurrentPosition();
@@ -351,8 +446,9 @@ export function useLocationChat(params: {
           recipients: ready,
           point,
           publish: async (grant, recipient, pt) => {
+            const sharePoint = prepareLocationPointForGrant(pt, grant);
             const envelope = await encryptLocationForRecipient({
-              point: pt,
+              point: sharePoint,
               recipientPublicKeyJwk: recipient.publicKeyJwk,
               recipientKeyId: recipient.keyId,
             });
@@ -373,7 +469,11 @@ export function useLocationChat(params: {
         );
         const ready = connected.filter(isSosShareReadyRecipient);
         if (!ready.length) {
-          await report({ id: action.id, type: action.type, status: "cancelled" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "cancelled",
+          });
           return;
         }
         const point = await OneLocationService.captureCurrentPosition();
@@ -384,8 +484,9 @@ export function useLocationChat(params: {
           durationHours: Number(action.durationHours) || 1,
           note: action.note ?? null,
           publish: async (grant, recipient, pt) => {
+            const sharePoint = prepareLocationPointForGrant(pt, grant);
             const envelope = await encryptLocationForRecipient({
-              point: pt,
+              point: sharePoint,
               recipientPublicKeyJwk: recipient.publicKeyJwk,
               recipientKeyId: recipient.keyId,
             });
@@ -400,7 +501,12 @@ export function useLocationChat(params: {
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : undefined;
-      await report({ id: action.id, type: action.type, status: "failed", detail });
+      await report({
+        id: action.id,
+        type: action.type,
+        status: "failed",
+        detail,
+      });
     }
   }, [pendingAction, busy, vaultOwnerToken, userId, vaultKey, report]);
 
@@ -411,7 +517,10 @@ export function useLocationChat(params: {
     if (action.type === "publish_share") {
       for (const share of action.shares ?? []) {
         try {
-          await OneLocationService.revokeGrant({ vaultOwnerToken, grantId: share.grantId });
+          await OneLocationService.revokeGrant({
+            vaultOwnerToken,
+            grantId: share.grantId,
+          });
         } catch {
           // best-effort cleanup; ignore
         }

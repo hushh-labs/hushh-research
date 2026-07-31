@@ -33,6 +33,17 @@ Expected:
 - User B can view the map inline.
 - Consent notification routes to shield/Access Manager, not the bell.
 
+Run the flow once per location type:
+
+- Precise shows an exact moving pin, live updates, and recipient navigation.
+- Approximate shows only a shaded 1 km+ area, says it refreshes about every five
+  minutes, exposes no exact pin/directions, and remains approximate after tab
+  changes, refresh, iOS background/resume, and a later device fix.
+- With one precise and one approximate recipient active simultaneously, each
+  recipient continues to receive only their consented mode.
+- If device accuracy becomes worse than the consented approximate radius, the
+  update fails safely instead of widening or publishing an exact point.
+
 ## Duplicate Notification Guard
 
 For each share, request, revoke, deny, and expiry:

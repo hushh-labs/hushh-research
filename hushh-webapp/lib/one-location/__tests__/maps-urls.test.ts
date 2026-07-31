@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import {
+  approximateAreaMapZoom,
+  googleMapsAreaEmbedUrl,
   googleMapsDirectionsUrl,
   googleMapsDirectionsEmbedUrl,
   googleMapsLocationEmbedUrl,
@@ -28,6 +30,19 @@ describe("maps-urls", () => {
     const url = googleMapsLocationEmbedUrl(point);
     expect(url).toContain("output=embed");
     expect(url).toContain(encodeURIComponent("12.971600,77.594600"));
+  });
+
+  it("builds an approximate-area embed without a query marker", () => {
+    const url = googleMapsAreaEmbedUrl(point, 1_000);
+    expect(url).toBe(
+      `https://www.google.com/maps?ll=${encodeURIComponent("12.971600,77.594600")}&z=13&output=embed`,
+    );
+    expect(url).not.toContain("?q=");
+  });
+
+  it("zooms out as the approximate radius grows", () => {
+    expect(approximateAreaMapZoom(point, 1_000)).toBe(13);
+    expect(approximateAreaMapZoom(point, 20_000)).toBe(9);
   });
 
   it("builds a driving directions url", () => {

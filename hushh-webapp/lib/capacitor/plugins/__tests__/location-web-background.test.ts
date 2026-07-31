@@ -10,6 +10,7 @@ describe("HushhLocationWeb background sharing", () => {
       grants: [],
       minMoveMeters: 25,
       minIntervalMs: 8000,
+      approximateIntervalMs: 300000,
     });
     expect(result).toEqual({ started: false, reason: "unsupported-on-web" });
   });

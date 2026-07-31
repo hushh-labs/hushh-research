@@ -95,6 +95,23 @@ describe("OneLocationService SOS additions", () => {
     expect("reason" in body).toBe(false);
   });
 
+  it("createGrant sends the consented approximate-area contract", async () => {
+    const calls = stubFetch({ grant: { id: "g1" } });
+    await OneLocationService.createGrant({
+      vaultOwnerToken: "tok",
+      recipientUserId: "r1",
+      recipientKeyId: "k1",
+      durationHours: 2,
+      locationMode: "approximate",
+      approximateRadiusM: 1250,
+    });
+    const body = JSON.parse(String(calls[0].init.body));
+    expect(body).toMatchObject({
+      locationMode: "approximate",
+      approximateRadiusM: 1250,
+    });
+  });
+
   it("adds and removes owner-scoped SMS contacts through the Location API", async () => {
     const addCalls = stubFetch({ smsContactUserIds: ["r1"] });
     await expect(
@@ -123,5 +140,4 @@ describe("OneLocationService SOS additions", () => {
       init: { method: "DELETE" },
     });
   });
-
 });
