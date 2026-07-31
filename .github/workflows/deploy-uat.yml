@@ -385,6 +385,58 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
 
+      # The structure evaluator exercises the backend candidate image. Keep it
+      # before the frontend build so an advisory model-quality warning is
+      # available as early as possible, without turning a model variance into a
+      # deployment or rollback authority.
+      - name: Resolve backend candidate revision
+        id: backend-candidate-state
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestCreatedRevisionName)')"
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify backend candidate runtime identity
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: >-
+          bash scripts/ci/assert-cloud-run-runtime-identity.sh
+          "${{ env.GCP_PROJECT_ID }}"
+          "${{ env.GCP_REGION }}"
+          "${{ steps.backend-candidate-state.outputs.backend_revision }}"
+          "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+
+      - name: Verify candidate PKM evaluator in Cloud Run
+        id: verify-candidate-pkm-evaluator
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.verification-plan.outputs.pkm_evaluator_runs != '0'
+        shell: bash
+        env:
+          BACKEND_REVISION: ${{ steps.backend-candidate-state.outputs.backend_revision }}
+        run: |
+          set -euo pipefail
+          if ./scripts/ci/run-candidate-pkm-structure-agent-eval.sh; then
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+            echo "Candidate PKM evaluator failed; continuing with its advisory warning." >&2
+          fi
+
+      - name: Record candidate PKM evaluator warning
+        if: always() && steps.scope.outputs.deploy_backend == 'true' && steps.verification-plan.outputs.pkm_evaluator_runs != '0' && steps.verify-candidate-pkm-evaluator.outputs.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::warning title=Candidate PKM evaluator warning::The synthetic structure-agent evaluator failed. This is advisory; runtime identity, provenance, parity, schema, semantic, reviewer, and passkey gates remain blocking."
+          {
+            echo "## ⚠ Candidate PKM evaluator warning"
+            echo ""
+            echo "The synthetic structure-agent evaluator failed for this backend candidate. The result is recorded for remediation but does not authorize rollback by itself."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -423,23 +475,6 @@ jobs:
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify backend candidate runtime identity
-        if: steps.scope.outputs.deploy_backend == 'true'
-        run: >-
-          bash scripts/ci/assert-cloud-run-runtime-identity.sh
-          "${{ env.GCP_PROJECT_ID }}"
-          "${{ env.GCP_REGION }}"
-          "${{ steps.candidate-state.outputs.backend_revision }}"
-          "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
-
-      - name: Verify candidate PKM evaluator in Cloud Run
-        id: verify-candidate-pkm-evaluator
-        if: steps.scope.outputs.deploy_backend == 'true' && steps.verification-plan.outputs.pkm_evaluator_runs != '0'
-        shell: bash
-        env:
-          BACKEND_REVISION: ${{ steps.candidate-state.outputs.backend_revision }}
-        run: ./scripts/ci/run-candidate-pkm-structure-agent-eval.sh
 
       - name: Promote deployed revisions to UAT traffic
         shell: bash
@@ -728,6 +763,7 @@ jobs:
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
+          PKM_EVALUATOR_OUTCOME: ${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}
           VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
         run: |
           set -euo pipefail
@@ -926,6 +962,12 @@ jobs:
                   "required": passkey_associations_required,
                   "outcome": os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME", ""),
                   "success": passkey_associations_success,
+              },
+              "candidate_pkm_evaluator": {
+                  "required": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0") != 0,
+                  "outcome": os.environ.get("PKM_EVALUATOR_OUTCOME", ""),
+                  "advisory": True,
+                  "warning": os.environ.get("PKM_EVALUATOR_OUTCOME") == "failure",
               },
               "verification_plan": {
                   "reason": os.environ.get("VERIFICATION_PLAN_REASON", ""),
@@ -1139,6 +1181,7 @@ jobs:
             echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason }}\`"
             echo "- Verification lanes: \`${{ steps.verification-plan.outputs.lanes }}\`"
             echo "- PKM evaluator runs: \`${{ steps.verification-plan.outputs.pkm_evaluator_runs }}\`"
+            echo "- Candidate PKM evaluator outcome (advisory): \`${{ steps.verify-candidate-pkm-evaluator.outputs.outcome }}\`"
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
             echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
