@@ -27,11 +27,29 @@ describe("One Location control state", () => {
     clearOneLocationControlRuntime(userId);
 
     expect(readOneLocationControlState(userId)).toEqual({
+      autoShareEnabled: true,
       paused: true,
       selfPreviewEnabled: false,
       nearbyPresenceActive: false,
       nearbyCheckedInAt: null,
     });
+  });
+
+  it("keeps both settings preferences across route remounts", () => {
+    updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      autoShareEnabled: false,
+      paused: true,
+    }));
+
+    clearOneLocationControlRuntime(userId);
+
+    expect(readOneLocationControlState(userId)).toEqual(
+      expect.objectContaining({
+        autoShareEnabled: false,
+        paused: true,
+      }),
+    );
   });
 
   it("notifies every mounted surface from one update", () => {

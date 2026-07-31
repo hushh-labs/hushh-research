@@ -948,13 +948,21 @@ describe("OneLocationAgentPage", () => {
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
+    const autoShareSwitch = screen.getByRole("switch", {
+      name: "Auto-share my location",
+    });
     expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
+    expect(autoShareSwitch).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(autoShareSwitch);
+    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
 
     fireEvent.click(pauseSwitch);
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
     );
+    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
 
     mockCaptureCurrentPosition.mockClear();
     fireEvent.click(pauseSwitch);
@@ -962,6 +970,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
     );
+    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
   });
 
   it("does not claim Location is paused when Nearby checkout fails", async () => {

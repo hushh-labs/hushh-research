@@ -168,6 +168,14 @@ or an active Nearby presence. Pausing stops new foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
+`Auto-share my location` is a durable user-scoped preference, independent from
+Pause. It controls continuous foreground/background updates only for private
+grants the owner already approved; it never creates a grant or auto-approves a
+request. Turning Auto-share off leaves consent and expiry intact and makes new
+shares publish only the location the owner explicitly confirms. Pause
+temporarily suppresses Auto-share without erasing that preference, so both
+settings remain stable across tab changes and route remounts.
+
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming
 requires a fresh usable foreground fix. Nearby visibility remains a separate
@@ -175,6 +183,11 @@ explicit consent: turning the header on never checks its confirmation box or
 creates presence. A successful Nearby check-in clears Pause and updates the
 shared control state; checkout removes only Nearby activity unless the user
 chooses the global Pause control.
+
+While Pause is active, Saved Locations must fail closed before asking the
+device location provider for a new point. A capture already in flight is
+discarded if Pause becomes active. Existing encrypted saved places remain
+readable, repairable, and removable while the vault is unlocked.
 
 `Location limited` means a channel is enabled but current permission or fix
 accuracy is not sufficient for Nearby admission. It must not be presented as a

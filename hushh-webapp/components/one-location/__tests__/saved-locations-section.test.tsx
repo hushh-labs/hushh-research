@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authUser: { uid: "user-123" } as { uid: string } | null,
@@ -50,6 +50,10 @@ vi.mock("sonner", () => ({
 }));
 
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+import {
+  forgetOneLocationControlPreference,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 
 const HOME = {
   id: "home",
@@ -63,6 +67,7 @@ const HOME = {
 
 describe("SavedLocationsSection", () => {
   beforeEach(() => {
+    forgetOneLocationControlPreference("user-123");
     mocks.authUser = { uid: "user-123" };
     mocks.vault.isVaultUnlocked = true;
     mocks.vault.vaultKey = "vault-key";
@@ -82,6 +87,10 @@ describe("SavedLocationsSection", () => {
       name: null,
       countryCode: "IN",
     });
+  });
+
+  afterEach(() => {
+    forgetOneLocationControlPreference("user-123");
   });
 
   it("loads the encrypted saved place into Settings without exposing coordinates", async () => {
@@ -109,6 +118,60 @@ describe("SavedLocationsSection", () => {
     ).toBeInTheDocument();
     expect(mocks.loadSavedLocations).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
+  });
+
+  it("does not request device location while Location is paused", async () => {
+    updateOneLocationControlState("user-123", (current) => ({
+      ...current,
+      paused: true,
+    }));
+
+    render(<SavedLocationsSection />);
+
+    await screen.findByText("Kasturba Road, Bengaluru");
+    expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
+    expect(
+      screen.getByText(/resume location before capturing another saved place/i),
+    ).toBeInTheDocument();
+    expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("discards a saved-place capture when Location is paused in flight", async () => {
+    let resolveCapture: (point: {
+      latitude: number;
+      longitude: number;
+      accuracy: number;
+      capturedAt: string;
+    }) => void = () => undefined;
+    mocks.captureCurrentPosition.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCapture = resolve;
+      }),
+    );
+
+    render(<SavedLocationsSection />);
+    await screen.findByText("Kasturba Road, Bengaluru");
+    fireEvent.click(screen.getByRole("button", { name: /add place/i }));
+    await waitFor(() => expect(mocks.captureCurrentPosition).toHaveBeenCalled());
+
+    await act(async () => {
+      updateOneLocationControlState("user-123", (current) => ({
+        ...current,
+        paused: true,
+      }));
+      resolveCapture({
+        latitude: 12.9763,
+        longitude: 77.5929,
+        accuracy: 8,
+        capturedAt: "2026-07-26T00:00:00.000Z",
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.queryByRole("dialog", { name: /save this place/i }),
+    ).not.toBeInTheDocument();
+    expect(mocks.reverseGeocode).not.toHaveBeenCalled();
   });
 
   it("does not rehydrate decrypted places when a pending load settles after lock", async () => {

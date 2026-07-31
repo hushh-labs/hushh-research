@@ -155,6 +155,7 @@ export type LocationHubViewModel = {
   };
   permissionIsPrompt: boolean;
   locationEnabled: boolean;
+  autoShareEnabled: boolean;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
   myLocationPoint: PlainLocationPoint | null;
@@ -199,6 +200,7 @@ export type LocationHubViewModel = {
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
   onResumeMyLocation: () => void;
+  onAutoShareChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -1073,9 +1075,6 @@ function LocationSettingsFlow({
   smsContactCount: number;
   onManageSmsContacts: () => void;
 }) {
-  // Auto-share remains presentation-only; Pause is the shared Location control.
-  const [autoShare, setAutoShare] = useState(false);
-
   return (
     <div>
       <TaskFlowHeader
@@ -1094,14 +1093,15 @@ function LocationSettingsFlow({
               Auto-share my location
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — your circle sees you live, no approval needed. Off — every
-              request needs your approval first.
+              On — approved shares keep receiving live updates. Off — new shares
+              send only the location you explicitly confirm.
             </p>
           </div>
           <LocationToggle
-            checked={autoShare}
-            onChange={setAutoShare}
+            checked={vm.autoShareEnabled}
+            onChange={vm.onAutoShareChange}
             label="Auto-share my location"
+            disabled={BUSY(vm, "selfLocation")}
           />
         </div>
         <div className="flex items-center gap-3.5 py-4">
@@ -1115,7 +1115,7 @@ function LocationSettingsFlow({
             </p>
           </div>
           <LocationToggle
-            checked={!vm.locationEnabled}
+            checked={vm.locationPaused}
             onChange={(next) => {
               if (next) {
                 vm.onHideMyLocation();

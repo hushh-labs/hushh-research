@@ -1800,6 +1800,13 @@ export function OneLocationAgentPageContent({
       readLocationWorkspaceMemory(auth.userId),
     );
   const locationControl = useOneLocationControlState(auth.userId);
+  const automaticPrivatePublishingAllowedRef = useRef(
+    !locationControl.paused && locationControl.autoShareEnabled,
+  );
+  useEffect(() => {
+    automaticPrivatePublishingAllowedRef.current =
+      !locationControl.paused && locationControl.autoShareEnabled;
+  }, [locationControl.autoShareEnabled, locationControl.paused]);
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   useEffect(() => {
     setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
@@ -1849,6 +1856,8 @@ export function OneLocationAgentPageContent({
   );
   const activateMyLocation = useCallback(
     (point: PlainLocationPoint) => {
+      automaticPrivatePublishingAllowedRef.current =
+        locationControl.autoShareEnabled;
       updateLocationWorkspace((current) => ({
         ...current,
         myLocationPoint: point,
@@ -1859,7 +1868,7 @@ export function OneLocationAgentPageContent({
         selfPreviewEnabled: true,
       }));
     },
-    [auth.userId, updateLocationWorkspace],
+    [auth.userId, locationControl.autoShareEnabled, updateLocationWorkspace],
   );
   const clearMyLocationPreview = useCallback(() => {
     updateLocationWorkspace((current) => ({
@@ -2072,7 +2081,7 @@ export function OneLocationAgentPageContent({
     !locationControl.paused &&
     (locationControl.selfPreviewEnabled ||
       locationControl.nearbyPresenceActive ||
-      activeOwnerGrants.length > 0);
+      (locationControl.autoShareEnabled && activeOwnerGrants.length > 0));
   const locationAccuracyLimited =
     locationEnabled &&
     (permission?.state !== "granted" ||
@@ -3597,6 +3606,7 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (locationControl.paused) return;
+    if (!locationControl.autoShareEnabled) return;
     if (busy && busy !== "load") return;
     if (
       permission?.state === "denied" ||
@@ -3608,6 +3618,7 @@ export function OneLocationAgentPageContent({
 
     const publishActiveGrants = async () => {
       if (livePublishInFlightRef.current) return;
+      if (!automaticPrivatePublishingAllowedRef.current) return;
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
@@ -3616,7 +3627,9 @@ export function OneLocationAgentPageContent({
       livePublishInFlightRef.current = true;
       try {
         const point = await OneLocationService.captureCurrentPosition();
+        if (!automaticPrivatePublishingAllowedRef.current) return;
         for (const grant of activeOwnerGrants) {
+          if (!automaticPrivatePublishingAllowedRef.current) return;
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
           await publishEnvelopeWithRetry(
@@ -3646,6 +3659,7 @@ export function OneLocationAgentPageContent({
   }, [
     activeOwnerGrants,
     busy,
+    locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -3666,6 +3680,7 @@ export function OneLocationAgentPageContent({
     if (typeof window === "undefined") return;
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (locationControl.paused) return;
+    if (!locationControl.autoShareEnabled) return;
     if (
       permission?.state === "denied" ||
       permission?.state === "restricted" ||
@@ -3680,6 +3695,7 @@ export function OneLocationAgentPageContent({
 
     const publishMovement = async (point: PlainLocationPoint) => {
       if (cancelled) return;
+      if (!automaticPrivatePublishingAllowedRef.current) return;
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
@@ -3715,6 +3731,7 @@ export function OneLocationAgentPageContent({
       livePublishInFlightRef.current = true;
       try {
         for (const grant of activeOwnerGrants) {
+          if (!automaticPrivatePublishingAllowedRef.current) return;
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
           const driven = await drivePointForGrant(grant, point);
@@ -3763,6 +3780,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
+    locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -3784,7 +3802,9 @@ export function OneLocationAgentPageContent({
       !shouldStreamSelfPreview({
         streaming:
           locationControl.selfPreviewEnabled && !locationControl.paused,
-        activeGrantCount: activeOwnerGrants.length,
+        activeGrantCount: locationControl.autoShareEnabled
+          ? activeOwnerGrants.length
+          : 0,
         permissionState: permission?.state,
       })
     ) {
@@ -3845,6 +3865,7 @@ export function OneLocationAgentPageContent({
       }
     };
   }, [
+    locationControl.autoShareEnabled,
     locationControl.paused,
     locationControl.selfPreviewEnabled,
     activeOwnerGrants.length,
@@ -3899,7 +3920,10 @@ export function OneLocationAgentPageContent({
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
     });
     void syncBackgroundShare({
-      enabled: backgroundShareEnabled && !locationControl.paused,
+      enabled:
+        backgroundShareEnabled &&
+        locationControl.autoShareEnabled &&
+        !locationControl.paused,
       session,
     });
     return () => {
@@ -3908,6 +3932,7 @@ export function OneLocationAgentPageContent({
   }, [
     backgroundShareEnabled,
     activeOwnerGrants,
+    locationControl.autoShareEnabled,
     locationControl.paused,
     recipients,
     vaultOwnerToken,
@@ -5376,6 +5401,7 @@ export function OneLocationAgentPageContent({
     }
 
     setBusy("selfLocation");
+    automaticPrivatePublishingAllowedRef.current = false;
     try {
       if (nearbyCheckInAvailable && vaultOwnerToken) {
         const nearby = await OneLocationService.getNearbyPresence({
@@ -5397,6 +5423,8 @@ export function OneLocationAgentPageContent({
       setMyLocationError(null);
       toast.success("Location updates are paused on this device.");
     } catch {
+      automaticPrivatePublishingAllowedRef.current =
+        locationControl.autoShareEnabled;
       toast.error(
         "Pause did not complete. You may still be visible nearby; please try again.",
       );
@@ -5406,6 +5434,7 @@ export function OneLocationAgentPageContent({
   }, [
     auth.userId,
     clearMyLocationPreview,
+    locationControl.autoShareEnabled,
     nearbyCheckInAvailable,
     vaultOwnerToken,
   ]);
@@ -5413,6 +5442,24 @@ export function OneLocationAgentPageContent({
   const handleResumeMyLocation = useCallback(() => {
     void handleShowMyLiveLocation();
   }, [handleShowMyLiveLocation]);
+
+  const handleAutoShareChange = useCallback(
+    (enabled: boolean) => {
+      automaticPrivatePublishingAllowedRef.current =
+        enabled && !locationControl.paused;
+      updateOneLocationControlState(auth.userId, (current) => ({
+        ...current,
+        autoShareEnabled: enabled,
+      }));
+      if (!enabled) setBackgroundShareEnabled(false);
+      toast.success(
+        enabled
+          ? "Approved shares will receive live updates."
+          : "Approved shares will update only when you explicitly share.",
+      );
+    },
+    [auth.userId, locationControl.paused],
+  );
 
   const markLocationOnboardingSeen = useCallback(() => {
     // Persist only after completion so an interrupted first run can resume next
@@ -6119,6 +6166,7 @@ export function OneLocationAgentPageContent({
     },
     permissionIsPrompt: permission?.state === "prompt",
     locationEnabled,
+    autoShareEnabled: locationControl.autoShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
     myLocationPoint,
@@ -6159,6 +6207,7 @@ export function OneLocationAgentPageContent({
     onShowMyLocation: () => void handleShowMyLiveLocation(),
     onHideMyLocation: () => void handleHideMyLiveLocation(),
     onResumeMyLocation: handleResumeMyLocation,
+    onAutoShareChange: handleAutoShareChange,
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
