@@ -2873,6 +2873,35 @@ class OneLocationAgentService:
         # Privacy gate: a user who turned marketplace visibility OFF
         # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
         # the directory too, UNLESS the owner has an explicit trusted edge.
+        return self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            page=1,
+            limit=limit,
+        )["items"]
+
+    def search_directory_candidates(
+        self,
+        *,
+        owner_user_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        candidate_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Search the eligible Connect directory before pagination.
+
+        This preserves the existing discovery policy while preventing callers
+        from being limited by an in-memory first page.  The result remains a
+        safe profile projection; it is not an all-account directory.
+        """
+        page = max(1, int(page or 1))
+        # Keep the legacy Ready People caller's 100-item ceiling intact. The
+        # Connect API applies its narrower public page limit before it gets
+        # here, so it cannot use this to request an unbounded directory.
+        limit = max(1, min(int(limit or 20), 100))
+        offset = (page - 1) * limit
+        needle = (query or "").strip().lower()
+        target = (candidate_user_id or "").strip() or None
         rows = self._execute_many(
             """
             SELECT
@@ -2888,6 +2917,7 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
+              AND (:candidate_user_id IS NULL OR a.user_id = :candidate_user_id)
               AND (
                 EXISTS (
                   SELECT 1
@@ -2927,17 +2957,38 @@ class OneLocationAgentService:
                   )
                 )
               )
+              AND (
+                :query = ''
+                OR LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'
+              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
-            LIMIT :limit
+            LIMIT :fetch_limit OFFSET :offset
             """,
-            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+            {
+                "owner_user_id": owner_user_id,
+                "candidate_user_id": target,
+                "query": needle,
+                "fetch_limit": limit + 1,
+                "offset": offset,
+            },
         )
-
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
-        return self._apply_kai_circle_recommendations(
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+        return {"items": items, "page": page, "hasMore": has_more}
+
+    def is_directory_candidate(self, *, owner_user_id: str, candidate_user_id: str) -> bool:
+        result = self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            candidate_user_id=candidate_user_id,
+            page=1,
+            limit=1,
+        )
+        return bool(result["items"])
 
     def _recipient_key_row(
         self,

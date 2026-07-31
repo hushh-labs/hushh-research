@@ -46,7 +46,11 @@ export default function ConnectPageClient() {
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
+  const [outgoingRequestIds, setOutgoingRequestIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -70,6 +74,24 @@ export default function ConnectPageClient() {
     }
   }, [user]);
 
+  const loadOutgoingRequestIds = useCallback(async () => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const requests = await ConnectionsService.listRequests({
+        idToken,
+        direction: "outgoing",
+      });
+      setOutgoingRequestIds(
+        Object.fromEntries(
+          requests.map((request) => [request.counterpartUserId, request.id]),
+        ),
+      );
+    } catch {
+      // Keep discovery available when the auxiliary request list is unavailable.
+    }
+  }, [user]);
+
   useEffect(() => {
     let cancelled = false;
     void loadConnections().then((rows) => {
@@ -81,10 +103,16 @@ export default function ConnectPageClient() {
   }, [loadConnections]);
 
   useEffect(() => {
+    void loadOutgoingRequestIds();
+  }, [loadOutgoingRequestIds]);
+
+  useEffect(() => {
     let cancelled = false;
     async function run() {
       if (!user) return;
       try {
+        setHasMore(false);
+        setCurrentPage(1);
         setLoading(true);
         setError(null);
         const idToken = await user.getIdToken();
@@ -93,7 +121,11 @@ export default function ConnectPageClient() {
           query: debouncedQuery,
           page: 1,
         });
-        if (!cancelled) setPeople(page.items);
+        if (!cancelled) {
+          setPeople(page.items);
+          setHasMore(page.hasMore);
+          setCurrentPage(page.page);
+        }
       } catch (loadError) {
         if (!cancelled)
           setError(
@@ -111,6 +143,34 @@ export default function ConnectPageClient() {
     };
   }, [user, debouncedQuery]);
 
+  const loadMorePeople = useCallback(async () => {
+    if (!user || loadingMore || !hasMore) return;
+    try {
+      setLoadingMore(true);
+      const idToken = await user.getIdToken();
+      const page = await ConnectionsService.searchDirectory({
+        idToken,
+        query: debouncedQuery,
+        page: currentPage + 1,
+      });
+      setPeople((current) => {
+        const existing = new Set(current.map((person) => person.userId));
+        return [
+          ...current,
+          ...page.items.filter((person) => !existing.has(person.userId)),
+        ];
+      });
+      setHasMore(page.hasMore);
+      setCurrentPage(page.page);
+    } catch (loadError) {
+      toast.error(
+        loadError instanceof Error ? loadError.message : "Failed to load more people",
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [currentPage, debouncedQuery, hasMore, loadingMore, user]);
+
   const sendConnectionRequest = useCallback(
     async (
       person: DirectoryPerson,
@@ -121,7 +181,7 @@ export default function ConnectPageClient() {
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
-        await ConnectionsService.sendRequest({
+        const request = await ConnectionsService.sendRequest({
           idToken,
           addresseeUserId: person.userId,
           requestedScopeHandles,
@@ -134,6 +194,10 @@ export default function ConnectPageClient() {
               : p,
           ),
         );
+        setOutgoingRequestIds((current) => ({
+          ...current,
+          [person.userId]: request.id,
+        }));
         setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         toast.success("Connection request sent");
@@ -249,6 +313,44 @@ export default function ConnectPageClient() {
       }
     },
     [user],
+  );
+
+  const cancelConnectionRequest = useCallback(
+    async (person: DirectoryPerson) => {
+      if (!user) return;
+      const requestId = outgoingRequestIds[person.userId];
+      if (!requestId) {
+        toast.error("This request is still loading. Try again in a moment.");
+        return;
+      }
+      try {
+        setBusyId(person.userId);
+        const idToken = await user.getIdToken();
+        await ConnectionsService.cancel({ idToken, requestId });
+        setPeople((current) =>
+          current.map((candidate) =>
+            candidate.userId === person.userId
+              ? { ...candidate, relationship: "none" }
+              : candidate,
+          ),
+        );
+        setOutgoingRequestIds((current) => {
+          const { [person.userId]: _cancelled, ...remaining } = current;
+          return remaining;
+        });
+        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        toast.success("Connection request cancelled");
+      } catch (cancelError) {
+        toast.error(
+          cancelError instanceof Error
+            ? cancelError.message
+            : "Failed to cancel connection request",
+        );
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [outgoingRequestIds, user],
   );
 
   return (
@@ -368,7 +470,7 @@ export default function ConnectPageClient() {
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search people by name or email"
+                  placeholder="Search people by name"
                   aria-label="Search people"
                   className="h-10 pl-11"
                 />
@@ -415,21 +517,53 @@ export default function ConnectPageClient() {
                         description={description}
                         density="compact"
                         trailing={
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fill"
-                            size="sm"
-                            disabled={cta.disabled || busyId === person.userId}
-                            onClick={() => void handleConnect(person)}
-                          >
-                            {busyId === person.userId ? "Sending…" : cta.label}
-                          </Button>
+                          person.relationship === "pending_outgoing" ? (
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fill"
+                              size="sm"
+                              disabled={
+                                busyId === person.userId ||
+                                !outgoingRequestIds[person.userId]
+                              }
+                              onClick={() => void cancelConnectionRequest(person)}
+                            >
+                              {busyId === person.userId
+                                ? "Cancelling…"
+                                : "Cancel request"}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fill"
+                              size="sm"
+                              disabled={cta.disabled || busyId === person.userId}
+                              onClick={() => void handleConnect(person)}
+                            >
+                              {busyId === person.userId ? "Sending…" : cta.label}
+                            </Button>
+                          )
                         }
                       />
                     );
                   })
                 )}
+                {hasMore ? (
+                  <div className="flex justify-center px-3 py-2">
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fill"
+                      size="sm"
+                      disabled={loadingMore}
+                      onClick={() => void loadMorePeople()}
+                    >
+                      {loadingMore ? "Loading…" : "Load more people"}
+                    </Button>
+                  </div>
+                ) : null}
               </SettingsGroup>
             </div>
           </div>

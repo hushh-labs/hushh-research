@@ -53,6 +53,17 @@ describe("ConnectionsService", () => {
     expect(opts.body).toBeUndefined();
   });
 
+  it("cancel POSTs to the request cancellation endpoint", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "cancelled" } }));
+
+    await ConnectionsService.cancel({ idToken: "tok", requestId: "r1" });
+
+    const [path, opts] = mockApiFetch.mock.calls[0];
+    expect(path).toBe("/api/one/connections/requests/r1/cancel");
+    expect(opts.method).toBe("POST");
+    expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
   it("loads counterpart-requestable and viewer-offerable scope catalogs", async () => {
     mockApiFetch.mockResolvedValue(
       jsonResponse({
