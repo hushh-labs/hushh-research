@@ -359,6 +359,23 @@ def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None
     return None
 
 
+def get_canonical_subintent_metadata(domain_key: str) -> DomainSubintentEntry | None:
+    """Return authored metadata for a canonical subintent branch, if registered.
+
+    ``domain_key`` is the fully-qualified branch key (e.g. ``financial.profile``).
+    Only financial subintents are registered today; every other branch returns
+    None so callers compose a display label from the parent domain + branch name.
+    Kept parallel to :func:`get_canonical_domain_metadata` so scope-display code
+    can prefer a branch's authored name/description/icon over a generic one.
+    """
+
+    key = normalize_domain_key(domain_key)
+    for entry in FINANCIAL_SUBINTENT_REGISTRY:
+        if entry.domain_key == key:
+            return entry
+    return None
+
+
 def canonical_domain_metadata_map() -> dict[str, dict[str, str]]:
     return {
         entry.domain_key: {

@@ -88,3 +88,41 @@ def test_sensitivity_tiering_matches_domain():
         assert tier == expected, scope
     # Both tiers are represented (guards against a filter collapsing one away).
     assert set(by_scope.values()) == {"high", "low"}
+
+
+def test_every_flat_scope_label_is_unique():
+    # Regression: five financial branches all read "All Financial Data" and
+    # three health branches all read "All Health & Wellness Data", so the picker
+    # showed eight rows that looked identical. Distinct backend scopes must map
+    # to distinct human labels or the user cannot tell what they are granting.
+    catalog = build_requestable_scope_catalog()
+    labels = [s["label"] for s in catalog["scopes"]]
+    duplicates = sorted({label for label in labels if labels.count(label) > 1})
+    assert len(labels) == len(set(labels)), f"duplicate scope labels in catalog: {duplicates}"
+
+
+def test_no_collapsed_domain_wildcard_labels_leak_onto_branches():
+    # The catalog is built from branch scopes only (attr.<domain>.<branch>.*),
+    # never bare domain wildcards, so the domain-wide "All … Data" labels must
+    # not appear. Their presence would mean a branch collapsed back to the
+    # domain label — the exact defect this fix removes.
+    catalog = build_requestable_scope_catalog()
+    labels = {s["label"] for s in catalog["scopes"]}
+    assert "All Financial Data" not in labels
+    assert "All Health & Wellness Data" not in labels
+
+
+def test_every_flat_scope_has_a_nonempty_label_and_description():
+    # A blank label or description would render an empty, unexplained row.
+    catalog = build_requestable_scope_catalog()
+    for scope in catalog["scopes"]:
+        assert scope["label"], scope["scope"]
+        assert scope["description"], scope["scope"]
+        # The label must not just echo the raw scope string back at the user.
+        assert scope["label"] != scope["scope"], scope["scope"]
+
+
+def test_bundle_labels_are_unique():
+    catalog = build_requestable_scope_catalog()
+    labels = [b["label"] for b in catalog["bundles"]]
+    assert len(labels) == len(set(labels)), f"duplicate bundle labels: {labels}"
