@@ -159,6 +159,12 @@ import {
   writeLocationWorkspaceMemory,
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
+import {
+  isOneLocationNearbyCheckInAvailable,
+  ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS,
+} from "@/lib/one-location/nearby-check-in-availability";
 
 import {
   clearSosIncident,
@@ -1793,6 +1799,8 @@ export function OneLocationAgentPageContent({
     useState<LocationWorkspaceMemory>(() =>
       readLocationWorkspaceMemory(auth.userId),
     );
+  const locationControl = useOneLocationControlState(auth.userId);
+  const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   useEffect(() => {
     setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
   }, [auth.userId]);
@@ -1839,10 +1847,29 @@ export function OneLocationAgentPageContent({
     },
     [updateLocationWorkspace],
   );
+  const activateMyLocation = useCallback(
+    (point: PlainLocationPoint) => {
+      updateLocationWorkspace((current) => ({
+        ...current,
+        myLocationPoint: point,
+      }));
+      updateOneLocationControlState(auth.userId, (current) => ({
+        ...current,
+        paused: false,
+        selfPreviewEnabled: true,
+      }));
+    },
+    [auth.userId, updateLocationWorkspace],
+  );
+  const clearMyLocationPreview = useCallback(() => {
+    updateLocationWorkspace((current) => ({
+      ...current,
+      myLocationPoint: null,
+    }));
+  }, [updateLocationWorkspace]);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
   // True once the owner taps "Show my location" — keeps their own preview
   // streaming live (foreground) even before any share exists.
-  const [selfPreviewStreaming, setSelfPreviewStreaming] = useState(false);
   const decryptedPoints = locationWorkspace.decryptedPoints;
   const setDecryptedPoints = useCallback(
     (next: SetStateAction<Record<string, PlainLocationPoint>>) => {
@@ -2041,6 +2068,70 @@ export function OneLocationAgentPageContent({
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+  const locationEnabled =
+    !locationControl.paused &&
+    (locationControl.selfPreviewEnabled ||
+      locationControl.nearbyPresenceActive ||
+      activeOwnerGrants.length > 0);
+  const locationAccuracyLimited =
+    locationEnabled &&
+    (permission?.state !== "granted" ||
+      permission?.precise === false ||
+      (typeof myLocationPoint?.accuracyM === "number" &&
+        Number.isFinite(myLocationPoint.accuracyM) &&
+        myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS));
+
+  useEffect(() => {
+    if (!nearbyCheckInAvailable || !auth.userId || !vaultOwnerToken) {
+      return;
+    }
+    const userId = auth.userId;
+    const ownerToken = vaultOwnerToken;
+    let cancelled = false;
+
+    void OneLocationService.getNearbyPresence({
+      vaultOwnerToken: ownerToken,
+    })
+      .then(async (next) => {
+        if (cancelled) return;
+        if (locationControl.paused && next.presence) {
+          try {
+            const checkedOut = await OneLocationService.checkoutNearby({
+              vaultOwnerToken: ownerToken,
+            });
+            if (cancelled) return;
+            next = checkedOut;
+          } catch {
+            if (cancelled) return;
+            updateOneLocationControlState(userId, (current) => ({
+              ...current,
+              paused: false,
+              nearbyPresenceActive: true,
+              nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
+            }));
+            toast.error(
+              "Nearby checkout did not complete. Location is still on; try pausing again.",
+            );
+            return;
+          }
+        }
+        updateOneLocationControlState(userId, (current) => ({
+          ...current,
+          nearbyPresenceActive: Boolean(next.presence),
+          nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    auth.userId,
+    locationControl.paused,
+    nearbyCheckInAvailable,
+    vaultOwnerToken,
+  ]);
 
   // The remaining location actions (Alert and Check-In) share the same
   // recipients: connections ready for private sharing.
@@ -2476,6 +2567,9 @@ export function OneLocationAgentPageContent({
             locationServicesEnabled: true,
           },
         );
+        if (shouldCapturePoint) {
+          activateMyLocation(point);
+        }
         return shouldCapturePoint ? { ready: true, point } : { ready: true };
       } catch (error) {
         const nextPermission =
@@ -2495,7 +2589,7 @@ export function OneLocationAgentPageContent({
         return { ready: false };
       }
     },
-    [refreshLocationPermission],
+    [activateMyLocation, refreshLocationPermission],
   );
 
   useEffect(() => {
@@ -3502,6 +3596,7 @@ export function OneLocationAgentPageContent({
 
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
+    if (locationControl.paused) return;
     if (busy && busy !== "load") return;
     if (
       permission?.state === "denied" ||
@@ -3551,6 +3646,7 @@ export function OneLocationAgentPageContent({
   }, [
     activeOwnerGrants,
     busy,
+    locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
@@ -3569,6 +3665,7 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
+    if (locationControl.paused) return;
     if (
       permission?.state === "denied" ||
       permission?.state === "restricted" ||
@@ -3666,6 +3763,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
+    locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
@@ -3684,7 +3782,8 @@ export function OneLocationAgentPageContent({
     if (typeof window === "undefined") return;
     if (
       !shouldStreamSelfPreview({
-        streaming: selfPreviewStreaming,
+        streaming:
+          locationControl.selfPreviewEnabled && !locationControl.paused,
         activeGrantCount: activeOwnerGrants.length,
         permissionState: permission?.state,
       })
@@ -3746,7 +3845,8 @@ export function OneLocationAgentPageContent({
       }
     };
   }, [
-    selfPreviewStreaming,
+    locationControl.paused,
+    locationControl.selfPreviewEnabled,
     activeOwnerGrants.length,
     permission?.state,
     setMyLocationPoint,
@@ -3798,11 +3898,20 @@ export function OneLocationAgentPageContent({
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
     });
-    void syncBackgroundShare({ enabled: backgroundShareEnabled, session });
+    void syncBackgroundShare({
+      enabled: backgroundShareEnabled && !locationControl.paused,
+      session,
+    });
     return () => {
       void OneLocationService.stopBackgroundShare();
     };
-  }, [backgroundShareEnabled, activeOwnerGrants, recipients, vaultOwnerToken]);
+  }, [
+    backgroundShareEnabled,
+    activeOwnerGrants,
+    locationControl.paused,
+    recipients,
+    vaultOwnerToken,
+  ]);
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
@@ -5245,9 +5354,6 @@ export function OneLocationAgentPageContent({
         setMyLocationError(message);
         return;
       }
-      setMyLocationPoint(result.point);
-      // Keep the preview live from here on (foreground streaming watch below).
-      setSelfPreviewStreaming(true);
       toast.success("Your live location preview is ready.");
     } catch (error) {
       const message = locationServicesErrorMessage(error);
@@ -5256,17 +5362,57 @@ export function OneLocationAgentPageContent({
     } finally {
       setBusy(null);
     }
-  }, [ensureForegroundLocationReady, setMyLocationPoint]);
+  }, [ensureForegroundLocationReady]);
 
-  // LIVE badge toggle-off: stop the self-preview stream and clear the local
-  // preview point. Purely local state; never touches active share grants
-  // (those are revoked from their own grant controls).
-  const handleHideMyLiveLocation = useCallback(() => {
-    setSelfPreviewStreaming(false);
-    setMyLocationPoint(null);
-    setMyLocationError(null);
-    toast.success("Live location preview is off.");
-  }, [setMyLocationPoint]);
+  // One coordinated pause owns every Location entry point. Private grants keep
+  // their consent/expiry contract, but all new foreground/background updates
+  // stop. Nearby presence is a separate authority and must explicitly check
+  // out before the UI may claim that Location is paused.
+  const handleHideMyLiveLocation = useCallback(async () => {
+    if (!auth.userId) return;
+    if (nearbyCheckInAvailable && !vaultOwnerToken) {
+      toast.error("Unlock One before pausing nearby location.");
+      return;
+    }
+
+    setBusy("selfLocation");
+    try {
+      if (nearbyCheckInAvailable && vaultOwnerToken) {
+        const nearby = await OneLocationService.getNearbyPresence({
+          vaultOwnerToken,
+        });
+        if (nearby.presence) {
+          await OneLocationService.checkoutNearby({ vaultOwnerToken });
+        }
+      }
+      updateOneLocationControlState(auth.userId, (current) => ({
+        ...current,
+        paused: true,
+        selfPreviewEnabled: false,
+        nearbyPresenceActive: false,
+        nearbyCheckedInAt: null,
+      }));
+      clearMyLocationPreview();
+      setBackgroundShareEnabled(false);
+      setMyLocationError(null);
+      toast.success("Location updates are paused on this device.");
+    } catch {
+      toast.error(
+        "Pause did not complete. You may still be visible nearby; please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    auth.userId,
+    clearMyLocationPreview,
+    nearbyCheckInAvailable,
+    vaultOwnerToken,
+  ]);
+
+  const handleResumeMyLocation = useCallback(() => {
+    void handleShowMyLiveLocation();
+  }, [handleShowMyLiveLocation]);
 
   const markLocationOnboardingSeen = useCallback(() => {
     // Persist only after completion so an interrupted first run can resume next
@@ -5972,6 +6118,9 @@ export function OneLocationAgentPageContent({
       actionLabel: locationReadiness.actionLabel ?? null,
     },
     permissionIsPrompt: permission?.state === "prompt",
+    locationEnabled,
+    locationPaused: locationControl.paused,
+    locationAccuracyLimited,
     myLocationPoint,
     myLocationError,
     recipients: rankedRecipients,
@@ -6008,7 +6157,8 @@ export function OneLocationAgentPageContent({
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
     onShowMyLocation: () => void handleShowMyLiveLocation(),
-    onHideMyLocation: () => handleHideMyLiveLocation(),
+    onHideMyLocation: () => void handleHideMyLiveLocation(),
+    onResumeMyLocation: handleResumeMyLocation,
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),

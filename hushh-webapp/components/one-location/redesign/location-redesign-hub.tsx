@@ -154,6 +154,9 @@ export type LocationHubViewModel = {
     actionLabel?: string | null;
   };
   permissionIsPrompt: boolean;
+  locationEnabled: boolean;
+  locationPaused: boolean;
+  locationAccuracyLimited: boolean;
   myLocationPoint: PlainLocationPoint | null;
   myLocationError: string | null;
 
@@ -195,6 +198,7 @@ export type LocationHubViewModel = {
   /* actions — wired 1:1 to existing handlers */
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
+  onResumeMyLocation: () => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -318,9 +322,16 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
-  const locationOn = Boolean(vm.myLocationPoint);
+  const locationOn = vm.locationEnabled;
   const toggling = BUSY(vm, "selfLocation");
   const refreshing = BUSY(vm, "load");
+  const statusLabel = vm.locationPaused
+    ? "Location paused"
+    : vm.locationAccuracyLimited
+      ? "Location limited"
+      : locationOn
+        ? "Location on"
+        : "Location off";
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
@@ -343,7 +354,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           className="hidden whitespace-nowrap sm:inline"
           aria-hidden="true"
         >
-          {locationOn ? "Location on" : "Location off"}
+          {statusLabel}
         </span>
         <Switch
           checked={locationOn}
@@ -685,6 +696,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "settings" ? (
           <LocationSettingsFlow
+            vm={vm}
             smsContactCount={vm.smsContactUserIds.length}
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
@@ -1021,10 +1033,12 @@ function LocationToggle({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -1032,10 +1046,12 @@ function LocationToggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
         checked ? "bg-[#34c759]" : "bg-black/15 dark:bg-white/20",
+        disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <span
@@ -1049,15 +1065,16 @@ function LocationToggle({
 }
 
 function LocationSettingsFlow({
+  vm,
   smsContactCount,
   onManageSmsContacts,
 }: {
+  vm: LocationHubViewModel;
   smsContactCount: number;
   onManageSmsContacts: () => void;
 }) {
-  // Inert local state for now — real auto-share / pause wiring comes later.
+  // Auto-share remains presentation-only; Pause is the shared Location control.
   const [autoShare, setAutoShare] = useState(false);
-  const [paused, setPaused] = useState(false);
 
   return (
     <div>
@@ -1093,13 +1110,21 @@ function LocationSettingsFlow({
               Pause my location
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Go invisible to everyone until you turn this off.
+              Stop new private-share updates and check out from Nearby. Existing
+              shares keep their expiry and may retain your last encrypted point.
             </p>
           </div>
           <LocationToggle
-            checked={paused}
-            onChange={setPaused}
+            checked={!vm.locationEnabled}
+            onChange={(next) => {
+              if (next) {
+                vm.onHideMyLocation();
+                return;
+              }
+              vm.onResumeMyLocation();
+            }}
             label="Pause my location"
+            disabled={BUSY(vm, "selfLocation")}
           />
         </div>
       </div>
@@ -1107,8 +1132,8 @@ function LocationSettingsFlow({
       <div className="mt-4 flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
-          Your location is never shared outside your circle. You can revoke
-          access to anyone at any time.
+          Private shares stay in your circle. Nearby Check-In is separate and
+          only starts after you explicitly agree.
         </p>
       </div>
 

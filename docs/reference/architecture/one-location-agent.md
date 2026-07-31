@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Visual Map
 
@@ -158,6 +158,28 @@ Capability scopes:
 - `cap.location.nearby.publish`
 - `cap.location.nearby.discover`
 - `cap.location.nearby.revoke`
+
+## Unified Location Control Contract
+
+The Location Agent header switch and Settings `Pause my location` control one
+user-scoped device preference. The header is on when at least one location
+channel is active: the owner's live preview, an active private grant publisher,
+or an active Nearby presence. Pausing stops new foreground/background private
+updates, clears the local self preview, and explicitly checks out active Nearby
+presence before the UI may report `Location paused`.
+
+Pause does not revoke private grants. Their authored expiry remains intact and
+recipients may retain the last encrypted point they already received. Resuming
+requires a fresh usable foreground fix. Nearby visibility remains a separate
+explicit consent: turning the header on never checks its confirmation box or
+creates presence. A successful Nearby check-in clears Pause and updates the
+shared control state; checkout removes only Nearby activity unless the user
+chooses the global Pause control.
+
+`Location limited` means a channel is enabled but current permission or fix
+accuracy is not sufficient for Nearby admission. It must not be presented as a
+successful precise check-in; Nearby continues to require a fresh fix no worse
+than 100 metres.
 
 ## Nearby Check-In Contract
 

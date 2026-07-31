@@ -35,6 +35,8 @@ const {
   mockCreateCircleInvite,
   mockGetActivity,
   mockGetState,
+  mockGetNearbyPresence,
+  mockCheckoutNearby,
   mockSyncCurrentUser,
   mockSyncOneLocationContactSignals,
   mockSearchConnectionDirectory,
@@ -73,6 +75,8 @@ const {
   mockCreateCircleInvite: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
+  mockGetNearbyPresence: vi.fn(),
+  mockCheckoutNearby: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
   mockSyncOneLocationContactSignals: vi.fn(),
   mockSearchConnectionDirectory: vi.fn(),
@@ -199,6 +203,8 @@ vi.mock("@/lib/one-location/service", () => ({
     openAppSettings: mockOpenAppSettings,
     getActivity: mockGetActivity,
     getState: mockGetState,
+    getNearbyPresence: mockGetNearbyPresence,
+    checkoutNearby: mockCheckoutNearby,
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
@@ -607,6 +613,9 @@ describe("OneLocationAgentPage", () => {
     // snapshot cannot leak into the next test's initial render.
     const { CacheService } = await import("@/lib/services/cache-service");
     CacheService.getInstance().clear();
+    const { forgetOneLocationControlPreference } =
+      await import("@/lib/one-location/location-control-state");
+    forgetOneLocationControlPreference("user_a");
     mockSearchParams.toString = () => "";
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
@@ -752,6 +761,14 @@ describe("OneLocationAgentPage", () => {
       publicUrl: "/one/location/request/invite_1",
     });
     mockGetState.mockResolvedValue(locationState());
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: null,
+      attendees: [],
+    });
+    mockCheckoutNearby.mockResolvedValue({
+      presence: null,
+      attendees: [],
+    });
     mockGetActivity.mockResolvedValue(locationActivity());
     mockSyncCurrentUser.mockResolvedValue({
       user_id: "user_a",
@@ -840,6 +857,10 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -891,8 +912,81 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("switch", { name: "Turn location on" }),
       ).toHaveAttribute("aria-checked", "false"),
     );
-    expect(screen.getByText("Location off")).toBeTruthy();
+    expect(screen.getByText("Location paused")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
+  });
+
+  it("keeps the header, Pause setting, and active Nearby presence synchronized", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: true,
+        consentVersion: "one-location-nearby-presence-v1",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const pauseSwitch = await screen.findByRole("switch", {
+      name: "Pause my location",
+    });
+    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(pauseSwitch);
+    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
+    );
+
+    mockCaptureCurrentPosition.mockClear();
+    fireEvent.click(pauseSwitch);
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
+    );
+  });
+
+  it("shows a limited status when the captured point is too approximate for Nearby", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockCaptureCurrentPosition.mockResolvedValue({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 240,
+      capturedAt: "2026-07-31T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
+    await waitFor(() =>
+      expect(screen.getByText("Location limited")).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("renders a focused, validated share flow with a 15-minute default", async () => {
