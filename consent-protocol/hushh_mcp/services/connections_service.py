@@ -1080,7 +1080,7 @@ class ConnectionsService:
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
-                   cr.message, cr.created_at,
+                   cr.message, cr.created_at, cr.metadata,
                    {counterpart_col} AS counterpart_user_id,
                    a.display_name AS counterpart_display_name
             FROM connection_requests cr
@@ -1090,19 +1090,30 @@ class ConnectionsService:
             """,  # nosec B608
             {"user_id": user_id},
         )
-        return [
-            {
-                "id": str(r.get("id") or ""),
-                "requesterUserId": str(r.get("requester_user_id") or ""),
-                "addresseeUserId": str(r.get("addressee_user_id") or ""),
-                "status": str(r.get("status") or ""),
-                "message": r.get("message"),
-                "createdAt": r.get("created_at"),
-                "counterpartUserId": str(r.get("counterpart_user_id") or ""),
-                "counterpartDisplayName": r.get("counterpart_display_name"),
-            }
-            for r in rows
-        ]
+        requests: list[dict[str, Any]] = []
+        for r in rows:
+            # Surface the requester's bundled data ask so the addressee can review
+            # (and later modify) it before accepting. These are the requester's own
+            # scope keys -- not the addressee's holdings -- so echoing them back is
+            # presence-safe and leaks nothing about what either party actually has.
+            metadata = self._parse_request_metadata(r.get("metadata"))
+            requested_scopes = [
+                str(s).strip() for s in (metadata.get("requested_scopes") or []) if str(s).strip()
+            ]
+            requests.append(
+                {
+                    "id": str(r.get("id") or ""),
+                    "requesterUserId": str(r.get("requester_user_id") or ""),
+                    "addresseeUserId": str(r.get("addressee_user_id") or ""),
+                    "status": str(r.get("status") or ""),
+                    "message": r.get("message"),
+                    "createdAt": r.get("created_at"),
+                    "counterpartUserId": str(r.get("counterpart_user_id") or ""),
+                    "counterpartDisplayName": r.get("counterpart_display_name"),
+                    "requestedScopes": requested_scopes,
+                }
+            )
+        return requests
 
     def list_received_scope_exports(self, user_id: str) -> list[dict[str, Any]]:
         """Return every scope export sealed to this user as a Connect requester.

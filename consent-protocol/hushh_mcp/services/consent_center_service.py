@@ -1463,6 +1463,9 @@ class ConsentCenterService:
                 "counterpart_id": r.get("counterpartUserId"),
                 "counterpart_label": r.get("counterpartDisplayName") or "Someone",
                 "reason": r.get("message") or "wants to connect with you",
+                # Bundled data ask (if any) so the recipient can review + modify the
+                # list before accepting. Empty list = a plain connect with no scopes.
+                "requested_scopes": r.get("requestedScopes") or [],
             }
             for r in (rows or [])
         ]

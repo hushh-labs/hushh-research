@@ -83,6 +83,10 @@ import {
 } from "@/lib/consent/consent-sheet-route";
 import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
 import { ConnectionsService } from "@/lib/services/connections-service";
+import {
+  ConnectScopeReviewDialog,
+  type ConnectScopeReviewDecision,
+} from "@/components/connect/connect-scope-review-dialog";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -895,6 +899,7 @@ function ConsentEntryDetail({
   actor,
   entry,
   onApprove,
+  onModify,
   onDeny,
   onRevoke,
   onRevokeScope,
@@ -905,6 +910,7 @@ function ConsentEntryDetail({
   actor: ConsentCenterActor;
   entry: ConsentCenterEntry | null;
   onApprove: (entry: ConsentCenterEntry, durationHours?: number) => void;
+  onModify: (entry: ConsentCenterEntry) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
   onRevokeScope: (scope: string) => void;
@@ -1026,6 +1032,10 @@ function ConsentEntryDetail({
       : entry.status === "pending");
   const isConnectionDecision =
     isPendingDecision && isConnectionRequestEntry(entry);
+  // A connection ask can bundle data scopes (e.g. an RIA pick). When present,
+  // the recipient can modify the list (grant a subset) instead of accept-all.
+  const hasRequestedScopes =
+    isConnectionDecision && (entry.requested_scopes?.length ?? 0) > 0;
   const isMarketplaceDecision =
     isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
   const durationOptions =
@@ -1162,6 +1172,19 @@ function ConsentEntryDetail({
               </Select>
             </div>
           ) : null}
+          {isConnectionDecision && hasRequestedScopes ? (
+            <Button
+              variant="none"
+              effect="fade"
+              size="sm"
+              className="min-h-11"
+              disabled={requestBusy}
+              onClick={() => onModify(entry)}
+              data-voice-control-id="consent_choose_data"
+            >
+              Choose data
+            </Button>
+          ) : null}
           <Button
             variant="blue-gradient"
             effect="fill"
@@ -1183,7 +1206,9 @@ function ConsentEntryDetail({
                 ? "Accepting..."
                 : "Allowing..."
               : isConnectionDecision
-                ? "Accept"
+                ? hasRequestedScopes
+                  ? "Accept all"
+                  : "Accept"
                 : "Allow"}
           </Button>
           <Button
@@ -1528,6 +1553,11 @@ export function ConsentCenterPage() {
   const [locallyRevokedScopes, setLocallyRevokedScopes] = useState<Set<string>>(
     () => new Set(),
   );
+  // Recipient "modify the list" flow: the connection request whose bundled data
+  // scopes the user is reviewing (null = dialog closed), plus its in-flight flag.
+  const [scopeReviewEntry, setScopeReviewEntry] =
+    useState<ConsentCenterEntry | null>(null);
+  const [scopeReviewBusy, setScopeReviewBusy] = useState(false);
 
   useEffect(() => {
     if (routeQuery !== searchValue) {
@@ -1717,6 +1747,35 @@ export function ConsentCenterPage() {
       isMarketplaceEntry,
       user,
     ],
+  );
+  // Accept a connection request while modifying the bundled data list: grant the
+  // chosen subset and record the rest as denied. Mirrors approveEntry's cache
+  // sync + completion event so every consent surface refreshes identically.
+  const acceptConnectionWithScopes = useCallback(
+    async (entry: ConsentCenterEntry, decision: ConnectScopeReviewDecision) => {
+      if (!user) return;
+      setScopeReviewBusy(true);
+      try {
+        const idToken = await user.getIdToken();
+        await ConnectionsService.accept({
+          idToken,
+          requestId: entry.request_id || entry.id,
+          grantedScopes: decision.grantedScopes,
+          deniedScopes: decision.deniedScopes,
+        });
+        CacheSyncService.onConsentMutated(user.uid);
+        window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+        setScopeReviewEntry(null);
+      } catch (error) {
+        console.error(
+          "[ConsentCenter] Couldn't accept the connection request with a modified scope list:",
+          error,
+        );
+      } finally {
+        setScopeReviewBusy(false);
+      }
+    },
+    [user],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -2908,6 +2967,12 @@ export function ConsentCenterPage() {
               closeDetailPanel();
               approveEntry(entry, durationHours);
             }}
+            onModify={(entry) => {
+              // Keep the entry around and open the scope-review dialog; the panel
+              // closes so the dialog owns focus while the user picks scopes.
+              closeDetailPanel();
+              setScopeReviewEntry(entry);
+            }}
             onDeny={(entry) => {
               closeDetailPanel();
               denyEntry(entry);
@@ -2923,6 +2988,24 @@ export function ConsentCenterPage() {
           />
         )}
       </SettingsDetailPanel>
+
+      <ConnectScopeReviewDialog
+        open={Boolean(scopeReviewEntry)}
+        onOpenChange={(open) => {
+          if (!open && !scopeReviewBusy) setScopeReviewEntry(null);
+        }}
+        personName={
+          scopeReviewEntry ? resolveCounterpartLabel(scopeReviewEntry) : ""
+        }
+        requestedScopes={scopeReviewEntry?.requested_scopes ?? []}
+        getIdToken={idTokenLoader}
+        busy={scopeReviewBusy}
+        onConfirm={(decision) => {
+          if (scopeReviewEntry) {
+            void acceptConnectionWithScopes(scopeReviewEntry, decision);
+          }
+        }}
+      />
     </AppPageShell>
   );
 }

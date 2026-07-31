@@ -102,6 +102,10 @@ export interface ConsentCenterEntry {
   is_scope_upgrade?: boolean | null;
   existing_granted_scopes?: string[] | null;
   additional_access_summary?: string | null;
+  /** For `connection_request` entries: the data scopes the requester bundled with
+   * the connection ask. Present so the recipient can review and modify the list
+   * (grant a subset) before accepting. Empty/absent = a plain connect. */
+  requested_scopes?: string[] | null;
   technical_identity?: {
     user_id?: string | null;
   } | null;

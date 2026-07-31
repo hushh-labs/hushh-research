@@ -186,6 +186,58 @@ def test_accept_rejected_when_not_addressee():
     assert exc.value.status_code == 403
 
 
+def test_list_requests_incoming_surfaces_requested_scopes():
+    """The incoming read path must parse metadata and echo the requester's bundled
+    data ask as ``requestedScopes`` so the addressee can review/modify it. Covers
+    both metadata shapes the driver may return (parsed dict + raw JSON string)."""
+    svc = _svc()
+    rows = [
+        {
+            "id": "req-dict",
+            "requester_user_id": "ria-1",
+            "addressee_user_id": "user-a",
+            "status": "pending",
+            "message": "pick for you",
+            "counterpart_user_id": "ria-1",
+            "counterpart_display_name": "Ada RIA",
+            # JSONB path: driver already parsed the cell into a dict.
+            "metadata": {"requested_scopes": ["vault.read.finance", " vault.read.portfolio "]},
+        },
+        {
+            "id": "req-str",
+            "requester_user_id": "ria-2",
+            "addressee_user_id": "user-a",
+            "status": "pending",
+            "message": None,
+            "counterpart_user_id": "ria-2",
+            "counterpart_display_name": None,
+            # Raw JSON-string path.
+            "metadata": '{"requested_scopes": ["vault.read.identity"]}',
+        },
+        {
+            "id": "req-plain",
+            "requester_user_id": "friend-1",
+            "addressee_user_id": "user-a",
+            "status": "pending",
+            "message": None,
+            "counterpart_user_id": "friend-1",
+            "counterpart_display_name": None,
+            "metadata": None,  # plain connect, no ask
+        },
+    ]
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning(rows)):
+        out = svc.list_requests("user-a", direction="incoming")
+
+    by_id = {r["id"]: r for r in out}
+    # Whitespace is stripped and order preserved.
+    assert by_id["req-dict"]["requestedScopes"] == [
+        "vault.read.finance",
+        "vault.read.portfolio",
+    ]
+    assert by_id["req-str"]["requestedScopes"] == ["vault.read.identity"]
+    assert by_id["req-plain"]["requestedScopes"] == []
+
+
 def test_cancel_rejected_when_not_requester():
     svc = _svc()
     db = _RecordingDB(
