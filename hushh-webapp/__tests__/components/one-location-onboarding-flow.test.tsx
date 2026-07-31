@@ -131,14 +131,15 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
-  it("keeps the supplied feature cards proportional and scrolls only the compact content area", () => {
+  it("keeps the supplied feature cards proportional without an onboarding scroll region", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    const featureSurface = screen.getByTestId(
+    const featureShell = screen.getByTestId(
       "one-location-onboarding-features",
-    ).firstElementChild;
+    );
+    expect(featureShell.className).toContain("max-w-[min(560px,58dvh)]");
+    const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
     expect(featureSurface?.className).toContain("bg-white");
@@ -148,8 +149,10 @@ describe("OneLocationOnboardingFlow", () => {
     );
 
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
-    expect(featureScroll?.className).toContain("overflow-y-auto");
-    expect(featureScroll?.className).toContain("flex-1");
+    expect(featureScroll?.className).toContain("overflow-hidden");
+    expect(featureScroll?.className).not.toContain("overflow-y-auto");
+    expect(featureScroll?.className).toContain("flex-[0_1_auto]");
+    expect(featureScroll?.className).not.toContain("flex-1");
     const featureGrid = document.querySelector("[data-one-feature-grid]");
     expect(featureGrid?.className).toContain("mt-6");
     expect(featureGrid?.className).toContain("shrink-0");
@@ -233,9 +236,15 @@ describe("OneLocationOnboardingFlow", () => {
     const hotelArt = checkInCard.querySelector(
       'img[src="/one-location/onboarding/orbit-office.webp"]',
     );
+    const hotelFrame = checkInCard.querySelector("[data-one-checkin-art]");
     expect(hotelArt).toBeTruthy();
-    expect(hotelArt?.className).toContain("w-[54%]");
-    expect(hotelArt?.className).toContain("rotate-[4deg]");
+    expect(hotelFrame?.className).toContain("w-[54%]");
+    expect(hotelFrame).toHaveStyle({
+      perspective: "320px",
+      perspectiveOrigin: "50% 100%",
+    });
+    expect(hotelArt).toHaveStyle({ transform: "rotateY(8deg)" });
+    expect(hotelArt?.className).not.toContain("rotate-");
 
     expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();

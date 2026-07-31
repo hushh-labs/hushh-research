@@ -628,16 +628,23 @@ function CheckInFeatureCard() {
           />
           <span className="absolute left-1/2 top-[37%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
         </span>
-        {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-        <img
-          src="/one-location/onboarding/orbit-office.webp"
-          alt=""
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          className="absolute bottom-[38px] left-1/2 w-[54%] origin-bottom -translate-x-1/2 rotate-[4deg] object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+        <span
+          className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
+          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
           data-one-checkin-art
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/orbit-office.webp"
+            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+            style={{ transform: "rotateY(8deg)" }}
+            data-one-checkin-hotel
+          />
+        </span>
       </div>
       <FeatureStatusPill className="bottom-3 left-3">
         Checked in at Hotel Grand
@@ -677,7 +684,7 @@ function SaveMySoulFeatureCard() {
         </p>
       </div>
       <div
-        className="absolute bottom-[42px] left-1/2 flex h-20 w-20 -translate-x-1/2 items-center justify-center"
+        className="absolute bottom-12 left-1/2 flex h-20 w-20 -translate-x-1/2 items-center justify-center"
         data-one-sms-radar
         aria-hidden="true"
       >
@@ -767,7 +774,7 @@ function FeaturesScreen({
         busy={leaving}
       />
       <div
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="min-h-0 flex-[0_1_auto] overflow-hidden"
         data-one-feature-scroll
       >
         <header className="mt-3 shrink-0" data-one-feature-header>
@@ -827,8 +834,6 @@ function FeaturesScreen({
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
-        [data-one-feature-scroll] { scrollbar-width: none; }
-        [data-one-feature-scroll]::-webkit-scrollbar { display: none; }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
             padding-top: max(env(safe-area-inset-top, 0px), 8px);
@@ -844,13 +849,26 @@ function FeaturesScreen({
           [data-one-feature-cta] button { min-height: 50px; height: 50px; }
         }
         @media (max-height: 680px) {
-          [data-one-feature-heading] { font-size: 30px; }
-          [data-one-feature-grid] { margin-top: 12px; }
-          [data-one-feature-cta] { padding-top: 10px; }
-          [data-one-feature-cta] button { min-height: 48px; height: 48px; }
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 6px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+          }
+          [data-one-onboarding-navigation] { height: 44px; }
+          [data-one-feature-header] { margin-top: 4px; }
+          [data-one-feature-heading] { font-size: 28px; }
+          [data-one-feature-subtitle] {
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 16px;
+            white-space: nowrap;
+          }
+          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-cta] { padding-top: 8px; }
+          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
         }
         @media (max-width: 430px) {
-          [data-one-feature-screen] { padding-left: 20px; padding-right: 20px; }
+          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
           [data-one-feature-heading] { font-size: 32px; }
           [data-one-feature-subtitle] { font-size: 14px; }
           [data-one-feature-grid] { gap: 12px; }
@@ -864,12 +882,13 @@ function FeaturesScreen({
           [data-one-feature-body] { margin-top: 6px; font-size: 11px; line-height: 1.3; }
           [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11.5px; }
           [data-one-use-case-alert] { height: 28px; padding-left: 7px; padding-right: 7px; font-size: 8px; }
+          [data-one-sms-radar] { bottom: 46px; width: 72px; height: 72px; }
         }
         @media (max-width: 380px) {
-          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
         }
         @media (max-width: 340px) {
-          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
+          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
           [data-one-feature-heading] { font-size: 29px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
@@ -882,9 +901,9 @@ function FeaturesScreen({
           [data-one-feature-body] { margin-top: 5px; font-size: 10.5px; }
           [data-one-use-case-alert] { height: 26px; gap: 3px; padding-left: 5px; padding-right: 5px; font-size: 8px; }
           [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
-          [data-one-checkin-pin] { bottom: 58px; width: 24px; height: 24px; }
-          [data-one-checkin-art] { bottom: 35px; }
-          [data-one-sms-radar] { bottom: 22px; width: 52px; height: 52px; }
+          [data-one-checkin-pin] { bottom: 54px; width: 24px; height: 24px; }
+          [data-one-checkin-art] { bottom: 43px; width: 52%; }
+          [data-one-sms-radar] { bottom: 44px; width: 48px; height: 48px; }
           [data-one-sms-core] { width: 38px; height: 38px; font-size: 12px; }
         }
         @media (max-width: 300px) {
@@ -1523,7 +1542,12 @@ export function OneLocationOnboardingFlow({
     >
       <NativeTestBeacon {...nativeTest} />
       <section
-        className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white dark:bg-[#0c1017]"
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          screen === "features"
+            ? "max-w-[min(560px,58dvh)]"
+            : "max-w-[480px]",
+        )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
         {screen === "welcome" ? (
