@@ -79,7 +79,7 @@ const WELCOME_ORBIT_ITEMS = [
     src: "/one-location/onboarding/orbit-office.webp",
     position: "right-[8%] top-[10%]",
     imageClassName:
-      "relative left-1/2 !w-auto max-w-none -translate-x-1/2 scale-[0.96] object-contain",
+      "relative left-1/2 !w-auto max-w-none -translate-x-1/2 scale-[0.93] object-contain",
   },
   {
     src: "/one-location/onboarding/orbit-person-2.webp",
@@ -906,7 +906,7 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="shrink-0 pt-8" data-one-feature-cta>
+      <div className="shrink-0 pt-8 max-[431px]:mt-auto" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -961,6 +961,21 @@ function FeaturesScreen({
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-cta] { padding-top: 8px; }
           [data-one-feature-cta] button { min-height: 46px; height: 46px; }
+        }
+        @media (max-width: 431px) and (min-height: 800px) {
+          [data-one-feature-screen] {
+            padding-bottom: calc(
+              var(--onboarding-agent-bar-clearance) +
+              max(env(safe-area-inset-bottom, 0px), 12px)
+            );
+          }
+        }
+        @media (max-width: 431px) and (min-height: 820px) {
+          [data-one-feature-header] { margin-top: 16px; }
+          [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
+          [data-one-feature-card="share"] { aspect-ratio: 1.60 / 1; }
+          [data-one-feature-card="checkin"],
+          [data-one-feature-card="sms"] { aspect-ratio: 0.63 / 1; }
         }
         @media (max-width: 430px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
