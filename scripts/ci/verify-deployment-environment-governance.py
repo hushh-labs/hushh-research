@@ -12,7 +12,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 DEFAULT_REPO = "hushh-labs/hushh-research"
-PRODUCTION_MANUAL_DISPATCH_USERS = ["kushaltrivedi5", "ankitkumarsingh1702"]
 
 
 def _gh_json(*args: str) -> dict:
@@ -74,11 +73,23 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         )
 
     allowed_users = surface_policy.get("manual_dispatch_users") or []
-    if surface == "production" and allowed_users != PRODUCTION_MANUAL_DISPATCH_USERS:
-        errors.append(
-            "production manual dispatch policy drifted: "
-            f"expected {PRODUCTION_MANUAL_DISPATCH_USERS}, got {allowed_users}"
-        )
+    if surface == "production":
+        if not allowed_users:
+            errors.append("production manual dispatch policy must name at least one user")
+        if len(allowed_users) != len(set(allowed_users)):
+            errors.append("production manual dispatch policy must not contain duplicate users")
+        uat_cohort = set(policy.get("uat", {}).get("manual_dispatch_users") or [])
+        out_of_cohort = sorted(set(allowed_users) - uat_cohort)
+        if out_of_cohort:
+            errors.append(
+                "production manual dispatch users must be a subset of the UAT "
+                f"maintainer cohort: {out_of_cohort}"
+            )
+        if set(allowed_users) == uat_cohort:
+            errors.append(
+                "production manual dispatch users must be a strict subset of the UAT "
+                "maintainer cohort"
+            )
 
     # UAT dispatch authority must equal the merge cohort (main.review_bypass_users).
     # Invariant: anyone trusted to land code on `main` is trusted to validate that

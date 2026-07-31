@@ -179,16 +179,19 @@ outside it, and the boundaries are enforced, not informal:
 |---|---|---|---|
 | Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
 | UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
-| Production deploy cohort | `kushaltrivedi5`, `ankitkumarsingh1702` | dispatch production deploy | `production.manual_dispatch_users` |
+| Production deploy cohort | approved production operators | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 - **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
   in the UAT sandbox — no more, no less. The two lists are held equal and any
   independent drift fails the check.
-- **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
-  widening or narrowing fails the check.
+- **Production == explicitly approved dispatch cohort.**
+  `production.manual_dispatch_users` must be non-empty, unique, and a strict
+  subset of the UAT maintainer cohort. Its membership is intentionally owned by
+  the reviewed JSON policy; the verifier rejects an empty, out-of-cohort, or
+  full-maintainer production roster but does not duplicate the roster in code
+  or prose.
 - **Deploy identity variables are present.** Each deployment environment must
   contain every name declared in its `required_environment_variables` policy.
   These are GitHub environment variables consumed through `vars.*`, not
@@ -304,7 +307,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Governed production deploy lane for `kushaltrivedi5` and `ankitkumarsingh1702` |
+| `production` | Governed production deploy lane for the operators named in `production.manual_dispatch_users` |
 
 The UAT workflow uses one active GitHub environment name:
 
