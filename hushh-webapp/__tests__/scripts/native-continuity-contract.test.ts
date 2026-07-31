@@ -228,6 +228,30 @@ describe("native cold-audit and continuity contract", () => {
     expect(flows).toContain('routeIds: ["/one/profile"]');
   });
 
+  it("keeps Location onboarding UI-flow checkpoints within the authored screen contract", () => {
+    const flows = source("scripts/testing/signed-in-ui-flows.mjs");
+    const contract = JSON.parse(
+      source("lib/onboarding/one-location-onboarding.contract.json"),
+    ) as { screens: Array<{ testId: string }> };
+    const flowStart = flows.indexOf(
+      'id: "native-reviewer-location-intro-fresh-session"',
+    );
+    const flowEnd = flows.indexOf("\n  },", flowStart);
+    const locationFlow = flows.slice(flowStart, flowEnd);
+    const checkpointIndexes = Array.from(
+      locationFlow.matchAll(/LOCATION_ONBOARDING_CHECKPOINTS\[(\d+)\]/g),
+      (match) => Number(match[1]),
+    );
+
+    expect(flowStart).toBeGreaterThan(-1);
+    expect(checkpointIndexes).toEqual(
+      contract.screens.map((_, index) => index),
+    );
+    expect(
+      checkpointIndexes.every((index) => index < contract.screens.length),
+    ).toBe(true);
+  });
+
   it("binds each cold UI report to the exact generated manifest and real controls", () => {
     const iosAudit = source("scripts/native/ios-ui-interaction-audit.mjs");
     const androidAudit = source("scripts/native/android-ui-interaction-audit.mjs");

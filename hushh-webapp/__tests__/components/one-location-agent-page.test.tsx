@@ -465,7 +465,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Stay connected when you need it.",
+      name: "Stay connected",
     }),
   ).toBeTruthy();
 }
@@ -477,7 +477,7 @@ async function openLocationPeopleStep() {
       name: "Save this place",
     });
     const continueButton = screen.queryByRole("button", {
-      name: /Continue|Allow location/,
+      name: /Add my people|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -490,7 +490,7 @@ async function openLocationPeopleStep() {
     );
   }
   const continueButton = await screen.findByRole("button", {
-    name: /Continue|Allow location/,
+    name: /Add my people|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
@@ -510,8 +510,8 @@ async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
       name: "Your circle is ready.",
     }),
   ).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
@@ -1393,8 +1393,8 @@ describe("OneLocationAgentPage", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
 
-    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -1429,7 +1429,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
     expect(
-      screen.getByRole("button", { name: "Continue" }),
+      screen.getByRole("button", { name: "Add my people" }),
     ).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
@@ -1676,7 +1676,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -1778,7 +1778,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -1854,7 +1854,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -1974,7 +1974,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Stay connected when you need it.",
+          name: "Stay connected",
         }),
       ).toBeNull();
       expect(
