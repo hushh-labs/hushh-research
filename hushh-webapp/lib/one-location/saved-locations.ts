@@ -3,6 +3,7 @@
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 
 export const LOCATION_PKM_DOMAIN = "location";
 
@@ -10,8 +11,15 @@ const SAVED_PLACES_KEY = "saved_places";
 const SAVED_PLACES_SCHEMA_VERSION = 1;
 const MAX_LABEL_LENGTH = 40;
 const MAX_ADDRESS_LENGTH = 300;
+export const SAVED_LOCATION_DUPLICATE_RADIUS_METERS = 25;
 
 export type SavedLocationCategory = "home" | "work" | "other";
+
+const SAVED_LOCATION_CATEGORY_PRIORITY: Record<SavedLocationCategory, number> = {
+  home: 0,
+  work: 1,
+  other: 2,
+};
 
 export type SavedLocation = {
   id: string;
@@ -28,6 +36,19 @@ export type SavedLocationVaultContext = {
   vaultKey: string | null;
   vaultOwnerToken: string | null;
 };
+
+export class DuplicateSavedLocationError extends Error {
+  readonly code = "duplicate_saved_location";
+  readonly existingCategory: SavedLocationCategory;
+  readonly existingLabel: string;
+
+  constructor(existingLocation: SavedLocation) {
+    super(duplicateSavedLocationMessage(existingLocation));
+    this.name = "DuplicateSavedLocationError";
+    this.existingCategory = existingLocation.category;
+    this.existingLabel = duplicateLocationLabel(existingLocation);
+  }
+}
 
 type SavedPlacesEnvelope = {
   schema_version: number;
@@ -178,6 +199,45 @@ export function defaultLabelForCategory(
   return "Other";
 }
 
+function duplicateLocationLabel(location: SavedLocation): string {
+  if (location.category !== "other") {
+    return defaultLabelForCategory(location.category);
+  }
+  const label = cleanText(location.label, MAX_LABEL_LENGTH);
+  return label && label.toLowerCase() !== "other"
+    ? `${label} (Other)`
+    : "Other";
+}
+
+export function duplicateSavedLocationMessage(location: SavedLocation): string {
+  return `This place is already saved as ${duplicateLocationLabel(location)}. Choose a different place or remove it first.`;
+}
+
+/** Find the preferred saved point representing the same physical place. */
+export function findDuplicateSavedLocation(
+  existing: SavedLocation[],
+  candidate: Pick<SavedLocation, "latitude" | "longitude">,
+): SavedLocation | null {
+  return (
+    existing
+      .filter(
+        (location) =>
+          haversineMeters(
+            { lat: location.latitude, lng: location.longitude },
+            { lat: candidate.latitude, lng: candidate.longitude },
+          ) <= SAVED_LOCATION_DUPLICATE_RADIUS_METERS,
+      )
+      .sort((left, right) => {
+        const categoryOrder =
+          SAVED_LOCATION_CATEGORY_PRIORITY[left.category] -
+          SAVED_LOCATION_CATEGORY_PRIORITY[right.category];
+        if (categoryOrder !== 0) return categoryOrder;
+        const labelOrder = left.label.localeCompare(right.label);
+        return labelOrder !== 0 ? labelOrder : left.id.localeCompare(right.id);
+      })[0] ?? null
+  );
+}
+
 /** Read saved places from the encrypted Location PKM domain. */
 export async function loadSavedLocations(
   context: SavedLocationVaultContext,
@@ -206,8 +266,8 @@ export async function loadSavedLocations(
 }
 
 /**
- * Add or replace a saved place in encrypted PKM. Home and Work are singletons;
- * Other places are additive and de-duplicated by label plus nearby coordinates.
+ * Add or replace a saved place in encrypted PKM. Home and Work are singletons,
+ * and one physical place can exist under only one category.
  */
 export async function addSavedLocation(params: {
   context: SavedLocationVaultContext;
@@ -244,10 +304,17 @@ export async function addSavedLocation(params: {
     savedAt: new Date().toISOString(),
   };
 
-  return mutateSavedLocations({
+  let duplicateLocation: SavedLocation | null = null;
+
+  const locations = await mutateSavedLocations({
     context: params.context,
     source: "one_location_saved_place_confirm",
     mutate: (existing) => {
+      const duplicate = findDuplicateSavedLocation(existing, entry);
+      duplicateLocation = duplicate;
+      if (duplicate) {
+        return existing;
+      }
       if (input.category === "home" || input.category === "work") {
         return [
           entry,
@@ -256,18 +323,13 @@ export async function addSavedLocation(params: {
           ),
         ];
       }
-      const withoutDuplicate = existing.filter(
-        (location) =>
-          !(
-            location.category === "other" &&
-            location.label.trim().toLowerCase() === label.toLowerCase() &&
-            Math.abs(location.latitude - entry.latitude) < 1e-4 &&
-            Math.abs(location.longitude - entry.longitude) < 1e-4
-          ),
-      );
-      return [...withoutDuplicate, entry];
+      return [...existing, entry];
     },
   });
+  if (duplicateLocation) {
+    throw new DuplicateSavedLocationError(duplicateLocation);
+  }
+  return locations;
 }
 
 /** Remove a saved place from encrypted PKM. */

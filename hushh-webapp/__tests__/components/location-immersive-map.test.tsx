@@ -206,8 +206,14 @@ vi.mock("sonner", () => ({
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
+import {
+  forgetOneLocationControlPreference,
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 
 beforeEach(() => {
+  forgetOneLocationControlPreference("test-user");
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
   experienceHarness.demoMode = true;
@@ -244,6 +250,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetOneLocationControlPreference("test-user");
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -401,6 +408,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "";
+    updateOneLocationControlState("test-user", (current) => ({
+      ...current,
+      paused: true,
+    }));
 
     render(<LocationImmersiveMap />);
     fireEvent.click(
@@ -424,6 +435,14 @@ describe("LocationImmersiveMap demo experience", () => {
     );
 
     fireEvent.click(screen.getByTestId("publish-nearby-state"));
+
+    expect(readOneLocationControlState("test-user")).toEqual(
+      expect.objectContaining({
+        paused: false,
+        nearbyPresenceActive: true,
+        nearbyCheckedInAt: "2026-07-31T00:00:00.000Z",
+      }),
+    );
 
     const nearbyRoster = await screen.findByTestId(
       "one-location-map-nearby-people",

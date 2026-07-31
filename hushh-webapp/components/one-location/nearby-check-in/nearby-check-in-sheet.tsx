@@ -34,6 +34,7 @@ import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { OneLocationService } from "@/lib/one-location/service";
+import { ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS } from "@/lib/one-location/nearby-check-in-availability";
 import type {
   OneLocationNearbyAttendee,
   OneLocationNearbyPlaceSuggestion,
@@ -50,7 +51,6 @@ const DURATIONS = [
   { value: 120 as const, label: "2 hours" },
 ];
 
-const MAX_NEARBY_LOCATION_ACCURACY_METERS = 100;
 const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
   presence: null,
   attendees: [],
@@ -75,7 +75,7 @@ function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
     typeof point.accuracyM === "number" &&
     Number.isFinite(point.accuracyM) &&
     point.accuracyM >= 0 &&
-    point.accuracyM <= MAX_NEARBY_LOCATION_ACCURACY_METERS
+    point.accuracyM <= ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS
   );
 }
 
