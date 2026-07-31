@@ -38,9 +38,9 @@ export const PCHP_SPEC_SECTIONS: PchpSpecSection[] = [
     eyebrow: "Specification",
     summary:
       "What PCHP is, who it is for, and the one idea it standardizes: consent on every read of personal information.",
-    body: `PCHP (Personal Consent Handshake Protocol) is an open standard for sharing personal data between a person, the agents that work for them, and the humans and machines they choose to trust — with **consent and control built into every single transaction**.
+    body: `PCHP (Personal Consent Handshake Protocol) is an open standard for sharing personal information between a person, the agents that work for them, and the humans and machines they choose to trust — with **consent and control built into every single transaction**.
 
-Think of PCHP as a **signed receipt and a revocable key attached to every share of your data**. Before anything private moves, a handshake happens: the requester says exactly what they want and why, the owner approves (or declines) with a real credential, a scoped and time-boxed key is issued, the data moves inside a sealed envelope, and every step is written to a log the owner can read. When the owner revokes, the key dies.
+Think of PCHP as a **signed receipt and a revocable key attached to every share of your information**. Before anything private moves, a handshake happens: the requester says exactly what they want and why, the owner approves (or declines) with a real credential, a scoped and time-boxed key is issued, the information moves inside a sealed envelope, and every step is written to a log the owner can read. When the owner revokes, the key dies.
 
 This specification defines the authoritative protocol requirements. The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **MAY**, and **OPTIONAL** are to be interpreted as described in [BCP 14](https://datatracker.ietf.org/doc/html/bcp14) ([RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119), [RFC 8174](https://datatracker.ietf.org/doc/html/rfc8174)) when, and only when, they appear in all capitals.
 
@@ -48,14 +48,14 @@ This specification defines the authoritative protocol requirements. The key word
 
 Working backwards from the person and the job they are trying to get done:
 
-- **Share your financial health in seconds, not weeks.** Give your CPA, tax preparer, lawyer, auditor, or banker exactly the data they need — a scoped, time-boxed, revocable read — instead of emailing statements and losing track of who has what.
+- **Share your financial health in seconds, not weeks.** Give your CPA, tax preparer, lawyer, auditor, or banker exactly the information they need — a scoped, time-boxed, revocable read — instead of emailing statements and losing track of who has what.
 - **Let your agent act for you, safely.** An agent (yours or one you have delegated to) can request, hold, and use a consent grant on your behalf, and you retain complete visibility and a kill switch.
 - **Be the owner, always.** The owner is a human, or a machine that human governs. Ownership means visibility into every action and the ability to revoke it.
 - **Prove it happened.** Every grant, every read, every revocation is an event in a transparency log the owner can audit.
 
 ## Why PCHP matters, by who you are
 
-- **Owners (individuals):** your personal data stops leaking into inboxes and portals. Every share is consented, scoped, logged, and revocable.
+- **Owners (individuals):** your personal information stops leaking into inboxes and portals. Every share is consented, scoped, logged, and revocable.
 - **Agents:** a standard way to ask for and hold consent, so an agent can be a genuinely useful super-assistant without becoming a liability.
 - **Requesters (CPAs, banks, apps, auditors):** a standard way to ask for exactly what you need and receive it in a verifiable, least-privilege envelope — with a receipt that stands up to compliance review.
 - **Developers:** build once against an open protocol; integrate everywhere it is honored.
@@ -64,11 +64,11 @@ Working backwards from the person and the job they are trying to get done:
 
 PCHP is deliberately narrow. It is the **consent handshake layer**, and it composes with the standards below rather than replacing them:
 
-- It is **not OAuth**. OAuth authorizes an application against a provider; PCHP obtains a person's consent for a specific read of *their own* data and issues a receipt for it. PCHP uses OAuth-family primitives where useful.
+- It is **not OAuth**. OAuth authorizes an application against a provider; PCHP obtains a person's consent for a specific read of *their own* information and issues a receipt for it. PCHP uses OAuth-family primitives where useful.
 - It is **not OpenID**. Identity/authentication is an input to the handshake, not the handshake.
-- It is **not DRM**. PCHP protects the owner's control over their data, not a vendor's control over the owner.
+- It is **not DRM**. PCHP protects the owner's control over their information, not a vendor's control over the owner.
 
-If MCP is a standardized way to connect AI applications to tools and context, PCHP is the standardized way to connect a **person's private data** to the humans and agents they trust — with consent as the protocol, not a checkbox.`,
+If MCP is a standardized way to connect AI applications to tools and context, PCHP is the standardized way to connect a **person's private information** to the humans and agents they trust — with consent as the protocol, not a checkbox.`,
   },
   {
     id: "stack",
@@ -82,14 +82,14 @@ If MCP is a standardized way to connect AI applications to tools and context, PC
 - **PACT — Private Access Control Tokens** (Cloudflare with Chrome, Firefox, and Edge) proves *a visitor is a legitimate human or authorized bot* without tracking them.
 - **OAuth for agents** (now generally available on major platforms) handles *application authorization* with scoped, revocable permissions.
 
-Each of these answers a real question. **None of them answers the one PCHP does:** did the human owner consent to this specific read of their own private data — scoped, logged, and revocable? Payment is not consent. Bot-verification is not consent. Application-authorization is not the owner's consent over their own data.
+Each of these answers a real question. **None of them answers the one PCHP does:** did the human owner consent to this specific read of their own private information — scoped, logged, and revocable? Payment is not consent. Bot-verification is not consent. Application-authorization is not the owner's consent over their own information.
 
-PCHP is proposed as **the consent handshake for the secure networking stack** — the layer that sits alongside TLS the way encryption sits alongside transport. TLS is the *encryption* handshake; PCHP is the *consent* handshake. It **composes with** x402, PACT, and OAuth rather than competing with them: an agent can be paid (x402), proven legitimate (PACT), and app-authorized (OAuth), and *still* need a PCHP receipt before it reads a single field of a person's private data.
+PCHP is proposed as **the consent handshake for the secure networking stack** — the layer that sits alongside TLS the way encryption sits alongside transport. TLS is the *encryption* handshake; PCHP is the *consent* handshake. It **composes with** x402, PACT, and OAuth rather than competing with them: an agent can be paid (x402), proven legitimate (PACT), and app-authorized (OAuth), and *still* need a PCHP receipt before it reads a single field of a person's private information.
 
 \`\`\`
-  Application data / agents
+  Application information / agents
   ─────────────────────────────────────────────
-  PCHP    ← consent handshake  (may this party read THIS person's data? scoped + revocable)
+  PCHP    ← consent handshake  (may this party read THIS person's information? scoped + revocable)
   TLS     ← encryption handshake (is the channel private? who is the server?)
   TCP/IP  ← transport            (do the packets arrive?)
 \`\`\`
@@ -106,25 +106,25 @@ If MCP proved the value of a well-documented open protocol, and the 2026 agent-p
     eyebrow: "Specification",
     summary:
       "The participant roles, the trust boundary, and the design principles PCHP is built on.",
-    body: `PCHP follows an **owner-centric, issuer-mediated** architecture. Every read of personal data completes a handshake mediated by a single issuing authority the owner trusts, and every grant is attributable to an exact, revocable receipt.
+    body: `PCHP follows an **owner-centric, issuer-mediated** architecture. Every read of personal information completes a handshake mediated by a single issuing authority the owner trusts, and every grant is attributable to an exact, revocable receipt.
 
 ## Roles
 
 | Role | Who it is | Responsibility |
 | --- | --- | --- |
-| **Owner** | A human, or a machine that human governs | Holds the master authority over a vault of personal data; approves or declines every grant; can revoke at any time. |
+| **Owner** | A human, or a machine that human governs | Holds the master authority over a vault of personal information; approves or declines every grant; can revoke at any time. |
 | **Agent** | Software acting for the owner (e.g. an orchestrator, a finance agent) | Requests, holds, and uses consent grants on the owner's behalf, strictly within granted scope. |
 | **Guardian** | A privacy/consent agent role | Reviews requests against the owner's standing preferences and surfaces them for decision; never a second decision-maker over the owner. |
 | **Requester** | An external human or machine (CPA, bank, app, another agent) | Asks for a specific, scoped read and receives a sealed, time-boxed result. |
 | **Issuer** | The consent authority the owner trusts | The single signing authority that mints and validates receipts and access tokens and appends to the transparency log. |
 | **Transparency Log** | An append-only audit record | Records every REQUESTED / GRANTED / DENIED / REVOKED / READ event for the owner to inspect. |
-| **Host** | The socket that exposes owner data under PCHP | "Human Secure Socket Host" — the surface (cloud or local device) that serves data reads only against a valid handshake. |
+| **Host** | The socket that exposes owner information under PCHP | "Human Secure Socket Host" — the surface (cloud or local device) that serves information reads only against a valid handshake. |
 
 The trust boundary is drawn at the **owner and their issuer**. Requesters and their agents live *outside* the boundary and can only obtain scoped, time-boxed, revocable reads through the handshake — never standing access to the vault.
 
 ## Design principles
 
-1. **Consent is the protocol, not a checkbox.** No personal data read completes without a valid, owner-attributable consent receipt. This is a protocol-level requirement, not an application-level courtesy.
+1. **Consent is the protocol, not a checkbox.** No personal-information read completes without a valid, owner-attributable consent receipt. This is a protocol-level requirement, not an application-level courtesy.
 2. **Least privilege, always time-boxed.** Every grant is scoped to the narrowest useful resource and expires. Read-once flows SHOULD default to short lifetimes.
 3. **The owner can always see and always revoke.** Visibility and revocation are first-class, not features. Revocation MUST invalidate outstanding access tokens across the system.
 4. **The issuer holds keys; requesters hold receipts.** Requesters never receive the owner's keys — only scoped tokens and sealed envelopes.

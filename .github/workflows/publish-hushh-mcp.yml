@@ -86,8 +86,9 @@ jobs:
           PACKAGE_NAME="$(node -p "require('./packages/hushh-mcp/package.json').name")"
           PACKAGE_VERSION="$(node -p "require('./packages/hushh-mcp/package.json').version")"
           PACKAGE_SPEC="${PACKAGE_NAME}@${PACKAGE_VERSION}"
-          PUBLISHED_METADATA="$(npm view "${PACKAGE_SPEC}" version dist.integrity dist.shasum dist.attestations --json)"
-          PUBLISHED_METADATA="${PUBLISHED_METADATA}" node <<'NODE'
+          for attempt in $(seq 1 12); do
+            PUBLISHED_METADATA="$(npm view "${PACKAGE_SPEC}" version dist.integrity dist.shasum dist.attestations --json 2>/dev/null || true)"
+            if [ -n "${PUBLISHED_METADATA}" ] && PUBLISHED_METADATA="${PUBLISHED_METADATA}" node <<'NODE'
           const metadata = JSON.parse(process.env.PUBLISHED_METADATA);
           if (!metadata.version || !metadata["dist.integrity"] || !metadata["dist.shasum"]) {
             throw new Error("Published package metadata is missing version or integrity fields.");
@@ -96,4 +97,13 @@ jobs:
             throw new Error("Published package is missing npm provenance attestations.");
           }
           NODE
+            then
+              break
+            fi
+            if [ "${attempt}" -eq 12 ]; then
+              echo "Published package metadata was not visible after 60 seconds." >&2
+              exit 1
+            fi
+            sleep 5
+          done
           HUSHH_MCP_PACKAGE_SPEC="${PACKAGE_SPEC}" npm --prefix packages/hushh-mcp run verify:packed-runtime

@@ -1731,7 +1731,7 @@ export function DebateStreamView({
             <RoundTabsCard
               roundNumber={1}
               title="Initial Deep Analysis"
-              description="Agents analyze raw data independently."
+              description="Agents analyze the source information independently."
               isCollapsed={collapsedRounds[1] || false}
               onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
               activeAgent={activeRound === 1 ? activeAgent : undefined}
@@ -1759,7 +1759,7 @@ export function DebateStreamView({
               <RoundTabsCard
                 roundNumber={1}
                 title="Initial Deep Analysis"
-                description="Agents analyze raw data independently."
+                description="Agents analyze the source information independently."
                 isCollapsed={collapsedRounds[1] ?? true}
                 onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
                 activeAgent={undefined}

@@ -152,14 +152,14 @@ Read the [specification](/research/protocol), and specifically [Where PCHP Sits]
     readingMinutes: 7,
     tags: ["Announcement", "Protocol", "Open source"],
     excerpt:
-      "PCHP is an open standard for sharing personal data with consent and control built into every transaction. Today we are publishing the first unified specification as a public request for comments — and dedicating it to the commons.",
+      "PCHP is an open standard for sharing personal information with consent and control built into every transaction. Today we are publishing the first unified specification as a public request for comments — and dedicating it to the commons.",
     body: `Today we are publishing the first unified specification for **PCHP — the Personal Consent Handshake Protocol** — as a public request for comments, and donating it to the open-source community under the most permissive license we can offer.
 
 ## The one idea
 
-PCHP standardizes a single thing: **consent on every read of personal data.**
+PCHP standardizes a single thing: **consent on every read of personal information.**
 
-Think of it as a signed receipt and a revocable key attached to every share of your data. Before anything private moves, a handshake happens — the requester says exactly what they want and why, the owner approves with a real credential, a scoped and time-boxed key is issued, the data moves inside a sealed envelope, and every step is written to a log the owner can read. Revoke, and the key dies.
+Think of it as a signed receipt and a revocable key attached to every share of your information. Before anything private moves, a handshake happens — the requester says exactly what they want and why, the owner approves with a real credential, a scoped and time-boxed key is issued, the information moves inside a sealed envelope, and every step is written to a log the owner can read. Revoke, and the key dies.
 
 The owner is always a human — or a machine that human governs, so the human keeps complete visibility and a kill switch.
 

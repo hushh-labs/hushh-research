@@ -155,7 +155,7 @@ export default function TrustedDevicesPage() {
             <AlertDialogTitle>Revoke this trusted device?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRevocation?.device_name || "This device"} will immediately
-              lose access to new owner capabilities and Personal Data writes.
+              lose access to new owner capabilities and Personal information writes.
               Reconnecting requires browser approval and local vault setup
               again.
             </AlertDialogDescription>

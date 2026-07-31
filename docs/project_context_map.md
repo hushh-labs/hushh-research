@@ -36,7 +36,7 @@ flowchart TB
 ## North Stars
 
 - Hussh Principle: "An agent should work for the person whose life it touches."
-- Kai North Star: "Your data, your business. Your committee, on-demand."
+- Kai North Star: "Your information, your business. Your committee, on-demand."
 
 ## Read The Repo As One Platform
 
