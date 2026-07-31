@@ -126,7 +126,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(welcomeHotel?.className).toContain("object-contain");
     expect(welcomeHotel?.className).toContain("!w-auto");
     expect(welcomeHotel?.className).toContain("max-w-none");
-    expect(welcomeHotel?.className).toContain("scale-[0.96]");
+    expect(welcomeHotel?.className).toContain("scale-[0.93]");
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -159,9 +159,16 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureGrid?.className).toContain("shrink-0");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
-    expect(
-      document.querySelector("[data-one-feature-cta] button")?.className,
-    ).toContain("h-[58px]");
+    const featureCta = document.querySelector("[data-one-feature-cta]");
+    expect(featureCta?.className).toContain("max-[431px]:mt-auto");
+    expect(featureCta?.querySelector("button")?.className).toContain(
+      "h-[58px]",
+    );
+    const responsiveStyles =
+      featureSurface?.querySelector("style")?.textContent;
+    expect(responsiveStyles).toContain("var(--onboarding-agent-bar-clearance)");
+    expect(responsiveStyles).toContain("aspect-ratio: 1.60 / 1");
+    expect(responsiveStyles).toContain("aspect-ratio: 0.63 / 1");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
