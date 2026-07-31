@@ -1127,7 +1127,10 @@ class DynamicScopeGenerator:
         Returns:
             Dict with display_name, domain, attribute, is_wildcard, icon_name, color_hex, description
         """
-        from hushh_mcp.services.domain_contracts import get_canonical_domain_metadata
+        from hushh_mcp.services.domain_contracts import (
+            get_canonical_domain_metadata,
+            get_canonical_subintent_metadata,
+        )
 
         domain, attribute_key, is_wildcard = self.parse_scope(scope)
 
@@ -1149,13 +1152,36 @@ class DynamicScopeGenerator:
         domain_display = metadata.display_name if metadata else domain.title()
         domain_description = metadata.description if metadata else None
 
-        if is_wildcard:
+        if attribute_key:
+            # A branch scope such as ``attr.financial.profile.*``. It grants one
+            # branch of a domain, NOT the whole domain, so its label must stay
+            # distinct from both the domain-wide wildcard and its sibling
+            # branches. Prefer the branch's authored subintent metadata (name,
+            # description, icon, colour); fall back to a composed label for
+            # domains that register no subintents (health, lifestyle, ...).
+            #
+            # Historically ``is_wildcard`` was checked first, so every
+            # branch-level wildcard collapsed to "All {domain} Data" — five
+            # financial and three health scopes rendered as two identical rows
+            # in the Connect scope picker. Checking ``attribute_key`` first keeps
+            # each branch legible.
+            subintent = get_canonical_subintent_metadata(f"{domain}.{attribute_key}")
+            if subintent:
+                display_name = subintent.display_name
+                description = subintent.description
+                icon_name = subintent.icon_name
+                color_hex = subintent.color_hex
+            else:
+                attr_display = attribute_key.replace("_", " ").title()
+                display_name = f"{domain_display} — {attr_display}"
+                if is_wildcard:
+                    description = f"All {attr_display.lower()} data within {domain_display}"
+                else:
+                    description = f"{attr_display} within {domain_display}"
+        elif is_wildcard:
+            # True domain-level wildcard (``attr.<domain>.*``): the whole domain.
             display_name = f"All {domain_display} Data"
             description = domain_description
-        elif attribute_key:
-            attr_display = attribute_key.replace("_", " ").title()
-            display_name = f"{domain_display} — {attr_display}"
-            description = f"{attr_display} within {domain_display}"
         else:
             display_name = domain_display
             description = domain_description
