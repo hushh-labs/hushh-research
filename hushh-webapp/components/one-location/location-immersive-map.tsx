@@ -30,6 +30,7 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
   DARK_MAP_STYLES,
   getBrowserMapsApiKey,
@@ -381,6 +382,20 @@ export function LocationImmersiveMap() {
     }
     return point;
   }, [auth.userId, captureCurrentLocation]);
+
+  const handleNearbyStateChange = useCallback(
+    (next: OneLocationNearbyPresenceState) => {
+      setNearbyPresenceState(next);
+      if (!auth.userId) return;
+      updateOneLocationControlState(auth.userId, (current) => ({
+        ...current,
+        paused: next.presence ? false : current.paused,
+        nearbyPresenceActive: Boolean(next.presence),
+        nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
+      }));
+    },
+    [auth.userId],
+  );
 
   const focusSelfPoint = useCallback(
     async (
@@ -1649,7 +1664,7 @@ export function LocationImmersiveMap() {
             }
             closeNearbyCheckIn();
           }}
-          onStateChange={setNearbyPresenceState}
+          onStateChange={handleNearbyStateChange}
         />
       ) : null}
     </main>

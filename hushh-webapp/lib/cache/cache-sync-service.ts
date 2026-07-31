@@ -12,6 +12,11 @@ import {
   clearAllLocationWorkspaceMemory,
   clearLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import {
+  clearAllOneLocationControlRuntime,
+  clearOneLocationControlRuntime,
+  forgetOneLocationControlPreference,
+} from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -542,6 +547,7 @@ export class CacheSyncService {
     // server snapshot after the vault security boundary changes.
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
+    clearOneLocationControlRuntime(userId);
     if (typeof options?.hasVault === "boolean") {
       cache.set(
         CACHE_KEYS.VAULT_CHECK(userId),
@@ -732,6 +738,7 @@ export class CacheSyncService {
     if (userId) {
       OneLocationStateResource.invalidate(userId);
       clearLocationWorkspaceMemory(userId);
+      clearOneLocationControlRuntime(userId);
       cache.invalidateUser(userId);
       void import("@/lib/services/connected-systems-resource-service")
         .then(({ ConnectedSystemsResourceService }) =>
@@ -741,10 +748,12 @@ export class CacheSyncService {
       return;
     }
     clearAllLocationWorkspaceMemory();
+    clearAllOneLocationControlRuntime();
     cache.clear();
   }
 
   static onAccountDeleted(userId?: string | null): void {
     this.onAuthSignedOut(userId ?? null);
+    if (userId) forgetOneLocationControlPreference(userId);
   }
 }

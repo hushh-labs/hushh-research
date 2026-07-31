@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Visual Map
 
@@ -96,6 +96,11 @@ live-location grants:
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
+- one physical place may have only one saved category; a candidate within 25
+  metres of any existing Home, Work, or Other place is rejected with a reminder
+  to remove the existing place first. The encrypted persistence mutation
+  rechecks this invariant against the latest PKM state after write conflicts,
+  while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
   onboarding prompt; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
@@ -158,6 +163,41 @@ Capability scopes:
 - `cap.location.nearby.publish`
 - `cap.location.nearby.discover`
 - `cap.location.nearby.revoke`
+
+## Unified Location Control Contract
+
+The Location Agent header switch and Settings `Pause my location` control one
+user-scoped device preference. The header is on when at least one location
+channel is active: the owner's live preview, an active private grant publisher,
+or an active Nearby presence. Pausing stops new foreground/background private
+updates, clears the local self preview, and explicitly checks out active Nearby
+presence before the UI may report `Location paused`.
+
+`Auto-share my location` is a durable user-scoped preference, independent from
+Pause. It controls continuous foreground/background updates only for private
+grants the owner already approved; it never creates a grant or auto-approves a
+request. Turning Auto-share off leaves consent and expiry intact and makes new
+shares publish only the location the owner explicitly confirms. Pause
+temporarily suppresses Auto-share without erasing that preference, so both
+settings remain stable across tab changes and route remounts.
+
+Pause does not revoke private grants. Their authored expiry remains intact and
+recipients may retain the last encrypted point they already received. Resuming
+requires a fresh usable foreground fix. Nearby visibility remains a separate
+explicit consent: turning the header on never checks its confirmation box or
+creates presence. A successful Nearby check-in clears Pause and updates the
+shared control state; checkout removes only Nearby activity unless the user
+chooses the global Pause control.
+
+While Pause is active, Saved Locations must fail closed before asking the
+device location provider for a new point. A capture already in flight is
+discarded if Pause becomes active. Existing encrypted saved places remain
+readable, repairable, and removable while the vault is unlocked.
+
+`Location limited` means a channel is enabled but current permission or fix
+accuracy is not sufficient for Nearby admission. It must not be presented as a
+successful precise check-in; Nearby continues to require a fresh fix no worse
+than 100 metres.
 
 ## Nearby Check-In Contract
 
