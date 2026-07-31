@@ -9,13 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { preload } from "react-dom";
-import {
-  ArrowLeft,
-  Check,
-  Loader2,
-  MapPin,
-  UserPlus,
-} from "lucide-react";
+import { ArrowLeft, Check, Loader2, MapPin, UserPlus } from "lucide-react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -84,7 +78,8 @@ const WELCOME_ORBIT_ITEMS = [
   {
     src: "/one-location/onboarding/orbit-office.webp",
     position: "right-[8%] top-[10%]",
-    imageClassName: "object-contain",
+    imageClassName:
+      "relative left-1/2 !w-auto max-w-none -translate-x-1/2 scale-[0.96] object-contain",
   },
   {
     src: "/one-location/onboarding/orbit-person-2.webp",
@@ -245,8 +240,8 @@ function OnboardingSkipButton({
         floating
           ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
           : inverse
-          ? "text-white"
-          : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+            ? "text-white"
+            : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
       Skip
@@ -323,8 +318,7 @@ function WelcomeRadar() {
           className={cn(
             "absolute rounded-full border border-white/30",
             position,
-            index === 0 &&
-              "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
+            index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
           )}
         />
       ))}
@@ -354,7 +348,10 @@ function WelcomeRadar() {
               loading="eager"
               decoding="async"
               fetchPriority="high"
-              className={cn("h-full w-full rounded-[13px]", item.imageClassName)}
+              className={cn(
+                "h-full w-full rounded-[13px]",
+                item.imageClassName,
+              )}
             />
           </span>
           <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
@@ -437,36 +434,86 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
       className="absolute inset-0 h-full w-full"
       aria-hidden="true"
     >
-      <rect width="200" height="168" className="fill-[#edf1f6] dark:fill-[#1b222d]" />
+      <rect
+        width="200"
+        height="168"
+        className="fill-[#edf1f6] dark:fill-[#1b222d]"
+      />
       {/* green / park blocks */}
       <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
       <rect x="150" y="98" width="64" height="74" rx="7" fill={park} />
       {/* building blocks */}
-      <rect x="122" y="2" width="34" height="30" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
-      <rect x="150" y="8" width="52" height="34" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
-      <rect x="8" y="118" width="44" height="48" rx="5" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
+      <rect
+        x="122"
+        y="2"
+        width="34"
+        height="30"
+        rx="4"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
+      <rect
+        x="150"
+        y="8"
+        width="52"
+        height="34"
+        rx="4"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
+      <rect
+        x="8"
+        y="118"
+        width="44"
+        height="48"
+        rx="5"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
       {/* road casings */}
-      <path d="M-12 86 H212" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
-      <path d="M100 -12 V180" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
-      <path d="M150 58 L214 122" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="10" fill="none" />
+      <path
+        d="M-12 86 H212"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="15"
+        fill="none"
+      />
+      <path
+        d="M100 -12 V180"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="15"
+        fill="none"
+      />
+      <path
+        d="M150 58 L214 122"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="10"
+        fill="none"
+      />
       {/* road centre hairlines */}
-      <path d="M-12 86 H212" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
-      <path d="M100 -12 V180" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
+      <path
+        d="M-12 86 H212"
+        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        strokeWidth="1.5"
+        fill="none"
+      />
+      <path
+        d="M100 -12 V180"
+        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        strokeWidth="1.5"
+        fill="none"
+      />
     </svg>
   );
 }
 
 const SHARE_LOCATION_AVATARS = [
   {
-    src: "/one-location/onboarding/orbit-person-2.webp",
+    src: "/one-location/onboarding/feature-share-person-1.webp",
     className: "right-[7%] top-[10%]",
   },
   {
-    src: "/one-location/onboarding/orbit-person-1.webp",
+    src: "/one-location/onboarding/feature-share-person-2.webp",
     className: "bottom-[10%] left-[3%]",
   },
   {
-    src: "/one-location/onboarding/orbit-person-3.webp",
+    src: "/one-location/onboarding/feature-share-person-3.webp",
     className: "bottom-[8%] right-[7%]",
   },
 ] as const;
@@ -481,7 +528,7 @@ function FeatureStatusPill({
   return (
     <span
       className={cn(
-        "absolute z-30 flex h-8 w-max max-w-[calc(100%_-_20px)] items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
+        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
         className,
       )}
       data-one-use-case-alert
@@ -497,10 +544,62 @@ function FeatureStatusPill({
   );
 }
 
+function FeatureStatusRow({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative z-30 mt-auto flex shrink-0 items-center pb-3",
+        className,
+      )}
+      data-one-feature-status-row
+    >
+      <FeatureStatusPill>{children}</FeatureStatusPill>
+    </div>
+  );
+}
+
+function TwoLineFeatureTitle({
+  lines,
+  className,
+}: {
+  lines: readonly [string, string];
+  className?: string;
+}) {
+  return (
+    <div
+      role="heading"
+      aria-level={2}
+      aria-label={lines.join(" ")}
+      className={cn(
+        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
+        className,
+      )}
+      data-one-feature-title
+    >
+      {lines.map((line) => (
+        <span
+          key={line}
+          aria-hidden="true"
+          className="block whitespace-nowrap"
+          data-one-feature-title-line
+        >
+          {line}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative aspect-[1.72/1] w-full overflow-hidden rounded-[26px] bg-[#f2f5f8] dark:bg-[#171d27]"
+      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
@@ -514,16 +613,10 @@ function ShareLocationFeatureCard() {
         >
           Share location
         </span>
-        <div
-          role="heading"
-          aria-level={2}
-          className="mt-3 font-[family-name:var(--font-app-display)] text-[20px] font-bold leading-[1.13] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
-        >
-          No more explaining
-          <br />
-          where you are.
-        </div>
+        <TwoLineFeatureTitle
+          lines={["No more explaining", "where you are."]}
+          className="mt-3 font-[family-name:var(--font-app-display)] text-[19px]"
+        />
         <p
           className="mt-2 text-[13px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
@@ -574,9 +667,9 @@ function ShareLocationFeatureCard() {
           </span>
         ))}
       </div>
-      <FeatureStatusPill className="bottom-3 left-5">
+      <FeatureStatusRow className="px-5">
         Sharing with Mom, Driver +1
-      </FeatureStatusPill>
+      </FeatureStatusRow>
     </article>
   );
 }
@@ -584,7 +677,7 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative aspect-[0.68/1] w-full overflow-hidden rounded-[26px] bg-[#f4f6f8] dark:bg-[#171d27]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
@@ -596,14 +689,10 @@ function CheckInFeatureCard() {
         >
           Check in
         </span>
-        <div
-          role="heading"
-          aria-level={2}
-          className="mt-3 text-[17px] font-bold leading-[1.15] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
-        >
-          At the venue, but can&rsquo;t find each other?
-        </div>
+        <TwoLineFeatureTitle
+          lines={["At the venue, but", "can\u2019t find each other?"]}
+          className="mt-3 text-[16px]"
+        />
         <p
           className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
@@ -635,7 +724,7 @@ function CheckInFeatureCard() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
-            src="/one-location/onboarding/orbit-office.webp"
+            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
             alt=""
             loading="eager"
             decoding="async"
@@ -646,9 +735,9 @@ function CheckInFeatureCard() {
           />
         </span>
       </div>
-      <FeatureStatusPill className="bottom-3 left-3">
+      <FeatureStatusRow className="px-3">
         Checked in at Hotel Grand
-      </FeatureStatusPill>
+      </FeatureStatusRow>
     </article>
   );
 }
@@ -656,7 +745,7 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative aspect-[0.68/1] w-full overflow-hidden rounded-[26px] bg-[#fff3f2] dark:bg-[#2a191c]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
@@ -668,14 +757,10 @@ function SaveMySoulFeatureCard() {
         >
           SMS &middot; Save My Soul
         </span>
-        <div
-          role="heading"
-          aria-level={2}
-          className="mt-3 text-[17px] font-bold leading-[1.15] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
-        >
-          Need help but can&rsquo;t call or speak?
-        </div>
+        <TwoLineFeatureTitle
+          lines={["Need help but can\u2019t", "call or speak?"]}
+          className="mt-3 text-[16px]"
+        />
         <p
           className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
@@ -684,37 +769,47 @@ function SaveMySoulFeatureCard() {
         </p>
       </div>
       <div
-        className="absolute bottom-12 left-1/2 flex h-20 w-20 -translate-x-1/2 items-center justify-center"
-        data-one-sms-radar
-        aria-hidden="true"
+        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
+        data-one-feature-art-region
       >
-        <span
-          data-one-onboarding-motion
-          data-one-sms-radar-ring
-          className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
-        />
-        <span
-          data-one-onboarding-motion
-          data-one-sms-radar-ring
-          className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
-        />
-        <span
-          data-one-sms-core
-          className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+        <div
+          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
+          data-one-sms-radar-clearance
+          aria-hidden="true"
         >
           <span
-            data-one-onboarding-motion
-            data-one-sms-core-pulse
-            className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-          />
-          <span className="relative z-10" data-one-sms-label>
-            SMS
+            className="relative flex h-20 w-20 items-center justify-center"
+            data-one-sms-radar
+          >
+            <span
+              data-one-onboarding-motion
+              data-one-sms-radar-ring
+              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+            />
+            <span
+              data-one-onboarding-motion
+              data-one-sms-radar-ring
+              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+            />
+            <span
+              data-one-sms-core
+              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+            >
+              <span
+                data-one-onboarding-motion
+                data-one-sms-core-pulse
+                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+              />
+              <span className="relative z-10" data-one-sms-label>
+                SMS
+              </span>
+            </span>
           </span>
-        </span>
+        </div>
       </div>
-      <FeatureStatusPill className="bottom-3 left-3">
+      <FeatureStatusRow className="px-3">
         SMS sent to 3 contacts
-      </FeatureStatusPill>
+      </FeatureStatusRow>
     </article>
   );
 }
@@ -750,16 +845,16 @@ function FeaturesScreen({
   const status = locationPreparationBusy
     ? "Preparing your saved place..."
     : locationBusy
-    ? "Requesting Location permission..."
-    : notificationBusy
-      ? "Turning on notifications..."
-      : locationPreparationRetry
-        ? "We couldn't prepare your saved place. Try again."
-      : waitingForLocation
-        ? "Allow Location to continue. You stay in control of every share."
-        : locationGranted && notificationsGranted
-          ? "Location and notifications are ready."
-          : "You can adjust permissions later in Location Settings.";
+      ? "Requesting Location permission..."
+      : notificationBusy
+        ? "Turning on notifications..."
+        : locationPreparationRetry
+          ? "We couldn't prepare your saved place. Try again."
+          : waitingForLocation
+            ? "Allow Location to continue. You stay in control of every share."
+            : locationGranted && notificationsGranted
+              ? "Location and notifications are ready."
+              : "You can adjust permissions later in Location Settings.";
 
   return (
     <div
@@ -874,15 +969,6 @@ function FeaturesScreen({
           [data-one-feature-grid] { gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
           [data-one-feature-card] { border-radius: 22px; }
-          [data-one-feature-copy] { padding-top: 14px; padding-left: 12px; padding-right: 10px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] { width: 58%; padding: 16px 14px 0; }
-          [data-one-use-case-tag] { padding: 3px 9px; font-size: 10px; }
-          [data-one-feature-title] { margin-top: 8px; font-size: 15.5px; line-height: 1.12; }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 18px; }
-          [data-one-feature-body] { margin-top: 6px; font-size: 11px; line-height: 1.3; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11.5px; }
-          [data-one-use-case-alert] { height: 28px; padding-left: 7px; padding-right: 7px; font-size: 8px; }
-          [data-one-sms-radar] { bottom: 46px; width: 72px; height: 72px; }
         }
         @media (max-width: 380px) {
           [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
@@ -893,18 +979,6 @@ function FeaturesScreen({
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-card] { border-radius: 20px; }
-          [data-one-feature-copy] { padding-top: 11px; padding-left: 10px; padding-right: 7px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] { padding: 13px 11px 0; }
-          [data-one-use-case-tag] { padding: 3px 7px; font-size: 9px; }
-          [data-one-feature-title] { margin-top: 6px; font-size: 14px; }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
-          [data-one-feature-body] { margin-top: 5px; font-size: 10.5px; }
-          [data-one-use-case-alert] { height: 26px; gap: 3px; padding-left: 5px; padding-right: 5px; font-size: 8px; }
-          [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
-          [data-one-checkin-pin] { bottom: 54px; width: 24px; height: 24px; }
-          [data-one-checkin-art] { bottom: 43px; width: 52%; }
-          [data-one-sms-radar] { bottom: 44px; width: 48px; height: 48px; }
-          [data-one-sms-core] { width: 38px; height: 38px; font-size: 12px; }
         }
         @media (max-width: 300px) {
           [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
@@ -913,8 +987,168 @@ function FeaturesScreen({
           [data-one-feature-body] { font-size: 11px; }
           [data-one-use-case-alert] { font-size: 9px; }
         }
+        @container (max-width: 420px) {
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            width: 58%;
+            padding: 16px 14px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 3px 9px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            margin-top: 8px;
+            font-size: 16px;
+            line-height: 1.12;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            margin-top: 6px;
+            font-size: 11px;
+            line-height: 1.3;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] {
+            height: 28px;
+            padding-left: 7px;
+            padding-right: 7px;
+            font-size: 8px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-right: 14px;
+            padding-left: 14px;
+          }
+        }
+        @container (max-width: 310px) {
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            padding: 13px 11px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 3px 7px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            margin-top: 6px;
+            font-size: 14px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            margin-top: 5px;
+            font-size: 10px;
+            line-height: 1.25;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-bottom: 9px;
+            padding-right: 11px;
+            padding-left: 11px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] {
+            height: 24px;
+            gap: 3px;
+            padding-left: 5px;
+            padding-right: 5px;
+            font-size: 7.5px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
+            width: 12px;
+            height: 12px;
+          }
+        }
+        @container (max-width: 220px) {
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            padding-top: 10px;
+            padding-left: 12px;
+            padding-right: 10px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 3px 9px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            margin-top: 5px;
+            font-size: 14px;
+            line-height: 1.12;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            margin-top: 4px;
+            font-size: 11px;
+            line-height: 1.25;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 28px;
+            padding-left: 7px;
+            padding-right: 7px;
+            font-size: 8px;
+          }
+          [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
+          [data-one-sms-radar] { width: 60px; height: 60px; }
+          [data-one-sms-core] { width: 44px; height: 44px; font-size: 13px; }
+        }
+        @container (max-width: 165px) {
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            padding-top: 8px;
+            padding-left: 9px;
+            padding-right: 7px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 3px 7px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 1.08;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            margin-top: 3px;
+            font-size: 10px;
+            line-height: 1.2;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-status-row],
+          [data-one-feature-card="sms"] [data-one-feature-status-row] {
+            padding-right: 6px;
+            padding-bottom: 8px;
+            padding-left: 6px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 24px;
+            gap: 3px;
+            padding-left: 4px;
+            padding-right: 4px;
+            font-size: 7.5px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
+            width: 12px;
+            height: 12px;
+          }
+          [data-one-checkin-pin] { bottom: 54px; width: 24px; height: 24px; }
+          [data-one-checkin-art] { bottom: 43px; width: 52%; }
+          [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
+          [data-one-sms-radar] { width: 40px; height: 40px; }
+          [data-one-sms-core] { width: 32px; height: 32px; font-size: 10px; }
+        }
+        @media (max-width: 430px) and (max-height: 680px) {
+          [data-one-feature-heading] { font-size: 28px; }
+          [data-one-feature-subtitle] {
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 16px;
+            white-space: nowrap;
+          }
+          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-cta] { padding-top: 8px; }
+          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
+        }
       `}</style>
-
     </div>
   );
 }
@@ -1316,8 +1550,7 @@ export function OneLocationOnboardingFlow({
   const locationPreparationCompleteRef = useRef(false);
   const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
-  const [locationPreparationBusy, setLocationPreparationBusy] =
-    useState(false);
+  const [locationPreparationBusy, setLocationPreparationBusy] = useState(false);
   const [locationPreparationRetry, setLocationPreparationRetry] =
     useState(false);
 
@@ -1544,9 +1777,7 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          screen === "features"
-            ? "max-w-[min(560px,58dvh)]"
-            : "max-w-[480px]",
+          screen === "features" ? "max-w-[min(560px,58dvh)]" : "max-w-[480px]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >

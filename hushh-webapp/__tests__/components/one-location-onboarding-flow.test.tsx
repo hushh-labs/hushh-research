@@ -124,6 +124,9 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(welcomeHotel).toBeTruthy();
     expect(welcomeHotel?.className).toContain("object-contain");
+    expect(welcomeHotel?.className).toContain("!w-auto");
+    expect(welcomeHotel?.className).toContain("max-w-none");
+    expect(welcomeHotel?.className).toContain("scale-[0.96]");
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -135,9 +138,7 @@ describe("OneLocationOnboardingFlow", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
-    const featureShell = screen.getByTestId(
-      "one-location-onboarding-features",
-    );
+    const featureShell = screen.getByTestId("one-location-onboarding-features");
     expect(featureShell.className).toContain("max-w-[min(560px,58dvh)]");
     const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
@@ -167,6 +168,8 @@ describe("OneLocationOnboardingFlow", () => {
     for (const card of cards) {
       expect(card.className).toContain("aspect-");
       expect(card.className).toContain("w-full");
+      expect(card.className).toContain("flex-col");
+      expect(card.className).toContain("[container-type:inline-size]");
       expect(
         card.querySelector("[data-one-use-case-alert]")?.className,
       ).toContain("w-max");
@@ -177,7 +180,37 @@ describe("OneLocationOnboardingFlow", () => {
       expect(
         card.querySelector("[data-one-use-case-alert] .truncate"),
       ).toBeNull();
+      expect(
+        card.querySelector("[data-one-feature-status-row]")?.className,
+      ).toContain("mt-auto");
+      const titleLines = card.querySelectorAll("[data-one-feature-title-line]");
+      expect(titleLines).toHaveLength(2);
+      for (const line of titleLines) {
+        expect(line.className).toContain("whitespace-nowrap");
+      }
     }
+
+    expect(
+      Array.from(
+        screen
+          .getByTestId("location-use-case-trip")
+          .querySelectorAll("[data-one-feature-title-line]"),
+      ).map((line) => line.textContent),
+    ).toEqual(["No more explaining", "where you are."]);
+    expect(
+      Array.from(
+        screen
+          .getByTestId("location-use-case-checkin")
+          .querySelectorAll("[data-one-feature-title-line]"),
+      ).map((line) => line.textContent),
+    ).toEqual(["At the venue, but", "can\u2019t find each other?"]);
+    expect(
+      Array.from(
+        screen
+          .getByTestId("location-use-case-sos")
+          .querySelectorAll("[data-one-feature-title-line]"),
+      ).map((line) => line.textContent),
+    ).toEqual(["Need help but can\u2019t", "call or speak?"]);
 
     expect(
       screen.getByRole("heading", { name: "Stay connected" }),
@@ -213,6 +246,16 @@ describe("OneLocationOnboardingFlow", () => {
     const smsLabel = smsCard.querySelector("[data-one-sms-label]");
     const smsPulse = smsCard.querySelector("[data-one-sms-core-pulse]");
     const smsRadarRings = smsCard.querySelectorAll("[data-one-sms-radar-ring]");
+    const smsArtRegion = smsCard.querySelector("[data-one-feature-art-region]");
+    const smsRadarClearance = smsCard.querySelector(
+      "[data-one-sms-radar-clearance]",
+    );
+    const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
+    expect(smsArtRegion?.className).toContain("flex-1");
+    expect(smsRadarClearance?.className).toContain("h-[108px]");
+    expect(smsRadarClearance?.className).toContain("w-[108px]");
+    expect(smsRadar?.className).toContain("h-20");
+    expect(smsRadar?.className).not.toContain("absolute");
     expect(smsCore?.className).not.toContain("animation:");
     expect(smsLabel?.className).not.toContain("animation:");
     expect(smsPulse?.className).toContain("animation:oneSmsCore");
@@ -234,7 +277,7 @@ describe("OneLocationOnboardingFlow", () => {
     const checkInCard = screen.getByTestId("location-use-case-checkin");
     expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeTruthy();
     const hotelArt = checkInCard.querySelector(
-      'img[src="/one-location/onboarding/orbit-office.webp"]',
+      'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
     );
     const hotelFrame = checkInCard.querySelector("[data-one-checkin-art]");
     expect(hotelArt).toBeTruthy();
@@ -245,6 +288,18 @@ describe("OneLocationOnboardingFlow", () => {
     });
     expect(hotelArt).toHaveStyle({ transform: "rotateY(8deg)" });
     expect(hotelArt?.className).not.toContain("rotate-");
+
+    const shareCard = screen.getByTestId("location-use-case-trip");
+    for (const asset of [
+      "feature-share-person-1.webp",
+      "feature-share-person-2.webp",
+      "feature-share-person-3.webp",
+    ]) {
+      expect(
+        shareCard.querySelector(`img[src="/one-location/onboarding/${asset}"]`),
+      ).toBeTruthy();
+    }
+    expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
     expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
@@ -279,9 +334,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     expect(props.onRequestLocation).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(props.onLocationReady).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
@@ -318,9 +371,7 @@ describe("OneLocationOnboardingFlow", () => {
       },
     });
 
-    await waitFor(() =>
-      expect(props.onLocationReady).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
