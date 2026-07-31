@@ -25,6 +25,9 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { ensureConnectRequesterKey } from "@/lib/connect/requester-key";
+import { ConnectScopeRequestDialog } from "@/components/connect/connect-scope-request-dialog";
+import { ConnectReceivedExports } from "@/components/connect/connect-received-exports";
 
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
@@ -39,6 +42,8 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  // Person whose scope-request picker is open (null = closed).
+  const [pickerPerson, setPickerPerson] = useState<DirectoryPerson | null>(null);
 
   const loadConnections = useCallback(async (): Promise<ConnectionSummaryEntry[]> => {
     if (!user) return [];
@@ -84,7 +89,7 @@ export default function ConnectPageClient() {
   }, [user, debouncedQuery]);
 
   const handleConnect = useCallback(
-    async (person: DirectoryPerson) => {
+    (person: DirectoryPerson) => {
       if (!user) return;
       const cta = relationshipCta(person.relationship);
       if (cta.action === "respond") {
@@ -92,23 +97,56 @@ export default function ConnectPageClient() {
         return;
       }
       if (cta.action !== "connect") return;
+      // Open the scope picker; the actual send happens on confirm so the user can
+      // bundle a granular data-scope ask (or connect with none).
+      setPickerPerson(person);
+    },
+    [router, user],
+  );
+
+  const sendConnectRequest = useCallback(
+    async (person: DirectoryPerson, requestedScopes: string[]) => {
+      if (!user) return;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
-        await ConnectionsService.sendRequest({ idToken, addresseeUserId: person.userId });
+        // Only publish an on-device X25519 lock when we're actually asking for
+        // data — a plain connect needs no key. The addressee's approval wraps
+        // each granted scope's export key to this public key (zero-knowledge).
+        const keyFields =
+          requestedScopes.length > 0
+            ? await (async () => {
+                const key = await ensureConnectRequesterKey(user.uid);
+                return {
+                  requestedScopes,
+                  requesterPublicKey: key.publicKey,
+                  requesterKeyId: key.keyId,
+                };
+              })()
+            : {};
+        await ConnectionsService.sendRequest({
+          idToken,
+          addresseeUserId: person.userId,
+          ...keyFields,
+        });
         setPeople((prev) =>
           prev.map((p) =>
             p.userId === person.userId ? { ...p, relationship: "pending_outgoing" } : p,
           ),
         );
-        toast.success("Connection request sent");
+        setPickerPerson(null);
+        toast.success(
+          requestedScopes.length > 0
+            ? "Connection + data request sent"
+            : "Connection request sent",
+        );
       } catch (sendError) {
         toast.error(sendError instanceof Error ? sendError.message : "Failed to send request");
       } finally {
         setBusyId(null);
       }
     },
-    [router, user],
+    [user],
   );
 
   const handleRemove = useCallback(
@@ -250,6 +288,13 @@ export default function ConnectPageClient() {
             )}
           </SettingsGroup>
 
+          {user ? (
+            <ConnectReceivedExports
+              userId={user.uid}
+              getIdToken={async () => (user ? user.getIdToken() : undefined)}
+            />
+          ) : null}
+
           <div className="space-y-4">
             <div className="relative w-full">
               <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
@@ -314,6 +359,21 @@ export default function ConnectPageClient() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
+
+      <ConnectScopeRequestDialog
+        open={pickerPerson !== null}
+        onOpenChange={(open) => {
+          if (!open) setPickerPerson(null);
+        }}
+        personName={
+          pickerPerson?.displayName || pickerPerson?.email || "this person"
+        }
+        getIdToken={async () => (user ? user.getIdToken() : undefined)}
+        busy={pickerPerson ? busyId === pickerPerson.userId : false}
+        onConfirm={async (scopes) => {
+          if (pickerPerson) await sendConnectRequest(pickerPerson, scopes);
+        }}
+      />
     </AppPageShell>
   );
 }

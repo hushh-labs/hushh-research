@@ -9,7 +9,9 @@ discovery directory `list_directory_candidates`, read-only.
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from sqlalchemy import text
@@ -18,6 +20,109 @@ from db.db_client import get_db
 from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
+
+# Connect scope-request fan-out constants. A granted P2P scope reuses the proven
+# consent export path: the requester publishes an on-device X25519 public key and
+# the addressee's `handleApprove` wraps each granted scope's export key back to it
+# (X25519 ECDH -> SHA-256 -> AES-256-GCM). The backend only ever relays ciphertext.
+_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONNECTION_REQUEST_SOURCE = "connection"
+_CONNECTION_ACTOR_TYPE = "connection"
+# Pending scope-request events live for 14 days (parity with the consent/KYC
+# request window). The narrower grant TTL is applied later by the approve path.
+_CONNECTION_REQUEST_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+# Domains never offered in the P2P Connect scope picker: advisor (`ria`) and, for
+# v1, precise `location` (shared through the live-location grant flow, not durable
+# `attr.location.*`). Internal-only slugs are excluded separately via
+# `INTERNAL_ONLY_DOMAIN_SLUGS`. The catalog is fully static + global so the picker
+# never reveals whether the addressee actually holds any of these scopes.
+_P2P_EXCLUDED_SCOPE_DOMAINS = frozenset({"ria", "location"})
+# Domains whose data is treated as high-sensitivity in the picker (drives the
+# per-scope caution affordance in the UX).
+_HIGH_SENSITIVITY_DOMAINS = frozenset({"financial", "health"})
+
+
+def _scope_domain(scope: str) -> str:
+    """Top-level PKM domain of an ``attr.<domain>.<branch>.*`` scope ("" if n/a)."""
+    parts = str(scope or "").strip().split(".")
+    return parts[1] if len(parts) > 1 and parts[0] == "attr" else ""
+
+
+def _is_p2p_requestable_scope(scope: str) -> bool:
+    """Whether a person may ask another person to share ``scope``.
+
+    Most-restrictive-wins: it must be an externally requestable semantic branch
+    (``attr.<domain>.<branch>.*``), never a capability/agent scope (including
+    ``cap.one.invoke``), and never in an internal-only or excluded domain.
+    """
+    from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.domain_contracts import INTERNAL_ONLY_DOMAIN_SLUGS
+
+    normalized = str(scope or "").strip()
+    if not ConsentScope.is_external_requestable_scope(normalized):
+        return False
+    # `is_external_requestable_scope` also returns True for cap.one.invoke; the
+    # P2P picker never offers capability/agent scopes, only durable attr.* data.
+    if normalized == ConsentScope.CAP_ONE_INVOKE.value:
+        return False
+    if normalized.startswith(("agent.", "cap.")):
+        return False
+    domain = _scope_domain(normalized)
+    if not domain:
+        return False
+    if domain in INTERNAL_ONLY_DOMAIN_SLUGS or domain in _P2P_EXCLUDED_SCOPE_DOMAINS:
+        return False
+    return True
+
+
+def build_requestable_scope_catalog() -> dict[str, Any]:
+    """Global, presence-safe catalog of scopes one person may request from another.
+
+    Derived from the curated ``CANONICAL_BUNDLES`` (which enumerate real, valid
+    ``attr.<domain>.<branch>.*`` scopes), filtered to the P2P-shareable set. This is
+    intentionally NOT the developer ``/user-scopes/{id}`` discovery endpoint — that
+    reflects a *specific user's* holdings and would leak "does B have financial
+    data?" before consent. This catalog reflects no user's data at all.
+    """
+    from hushh_mcp.consent.scope_bundles import CANONICAL_BUNDLES
+    from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
+
+    bundles: list[dict[str, Any]] = []
+    flat: dict[str, None] = {}  # first-seen order, de-duped across bundles
+    for bundle in CANONICAL_BUNDLES.values():
+        allowed = [s for s in bundle.scopes if _is_p2p_requestable_scope(s)]
+        if not allowed:
+            continue  # e.g. kyc_workflow (agent.* scopes) drops out entirely
+        bundles.append(
+            {
+                "id": bundle.bundle_key,
+                "label": bundle.label,
+                "description": bundle.description,
+                "icon_name": bundle.icon_name,
+                "color_hex": bundle.color_hex,
+                "scopes": allowed,
+            }
+        )
+        for scope in allowed:
+            flat.setdefault(scope, None)
+
+    scopes: list[dict[str, Any]] = []
+    for scope in sorted(flat):
+        meta = get_scope_display_metadata(scope)
+        scopes.append(
+            {
+                "scope": scope,
+                "label": meta.get("label"),
+                "description": meta.get("description"),
+                "icon_name": meta.get("icon_name"),
+                "color_hex": meta.get("color_hex"),
+                "sensitivity": (
+                    "high" if _scope_domain(scope) in _HIGH_SENSITIVITY_DOMAINS else "low"
+                ),
+            }
+        )
+    return {"bundles": bundles, "scopes": scopes}
 
 
 class ConnectionsError(RuntimeError):
@@ -90,6 +195,9 @@ class ConnectionsService:
         addressee_user_id: str | None = None,
         query: str | None = None,
         message: str | None = None,
+        requested_scopes: list[str] | None = None,
+        requester_public_key: str | None = None,
+        requester_key_id: str | None = None,
     ) -> dict[str, Any]:
         requester_user_id = (requester_user_id or "").strip()
         if not requester_user_id:
@@ -117,10 +225,13 @@ class ConnectionsService:
                 "CONNECTION_NO_SELF", "You cannot connect with yourself.", status_code=422
             )
 
-        # Idempotent: if a pending request already exists (either direction), return it.
+        # Idempotent: if a pending request already exists (either direction), return
+        # it. On a same-direction re-ask carrying new scope info, merge the new
+        # scopes / refreshed requester key into the existing request instead of
+        # dropping them (the picker may have been reopened to ask for more).
         existing = self._execute_one(
             """
-            SELECT id, requester_user_id, addressee_user_id, status, message
+            SELECT id, requester_user_id, addressee_user_id, status, message, metadata
             FROM connection_requests
             WHERE status = 'pending'
               AND (
@@ -132,23 +243,57 @@ class ConnectionsService:
             {"a": requester_user_id, "b": target},
         )
         if existing:
+            merged_meta = self._parse_request_metadata(existing.get("metadata"))
+            incoming_meta = self._build_scope_request_metadata(
+                requested_scopes=requested_scopes,
+                requester_public_key=requester_public_key,
+                requester_key_id=requester_key_id,
+            )
+            same_direction = (
+                str(existing.get("requester_user_id")) == requester_user_id
+                and str(existing.get("addressee_user_id")) == target
+            )
+            if same_direction and incoming_meta:
+                merged_meta = self._merge_scope_request_metadata(
+                    existing.get("metadata"), incoming_meta
+                )
+                self._execute_one(
+                    """
+                    UPDATE connection_requests
+                    SET metadata = CAST(:metadata AS JSONB), updated_at = NOW()
+                    WHERE id = :id
+                    RETURNING id
+                    """,
+                    {"id": existing.get("id"), "metadata": json.dumps(merged_meta)},
+                )
             return {
                 "id": existing.get("id"),
                 "requesterUserId": existing.get("requester_user_id"),
                 "addresseeUserId": existing.get("addressee_user_id"),
                 "status": existing.get("status") or "pending",
                 "message": existing.get("message"),
+                "requestedScopes": merged_meta.get("requested_scopes", []),
             }
 
+        request_metadata = self._build_scope_request_metadata(
+            requested_scopes=requested_scopes,
+            requester_public_key=requester_public_key,
+            requester_key_id=requester_key_id,
+        )
         row = self._execute_one(
             """
             INSERT INTO connection_requests (
-              requester_user_id, addressee_user_id, status, message, created_at, updated_at
+              requester_user_id, addressee_user_id, status, message, metadata, created_at, updated_at
             )
-            VALUES (:requester, :addressee, 'pending', :message, NOW(), NOW())
+            VALUES (:requester, :addressee, 'pending', :message, CAST(:metadata AS JSONB), NOW(), NOW())
             RETURNING id
             """,
-            {"requester": requester_user_id, "addressee": target, "message": message},
+            {
+                "requester": requester_user_id,
+                "addressee": target,
+                "message": message,
+                "metadata": json.dumps(request_metadata),
+            },
         )
         # Best-effort: nudge the addressee's client so the new request appears
         # without a manual "refresh consents". Only on a genuinely NEW insert
@@ -161,6 +306,7 @@ class ConnectionsService:
             "addresseeUserId": target,
             "status": "pending",
             "message": message,
+            "requestedScopes": request_metadata.get("requested_scopes", []),
         }
 
     def create_request_from_nearby_alias(
@@ -351,8 +497,318 @@ class ConnectionsService:
 
     # ---- Helpers ----
     @staticmethod
+    def _build_scope_request_metadata(
+        *,
+        requested_scopes: list[str] | None,
+        requester_public_key: str | None,
+        requester_key_id: str | None,
+    ) -> dict[str, Any]:
+        """Normalize the optional bundled scope-request into request metadata.
+
+        Persisted on ``connection_requests.metadata`` (JSONB). Empty when the
+        connection carries no scope ask, so plain connects keep the default
+        ``{}`` shape. Scopes are de-duped, order-preserved, and blank-stripped.
+        The requester's on-device X25519 public key travels here so the
+        addressee can ZK-wrap each granted scope back to the requester.
+        """
+        metadata: dict[str, Any] = {}
+        scopes: list[str] = []
+        for scope in requested_scopes or []:
+            cleaned = str(scope or "").strip()
+            if cleaned and cleaned not in scopes:
+                scopes.append(cleaned)
+        if scopes:
+            metadata["requested_scopes"] = scopes
+        public_key = str(requester_public_key or "").strip()
+        if public_key:
+            metadata["requester_public_key"] = public_key
+        key_id = str(requester_key_id or "").strip()
+        if key_id:
+            metadata["requester_key_id"] = key_id
+        return metadata
+
+    @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
         return (x, y) if x < y else (y, x)
+
+    @staticmethod
+    def _now_ms() -> int:
+        return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+    @staticmethod
+    def _parse_request_metadata(value: Any) -> dict[str, Any]:
+        """Coerce a ``connection_requests.metadata`` cell into a dict.
+
+        The driver may hand back an already-parsed dict (JSONB) or a raw JSON
+        string depending on the path; normalize both, and never raise.
+        """
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json.loads(value)
+            except (ValueError, TypeError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @staticmethod
+    def _merge_scope_request_metadata(existing: Any, incoming: dict[str, Any]) -> dict[str, Any]:
+        """Merge a fresh scope ask into an existing request's metadata.
+
+        Union the requested scopes (order-preserved, de-duped) and let the newest
+        requester key win (the device may have rotated its on-device keypair).
+        """
+        base = ConnectionsService._parse_request_metadata(existing)
+        merged = dict(base)
+        scopes: list[str] = []
+        for scope in list(base.get("requested_scopes") or []) + list(
+            incoming.get("requested_scopes") or []
+        ):
+            cleaned = str(scope or "").strip()
+            if cleaned and cleaned not in scopes:
+                scopes.append(cleaned)
+        if scopes:
+            merged["requested_scopes"] = scopes
+        if incoming.get("requester_public_key"):
+            merged["requester_public_key"] = incoming["requester_public_key"]
+        if incoming.get("requester_key_id"):
+            merged["requester_key_id"] = incoming["requester_key_id"]
+        return merged
+
+    def _lookup_display_name(self, user_id: str) -> str | None:
+        row = self._execute_one(
+            """
+            SELECT display_name FROM actor_identity_cache
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": (user_id or "").strip()},
+        )
+        name = (row or {}).get("display_name")
+        return str(name).strip() if name else None
+
+    def _record_scope_decision(
+        self, *, request_id: str, granted: list[str], denied: list[str]
+    ) -> None:
+        """Persist the accept-time grant/deny snapshot onto the request row.
+
+        Non-fatal audit/render convenience -- the consent events are the source
+        of truth, so a failure here never blocks the accept.
+        """
+        request_id = (request_id or "").strip()
+        if not request_id:
+            return
+        try:
+            self._execute_one(
+                """
+                UPDATE connection_requests
+                SET metadata = jsonb_set(
+                      COALESCE(metadata, '{}'::jsonb),
+                      '{scope_decision}',
+                      CAST(:decision AS JSONB),
+                      true
+                    ),
+                    updated_at = NOW()
+                WHERE id = :id
+                RETURNING id
+                """,
+                {
+                    "id": request_id,
+                    "decision": json.dumps({"granted": granted, "denied": denied}),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "connections.scope_decision_record_failed request=%s error=%s",
+                request_id,
+                exc,
+            )
+
+    def _insert_consent_request_events(
+        self,
+        *,
+        owner_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str,
+        connection_id: str,
+        requester_public_key: str,
+        requester_key_id: str | None,
+        requester_label: str | None,
+        scopes: list[str],
+    ) -> list[str]:
+        """Mint one pending REQUESTED consent event per granted scope.
+
+        Each event carries the requester's on-device X25519 public key in its
+        metadata so that when the owner approves the scope in the consent center,
+        the client's ``handleApprove`` ZK-wraps that scope's export key back to
+        the requester (backend never sees plaintext). Reuses the same
+        ``consent_audit`` event-sourcing path as KYC/RIA consent. Best-effort per
+        scope: the connection is already formed by the time this runs, so a
+        single failed insert is logged rather than rolling back the accept.
+        """
+        if not scopes or not requester_public_key:
+            return []
+        from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
+        from hushh_mcp.consent.scope_helpers import get_scope_description
+
+        issued_at = self._now_ms()
+        expires_at = issued_at + _CONNECTION_REQUEST_TTL_MS
+        single = len(scopes) == 1
+        label = (requester_label or "").strip() or "A connection"
+        bundle_label = f"{label} requested {len(scopes)} data {'scope' if single else 'scopes'}"
+        requested: list[str] = []
+        for index, scope in enumerate(scopes):
+            request_id = connection_request_id if single else f"{connection_request_id}:{index}"
+            token_id = f"evt_conn_req_{connection_request_id}_{index}"
+            metadata = {
+                "request_source": _CONNECTION_REQUEST_SOURCE,
+                "requester_actor_type": _CONNECTION_ACTOR_TYPE,
+                # Synthetic, non-empty developer id: downstream consent readers key
+                # telemetry off developer_app_id, but a P2P share has no real dev
+                # app. Prefixed so it can never collide with a marketplace app id.
+                "developer_app_id": f"connection:{requester_user_id}",
+                "scope_handle": scope_handle_for_machine_scope(owner_user_id, scope),
+                "connector_public_key": requester_public_key,
+                "connector_key_id": requester_key_id,
+                "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+                "requester_label": label,
+                "requester_entity_id": requester_user_id,
+                "bundle_id": connection_request_id,
+                "bundle_label": bundle_label,
+                "bundle_scope_count": len(scopes),
+                "connection_request_id": connection_request_id,
+                "connection_id": connection_id or None,
+                "reason": f"{label} requested access through a Connect scope request.",
+            }
+            metadata = {k: v for k, v in metadata.items() if v is not None}
+            try:
+                self._execute_one(
+                    """
+                    INSERT INTO consent_audit (
+                      token_id, user_id, agent_id, scope, action, request_id,
+                      scope_description, issued_at, expires_at, poll_timeout_at,
+                      metadata
+                    )
+                    VALUES (
+                      :token_id, :user_id, :agent_id, :scope, 'REQUESTED',
+                      :request_id, :scope_description, :issued_at, :expires_at,
+                      :poll_timeout_at, CAST(:metadata AS JSONB)
+                    )
+                    RETURNING id
+                    """,
+                    {
+                        "token_id": token_id,
+                        "user_id": owner_user_id,
+                        "agent_id": requester_user_id,
+                        "scope": scope,
+                        "request_id": request_id,
+                        "scope_description": get_scope_description(scope),
+                        "issued_at": issued_at,
+                        "expires_at": expires_at,
+                        "poll_timeout_at": expires_at,
+                        "metadata": json.dumps(metadata),
+                    },
+                )
+                requested.append(scope)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "connections.scope_request_failed scope=%s request=%s error=%s",
+                    scope,
+                    connection_request_id,
+                    exc,
+                )
+        return requested
+
+    def _cascade_revoke_scope_grants(self, user_a: str, user_b: str) -> int:
+        """Revoke every active Connect scope grant / pending ask between a pair.
+
+        Called on disconnect: for each direction (owner, reader), resolve the
+        latest consent event per scope and, when that latest state is still
+        pending (REQUESTED) or actively granted (CONSENT_GRANTED and unexpired),
+        append a REVOKED event. Mirrors the RIA disconnect cascade. Scanning by
+        (human owner uid, human reader uid) naturally targets only P2P shares --
+        marketplace/RIA grants carry a developer/app id in agent_id, not a raw
+        user id. Idempotent (a re-run finds the latest state already REVOKED) and
+        best-effort (a failed revoke is logged, never fatal to the disconnect).
+        """
+        user_a = (user_a or "").strip()
+        user_b = (user_b or "").strip()
+        if not user_a or not user_b:
+            return 0
+        from hushh_mcp.consent.scope_helpers import get_scope_description
+
+        revoked = 0
+        now_ms = self._now_ms()
+        for owner, reader in ((user_a, user_b), (user_b, user_a)):
+            rows = self._execute_many(
+                """
+                SELECT scope, action, expires_at, issued_at, request_id
+                FROM consent_audit
+                WHERE user_id = :owner AND agent_id = :reader
+                ORDER BY issued_at DESC
+                """,
+                {"owner": owner, "reader": reader},
+            )
+            latest: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                scope_key = str(row.get("scope") or "").strip()
+                if not scope_key or scope_key in latest:
+                    continue
+                latest[scope_key] = row
+            for scope_key, row in latest.items():
+                action = str(row.get("action") or "").strip().upper()
+                if action not in {"REQUESTED", "CONSENT_GRANTED"}:
+                    continue
+                if action == "CONSENT_GRANTED":
+                    expires_at = row.get("expires_at")
+                    if expires_at is not None:
+                        try:
+                            if int(expires_at) <= now_ms:
+                                continue
+                        except (TypeError, ValueError):
+                            pass
+                token_id = f"evt_conn_revoke_{now_ms}_{revoked}"
+                try:
+                    self._execute_one(
+                        """
+                        INSERT INTO consent_audit (
+                          token_id, user_id, agent_id, scope, action, request_id,
+                          scope_description, issued_at, metadata
+                        )
+                        VALUES (
+                          :token_id, :owner, :reader, :scope, 'REVOKED',
+                          :request_id, :scope_description, :issued_at,
+                          CAST(:metadata AS JSONB)
+                        )
+                        RETURNING id
+                        """,
+                        {
+                            "token_id": token_id,
+                            "owner": owner,
+                            "reader": reader,
+                            "scope": scope_key,
+                            "request_id": row.get("request_id"),
+                            "scope_description": get_scope_description(scope_key),
+                            "issued_at": now_ms,
+                            "metadata": json.dumps(
+                                {
+                                    "request_source": _CONNECTION_REQUEST_SOURCE,
+                                    "revoke_origin": "connection_disconnect",
+                                }
+                            ),
+                        },
+                    )
+                    revoked += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "connections.scope_revoke_failed scope=%s owner=%s reader=%s error=%s",
+                        scope_key,
+                        owner,
+                        reader,
+                        exc,
+                    )
+        return revoked
 
     def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
         """Fire the (best-effort) addressee nudge. Never raises."""
@@ -370,7 +826,7 @@ class ConnectionsService:
     def _load_request(self, request_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
-            SELECT id, requester_user_id, addressee_user_id, status
+            SELECT id, requester_user_id, addressee_user_id, status, metadata
             FROM connection_requests
             WHERE id = :id
             LIMIT 1
@@ -397,7 +853,14 @@ class ConnectionsService:
             {"owner": owner, "trusted": trusted},
         )
 
-    def accept_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+    def accept_request(
+        self,
+        user_id: str,
+        request_id: str,
+        *,
+        granted_scopes: list[str] | None = None,
+        denied_scopes: list[str] | None = None,
+    ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         req = self._load_request(request_id)
         if str(req.get("addressee_user_id")) != user_id:
@@ -448,10 +911,58 @@ class ConnectionsService:
             event_type="connection_accepted",
             metadata={"counterpart_user_id": user_id},
         )
+
+        # ---- Connect scope-request fan-out (optional) ----
+        # If the requester bundled a granular data-scope ask (and published an
+        # on-device public key), mint one pending REQUESTED consent event per
+        # non-denied scope. The addressee resolves each through the EXISTING
+        # consent center: approving ZK-wraps that scope to the requester's key,
+        # denying records CONSENT_DENIED. No crypto happens here.
+        metadata = self._parse_request_metadata(req.get("metadata"))
+        requested_scopes = [
+            str(s).strip() for s in (metadata.get("requested_scopes") or []) if str(s).strip()
+        ]
+        granted_requested: list[str] = []
+        denied_final: list[str] = []
+        if requested_scopes:
+            requested_set = set(requested_scopes)
+            denied_set = {
+                str(s).strip() for s in (denied_scopes or []) if str(s).strip() in requested_set
+            }
+            if granted_scopes is not None:
+                allowed = {
+                    str(s).strip() for s in granted_scopes if str(s).strip() in requested_set
+                }
+            else:
+                # No explicit decision at accept time -> treat every requested
+                # scope (minus any denied) as approved-to-request.
+                allowed = requested_set
+            to_request = [s for s in requested_scopes if s in allowed and s not in denied_set]
+            denied_final = [s for s in requested_scopes if s not in to_request]
+            requester_public_key = str(metadata.get("requester_public_key") or "").strip()
+            if to_request and requester_public_key:
+                granted_requested = self._insert_consent_request_events(
+                    owner_user_id=user_id,
+                    requester_user_id=requester,
+                    connection_request_id=str(req.get("id") or ""),
+                    connection_id=str((conn or {}).get("id") or ""),
+                    requester_public_key=requester_public_key,
+                    requester_key_id=(str(metadata.get("requester_key_id") or "").strip() or None),
+                    requester_label=self._lookup_display_name(requester),
+                    scopes=to_request,
+                )
+            # Snapshot the decision on the request row (audit + requester view).
+            self._record_scope_decision(
+                request_id=str(req.get("id") or ""),
+                granted=granted_requested,
+                denied=denied_final,
+            )
         return {
             "status": "accepted",
             "requestId": req.get("id"),
             "connectionId": (conn or {}).get("id"),
+            "requestedScopes": granted_requested,
+            "deniedScopes": denied_final,
         }
 
     def link_circle_invite(self, user_id: str, *, peer_user_id: str) -> dict[str, Any]:
@@ -547,6 +1058,15 @@ class ConnectionsService:
         return {"status": "cancelled", "requestId": req.get("id")}
 
     # ---- Reads ----
+    def list_requestable_scopes(self) -> dict[str, Any]:
+        """Global, presence-safe scope catalog for the Connect scope picker.
+
+        Returns the same static catalog for every caller — it reflects no user's
+        holdings, so surfacing it to a requester never leaks whether the person
+        they are connecting with actually has any of these scopes.
+        """
+        return build_requestable_scope_catalog()
+
     def list_requests(self, user_id: str, *, direction: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
         if direction == "incoming":
@@ -583,6 +1103,107 @@ class ConnectionsService:
             }
             for r in rows
         ]
+
+    def list_received_scope_exports(self, user_id: str) -> list[dict[str, Any]]:
+        """Return every scope export sealed to this user as a Connect requester.
+
+        When an owner approves a scope this user asked for through a Connect
+        scope request, the owner's device wraps that scope's export key to this
+        user's on-device X25519 public key and the backend stores only the
+        ciphertext (zero-knowledge). Those packages are addressed by the
+        synthetic ``app_id = connection:{requester_user_id}``, so one indexed
+        lookup by app id returns exactly what this user can decrypt -- the
+        server never holds the plaintext or the unwrapped export key.
+
+        The returned shape mirrors the KYC scoped-export package
+        (``encrypted_data``/``iv``/``tag`` + snake_case ``wrapped_key_bundle`` +
+        a reconstructed ``export_envelope``) so the client can rebuild the exact
+        authenticated-envelope AAD and decrypt with the proven pipeline. Only
+        authenticated v2 envelopes carrying a wrapped key bundle are surfaced;
+        anything else is undecryptable noise and is skipped.
+        """
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return []
+        app_id = f"connection:{user_id}"
+        # `now()` keeps the expiry check a clean timestamptz > timestamptz
+        # comparison (no bound value to type-cast); the only interpolated value
+        # is the parameterized :app_id, so no f-string SQL / bandit B608 risk.
+        rows = self._execute_many(
+            """
+            SELECT ce.user_id AS granter_user_id,
+                   ce.encrypted_data, ce.iv, ce.tag,
+                   ce.wrapped_key_bundle, ce.scope, ce.scope_handle,
+                   ce.grant_id, ce.export_revision, ce.export_generated_at,
+                   ce.expires_at, ce.envelope_version, ce.export_id,
+                   ce.envelope_aad, ce.envelope_aad_sha256,
+                   ce.ciphertext_sha256, ce.ciphertext_bytes,
+                   a.display_name AS granter_display_name
+            FROM consent_exports ce
+            LEFT JOIN actor_identity_cache a ON a.user_id = ce.user_id
+            WHERE ce.app_id = :app_id
+              AND ce.envelope_version = 2
+              AND ce.expires_at > now()
+            ORDER BY ce.export_generated_at DESC NULLS LAST
+            """,
+            {"app_id": app_id},
+        )
+        exports: list[dict[str, Any]] = []
+        for r in rows:
+            bundle = self._parse_request_metadata(r.get("wrapped_key_bundle"))
+            if not bundle.get("wrapped_export_key"):
+                # Legacy / non-strict row: without a wrapped key bundle the
+                # requester can never decrypt, so surfacing it is pure noise.
+                continue
+            aad = self._parse_request_metadata(r.get("envelope_aad"))
+            exports.append(
+                {
+                    "granter_user_id": str(r.get("granter_user_id") or "") or None,
+                    "granter_display_name": r.get("granter_display_name"),
+                    "scope": str(r.get("scope") or "") or None,
+                    "scope_handle": str(r.get("scope_handle") or "") or None,
+                    "grant_id": str(r.get("grant_id") or "") or None,
+                    "export_revision": self._coerce_int(r.get("export_revision")),
+                    "export_generated_at": self._iso_or_none(r.get("export_generated_at")),
+                    "expires_at": self._iso_or_none(r.get("expires_at")),
+                    "encrypted_data": r.get("encrypted_data"),
+                    "iv": r.get("iv"),
+                    "tag": r.get("tag"),
+                    "wrapped_key_bundle": bundle,
+                    # Reconstruct the exact v2 envelope submission the owner
+                    # canonicalized as key-wrap AAD. Integer fields are coerced to
+                    # plain ints so the JSON the client re-canonicalizes is
+                    # byte-identical to the wrap-time bytes (GCM auth is exact).
+                    "export_envelope": {
+                        "version": self._coerce_int(r.get("envelope_version")),
+                        "export_id": str(r.get("export_id") or "") or None,
+                        "aad": aad,
+                        "aad_sha256": str(r.get("envelope_aad_sha256") or "") or None,
+                        "ciphertext_sha256": str(r.get("ciphertext_sha256") or "") or None,
+                        "ciphertext_bytes": self._coerce_int(r.get("ciphertext_bytes")),
+                    },
+                }
+            )
+        return exports
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        """Best-effort int coercion (BIGINT/INTEGER may arrive as int/Decimal/str)."""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _iso_or_none(value: Any) -> str | None:
+        """Render a timestamp column as an ISO-8601 string (datetime or passthrough)."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
 
     def search_directory(
         self, user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
@@ -732,6 +1353,12 @@ class ConnectionsService:
             """,
             {"id": (connection_id or "").strip()},
         )
+        # Step 4: Cascade-revoke every active Connect scope grant / pending scope
+        # request between the pair, in BOTH directions. Disconnecting must stop
+        # future reads of anything shared through this connection. Idempotent and
+        # best-effort, so it runs on every call (even a retry after the row was
+        # already flipped) to guarantee no grant outlives the connection.
+        self._cascade_revoke_scope_grants(str(user_a or ""), str(user_b or ""))
         if conn:
             FeedService().record_event(
                 user_id=user_a,
