@@ -248,7 +248,7 @@ export default function ConnectPageClient() {
         setBusyId((current) => (current === person.userId ? null : current));
       }
     },
-    [sendConnectionRequest, user],
+    [user],
   );
 
   const handleConnect = useCallback(
