@@ -786,7 +786,6 @@ class ConnectionsService:
             )
         return {"relationship": str(row.get("relationship") or "")}
 
-    # ---- Helpers ----
     @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
         return (x, y) if x < y else (y, x)
@@ -1480,7 +1479,7 @@ class ConnectionsService:
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
-                   cr.message, cr.created_at,
+                   cr.message, cr.created_at, cr.metadata,
                    {counterpart_col} AS counterpart_user_id,
                    a.display_name AS counterpart_display_name
             FROM connection_requests cr

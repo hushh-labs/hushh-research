@@ -323,8 +323,7 @@ export function GeminiRuntimeSettingsCard({
         },
       });
       assertRuntimeSecretStored(credentialResult);
-      const metadataResults = await Promise.all([
-        PersonalKnowledgeModelService.storeRuntimeSecret({
+      const transportResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -335,8 +334,9 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_transport",
           },
-        }),
-        PersonalKnowledgeModelService.storeRuntimeSecret({
+        });
+      assertRuntimeSecretStored(transportResult);
+      const projectResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -347,8 +347,9 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_vertex_project",
           },
-        }),
-        PersonalKnowledgeModelService.storeRuntimeSecret({
+        });
+      assertRuntimeSecretStored(projectResult);
+      const locationResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -359,9 +360,8 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_vertex_location",
           },
-        }),
-      ]);
-      metadataResults.forEach(assertRuntimeSecretStored);
+        });
+      assertRuntimeSecretStored(locationResult);
       await persistMode("byok");
       setDraftKey("");
       invalidateCredentialValidation();
@@ -400,8 +400,7 @@ export function GeminiRuntimeSettingsCard({
         },
       });
       assertRuntimeSecretStored(credentialResult);
-      const metadataResults = await Promise.all([
-        PersonalKnowledgeModelService.removeRuntimeSecret({
+      const transportResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -411,8 +410,9 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_transport_remove",
           },
-        }),
-        PersonalKnowledgeModelService.removeRuntimeSecret({
+        });
+      assertRuntimeSecretStored(transportResult);
+      const projectResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -422,8 +422,9 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_vertex_project_remove",
           },
-        }),
-        PersonalKnowledgeModelService.removeRuntimeSecret({
+        });
+      assertRuntimeSecretStored(projectResult);
+      const locationResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -433,9 +434,8 @@ export function GeminiRuntimeSettingsCard({
             surface: "web",
             source: "connections_gemini_vertex_location_remove",
           },
-        }),
-      ]);
-      metadataResults.forEach(assertRuntimeSecretStored);
+        });
+      assertRuntimeSecretStored(locationResult);
       await persistMode("hushh_managed_vertex");
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");

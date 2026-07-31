@@ -150,15 +150,9 @@ export default function ConnectPageClient() {
     [user],
   );
 
-  const handleConnect = useCallback(
+  const sendConnectRequest = useCallback(
     async (person: DirectoryPerson) => {
       if (!user) return;
-      const cta = relationshipCta(person.relationship);
-      if (cta.action === "respond") {
-        router.push(buildConsentCenterHref("pending"));
-        return;
-      }
-      if (cta.action !== "connect") return;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
@@ -189,7 +183,20 @@ export default function ConnectPageClient() {
         setBusyId((current) => (current === person.userId ? null : current));
       }
     },
-    [router, sendConnectionRequest, user],
+    [sendConnectionRequest, user],
+  );
+
+  const handleConnect = useCallback(
+    (person: DirectoryPerson) => {
+      if (!user) return;
+      const cta = relationshipCta(person.relationship);
+      if (cta.action === "respond") {
+        router.push(buildConsentCenterHref("pending"));
+        return;
+      }
+      if (cta.action === "connect") void sendConnectRequest(person);
+    },
+    [router, sendConnectRequest, user],
   );
 
   const toggleDraftHandle = useCallback(

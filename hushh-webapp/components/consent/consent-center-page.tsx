@@ -1614,7 +1614,6 @@ export function ConsentCenterPage() {
   const [locallyRevokedScopes, setLocallyRevokedScopes] = useState<Set<string>>(
     () => new Set(),
   );
-
   useEffect(() => {
     if (routeQuery !== searchValue) {
       setSearchValue(routeQuery);
