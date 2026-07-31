@@ -40,6 +40,9 @@ deployed SHA cannot be proven, selection fails closed to the complete suite.
 The same selector produces the `uat-verification-plan` artifact with the
 required/skipped lane reasons; do not reproduce its path policy in another
 workflow or deploy script.
+Changes to the evaluator's own UAT workflow run one synthetic evaluator without
+also selecting the full zero-loss upgrade rehearsal, so the release-control
+path is proven independently.
 For a PKM upgrade release, the hosted structure evaluator uses the
 coverage-balanced `release_chain_24` phase immediately after the backend
 candidate is built and before the frontend build begins. Its model-quality
