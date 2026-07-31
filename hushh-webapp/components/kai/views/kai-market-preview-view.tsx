@@ -5,12 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   ChartColumnIncreasing,
   Cpu,
   LineChart,
   Loader2,
   Newspaper,
   Percent,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
@@ -2316,6 +2318,36 @@ export function KaiMarketPreviewView() {
 
           {hasPayload ? (
             <>
+              <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+                <button
+                  type="button"
+                  data-testid="kai-analysis-entry"
+                  onClick={() =>
+                    openOneMarketHref(buildKaiMarketRoute("analysis"))
+                  }
+                  className="group flex w-full items-center gap-3.5 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-transform active:scale-[0.995]"
+                >
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[color:var(--one-indigo-t)] text-[color:var(--one-indigo)]">
+                    <Sparkles className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-[15px] font-semibold text-foreground">
+                        Analysis &amp; Debate
+                      </span>
+                      <span className="rounded-full bg-[color:var(--one-indigo-t)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--one-indigo)]">
+                        New
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
+                      Watch Kai&apos;s analysts debate a stock and get a clear
+                      recommendation.
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </button>
+              </section>
+
               <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
                 <RiaPicksList
                   rows={riaPickRows}

@@ -69,6 +69,19 @@ describe("market route overlays", () => {
     expect(source).not.toContain('actionHref={buildKaiMarketRoute("analysis")}');
   });
 
+  it("gives Market home a discoverable entry into the Analysis workspace", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    // A tappable card on the default Finance landing routes users into the
+    // live debate / recommendation surface, which is otherwise reachable only
+    // via the top-shell tab or a direct URL.
+    expect(source).toContain('data-testid="kai-analysis-entry"');
+    expect(source).toContain('openOneMarketHref(buildKaiMarketRoute("analysis"))');
+  });
+
   it("does not mount a hidden notification sheet on route load", () => {
     const source = readFileSync(
       join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
