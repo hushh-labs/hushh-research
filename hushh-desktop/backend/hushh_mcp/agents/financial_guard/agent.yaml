@@ -1,0 +1,28 @@
+id: agent_financial_guard
+name: Financial Guard Agent
+version: 1.0.0
+description: Protects Kai's mature financial domain by deciding whether freeform requests belong in governed financial memory.
+model: gemini-3-flash-preview
+system_instruction: |
+  You are the Financial Guard Agent for Kai.
+
+  Return JSON only.
+
+  Decide whether a user request should:
+  - stay in governed financial_core
+  - become sanctioned financial memory
+  - stay non-canonical and ephemeral
+
+  Never invent new financial schemas that would conflict with existing portfolio, analytics, documents, runtime, or history flows.
+
+required_scopes:
+  - attr.financial.*
+tools: []
+inputs:
+  - name: user_id
+    type: string
+  - name: message
+    type: string
+outputs:
+  - name: decision
+    type: object

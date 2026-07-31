@@ -1,0 +1,126 @@
+import { NetworkStatusBanner } from "@/components/system/network-status-banner";
+import type { Metadata, Viewport } from "next";
+import Script from "next/script";
+import "./globals.css";
+import { RootLayoutClient } from "./layout-client";
+import {
+  resolveAnalyticsMeasurementId,
+  resolveGtmContainerId,
+  shouldLoadWebAnalyticsScripts,
+} from "@/lib/observability/env";
+
+const gtmContainerId = resolveGtmContainerId();
+const analyticsMeasurementId = resolveAnalyticsMeasurementId();
+const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
+
+export const metadata: Metadata = {
+  metadataBase: new URL("https://hushh.ai"),
+  title: "Hussh One | Your Personal Agent",
+  description:
+    "Personal AI agents with consent at the core. Your data, your control.",
+  keywords: ["AI agents", "personal AI", "Hussh One", "consent-first", "privacy"],
+  authors: [{ name: "Hussh Labs" }],
+  icons: {
+    icon: [
+      { url: "/quiet-emoji-icon.svg", type: "image/svg+xml" },
+      { url: "/quiet-emoji-icon.png", type: "image/png", sizes: "512x512" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/quiet-emoji-icon.svg",
+    apple: "/quiet-emoji-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Hussh One",
+  },
+  manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: "Hussh One | Your Personal Agent",
+    description: "Personal AI agents with consent at the core.",
+    siteName: "Hussh",
+    url: "https://hushh.ai",
+    type: "website",
+    images: [
+      {
+        url: "/quiet-emoji-icon.png",
+        width: 512,
+        height: 512,
+        alt: "Hussh One",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Hussh One | Your Personal Agent",
+    description: "Personal AI agents with consent at the core.",
+    images: ["/quiet-emoji-icon.png"],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
+  ],
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en" suppressHydrationWarning className="h-full">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <style>{`
+          html.dark body,
+          html.dark .morphy-app-bg {
+            background-color: rgb(28 28 30) !important;
+            background-image: none !important;
+          }
+        `}</style>
+        {loadWebAnalyticsScripts && analyticsMeasurementId ? (
+          <>
+            <Script
+              id="ga-base"
+              strategy="afterInteractive"
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
+              }}
+            />
+            <Script
+              id="ga-loader"
+              strategy="afterInteractive"
+              src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
+            />
+          </>
+        ) : null}
+        {loadWebAnalyticsScripts && gtmContainerId ? (
+          <Script
+            id="gtm-base"
+            strategy="afterInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':Date.now(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode&&f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtmContainerId}');`,
+            }}
+          />
+        ) : null}
+      </head>
+      <RootLayoutClient fontClasses="">
+        <NetworkStatusBanner />
+        {children}
+      </RootLayoutClient>
+    </html>
+  );
+}

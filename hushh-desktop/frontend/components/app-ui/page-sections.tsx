@@ -1,0 +1,345 @@
+"use client";
+
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+
+import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
+import { Icon } from "@/lib/morphy-ux/ui";
+import { cn } from "@/lib/utils";
+
+type SectionAccent =
+  | "neutral"
+  | "kai"
+  | "ria"
+  | "consent"
+  | "marketplace"
+  | "developers"
+  | "success"
+  | "warning"
+  | "critical"
+  | "default"
+  | "sky"
+  | "emerald"
+  | "amber"
+  | "rose"
+  | "violet";
+
+const ACCENT_STYLES: Record<SectionAccent, {
+  eyebrow: string;
+  icon: string;
+  divider: string;
+}> = {
+  neutral: {
+    eyebrow: "text-muted-foreground",
+    icon:
+      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
+    divider: "bg-border/50",
+  },
+  kai: {
+    eyebrow: "text-violet-700 dark:text-violet-300",
+    icon: "border border-violet-500/12 bg-violet-500/[0.06] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200",
+    divider: "bg-violet-300/50 dark:bg-violet-400/30",
+  },
+  ria: {
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "border border-emerald-500/12 bg-emerald-500/[0.06] text-emerald-700 shadow-[var(--shadow-xs)] dark:border-emerald-400/16 dark:bg-emerald-400/[0.08] dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+  },
+  consent: {
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "border border-amber-500/12 bg-amber-500/[0.06] text-amber-700 shadow-[var(--shadow-xs)] dark:border-amber-400/16 dark:bg-amber-400/[0.08] dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+  },
+  marketplace: {
+    eyebrow: "text-sky-700 dark:text-sky-300",
+    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
+    divider: "bg-sky-300/50 dark:bg-sky-400/30",
+  },
+  developers: {
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "border border-rose-500/12 bg-rose-500/[0.06] text-rose-700 shadow-[var(--shadow-xs)] dark:border-rose-400/16 dark:bg-rose-400/[0.08] dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
+  success: {
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+  },
+  warning: {
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+  },
+  critical: {
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
+  default: {
+    eyebrow: "text-muted-foreground",
+    icon:
+      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
+    divider: "bg-border/50",
+  },
+  sky: {
+    eyebrow: "text-muted-foreground",
+    icon: "bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]",
+    divider: "bg-border/50",
+  },
+  emerald: {
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+  },
+  amber: {
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+  },
+  rose: {
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
+  violet: {
+    eyebrow: "text-violet-700 dark:text-violet-300",
+    icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
+    divider: "bg-violet-300/50 dark:bg-violet-400/30",
+  },
+};
+
+function HeaderLeading({
+  icon,
+  leading,
+  iconClassName,
+  iconSize,
+}: {
+  icon?: LucideIcon;
+  leading?: ReactNode;
+  iconClassName: string;
+  iconSize: "md" | "lg";
+}) {
+  if (leading) {
+    return <div className="shrink-0 self-start">{leading}</div>;
+  }
+
+  if (!icon) {
+    return null;
+  }
+
+  return (
+    <div className={cn("self-stretch", iconClassName)}>
+      <Icon icon={icon} size={iconSize} />
+    </div>
+  );
+}
+
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+  actionsInlineMobile = false,
+  descriptionFullWidth = false,
+  icon,
+  leading,
+  accent = "default",
+  className,
+  id,
+  testId = "page-header",
+}: {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  actionsInlineMobile?: boolean;
+  descriptionFullWidth?: boolean;
+  icon?: LucideIcon;
+  leading?: ReactNode;
+  accent?: SectionAccent;
+  className?: string;
+  id?: string;
+  testId?: string;
+}) {
+  const styles = ACCENT_STYLES[accent];
+  return (
+    <header
+      id={id}
+      className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+      data-slot="page-header"
+      data-page-primary="true"
+      data-testid={testId}
+    >
+      <div className="flex items-stretch gap-3 sm:gap-4">
+        {icon || leading ? (
+          <HeaderLeading
+            icon={icon}
+            leading={leading}
+            iconSize="lg"
+            iconClassName={cn(
+              "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
+              styles.icon
+            )}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
+              actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
+            )}
+            data-slot="page-header-row"
+          >
+            <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
+              {eyebrow ? (
+                <p
+                  className={cn(
+                    "text-xs font-medium uppercase tracking-[0.16em]",
+                    styles.eyebrow
+                  )}
+                  data-slot="page-header-eyebrow"
+                >
+                  {eyebrow}
+                </p>
+              ) : null}
+              <h1 className="text-[28px] font-medium tracking-normal leading-[1.08] text-foreground sm:text-[34px]">
+                {title}
+              </h1>
+              {description && !descriptionFullWidth ? (
+                <div
+                  className="max-w-2xl line-clamp-1 text-sm leading-6 text-muted-foreground"
+                  data-slot="page-header-description"
+                >
+                  {description}
+                </div>
+              ) : null}
+            </div>
+            {actions ? (
+              <div
+                className={cn(
+                  "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
+                  actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
+                )}
+                data-slot="page-header-actions"
+              >
+                {actions}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      {description && descriptionFullWidth ? (
+        <div
+          className="line-clamp-1 text-sm leading-6 text-muted-foreground"
+          data-slot="page-header-description"
+        >
+          {description}
+        </div>
+      ) : null}
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
+    </header>
+  );
+}
+
+export function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+  icon,
+  leading,
+  accent = "default",
+  className,
+  testId = "section-header",
+  id,
+}: {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  icon?: LucideIcon;
+  leading?: ReactNode;
+  accent?: SectionAccent;
+  className?: string;
+  testId?: string;
+  id?: string;
+}) {
+  const styles = ACCENT_STYLES[accent];
+  return (
+    <div
+      id={id}
+      className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+      data-testid={testId}
+    >
+      <div className="flex items-stretch gap-3">
+        {icon || leading ? (
+          <HeaderLeading
+            icon={icon}
+            leading={leading}
+            iconSize="md"
+            iconClassName={cn(
+              "flex w-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-2.5 sm:w-10 sm:px-2.5",
+              styles.icon
+            )}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <div
+            className="flex flex-col gap-[var(--section-header-stack-gap)] sm:flex-row sm:items-center sm:justify-between"
+            data-slot="section-header-row"
+          >
+            <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
+              {eyebrow ? (
+                <p className={cn("text-xs font-medium uppercase tracking-[0.16em]", styles.eyebrow)}>
+                  {eyebrow}
+                </p>
+              ) : null}
+              <div
+                role="heading"
+                aria-level={2}
+                className="text-[15px] font-medium leading-tight tracking-normal text-foreground sm:text-[16px]"
+              >
+                {title}
+              </div>
+              {description ? (
+                <div
+                  className="line-clamp-1 text-sm leading-6 text-muted-foreground"
+                  data-slot="section-header-description"
+                >
+                  {description}
+                </div>
+              ) : null}
+            </div>
+            {actions ? (
+              <div
+                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                data-slot="section-header-actions"
+              >
+                {actions}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
+    </div>
+  );
+}
+
+export function ContentSurface({
+  children,
+  className,
+  accent = "none",
+  tone = "default",
+}: {
+  children: ReactNode;
+  className?: string;
+  accent?: SurfaceAccent;
+  tone?: SurfaceTone;
+}) {
+  return (
+    <SurfaceCard tone={tone} accent={accent} className={className}>
+      {children}
+    </SurfaceCard>
+  );
+}

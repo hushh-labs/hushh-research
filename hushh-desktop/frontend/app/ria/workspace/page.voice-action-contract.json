@@ -1,0 +1,76 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_workspace_compat",
+  "surface_title": "RIA Workspace Compatibility Route",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_workspace_compat",
+      "label": "Open RIA Workspace Compatibility Route",
+      "meaning": "Routes legacy RIA workspace links to a client workspace when a clientId is present, otherwise to the client roster.",
+      "aliases": [
+        "open ria workspace",
+        "open legacy ria workspace",
+        "open client workspace link"
+      ],
+      "search_keywords": [
+        "workspace",
+        "clientId",
+        "compatibility route"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/workspace",
+          "/ria/workspace?clientId=[userId]"
+        ],
+        "screens": [
+          "ria_workspace_compat"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Optional clientId determines whether the route resolves to a client workspace or the client roster."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/workspace",
+        "params": {
+          "optional_client_id": true,
+          "optional_tab": true,
+          "fallback_target": "/ria/clients"
+        }
+      },
+      "control_ids": [
+        "ria_workspace_compat_route"
+      ],
+      "state_exposure": [
+        "legacy workspace query parameters"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/workspace/page.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "one"
+    }
+  ]
+}

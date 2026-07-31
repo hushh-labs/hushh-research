@@ -116,6 +116,8 @@ hushh-webapp/native-ios-screenshots/
 **/.pkm-debug/
 
 # Generated native/build artifacts
+hushh-desktop/installer/
+hushh-desktop/ai-library/geniex/
 hushh-webapp/.next/
 hushh-webapp/.next-prod/
 hushh-webapp/ios/build/
