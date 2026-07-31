@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from sqlalchemy import text
+
 from db.db_client import get_db
 from hushh_mcp.services.feed_service import FeedService
 
@@ -160,6 +162,192 @@ class ConnectionsService:
             "status": "pending",
             "message": message,
         }
+
+    def create_request_from_nearby_alias(
+        self,
+        requester_user_id: str,
+        *,
+        participant_alias: str,
+        requester_presence_version: int,
+        target_presence_version: int,
+    ) -> dict[str, str] | None:
+        """Atomically revalidate nearby aliases and create the canonical request.
+
+        Exact radius was checked against encrypted anchors immediately before
+        this call. The presence versions bind that assessment to this transaction:
+        if either owner checks out, expires, or checks in elsewhere first, no
+        request is written. Both presence rows are locked in canonical owner-id
+        order so opposite-direction requests cannot race past one another. The
+        nearby source is deliberately not copied into durable request metadata.
+        """
+
+        requester = (requester_user_id or "").strip()
+        alias = (participant_alias or "").strip()
+        if (
+            not requester
+            or not alias
+            or int(requester_presence_version) <= 0
+            or int(target_presence_version) <= 0
+        ):
+            return None
+
+        params = {
+            "requester_user_id": requester,
+            "participant_alias": alias,
+            "requester_presence_version": int(requester_presence_version),
+            "target_presence_version": int(target_presence_version),
+        }
+        db = get_db()
+        with db.engine.begin() as conn:
+            # READ COMMITTED takes a fresh snapshot per statement. Acquiring and
+            # consuming the canonical pair locks first means the mutation query
+            # below can see a reverse pending request committed by a waiter that
+            # held these same locks immediately before this transaction.
+            conn.execute(
+                text(
+                    """
+                    SELECT p.owner_user_id
+                    FROM one_location_nearby_presences p
+                    JOIN actor_identity_cache profile
+                      ON profile.user_id = p.owner_user_id
+                     AND profile.phone_verified = TRUE
+                    WHERE (
+                        p.owner_user_id = :requester_user_id
+                        OR p.participant_alias = CAST(:participant_alias AS UUID)
+                      )
+                      AND p.status = 'active'
+                      AND p.expires_at > NOW()
+                    ORDER BY p.owner_user_id
+                    FOR UPDATE OF p
+                    """
+                ),
+                params,
+            ).fetchall()
+
+            result = conn.execute(
+                text(
+                    """
+                    WITH locked AS MATERIALIZED (
+                      SELECT
+                        p.owner_user_id,
+                        p.participant_alias,
+                        p.allow_connection_requests,
+                        p.version
+                      FROM one_location_nearby_presences p
+                      JOIN actor_identity_cache profile
+                        ON profile.user_id = p.owner_user_id
+                       AND profile.phone_verified = TRUE
+                      WHERE (
+                          p.owner_user_id = :requester_user_id
+                          OR p.participant_alias = CAST(:participant_alias AS UUID)
+                        )
+                        AND p.status = 'active'
+                        AND p.expires_at > NOW()
+                      ORDER BY p.owner_user_id
+                      FOR UPDATE OF p
+                    ),
+                    eligible AS MATERIALIZED (
+                      SELECT
+                        viewer.owner_user_id AS requester_user_id,
+                        target.owner_user_id AS addressee_user_id,
+                        target.allow_connection_requests
+                      FROM locked viewer
+                      JOIN locked target
+                        ON target.participant_alias = CAST(:participant_alias AS UUID)
+                       AND target.owner_user_id <> viewer.owner_user_id
+                      WHERE viewer.owner_user_id = :requester_user_id
+                        AND viewer.version = :requester_presence_version
+                        AND target.version = :target_presence_version
+                    ),
+                    connected AS MATERIALIZED (
+                      SELECT 1
+                      FROM connections c
+                      JOIN eligible e
+                        ON c.user_a_id = LEAST(
+                             e.requester_user_id,
+                             e.addressee_user_id
+                           )
+                       AND c.user_b_id = GREATEST(
+                             e.requester_user_id,
+                             e.addressee_user_id
+                           )
+                      WHERE c.status = 'active'
+                      LIMIT 1
+                    ),
+                    existing AS MATERIALIZED (
+                      SELECT cr.requester_user_id, cr.addressee_user_id
+                      FROM connection_requests cr
+                      JOIN eligible e
+                        ON (
+                          (
+                            cr.requester_user_id = e.requester_user_id
+                            AND cr.addressee_user_id = e.addressee_user_id
+                          )
+                          OR
+                          (
+                            cr.requester_user_id = e.addressee_user_id
+                            AND cr.addressee_user_id = e.requester_user_id
+                          )
+                        )
+                      WHERE cr.status = 'pending'
+                      LIMIT 1
+                    ),
+                    inserted AS (
+                      INSERT INTO connection_requests (
+                        requester_user_id,
+                        addressee_user_id,
+                        status,
+                        message,
+                        created_at,
+                        updated_at
+                      )
+                      SELECT
+                        e.requester_user_id,
+                        e.addressee_user_id,
+                        'pending',
+                        NULL,
+                        NOW(),
+                        NOW()
+                      FROM eligible e
+                      WHERE e.allow_connection_requests = TRUE
+                        AND NOT EXISTS (SELECT 1 FROM connected)
+                        AND NOT EXISTS (SELECT 1 FROM existing)
+                      ON CONFLICT DO NOTHING
+                      RETURNING requester_user_id, addressee_user_id
+                    )
+                    SELECT
+                      e.addressee_user_id AS target_user_id,
+                      CASE
+                        WHEN EXISTS (SELECT 1 FROM connected) THEN 'connected'
+                        WHEN EXISTS (
+                          SELECT 1
+                          FROM existing
+                          WHERE requester_user_id = e.requester_user_id
+                        ) THEN 'pending_outgoing'
+                        WHEN EXISTS (SELECT 1 FROM existing) THEN 'pending_incoming'
+                        ELSE 'pending_outgoing'
+                      END AS relationship,
+                      EXISTS (SELECT 1 FROM inserted) AS created
+                    FROM eligible e
+                    WHERE EXISTS (SELECT 1 FROM connected)
+                       OR EXISTS (SELECT 1 FROM existing)
+                       OR e.allow_connection_requests = TRUE
+                    LIMIT 1
+                    """
+                ),
+                params,
+            )
+            mapped = result.mappings().first()
+            row = dict(mapped) if mapped is not None else None
+
+        if not row:
+            return None
+        if bool(row.get("created")):
+            self._notify_new_request(
+                str(row.get("target_user_id") or ""),
+                requester,
+            )
+        return {"relationship": str(row.get("relationship") or "")}
 
     # ---- Helpers ----
     @staticmethod

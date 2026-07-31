@@ -13,6 +13,11 @@ import {
   resolveProfileRouteState,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import {
+  buildNearbyCheckInResumeHref,
+  isNearbyPrivateReturnToken,
+  NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
+} from "@/lib/one-location/nearby-private-navigation";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -54,6 +59,7 @@ function oneLocationActionLabel(action: string): string {
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
+    "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
@@ -697,8 +703,17 @@ function resolveTopShellBreadcrumbInner(
     // removed to fix the "two back buttons" UX.
     const action = String(searchParams?.get("action") || "").trim();
     if (action) {
+      const returnToNearbyCheckIn =
+        action === "private-check-in" &&
+        searchParams?.get("source") === "nearby";
+      const nearbyReturnToken =
+        searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
       return {
-        backHref: ROUTES.ONE_LOCATION,
+        backHref: returnToNearbyCheckIn
+          ? isNearbyPrivateReturnToken(nearbyReturnToken)
+            ? buildNearbyCheckInResumeHref(nearbyReturnToken)
+            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+          : ROUTES.ONE_LOCATION,
         width: "profile",
         align: "center",
         items: [

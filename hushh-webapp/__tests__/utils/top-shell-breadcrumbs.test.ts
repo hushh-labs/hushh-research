@@ -515,6 +515,7 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      ["private-check-in", "Private Check-In"],
       ["sos", "Safety"],
       ["share", "Share location"],
       ["ask", "Ask someone"],
@@ -543,6 +544,31 @@ describe("top shell breadcrumbs", () => {
         ],
       });
     }
+
+    const fromNearbyCheckIn = new URLSearchParams();
+    fromNearbyCheckIn.set("action", "private-check-in");
+    fromNearbyCheckIn.set("source", "nearby");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
+    ).toEqual({
+      backHref: "/one/location/map?action=check-in",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Private Check-In" },
+      ],
+    });
+    fromNearbyCheckIn.set(
+      "returnToken",
+      "123e4567-e89b-12d3-a456-426614174000",
+    );
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
+    ).toBe(
+      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+    );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
     // still returns to the Location hub (not Profile) while the flow is open.
@@ -706,5 +732,30 @@ describe("top shell breadcrumbs", () => {
         { label: "Picks" },
       ],
     });
+  });
+
+  it("keeps bare Picks for unknown or wrong-case view values", () => {
+    const barePicks = {
+      backHref: "/ria",
+      width: "content" as const,
+      align: "center" as const,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria" },
+        { label: "Picks" },
+      ],
+    };
+
+    // An unrecognized view value must not deepen into the Debate crumb; it stays
+    // a plain three-crumb Picks with Back to RIA.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+    ).toEqual(barePicks);
+
+    // The Picks debate match is case-sensitive (view === "debate"), so a
+    // capitalized value is treated as unknown rather than the debate sub-view.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+    ).toEqual(barePicks);
   });
 });

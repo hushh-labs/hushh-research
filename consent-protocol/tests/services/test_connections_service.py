@@ -84,6 +84,56 @@ class _RecordingDB:
         return SimpleNamespace(data=rows)
 
 
+class _TransactionalResult:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+
+class _TransactionalConnection:
+    def __init__(self, results, events):
+        self._results = list(results)
+        self.events = events
+        self.calls = []
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        self.calls.append((sql, params or {}))
+        self.events.append(("execute", sql))
+        rows = self._results.pop(0) if self._results else []
+        return _TransactionalResult(rows)
+
+
+class _TransactionContext:
+    def __init__(self, connection, events):
+        self._connection = connection
+        self._events = events
+
+    def __enter__(self):
+        self._events.append(("begin", None))
+        return self._connection
+
+    def __exit__(self, exc_type, _exc, _traceback):
+        self._events.append(("rollback" if exc_type else "commit", None))
+        return False
+
+
+class _TransactionalDB:
+    def __init__(self, results, events):
+        self.connection = _TransactionalConnection(results, events)
+        self.engine = SimpleNamespace(
+            begin=lambda: _TransactionContext(self.connection, events),
+        )
+
+
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
     # 1) load request row -> addressee is user-b (the acceptor)
@@ -399,3 +449,140 @@ def test_create_request_notify_failure_does_not_break_write():
         out = svc.create_request("user-a", addressee_user_id="user-b")
     assert out["id"] == "req-2"
     assert out["status"] == "pending"
+
+
+def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
+    svc = _svc()
+    events = []
+    notifications = []
+
+    def _record_notification(**kwargs):
+        events.append(("notify", None))
+        notifications.append(kwargs)
+
+    svc._notifier = _record_notification
+    db = _TransactionalDB(
+        [
+            [
+                {"owner_user_id": "user-a"},
+                {"owner_user_id": "user-b"},
+            ],
+            [
+                {
+                    "target_user_id": "user-b",
+                    "relationship": "pending_outgoing",
+                    "created": True,
+                }
+            ],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result == {"relationship": "pending_outgoing"}
+    assert len(db.connection.calls) == 2
+    lock_sql, lock_params = db.connection.calls[0]
+    mutation_sql, mutation_params = db.connection.calls[1]
+    normalized_lock_sql = " ".join(lock_sql.split()).lower()
+    normalized_mutation_sql = " ".join(mutation_sql.split()).lower()
+    assert "order by p.owner_user_id for update of p" in normalized_lock_sql
+    assert "viewer.version = :requester_presence_version" in normalized_mutation_sql
+    assert "target.version = :target_presence_version" in normalized_mutation_sql
+    assert "insert into connection_requests" in normalized_mutation_sql
+    assert "target.allow_connection_requests" in normalized_mutation_sql
+    assert "'pending', null" in normalized_mutation_sql
+    expected_params = {
+        "requester_user_id": "user-a",
+        "participant_alias": "6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+        "requester_presence_version": 4,
+        "target_presence_version": 7,
+    }
+    assert lock_params == expected_params
+    assert mutation_params == expected_params
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+        "notify",
+    ]
+    assert notifications == [
+        {
+            "addressee_user_id": "user-b",
+            "requester_user_id": "user-a",
+        }
+    ]
+
+
+def test_nearby_alias_request_returns_reverse_pending_without_notification():
+    svc = _svc()
+    svc._notifier = lambda **_kwargs: pytest.fail("must not notify")
+    events = []
+    db = _TransactionalDB(
+        [
+            [
+                {"owner_user_id": "user-a"},
+                {"owner_user_id": "user-b"},
+            ],
+            [
+                {
+                    "target_user_id": "user-b",
+                    "relationship": "pending_incoming",
+                    "created": False,
+                }
+            ],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result == {"relationship": "pending_incoming"}
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+    ]
+
+
+def test_nearby_alias_request_fails_closed_without_current_eligibility():
+    svc = _svc()
+    svc._notifier = lambda **_kwargs: pytest.fail("must not notify")
+    events = []
+    db = _TransactionalDB(
+        [
+            [{"owner_user_id": "user-a"}],
+            [],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result is None
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+    ]

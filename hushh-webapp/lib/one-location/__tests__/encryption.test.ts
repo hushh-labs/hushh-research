@@ -109,6 +109,25 @@ describe("one-location encryption durable recipient key", () => {
     expect(point.longitude).toBeCloseTo(samplePoint().longitude);
   });
 
+  it("keeps a Check-In message inside the recipient-encrypted payload", async () => {
+    const key = await ensureLocationRecipientKey(USER_ID);
+    const envelope = await encryptLocationForRecipient({
+      point: {
+        ...samplePoint(),
+        checkIn: { message: "Meet me by the event entrance" },
+      },
+      recipientPublicKeyJwk: key.publicKeyJwk,
+      recipientKeyId: key.keyId,
+    });
+
+    expect(JSON.stringify(envelope)).not.toContain("event entrance");
+    const point = await decryptLocationEnvelope({
+      userId: USER_ID,
+      envelope,
+    });
+    expect(point.checkIn?.message).toBe("Meet me by the event entrance");
+  });
+
   it("throws a detectable message when no key exists in either store", async () => {
     const key = await ensureLocationRecipientKey(USER_ID);
     const envelope = await encryptLocationForRecipient({
