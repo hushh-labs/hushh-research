@@ -12,10 +12,8 @@ import { preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
-  ChevronLeft,
   Loader2,
   MapPin,
-  ShieldCheck,
   UserPlus,
 } from "lucide-react";
 
@@ -108,7 +106,7 @@ const WELCOME_ORBIT_ITEMS = [
 
 const ONBOARDING_IMAGE_SOURCES = [
   ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
-  "/one-location/onboarding/feature-checkin-house-transparent.webp",
+  "/one-location/onboarding/feature-checkin-pin-transparent.webp",
 ] as const;
 
 
@@ -390,38 +388,6 @@ function WelcomeScreen({
   );
 }
 
-type UseCaseCardProps = {
-  tag: string;
-  titleLines: readonly [string, string];
-  bodyLines: readonly string[];
-  alertText: string;
-  kind: "sms" | "share" | "checkin";
-  tone: "danger" | "success" | "info";
-  testId: string;
-};
-
-const USE_CASE_TONES = {
-  danger: {
-    line: "bg-[#ff4f55]",
-    chip: "bg-[#ff4f55] text-white",
-  },
-  success: {
-    line: "bg-[#16a895]",
-    chip: "bg-[#16a895] text-white",
-  },
-  info: {
-    line: "bg-[color:var(--app-accent)]",
-    chip: "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
-  },
-} as const;
-
-const CHECKIN_AVATARS = [
-  { label: "A", color: "#8b5cf6" },
-  { label: "J", color: "#3b82f6" },
-  { label: "N", color: "#111827" },
-  { label: "K", color: "#f59e0b" },
-] as const;
-
 /** Minimal, stylised street-map backdrop used behind the share / check-in art. */
 function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
   const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
@@ -451,207 +417,257 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
   );
 }
 
-function UseCaseArt({
-  kind,
-  alertText,
+const SHARE_LOCATION_AVATARS = [
+  {
+    src: "/one-location/onboarding/orbit-person-2.webp",
+    className: "right-[7%] top-[10%]",
+  },
+  {
+    src: "/one-location/onboarding/orbit-person-1.webp",
+    className: "bottom-[10%] left-[3%]",
+  },
+  {
+    src: "/one-location/onboarding/orbit-person-3.webp",
+    className: "bottom-[8%] right-[7%]",
+  },
+] as const;
+
+function FeatureStatusPill({
+  children,
+  className,
 }: {
-  kind: UseCaseCardProps["kind"];
-  alertText: string;
+  children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div
-      className="absolute inset-y-0 right-0 w-[48%]"
-      data-one-use-case-art
-      data-one-use-case-kind={kind}
-      aria-hidden="true"
+    <span
+      className={cn(
+        "absolute z-30 flex h-8 w-max max-w-[calc(100%_-_20px)] items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
+        className,
+      )}
+      data-one-use-case-alert
     >
-      {kind === "sms" ? (
-        <div
-          className="absolute right-[14%] top-[42%] flex h-[92px] w-[92px] -translate-y-1/2 items-center justify-center"
-          data-one-sms-radar
-        >
-          {/* Radar / alarm pulse rings expanding outward from the red core. */}
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
-          />
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:0.8s]"
-          />
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.6s]"
-          />
-          <span
-            data-one-sms-core
-            data-one-onboarding-motion
-            className="relative z-10 flex h-[66px] w-[66px] flex-col items-center justify-center rounded-full bg-[#ef302f] text-center text-white shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-          >
-            <span className="text-[16px] font-bold leading-none tracking-tight">
-              SMS
-            </span>
-            <span className="mt-0.5 text-[8px] font-semibold leading-none opacity-90">
-              Hold 2 s
-            </span>
-          </span>
-        </div>
-      ) : null}
-
-      {kind === "share" ? (
-        <>
-          <MapBackdrop tone="share" />
-          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
-          {/* Dotted live-share route from your dot up to the shared contact. */}
-          <svg
-            viewBox="0 0 200 168"
-            preserveAspectRatio="none"
-            className="absolute inset-0 h-full w-full"
-            aria-hidden="true"
-          >
-            <path
-              d="M46 128 C 84 118, 116 92, 152 56"
-              fill="none"
-              stroke="#338df2"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeDasharray="1 9"
-            />
-          </svg>
-          <span className="absolute bottom-[24%] left-[22%] h-3 w-3 rounded-full bg-[#338df2] ring-[3px] ring-white dark:ring-[#171d27]" />
-          <span className="absolute right-[14%] top-[14%] flex h-[34px] w-[34px] items-center justify-center rounded-full border-[3px] border-white bg-[#8b5cf6] text-[13px] font-bold text-white shadow-[0_8px_16px_rgba(124,60,237,0.35)] dark:border-[#171d27]">
-            J
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-[13px] w-[13px] items-center justify-center rounded-full border-2 border-white bg-[#338df2] text-white dark:border-[#171d27]">
-              <Check className="h-1.5 w-1.5" strokeWidth={4} />
-            </span>
-          </span>
-
-        </>
-      ) : null}
-      {kind === "checkin" ? (
-        <>
-          <MapBackdrop tone="checkin" />
-          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="absolute right-[34%] top-[3%] h-[38%] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
-          />
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="absolute bottom-[24%] right-[9%] w-[58%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
-            data-one-checkin-art
-          />
-
-
-        </>
-      ) : null}
       <span
-        className={cn(
-          "absolute bottom-[9%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_6px_18px_rgba(22,35,58,0.18)] dark:bg-[#f4f7fb]",
-          kind === "sms" ? "px-3" : "px-2.5",
-        )}
-        data-one-use-case-alert
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
+        aria-hidden="true"
       >
-        {kind === "share" ? (
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#338df2] text-white">
-            <ShieldCheck className="h-2.5 w-2.5" strokeWidth={2.5} />
-          </span>
-        ) : null}
-        {kind === "checkin" ? (
-          <span className="mr-0.5 flex -space-x-1.5">
-            {CHECKIN_AVATARS.map((avatar) => (
-              <span
-                key={avatar.label}
-                className="flex h-[15px] w-[15px] items-center justify-center rounded-full border border-white text-[7px] font-bold text-white"
-                style={{ backgroundColor: avatar.color }}
-              >
-                {avatar.label}
-              </span>
-            ))}
-          </span>
-        ) : null}
-        <span className="min-w-max shrink-0 whitespace-nowrap">{alertText}</span>
-        <Check
-          className={cn(
-            "h-3.5 w-3.5 shrink-0",
-            kind === "sms"
-              ? "text-[#ef302f]"
-              : kind === "share"
-                ? "text-[#338df2]"
-                : "text-[#16a895]",
-          )}
-          strokeWidth={3}
-        />
+        <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
       </span>
-    </div>
+      <span className="min-w-max whitespace-nowrap">{children}</span>
+    </span>
   );
 }
 
-
-function UseCaseCard({
-  tag,
-  titleLines,
-  bodyLines,
-  alertText,
-  kind,
-  tone,
-  testId,
-}: UseCaseCardProps) {
-  const colors = USE_CASE_TONES[tone];
+function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[22px] border border-black/[0.03] bg-white shadow-[0_8px_26px_rgba(21,41,70,0.09)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
-      data-testid={testId}
+      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#f2f5f8] dark:bg-[#171d27]"
+      data-testid="location-use-case-trip"
       data-one-use-case-card
+      data-one-feature-card="share"
     >
-      <span className={cn("absolute inset-y-0 left-0 w-[5px]", colors.line)} />
-      <div
-        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-4 pr-2"
-        data-one-use-case-copy
-      >
+      <MapBackdrop tone="share" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
+      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
-          className={cn(
-            "w-fit rounded-full px-3 py-1 text-[12px] font-bold",
-            colors.chip,
-          )}
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
-          {tag}
+          Share location
         </span>
         <div
           role="heading"
           aria-level={2}
-          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[16px] font-bold leading-[1.18] text-[#091126] dark:text-white"
-          data-one-use-case-title
+          className="mt-3 font-[family-name:var(--font-app-display)] text-[20px] font-bold leading-[1.13] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
         >
-          {titleLines.map((line) => (
-            <span key={line} className="block whitespace-nowrap">
-              {line}
-            </span>
-          ))}
+          No more explaining
+          <br />
+          where you are.
         </div>
         <p
-          className="mt-2 text-[13px] leading-[1.34] text-[#777d88] dark:text-[#aeb8c7]"
-          data-one-use-case-body
+          className="mt-2 text-[13px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
+          data-one-feature-body
         >
-          {bodyLines.map((line) => (
-            <span key={line} className="block whitespace-nowrap">
-              {line}
-            </span>
-          ))}
+          Share once with family, friends, your driver &mdash; or anyone in your
+          Circle.
         </p>
       </div>
-      <UseCaseArt kind={kind} alertText={alertText} />
+      <div
+        className="absolute inset-y-0 right-0 z-10 w-[53%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <svg
+          viewBox="0 0 220 240"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
+        >
+          <path
+            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
+            fill="none"
+            stroke="var(--app-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            opacity="0.72"
+          />
+        </svg>
+        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
+        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        {SHARE_LOCATION_AVATARS.map((avatar) => (
+          <span
+            key={avatar.src}
+            className={cn(
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
+              avatar.className,
+            )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+            <img
+              src={avatar.src}
+              alt=""
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-full w-full object-cover"
+            />
+          </span>
+        ))}
+      </div>
+      <FeatureStatusPill className="bottom-3 left-5">
+        Sharing with Mom, Driver +1
+      </FeatureStatusPill>
+    </article>
+  );
+}
+
+function CheckInFeatureCard() {
+  return (
+    <article
+      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#f4f6f8] dark:bg-[#171d27]"
+      data-testid="location-use-case-checkin"
+      data-one-use-case-card
+      data-one-feature-card="checkin"
+    >
+      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          data-one-use-case-tag
+        >
+          Check in
+        </span>
+        <div
+          role="heading"
+          aria-level={2}
+          className="mt-3 text-[17px] font-bold leading-[1.15] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
+        >
+          At the venue, but can&rsquo;t find each other?
+        </div>
+        <p
+          className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
+          data-one-feature-body
+        >
+          Check in once so your Circle sees your exact spot.
+        </p>
+      </div>
+      <div
+        className="absolute inset-x-0 bottom-0 h-[47%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <MapBackdrop tone="checkin" />
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
+        {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+        <img
+          src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
+          alt=""
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+          className="absolute bottom-[72px] right-[24%] h-[42px] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+        <img
+          src="/one-location/onboarding/orbit-office.webp"
+          alt=""
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+          className="absolute bottom-[43px] left-1/2 w-[88%] -translate-x-1/2 object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+          data-one-checkin-art
+        />
+      </div>
+      <FeatureStatusPill className="bottom-3 left-3">
+        Checked in at Hotel Grand
+      </FeatureStatusPill>
+    </article>
+  );
+}
+
+function SaveMySoulFeatureCard() {
+  return (
+    <article
+      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#fff3f2] dark:bg-[#2a191c]"
+      data-testid="location-use-case-sos"
+      data-one-use-case-card
+      data-one-feature-card="sms"
+    >
+      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
+          data-one-use-case-tag
+        >
+          SMS &middot; Save My Soul
+        </span>
+        <div
+          role="heading"
+          aria-level={2}
+          className="mt-3 text-[17px] font-bold leading-[1.15] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
+        >
+          Need help but can&rsquo;t call or speak?
+        </div>
+        <p
+          className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#c2aeb2]"
+          data-one-feature-body
+        >
+          Send an emergency SMS with your live location to trusted contacts.
+        </p>
+      </div>
+      <div
+        className="absolute bottom-[45px] left-1/2 flex h-[92px] w-[92px] -translate-x-1/2 items-center justify-center"
+        data-one-sms-radar
+        aria-hidden="true"
+      >
+        <span
+          data-one-onboarding-motion
+          data-one-sms-radar-ring
+          className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+        />
+        <span
+          data-one-onboarding-motion
+          data-one-sms-radar-ring
+          className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+        />
+        <span
+          data-one-sms-core
+          className="relative z-10 flex h-[62px] w-[62px] items-center justify-center text-[16px] font-bold text-white"
+        >
+          <span
+            data-one-onboarding-motion
+            data-one-sms-core-pulse
+            className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+          />
+          <span className="relative z-10" data-one-sms-label>
+            SMS
+          </span>
+        </span>
+      </div>
+      <FeatureStatusPill className="bottom-3 left-3">
+        SMS sent to 3 contacts
+      </FeatureStatusPill>
     </article>
   );
 }
@@ -664,9 +680,6 @@ function FeaturesScreen({
   locationPreparationRetry,
   notificationBusy,
   requireLocationToContinue,
-  onBack,
-  onSkip,
-  leaving,
   onContinue,
 }: {
   locationGranted: boolean;
@@ -676,9 +689,6 @@ function FeaturesScreen({
   locationPreparationRetry: boolean;
   notificationBusy: boolean;
   requireLocationToContinue: boolean;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
   onContinue: () => void;
 }) {
   const waitingForLocation = requireLocationToContinue && !locationGranted;
@@ -700,75 +710,32 @@ function FeaturesScreen({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f5f5f7] pb-[max(env(safe-area-inset-bottom,0px),11px)] pl-6 pr-5 pt-[max(env(safe-area-inset-top,0px),55px)] dark:bg-[#0c1017]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(env(safe-area-inset-top,0px),34px)] dark:bg-[#0c1017]"
       data-one-feature-screen
     >
-      <header
-        className="flex h-[42px] shrink-0 items-center justify-between"
-        data-one-feature-header
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          className="press-scale flex h-[42px] w-[42px] items-center justify-center rounded-full bg-white text-[#7b8088] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-white/[0.08] dark:text-white"
-          aria-label="Go back"
+      <header className="shrink-0" data-one-feature-header>
+        <h1
+          className="text-[36px] font-bold leading-none tracking-[-0.025em] text-[#111823] dark:text-[#f6f8fc]"
+          data-one-feature-heading
         >
-          <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
-        </button>
-        <OnboardingSkipButton
-          floating
-          onClick={onSkip}
-          disabled={leaving}
-        />
+          Stay connected
+        </h1>
+        <p
+          className="mt-3 text-[16px] leading-6 text-[#737a84] dark:text-[#aeb8c7]"
+          data-one-feature-subtitle
+        >
+          For everyday plans, meetups, and emergencies.
+        </p>
       </header>
-      <h1
-        className="mt-[15px] shrink-0 text-[32px] font-bold leading-[1.05] tracking-[-0.02em] text-[#091126] dark:text-[#f6f8fc]"
-        data-one-feature-heading
-      >
-        Stay connected
-        <br />
-        when you need it.
-      </h1>
-      <div
-        className="mt-[18px] grid min-h-0 flex-1 grid-rows-3 gap-3"
-        data-one-feature-grid
-      >
-        <UseCaseCard
-          tag="SMS · Save My Soul"
-          titleLines={["Need help,", "but can’t call or speak?"]}
-          bodyLines={[
-            "Send an emergency SMS",
-            "with your live location to",
-            "trusted contacts.",
-          ]}
-          alertText="Sent to 3 contacts"
-          kind="sms"
-          tone="danger"
-          testId="location-use-case-sos"
-        />
-
-        <UseCaseCard
-          tag="Share location"
-          titleLines={["Still answering", "“Where are you?”"]}
-          bodyLines={[
-            "Share your live location safely in",
-            "one tap. Stop anytime.",
-          ]}
-          alertText="Shared securely"
-          kind="share"
-          tone="info"
-          testId="location-use-case-trip"
-        />
-        <UseCaseCard
-          tag="Check in"
-          titleLines={["Meeting up,", "but can’t find each other?"]}
-          bodyLines={["Check in once so everyone sees", "your exact spot."]}
-          alertText="Check-in sent"
-          kind="checkin"
-
-          tone="success"
-          testId="location-use-case-checkin"
-        />
+      <div className="mt-6 grid min-h-0 flex-1 gap-4" data-one-feature-grid>
+        <ShareLocationFeatureCard />
+        <div
+          className="grid min-h-0 grid-cols-2 gap-4"
+          data-one-feature-lower-grid
+        >
+          <CheckInFeatureCard />
+          <SaveMySoulFeatureCard />
+        </div>
       </div>
       <p
         className={cn(
@@ -779,17 +746,14 @@ function FeaturesScreen({
       >
         {status}
       </p>
-      <div
-        className="mt-[11px] shrink-0"
-        data-one-feature-cta
-      >
+      <div className="mt-5 shrink-0" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[52px] min-h-[52px]"
+          className="h-[58px] min-h-[58px]"
         >
-          {locationPreparationRetry ? "Try again" : "Continue"}
+          {locationPreparationRetry ? "Try again" : "Add my people"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -805,64 +769,62 @@ function FeaturesScreen({
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
-        @media (max-width: 400px) {
-          [data-one-use-case-copy] { width: 60%; padding-left: 16px; padding-right: 4px; }
-          [data-one-use-case-tag] { padding: 3px 10px; font-size: 10.5px; }
-          [data-one-use-case-title] { margin-top: 7px; font-size: 16px; }
-          [data-one-use-case-body] { margin-top: 6px; font-size: 11px; }
-          [data-one-use-case-art] { width: 46%; }
+        [data-one-feature-grid] {
+          grid-template-rows: minmax(0, .86fr) minmax(0, 1.14fr);
         }
-        @media (max-height: 760px) {
+        @media (max-height: 780px) {
           [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 24px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+            padding-top: max(env(safe-area-inset-top, 0px), 18px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
           }
-          [data-one-feature-heading] { font-size: 29px; }
-          [data-one-use-case-card] { border-radius: 20px; }
-          [data-one-use-case-copy] { width: 60%; padding: 8px 6px 8px 16px; }
-          [data-one-use-case-tag] { padding: 2px 10px; font-size: 10px; }
-          [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
-          [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
-          [data-one-use-case-art] { width: 46%; }
-          [data-one-sms-radar] { width: 88px; height: 88px; }
-          [data-one-sms-core] { width: 68px; height: 68px; }
-          [data-one-sms-core] > span:first-child { font-size: 17px; }
-          [data-one-sms-core] > span:last-child { font-size: 8px; }
-          [data-one-use-case-alert] { right: 2%; bottom: 7%; padding: 4px 8px; font-size: 8px; }
-          [data-one-use-case-alert] > span:first-child { height: 13px; }
-          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
+          [data-one-feature-heading] { font-size: 31px; }
+          [data-one-feature-subtitle] { margin-top: 6px; font-size: 14px; line-height: 20px; }
+          [data-one-feature-grid] { margin-top: 14px; gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
+          [data-one-feature-card] { border-radius: 20px; }
+          [data-one-feature-copy] { padding-top: 12px; padding-left: 13px; padding-right: 10px; }
+          [data-one-use-case-tag] { padding: 3px 9px; font-size: 9.5px; }
+          [data-one-feature-title] { margin-top: 7px; font-size: 15px; line-height: 1.1; }
+          [data-one-feature-body] { margin-top: 5px; font-size: 10.5px; line-height: 1.24; }
+          [data-one-use-case-alert] { height: 27px; padding-left: 7px; padding-right: 7px; font-size: 8.5px; }
+          [data-one-feature-cta] { margin-top: 12px; }
+          [data-one-feature-cta] button { min-height: 48px; height: 48px; }
         }
         @media (max-height: 680px) {
-          [data-one-feature-heading] { font-size: 26px; }
-          [data-one-use-case-copy] { width: 62%; padding-left: 14px; }
-          [data-one-use-case-tag] { font-size: 9px; }
-          [data-one-use-case-title] { font-size: 14px; }
-          [data-one-use-case-body] { font-size: 10px; }
-          [data-one-use-case-art] { width: 44%; }
-          [data-one-sms-radar] { width: 78px; height: 78px; }
-          [data-one-sms-core] { width: 60px; height: 60px; }
-          [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
+          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
+          [data-one-feature-heading] { font-size: 28px; }
+          [data-one-feature-subtitle] { font-size: 12.5px; }
+          [data-one-feature-grid] { margin-top: 10px; gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-copy] { padding-top: 9px; padding-left: 10px; padding-right: 7px; }
+          [data-one-use-case-tag] { padding: 2px 7px; font-size: 8.5px; }
+          [data-one-feature-title] { margin-top: 5px; font-size: 13px; }
+          [data-one-feature-body] { margin-top: 4px; font-size: 9px; }
+          [data-one-use-case-alert] { height: 23px; font-size: 7.5px; }
+          [data-one-sms-radar] { bottom: 34px; width: 72px; height: 72px; }
+          [data-one-sms-core] { width: 50px; height: 50px; font-size: 14px; }
+          [data-one-feature-cta] { margin-top: 9px; }
+          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
         }
-        @media (max-width: 370px) {
-          [data-one-use-case-copy] { width: 60%; padding-left: 14px; padding-right: 3px; }
-          [data-one-use-case-title] { font-size: 14px; }
-          [data-one-use-case-body] { font-size: 9.5px; }
-          [data-one-use-case-art] { width: 46%; }
+        @media (max-width: 380px) {
+          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-heading] { font-size: 32px; }
+          [data-one-feature-subtitle] { font-size: 14px; }
+          [data-one-feature-grid] { gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
+          [data-one-feature-copy] { padding-left: 12px; padding-right: 8px; }
+          [data-one-feature-title] { font-size: 15px; }
+          [data-one-feature-body] { font-size: 10.5px; }
+          [data-one-use-case-alert] { font-size: 8px; }
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-use-case-card] { border-radius: 16px; }
-          [data-one-use-case-copy] { width: 60%; padding: 5px 2px 5px 12px; }
-          [data-one-use-case-tag] { padding: 1px 7px; font-size: 8px; }
-          [data-one-use-case-title] { margin-top: 3px; font-size: 13px; line-height: 1.05; }
-          [data-one-use-case-body] { margin-top: 3px; font-size: 9px; line-height: 1.12; }
-          [data-one-use-case-art] { width: 46%; }
-          [data-one-sms-radar] { width: 62px; height: 62px; }
-          [data-one-sms-core] { width: 50px; height: 50px; }
-          [data-one-sms-core] > span:first-child { font-size: 14px; }
-          [data-one-sms-core] > span:last-child { font-size: 7px; }
-          [data-one-use-case-alert] { right: 1%; bottom: 5%; padding: 2px 4px; font-size: 6px; gap: 2px; }
-          [data-one-use-case-alert] > svg { width: 9px; height: 9px; }
+          [data-one-feature-heading] { font-size: 29px; }
+          [data-one-feature-card] { border-radius: 18px; }
+          [data-one-feature-title] { font-size: 13px; }
+          [data-one-feature-body] { font-size: 9.25px; }
+          [data-one-use-case-alert] { height: 23px; gap: 3px; padding-left: 5px; padding-right: 5px; font-size: 7px; }
+          [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
         }
       `}</style>
 
@@ -1192,14 +1154,6 @@ function CircleScreen({
               </span>
             </span>
           ))}
-          <span className="absolute bottom-[-2%] right-[5%] z-10 flex w-[82px] flex-col items-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-dashed border-[#91c8f6] bg-[#e8f5ff] text-[#087ff5] dark:border-[#426b91] dark:bg-[#132c43] dark:text-[#68b5ff]">
-              <UserPlus className="h-7 w-7" strokeWidth={1.8} />
-            </span>
-            <span className="mt-1 text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
-              Add more
-            </span>
-          </span>
         </div>
       </div>
       <style>{`
@@ -1471,9 +1425,6 @@ export function OneLocationOnboardingFlow({
             locationPreparationRetry={locationPreparationRetry}
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
-            onBack={() => setScreen("welcome")}
-            onSkip={() => void runSkip()}
-            leaving={leaving}
             onContinue={continueFromFeatures}
           />
         ) : null}

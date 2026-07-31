@@ -94,7 +94,7 @@ function renderFlow(
 
 function openPeopleScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
 }
 
 afterEach(() => {
@@ -119,6 +119,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(welcomeAvatar?.parentElement?.className).not.toContain(
       "rounded-full",
     );
+    const welcomeHotel = document.querySelector(
+      'img[src="/one-location/onboarding/orbit-office.webp"]',
+    );
+    expect(welcomeHotel).toBeTruthy();
+    expect(welcomeHotel?.className).toContain("object-contain");
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -126,7 +131,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
-  it("fits the supplied-art use cases into one non-scrolling screen", () => {
+  it("matches the supplied responsive feature layout without scrolling", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -136,22 +141,24 @@ describe("OneLocationOnboardingFlow", () => {
     ).firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
-    expect(featureSurface?.className).toContain("bg-[#f5f5f7]");
-    expect(featureSurface?.className).toContain("pl-6");
-    expect(featureSurface?.className).toContain("pr-5");
+    expect(featureSurface?.className).toContain("bg-white");
+    expect(featureSurface?.className).toContain("px-6");
     expect(featureSurface?.className).toContain(
-      "pt-[max(env(safe-area-inset-top,0px),55px)]",
+      "pt-[max(env(safe-area-inset-top,0px),34px)]",
     );
-    expect(
-      document.querySelector("[data-one-feature-grid]")?.className,
-    ).toContain("grid-rows-3");
-    expect(
-      document.querySelector("[data-one-feature-grid]")?.className,
-    ).toContain("mt-[18px]");
+
+    const featureGrid = document.querySelector("[data-one-feature-grid]");
+    expect(featureGrid?.className).toContain("mt-6");
+    expect(featureGrid?.className).toContain("flex-1");
+    const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
+    expect(lowerGrid?.className).toContain("grid-cols-2");
     expect(
       document.querySelector("[data-one-feature-cta] button")?.className,
-    ).toContain("h-[52px]");
-    for (const card of document.querySelectorAll("[data-one-use-case-card]")) {
+    ).toContain("h-[58px]");
+
+    const cards = document.querySelectorAll("[data-one-use-case-card]");
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
       expect(card.className).toContain("h-full");
       expect(card.className).toContain("min-h-0");
       expect(
@@ -165,39 +172,74 @@ describe("OneLocationOnboardingFlow", () => {
         card.querySelector("[data-one-use-case-alert] .truncate"),
       ).toBeNull();
     }
-    expect(
-      screen.getByRole("heading", {
-        name: "Stay connected when you need it.",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        name: "Need help, but can’t call or speak?",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        name: "Still answering “Where are you?”",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        name: "Meeting up, but can’t find each other?",
-      }),
-    ).toBeTruthy();
-    expect(screen.getByText("SMS · Save My Soul")).toBeTruthy();
-    expect(screen.getByText("Shared securely")).toBeTruthy();
-    expect(screen.getByText("Check-in sent")).toBeTruthy();
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(
-      screen
-        .getByTestId("location-use-case-checkin")
-        .querySelector(
-          'img[src="/one-location/onboarding/feature-checkin-pin-transparent.webp"]',
-        ),
+      screen.getByRole("heading", { name: "Stay connected" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    expect(
+      screen.getByText("For everyday plans, meetups, and emergencies."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "No more explaining where you are.",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "At the venue, but can\u2019t find each other?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Need help but can\u2019t call or speak?",
+      }),
+    ).toBeTruthy();
+
+    expect(screen.getByText("Share location")).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
+    expect(screen.getByText("SMS \u00b7 Save My Soul")).toBeTruthy();
+    expect(screen.getByText("Sharing with Mom, Driver +1")).toBeTruthy();
+    expect(screen.getByText("Checked in at Hotel Grand")).toBeTruthy();
+    expect(screen.getByText("SMS sent to 3 contacts")).toBeTruthy();
+
+    const smsCard = screen.getByTestId("location-use-case-sos");
+    const smsCore = smsCard.querySelector("[data-one-sms-core]");
+    const smsLabel = smsCard.querySelector("[data-one-sms-label]");
+    const smsPulse = smsCard.querySelector("[data-one-sms-core-pulse]");
+    const smsRadarRings = smsCard.querySelectorAll("[data-one-sms-radar-ring]");
+    expect(smsCore?.className).not.toContain("animation:");
+    expect(smsLabel?.className).not.toContain("animation:");
+    expect(smsPulse?.className).toContain("animation:oneSmsCore");
+    expect(smsRadarRings).toHaveLength(2);
+    for (const ring of smsRadarRings) {
+      expect(ring.className).toContain("animation:oneSmsRadar");
+    }
+
+    expect(screen.getByTestId("location-use-case-trip").className).toContain(
+      "bg-[#f2f5f8]",
+    );
+    expect(screen.getByTestId("location-use-case-checkin").className).toContain(
+      "bg-[#f4f6f8]",
+    );
+    expect(screen.getByTestId("location-use-case-sos").className).toContain(
+      "bg-[#fff3f2]",
+    );
+
+    const checkInCard = screen.getByTestId("location-use-case-checkin");
+    expect(
+      checkInCard.querySelector(
+        'img[src="/one-location/onboarding/feature-checkin-pin-transparent.webp"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      checkInCard.querySelector(
+        'img[src="/one-location/onboarding/orbit-office.webp"]',
+      ),
+    ).toBeTruthy();
+
+    expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
@@ -209,7 +251,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -233,10 +275,12 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "Add my people" }),
+      ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -270,7 +314,9 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "Add my people" }),
+      ).toBeEnabled(),
     );
   });
 
@@ -296,7 +342,9 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Add my people" }),
+    ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
     await act(async () => {
@@ -304,7 +352,9 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "Add my people" }),
+      ).toBeEnabled(),
     );
   });
 
@@ -312,8 +362,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -397,7 +447,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByText("New")).toBeTruthy();
     expect(screen.getByText("Joined")).toBeTruthy();
     expect(screen.getByText("Invited")).toBeTruthy();
-    expect(screen.getByText("Add more")).toBeTruthy();
+    expect(screen.queryByText("Add more")).toBeNull();
     expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
 
@@ -434,17 +484,19 @@ describe("OneLocationOnboardingFlow", () => {
     expect(onComplete).toHaveBeenCalledTimes(2);
   });
 
-  it("offers Skip before the final screen and removes all navigation from the final animation", () => {
+  it("keeps the reference feature screen navigation-free and removes final navigation", () => {
     const props = renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(props.onSkip).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(props.onSkip).not.toHaveBeenCalled();
   });
 
   it("keeps explicit dark surfaces on every onboarding screen", () => {
@@ -458,7 +510,7 @@ describe("OneLocationOnboardingFlow", () => {
       "dark:bg-[#0c1017]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     const peopleScreen = screen.getByTestId("one-location-onboarding-people");
     expect(peopleScreen.firstElementChild?.className).toContain(
       "dark:bg-[#14171d]",
