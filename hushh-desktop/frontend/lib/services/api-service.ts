@@ -3410,6 +3410,259 @@ export class ApiService {
   }
 
   /**
+   * Turns one PKM domain's raw captured data into a single clean sentence
+   * via an LLM call, for the dashboard's Memory Highlights card -- the raw
+   * PKM explorer data (Kind/Summary/Status fragments) isn't meant to be
+   * shown verbatim as "what Hushh remembered about you."
+   */
+  static async summarizePkmHighlight(data: {
+    vaultOwnerToken: string;
+    domain: string;
+    displayName: string;
+    rawSummary: Record<string, unknown>;
+    highlights: string[];
+    mode?: "brief" | "rich";
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/highlight-summary`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        domain: data.domain,
+        display_name: data.displayName,
+        raw_summary: data.rawSummary,
+        highlights: data.highlights,
+        mode: data.mode || "brief",
+      }),
+    });
+  }
+
+  /**
+   * Sage's cross-domain briefing: one Gemini call reasoning across every
+   * domain's already-computed summary at once. See summarizePkmHighlight
+   * above for the per-domain equivalent this sits next to.
+   */
+  static async summarizeSageBriefing(data: {
+    vaultOwnerToken: string;
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      summary: Record<string, unknown>;
+      attributeCount: number;
+      lastUpdated: string | null;
+    }>;
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/sage-briefing`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          summary: d.summary,
+          attribute_count: d.attributeCount,
+          last_updated: d.lastUpdated,
+        })),
+      }),
+    });
+  }
+
+  /**
+   * Ask Sage a real research question: Gemini with live Google Search
+   * grounding, personalized against the caller's own PKM domain summaries.
+   * Returns real cited sources when the model actually searched, none when
+   * it answered from its own knowledge -- never fabricated citations.
+   */
+  static async askSage(data: {
+    vaultOwnerToken: string;
+    query: string;
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      summary: Record<string, unknown>;
+      attributeCount: number;
+    }>;
+    mode?: "standard" | "challenge";
+    conversationHistory?: Array<{ query: string; answer: string }>;
+    /** "deep" asks for a genuinely thorough, source-citing answer -- for
+     * persistent Research Threads, where a quick chat-style answer reads as
+     * thin. Defaults to "quick", the original Ask Sage one-shot behavior. */
+    depth?: "quick" | "deep";
+    /** Only meaningful when depth is "deep" -- how long an answer to ask
+     * for. "standard" is the original deep-mode length; "thorough" and
+     * "exhaustive" ask for progressively longer, section-structured answers
+     * (exhaustive targets 2000-2800 words / ~20k characters). Ignored in
+     * "quick" mode. Defaults to "standard". */
+    length?: "standard" | "thorough" | "exhaustive";
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/sage-research`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: data.query,
+        mode: data.mode || "standard",
+        depth: data.depth || "quick",
+        length: data.length || "standard",
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          summary: d.summary,
+          attribute_count: d.attributeCount,
+        })),
+        conversation_history: (data.conversationHistory || []).map((turn) => ({
+          query: turn.query,
+          answer: turn.answer,
+        })),
+      }),
+    });
+  }
+
+  /**
+   * "What's new since last time": the caller has already diffed each
+   * domain's readable summary against a snapshot from the user's last
+   * visit and only sends the domains that actually changed.
+   */
+  static async getSageRecap(data: {
+    vaultOwnerToken: string;
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      previousSummary: Record<string, unknown>;
+      currentSummary: Record<string, unknown>;
+    }>;
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/sage-recap`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          previous_summary: d.previousSummary,
+          current_summary: d.currentSummary,
+        })),
+      }),
+    });
+  }
+
+  /**
+   * Sage drafting a structured self-assessment / performance-review document
+   * from real, already-decrypted fragments of one PKM domain (typically
+   * "professional"). The caller decrypts client-side and flattens to plain
+   * text before calling this -- the backend never sees encrypted data.
+   */
+  static async draftSageReview(data: {
+    vaultOwnerToken: string;
+    domain: string;
+    displayName: string;
+    fragments: string[];
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/sage-review`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        domain: data.domain,
+        display_name: data.displayName,
+        fragments: data.fragments,
+      }),
+    });
+  }
+
+  /**
+   * Sage keeping a running synthesis of one persistent Research Thread:
+   * a short summary plus what's established vs. still an open question,
+   * reasoning over only the turns/papers the caller has already
+   * accumulated for this thread (never re-fetched server-side).
+   */
+  static async getSageThreadSynthesis(data: {
+    vaultOwnerToken: string;
+    title: string;
+    turns: Array<{ query: string; answer: string }>;
+    tracedPapers: Array<{ title: string; year: number | null; topic: string | null; citedByCount: number }>;
+  }): Promise<Response> {
+    return apiFetch(`/api/kai/pkm/sage-thread-synthesis`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: data.title,
+        turns: data.turns.map((t) => ({ query: t.query, answer: t.answer })),
+        traced_papers: data.tracedPapers.map((p) => ({
+          title: p.title,
+          year: p.year,
+          topic: p.topic,
+          cited_by_count: p.citedByCount,
+        })),
+      }),
+    });
+  }
+
+  /**
+   * Sage's citation-lineage explorer: free-text search over OpenAlex,
+   * returning a short candidate list (never trusting a single top hit --
+   * relevance-ranked search on a generic title can surface an unrelated
+   * paper) for the user to pick from before tracing its lineage.
+   */
+  static async searchSagePapers(data: { vaultOwnerToken: string; query: string }): Promise<Response> {
+    return apiFetch(`/api/kai/sage/paper-search`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: data.query }),
+    });
+  }
+
+  /**
+   * Traces one paper's citation lineage in both directions (what it cites,
+   * what cites it) via OpenAlex, keyed by the OpenAlex work id returned
+   * from searchSagePapers.
+   */
+  static async getSagePaperLineage(data: { vaultOwnerToken: string; workId: string }): Promise<Response> {
+    return apiFetch(`/api/kai/sage/paper-lineage`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ work_id: data.workId }),
+    });
+  }
+
+  /**
+   * Sage explaining what a traced paper actually is and why its position
+   * in the citation network matters -- grounded in OpenAlex's real
+   * abstract and topic classification, not a guess from the title alone.
+   */
+  static async getSagePaperInsight(data: { vaultOwnerToken: string; workId: string }): Promise<Response> {
+    return apiFetch(`/api/kai/sage/paper-insight`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ work_id: data.workId }),
+    });
+  }
+
+  /**
    * Fetch baseline market insights for Kai home without requiring vault access.
    */
   static async getKaiMarketBaselineInsights(data: {

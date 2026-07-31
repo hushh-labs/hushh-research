@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -280,6 +281,92 @@ class PkmUpgradeService:
             latest["steps"] = await self._list_steps(latest["run_id"])
         return latest
 
+    async def _build_domain_state(
+        self,
+        user_id: str,
+        domain: str,
+        summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        # The manifest fetch and the blob-presence check don't depend on each
+        # other -- run them concurrently too, same reasoning as build_status
+        # running every domain concurrently below. domain_data_exists (not
+        # get_domain_data) -- only presence is needed here, and fetching the
+        # full ciphertext blob for every domain on every /pkm/metadata call
+        # was the real cost once a domain (financial, research) grew large.
+        manifest_result, has_domain_data = await asyncio.gather(
+            self.pkm_service.get_domain_manifest(user_id, domain),
+            self.pkm_service.domain_data_exists(user_id, domain),
+        )
+        manifest = manifest_result or {}
+        summary_projection = (
+            manifest.get("summary_projection") if isinstance(manifest, dict) else {}
+        )
+        summary_projection = summary_projection if isinstance(summary_projection, dict) else {}
+        summary_domain_version = summary.get("domain_contract_version")
+        manifest_domain_version = manifest.get("domain_contract_version")
+        summary_readable_version = summary.get("readable_summary_version")
+        manifest_readable_version = manifest.get("readable_summary_version")
+        current_domain_version = self._to_int(
+            manifest_domain_version
+            if manifest_domain_version is not None
+            else summary_domain_version,
+            0,
+        )
+        current_readable_version = self._to_int(
+            manifest_readable_version
+            if manifest_readable_version is not None
+            else summary_readable_version,
+            0,
+        )
+        target_domain_version = current_domain_contract_version(domain)
+        target_readable_version = CURRENT_READABLE_SUMMARY_VERSION
+        current_pkm_contract_version = (
+            manifest.get("pkm_contract_version")
+            or summary_projection.get("pkm_contract_version")
+            or summary.get("pkm_contract_version")
+            or "0.0.0"
+        )
+        current_readable_projection_version = (
+            manifest.get("readable_projection_version")
+            or summary_projection.get("readable_projection_version")
+            or summary.get("readable_projection_version")
+            or "0.0.0"
+        )
+        # A domain can have a manifest entry (e.g. an early scaffold row)
+        # with no encrypted blob ever written for it -- there is nothing
+        # to upgrade in that case. Without this check, such a domain
+        # stays permanently "stale" (its version never advances since no
+        # upgrade can actually run), so every start_or_resume_run call
+        # creates a fresh run that immediately fails in
+        # prepareUpgradeArtifacts ("No encrypted PKM domain blob found"),
+        # forever, on every app boot/unlock. Uses the same existence check
+        # get_domain_data's callers rely on, so this can't disagree with
+        # what a real upgrade attempt would see.
+        return {
+            "domain": domain,
+            "current_domain_contract_version": current_domain_version,
+            "target_domain_contract_version": target_domain_version,
+            "current_readable_summary_version": current_readable_version,
+            "target_readable_summary_version": target_readable_version,
+            "current_pkm_contract_version": str(current_pkm_contract_version),
+            "target_pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "current_readable_projection_version": str(current_readable_projection_version),
+            "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+            "capabilities_applied": self._domain_capabilities(manifest),
+            "blocked_reasons": self._domain_blockers(manifest),
+            "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
+            "needs_upgrade": (
+                has_domain_data
+                and (
+                    current_domain_version < target_domain_version
+                    or current_readable_version < target_readable_version
+                    or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
+                    or str(current_readable_projection_version)
+                    != CURRENT_READABLE_PROJECTION_VERSION
+                )
+            ),
+        }
+
     async def build_status(self, user_id: str) -> dict[str, Any]:
         index = await self.pkm_service.get_index_v2(user_id)
         available_domains = list(index.available_domains) if index else []
@@ -307,86 +394,27 @@ class PkmUpgradeService:
             getattr(index, "model_version", None),
             max(CURRENT_PKM_MODEL_VERSION - 1, 1),
         )
-        domain_states: list[dict[str, Any]] = []
         domain_summaries = index.domain_summaries if index else {}
-        for domain in sorted(available_domains):
-            summary = (
-                domain_summaries.get(domain)
-                if isinstance(domain_summaries.get(domain), dict)
-                else {}
+        # Each domain's manifest + blob-presence check is independent of every
+        # other domain's -- this used to be a sequential for-loop doing two
+        # awaited DB round trips per domain, which is what made build_status
+        # (embedded in /pkm/metadata and hit on every single PkmWriteCoordinator
+        # write via ensureWritableVersion) take roughly N-domains x per-call
+        # latency. Fetching them concurrently turns that sum into a max.
+        domain_states = list(
+            await asyncio.gather(
+                *(
+                    self._build_domain_state(
+                        user_id,
+                        domain,
+                        domain_summaries.get(domain)
+                        if isinstance(domain_summaries.get(domain), dict)
+                        else {},
+                    )
+                    for domain in sorted(available_domains)
+                )
             )
-            manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
-            summary_projection = (
-                manifest.get("summary_projection") if isinstance(manifest, dict) else {}
-            )
-            summary_projection = summary_projection if isinstance(summary_projection, dict) else {}
-            summary_domain_version = summary.get("domain_contract_version")
-            manifest_domain_version = manifest.get("domain_contract_version")
-            summary_readable_version = summary.get("readable_summary_version")
-            manifest_readable_version = manifest.get("readable_summary_version")
-            current_domain_version = self._to_int(
-                manifest_domain_version
-                if manifest_domain_version is not None
-                else summary_domain_version,
-                0,
-            )
-            current_readable_version = self._to_int(
-                manifest_readable_version
-                if manifest_readable_version is not None
-                else summary_readable_version,
-                0,
-            )
-            target_domain_version = current_domain_contract_version(domain)
-            target_readable_version = CURRENT_READABLE_SUMMARY_VERSION
-            current_pkm_contract_version = (
-                manifest.get("pkm_contract_version")
-                or summary_projection.get("pkm_contract_version")
-                or summary.get("pkm_contract_version")
-                or "0.0.0"
-            )
-            current_readable_projection_version = (
-                manifest.get("readable_projection_version")
-                or summary_projection.get("readable_projection_version")
-                or summary.get("readable_projection_version")
-                or "0.0.0"
-            )
-            # A domain can have a manifest entry (e.g. an early scaffold row)
-            # with no encrypted blob ever written for it -- there is nothing
-            # to upgrade in that case. Without this check, such a domain
-            # stays permanently "stale" (its version never advances since no
-            # upgrade can actually run), so every start_or_resume_run call
-            # creates a fresh run that immediately fails in
-            # prepareUpgradeArtifacts ("No encrypted PKM domain blob found"),
-            # forever, on every app boot/unlock. Uses the same
-            # get_domain_data check the domain-data route itself uses, so
-            # this can't disagree with what a real upgrade attempt would see.
-            has_domain_data = (await self.pkm_service.get_domain_data(user_id, domain)) is not None
-            domain_states.append(
-                {
-                    "domain": domain,
-                    "current_domain_contract_version": current_domain_version,
-                    "target_domain_contract_version": target_domain_version,
-                    "current_readable_summary_version": current_readable_version,
-                    "target_readable_summary_version": target_readable_version,
-                    "current_pkm_contract_version": str(current_pkm_contract_version),
-                    "target_pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
-                    "current_readable_projection_version": str(current_readable_projection_version),
-                    "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
-                    "capabilities_applied": self._domain_capabilities(manifest),
-                    "blocked_reasons": self._domain_blockers(manifest),
-                    "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
-                    "needs_upgrade": (
-                        has_domain_data
-                        and (
-                            current_domain_version < target_domain_version
-                            or current_readable_version < target_readable_version
-                            or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
-                            or str(current_readable_projection_version)
-                            != CURRENT_READABLE_PROJECTION_VERSION
-                        )
-                    ),
-                }
-            )
+        )
 
         stale_domains = [domain for domain in domain_states if domain["needs_upgrade"]]
         latest_run = await self._get_latest_run(user_id)
