@@ -714,7 +714,7 @@ export function RiaProfileSection({
             <AlertDialogDescription>
               This removes your RIA advisor profile and automatically disconnects
               any active clients (their consent is revoked). Your One account and
-              investor data are not affected. This can&apos;t be undone.
+              investor information is not affected. This can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

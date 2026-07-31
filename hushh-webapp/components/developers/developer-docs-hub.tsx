@@ -973,7 +973,7 @@ function AccessWorkspace({
                       Policy URL
                     </FieldLabel>
                     <FieldDescription>
-                      Privacy or data policy users can review before granting
+                      Privacy or information policy users can review before granting
                       access.
                     </FieldDescription>
                     <InputGroup>
@@ -1747,7 +1747,7 @@ export function DeveloperDocsHub({
                           MCP, the API, and the npm bridge.
                         </p>
                         <p>
-                          The data path is the same everywhere: discover scopes,
+                          The information path is the same everywhere: discover scopes,
                           request consent, poll status, then read approved
                           scoped information.
                         </p>
@@ -1781,7 +1781,7 @@ export function DeveloperDocsHub({
                           <TooltipContent className="max-w-xs text-sm leading-6">
                             Dynamic scopes let the backend publish only the
                             domains and paths the user actually has, rather than
-                            pretending every user has the same data graph.
+                            pretending every user has the same information graph.
                           </TooltipContent>
                         </Tooltip>
                       }

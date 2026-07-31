@@ -59,7 +59,7 @@ describe("RenaissanceVerdictCard", () => {
     expect(screen.getByText("Caution signal")).toBeTruthy();
     expect(container.textContent).toContain("lower-confidence context");
     expect(container.textContent).toContain(
-      "Review the thesis and data quality before acting on the signal.",
+      "Review the thesis and information quality before acting on the signal.",
     );
     expect(container.textContent).not.toMatch(/Do not buy|before adding/i);
   });

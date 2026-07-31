@@ -11,7 +11,7 @@ Hussh docs should read as one knowledge system, not as accumulated plans. Every 
 The north-star filter is:
 
 1. Hussh is the platform and trust infrastructure.
-2. One is the personal relationship layer.
+2. One is the private relationship layer.
 3. Kai is the finance specialist One summons.
 4. Nav is the privacy and consent guardian direction.
 5. PCHP is the consent, scoped export, and audit boundary.
