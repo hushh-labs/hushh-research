@@ -15,8 +15,8 @@ describe("nearby check-in availability", () => {
     expect(isOneLocationNearbyCheckInAvailable()).toBe(true);
   });
 
-  it("fails closed in production", () => {
+  it("mounts in production so the backend capability remains authoritative", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
-    expect(isOneLocationNearbyCheckInAvailable()).toBe(false);
+    expect(isOneLocationNearbyCheckInAvailable()).toBe(true);
   });
 });

@@ -1,9 +1,19 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
+  blockNearbyAttendee: vi.fn(),
   checkInNearby: vi.fn(),
+  claimNearbyAdmission: vi.fn(),
   checkoutNearby: vi.fn(),
+  getCurrentNearbyAdmission: vi.fn(),
+  getNearbyCapability: vi.fn(),
   getPermissionState: vi.fn(),
   getNearbyPresence: vi.fn(),
   nearbyPlaces: vi.fn(),
@@ -11,12 +21,14 @@ const service = vi.hoisted(() => ({
     message: "Check-in didn't complete. Your location is not visible.",
     retryLocation: false,
     openAppSettings: false,
+    resetAdmission: false,
   })),
   openAppSettings: vi.fn(),
   openLocationSettings: vi.fn(),
   placesAutocomplete: vi.fn(),
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
+  reportNearbyAttendee: vi.fn(),
 }));
 
 const navigation = vi.hoisted(() => ({
@@ -48,9 +60,31 @@ const point = {
   sourcePlatform: "web" as const,
 };
 
+const eventAdmission = {
+  admissionId: "7debb48d-4a5b-49dc-80c1-0ace848f42d8",
+  event: {
+    eventId: "ec01fe7f-780e-4bec-a62a-6a613fa02376",
+    displayName: "Hussh Event",
+    venue: {
+      placeId: "event-venue",
+      label: "Demo Hall",
+    },
+    radiusMeters: 500,
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
+    endsAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+  },
+  idempotentReplay: false,
+};
+
 describe("NearbyCheckInSheet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    service.getNearbyCapability.mockResolvedValue({
+      available: true,
+      mode: "uat_simulation",
+      admissionRequired: false,
+    });
+    service.getCurrentNearbyAdmission.mockResolvedValue(null);
     service.getNearbyPresence.mockResolvedValue({
       presence: null,
       attendees: [],
@@ -86,6 +120,154 @@ describe("NearbyCheckInSheet", () => {
       },
       attendees: [],
     });
+    service.blockNearbyAttendee.mockResolvedValue({
+      presence: null,
+      attendees: [],
+    });
+    service.reportNearbyAttendee.mockResolvedValue({
+      presence: null,
+      attendees: [],
+    });
+  });
+
+  it("keeps phone landscape as a keyboard-safe bottom sheet", async () => {
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    const sheet = screen.getByTestId("one-location-nearby-check-in-sheet");
+
+    expect(sheet.className).toContain("lg:left-auto");
+    expect(sheet.className).toContain(
+      "lg:top-[var(--app-safe-area-top-effective,0px)]",
+    );
+    expect(sheet.className).toContain(
+      "lg:bottom-[max(var(--kb-height,0px),var(--app-safe-area-bottom-effective,0px))]",
+    );
+    expect(sheet.className).not.toContain("md:left-auto");
+  });
+
+  it("verifies an event pass before location capture and checks in at the locked venue", async () => {
+    service.getNearbyCapability.mockResolvedValue({
+      available: true,
+      mode: "event_pilot",
+      admissionRequired: true,
+    });
+    service.claimNearbyAdmission.mockResolvedValue(eventAdmission);
+    const capture = vi.fn().mockResolvedValue(point);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    const passInput = await screen.findByPlaceholderText("Paste event pass");
+    expect(capture).not.toHaveBeenCalled();
+    expect(service.nearbyPlaces).not.toHaveBeenCalled();
+
+    fireEvent.change(passInput, { target: { value: "opaque-event-pass" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Demo Hall")).toBeInTheDocument();
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(service.claimNearbyAdmission).toHaveBeenCalledWith({
+      vaultOwnerToken: "owner-token",
+      admissionToken: "opaque-event-pass",
+    });
+    expect(
+      screen.queryByPlaceholderText("Paste event pass"),
+    ).not.toBeInTheDocument();
+    expect(service.nearbyPlaces).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Let nearby checked-in users see me/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    await waitFor(() => {
+      expect(service.checkInNearby).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        placeId: "event-venue",
+        point,
+        durationMinutes: 60,
+        consentAccepted: true,
+        allowConnectionRequests: false,
+        admissionId: eventAdmission.admissionId,
+      });
+    });
+  });
+
+  it("restores an already-claimed event admission without asking for the pass again", async () => {
+    service.getNearbyCapability.mockResolvedValue({
+      available: true,
+      mode: "event_pilot",
+      admissionRequired: true,
+    });
+    service.getCurrentNearbyAdmission.mockResolvedValue(eventAdmission);
+    const capture = vi.fn().mockResolvedValue(point);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Demo Hall")).toBeInTheDocument();
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByPlaceholderText("Paste event pass"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("collects no location when the production event is closed and preserves private Check-In", async () => {
+    service.getNearbyCapability.mockResolvedValue({
+      available: false,
+      mode: "event_pilot",
+      admissionRequired: true,
+    });
+    const capture = vi.fn().mockResolvedValue(point);
+    const onPrivateCheckIn = vi.fn();
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+        onPrivateCheckIn={onPrivateCheckIn}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Nearby Check-In is closed"),
+    ).toBeInTheDocument();
+    expect(capture).not.toHaveBeenCalled();
+    expect(service.getNearbyPresence).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Share privately instead" }),
+    );
+    expect(onPrivateCheckIn).toHaveBeenCalledTimes(1);
   });
 
   it("captures a fresh point, preselects the nearest place, and keeps consent explicit", async () => {
@@ -186,9 +368,9 @@ describe("NearbyCheckInSheet", () => {
         lng: point.longitude,
       });
     });
-    expect(
-      service.getNearbyPresence.mock.invocationCallOrder[1],
-    ).toBeLessThan(capture.mock.invocationCallOrder[0]);
+    expect(service.getNearbyPresence.mock.invocationCallOrder[1]).toBeLessThan(
+      capture.mock.invocationCallOrder[0],
+    );
     expect(
       screen.queryByText(
         "Nearby check-in could not be loaded. Check your connection and retry.",
@@ -252,6 +434,77 @@ describe("NearbyCheckInSheet", () => {
     expect(
       await screen.findByRole("button", { name: "Requested with Maya Chen" }),
     ).toBeDisabled();
+  });
+
+  it("confirms a permanent Nearby block before applying it", async () => {
+    const activeState = {
+      presence: {
+        status: "active" as const,
+        audience: "all_opted_in" as const,
+        admissionMode: "uat_simulation" as const,
+        radiusMeters: 500,
+        allowConnectionRequests: true,
+        consentVersion: "one-location-nearby-presence-v1",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [
+        {
+          participantAlias: "rotating-alias",
+          displayName: "Maya Chen",
+          relationship: "none" as const,
+          canConnect: true,
+        },
+      ],
+    };
+    service.getNearbyPresence.mockResolvedValue(activeState);
+    service.blockNearbyAttendee.mockResolvedValue({
+      ...activeState,
+      attendees: [],
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("Maya Chen");
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "Safety options for Maya Chen",
+      }),
+      { key: "Enter", code: "Enter" },
+    );
+    expect((await screen.findByRole("menu")).className).toContain("!z-[713]");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Block from Nearby" }),
+    );
+
+    expect(
+      await screen.findByText("Hide this person from Nearby?"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("one-location-nearby-check-in-sheet").className,
+    ).toContain("!z-[498]");
+    expect(
+      document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]')
+        ?.className,
+    ).toContain("!z-[497]");
+    expect(service.blockNearbyAttendee).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+
+    await waitFor(() => {
+      expect(service.blockNearbyAttendee).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        participantAlias: "rotating-alias",
+      });
+    });
   });
 
   it("prepares a fresh check-in when an active presence expires while open", async () => {
@@ -372,9 +625,8 @@ describe("NearbyCheckInSheet", () => {
       attendees: [],
       checkedOut: true,
     };
-    let resolveCheckout:
-      | ((value: typeof checkedOutState) => void)
-      | null = null;
+    let resolveCheckout: ((value: typeof checkedOutState) => void) | null =
+      null;
     service.getNearbyPresence.mockResolvedValue(activeState);
     service.checkoutNearby.mockImplementationOnce(
       () =>
@@ -407,7 +659,9 @@ describe("NearbyCheckInSheet", () => {
     await act(async () => {
       resolveCheckout?.(checkedOutState);
     });
-    expect(await screen.findByTestId("nearby-presence-setup")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("nearby-presence-setup"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Check out now" }),
     ).not.toBeInTheDocument();
@@ -590,7 +844,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    expect(await screen.findByText("Previous Owner Person")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Previous Owner Person"),
+    ).toBeInTheDocument();
 
     rerender(
       <NearbyCheckInSheet
@@ -603,7 +859,9 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Previous Owner Person")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Previous Owner Person"),
+      ).not.toBeInTheDocument();
     });
     expect(service.getNearbyPresence).toHaveBeenLastCalledWith({
       vaultOwnerToken: "owner-token-2",

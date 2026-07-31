@@ -30,10 +30,14 @@ from uuid import UUID
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
+from hushh_mcp.services.one_location_event_admission_service import (
+    EventAdmissionContext,
+)
 
 NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v1"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
@@ -41,6 +45,7 @@ NEARBY_PRESENCE_DEFAULT_DURATION_MINUTES = 60
 NEARBY_PRESENCE_RADIUS_METERS = 500
 NEARBY_PRESENCE_MAX_ACCURACY_METERS = 100.0
 NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS = 300.0
+NEARBY_PRESENCE_EVENT_MAX_POINT_AGE_SECONDS = 60.0
 NEARBY_PRESENCE_FUTURE_TOLERANCE_SECONDS = 60.0
 NEARBY_PRESENCE_ROSTER_LIMIT = 20
 NEARBY_PRESENCE_CANDIDATE_LIMIT = 240
@@ -107,6 +112,9 @@ class NearbyPresenceStore(Protocol):
         self,
         *,
         user_id: str,
+        admission_mode: str,
+        event_id: str | None,
+        admission_claim_id: str | None,
         allow_connection_requests: bool,
         consent_version: str,
         duration_minutes: int,
@@ -135,6 +143,14 @@ class NearbyPresenceStore(Protocol):
         viewer_user_id: str,
         participant_alias: str,
     ) -> list[dict[str, Any]]: ...
+
+    def apply_safety_action(
+        self,
+        *,
+        viewer_user_id: str,
+        participant_alias: str,
+        reason_code: str | None,
+    ) -> bool: ...
 
     def checkout(self, user_id: str) -> bool: ...
 
@@ -171,7 +187,24 @@ class PostgresNearbyPresenceStore:
                 version = version + 1,
                 updated_at = NOW()
               WHERE status = 'active' AND expires_at <= NOW()
-              RETURNING id
+              RETURNING owner_user_id, event_id, version
+            ),
+            audited AS (
+              INSERT INTO one_location_nearby_audit_events (
+                actor_user_id,
+                event_id,
+                action,
+                outcome,
+                presence_version
+              )
+              SELECT
+                owner_user_id,
+                event_id,
+                'expired',
+                'succeeded',
+                version
+              FROM changed
+              RETURNING audit_id
             )
             SELECT COUNT(*) AS count FROM changed
             """
@@ -193,6 +226,9 @@ class PostgresNearbyPresenceStore:
         self,
         *,
         user_id: str,
+        admission_mode: str,
+        event_id: str | None,
+        admission_claim_id: str | None,
         allow_connection_requests: bool,
         consent_version: str,
         duration_minutes: int,
@@ -202,89 +238,159 @@ class PostgresNearbyPresenceStore:
         anchor_cell_token: str,
     ) -> dict[str, Any]:
         self._expire_due()
-        row = self._execute_one(
-            """
-            INSERT INTO one_location_nearby_presences (
-              owner_user_id,
-              participant_alias,
-              status,
-              audience,
-              allow_connection_requests,
-              consent_version,
-              radius_meters,
-              anchor_ciphertext,
-              anchor_iv,
-              anchor_tag,
-              anchor_algorithm,
-              anchor_key_id,
-              anchor_cell_epoch,
-              anchor_cell_token,
-              checked_in_at,
-              expires_at,
-              checked_out_at,
-              version,
-              created_at,
-              updated_at
+        params = {
+            "user_id": user_id,
+            "admission_mode": admission_mode,
+            "event_id": event_id,
+            "admission_claim_id": admission_claim_id,
+            "allow_connection_requests": bool(allow_connection_requests),
+            "consent_version": consent_version,
+            "duration_minutes": int(duration_minutes),
+            "radius_meters": int(radius_meters),
+            "anchor_ciphertext": anchor_envelope["ciphertext"],
+            "anchor_iv": anchor_envelope["iv"],
+            "anchor_tag": anchor_envelope["tag"],
+            "anchor_algorithm": anchor_envelope["algorithm"],
+            "anchor_key_id": anchor_envelope["key_id"],
+            "anchor_cell_epoch": int(anchor_cell_epoch),
+            "anchor_cell_token": anchor_cell_token,
+        }
+        with get_db().engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    WITH admission AS MATERIALIZED (
+                      SELECT event.ends_at
+                      FROM one_location_nearby_admission_claims claim
+                      JOIN one_location_nearby_event_pilots event
+                        ON event.event_id = claim.event_id
+                      WHERE :admission_mode = 'event_pilot'
+                        AND claim.admission_claim_id =
+                          CAST(:admission_claim_id AS UUID)
+                        AND claim.event_id = CAST(:event_id AS UUID)
+                        AND claim.claimed_by_user_id = :user_id
+                        AND claim.claimed_at IS NOT NULL
+                        AND claim.expires_at > NOW()
+                        AND event.status = 'active'
+                        AND event.starts_at <= NOW()
+                        AND event.ends_at > NOW()
+                      FOR UPDATE OF claim, event
+                    ),
+                    upserted AS (
+                      INSERT INTO one_location_nearby_presences (
+                        owner_user_id,
+                        participant_alias,
+                        status,
+                        audience,
+                        admission_mode,
+                        event_id,
+                        admission_claim_id,
+                        allow_connection_requests,
+                        consent_version,
+                        radius_meters,
+                        anchor_ciphertext,
+                        anchor_iv,
+                        anchor_tag,
+                        anchor_algorithm,
+                        anchor_key_id,
+                        anchor_cell_epoch,
+                        anchor_cell_token,
+                        checked_in_at,
+                        expires_at,
+                        checked_out_at,
+                        version,
+                        created_at,
+                        updated_at
+                      )
+                      SELECT
+                        :user_id,
+                        gen_random_uuid(),
+                        'active',
+                        'all_opted_in',
+                        :admission_mode,
+                        CAST(:event_id AS UUID),
+                        CAST(:admission_claim_id AS UUID),
+                        :allow_connection_requests,
+                        :consent_version,
+                        :radius_meters,
+                        :anchor_ciphertext,
+                        :anchor_iv,
+                        :anchor_tag,
+                        :anchor_algorithm,
+                        :anchor_key_id,
+                        :anchor_cell_epoch,
+                        :anchor_cell_token,
+                        NOW(),
+                        LEAST(
+                          NOW() + (:duration_minutes * INTERVAL '1 minute'),
+                          CASE
+                            WHEN :admission_mode = 'event_pilot'
+                              THEN (SELECT ends_at FROM admission)
+                            ELSE NOW() + (:duration_minutes * INTERVAL '1 minute')
+                          END
+                        ),
+                        NULL,
+                        1,
+                        NOW(),
+                        NOW()
+                      WHERE :admission_mode = 'uat_simulation'
+                         OR EXISTS (SELECT 1 FROM admission)
+                      ON CONFLICT (owner_user_id) DO UPDATE SET
+                        participant_alias = gen_random_uuid(),
+                        status = 'active',
+                        audience = 'all_opted_in',
+                        admission_mode = EXCLUDED.admission_mode,
+                        event_id = EXCLUDED.event_id,
+                        admission_claim_id = EXCLUDED.admission_claim_id,
+                        allow_connection_requests =
+                          EXCLUDED.allow_connection_requests,
+                        consent_version = EXCLUDED.consent_version,
+                        radius_meters = EXCLUDED.radius_meters,
+                        anchor_ciphertext = EXCLUDED.anchor_ciphertext,
+                        anchor_iv = EXCLUDED.anchor_iv,
+                        anchor_tag = EXCLUDED.anchor_tag,
+                        anchor_algorithm = EXCLUDED.anchor_algorithm,
+                        anchor_key_id = EXCLUDED.anchor_key_id,
+                        anchor_cell_epoch = EXCLUDED.anchor_cell_epoch,
+                        anchor_cell_token = EXCLUDED.anchor_cell_token,
+                        checked_in_at = NOW(),
+                        expires_at = EXCLUDED.expires_at,
+                        checked_out_at = NULL,
+                        version = one_location_nearby_presences.version + 1,
+                        updated_at = NOW()
+                      RETURNING *
+                    ),
+                    audited AS (
+                      INSERT INTO one_location_nearby_audit_events (
+                        actor_user_id,
+                        event_id,
+                        action,
+                        outcome,
+                        presence_version
+                      )
+                      SELECT
+                        owner_user_id,
+                        event_id,
+                        'checked_in',
+                        'succeeded',
+                        version
+                      FROM upserted
+                      RETURNING audit_id
+                    )
+                    SELECT * FROM upserted
+                    """
+                ),
+                params,
             )
-            VALUES (
-              :user_id,
-              gen_random_uuid(),
-              'active',
-              'all_opted_in',
-              :allow_connection_requests,
-              :consent_version,
-              :radius_meters,
-              :anchor_ciphertext,
-              :anchor_iv,
-              :anchor_tag,
-              :anchor_algorithm,
-              :anchor_key_id,
-              :anchor_cell_epoch,
-              :anchor_cell_token,
-              NOW(),
-              NOW() + (:duration_minutes * INTERVAL '1 minute'),
-              NULL,
-              1,
-              NOW(),
-              NOW()
-            )
-            ON CONFLICT (owner_user_id) DO UPDATE SET
-              participant_alias = gen_random_uuid(),
-              status = 'active',
-              audience = 'all_opted_in',
-              allow_connection_requests = EXCLUDED.allow_connection_requests,
-              consent_version = EXCLUDED.consent_version,
-              radius_meters = EXCLUDED.radius_meters,
-              anchor_ciphertext = EXCLUDED.anchor_ciphertext,
-              anchor_iv = EXCLUDED.anchor_iv,
-              anchor_tag = EXCLUDED.anchor_tag,
-              anchor_algorithm = EXCLUDED.anchor_algorithm,
-              anchor_key_id = EXCLUDED.anchor_key_id,
-              anchor_cell_epoch = EXCLUDED.anchor_cell_epoch,
-              anchor_cell_token = EXCLUDED.anchor_cell_token,
-              checked_in_at = NOW(),
-              expires_at = NOW() + (:duration_minutes * INTERVAL '1 minute'),
-              checked_out_at = NULL,
-              version = one_location_nearby_presences.version + 1,
-              updated_at = NOW()
-            RETURNING *
-            """,
-            {
-                "user_id": user_id,
-                "allow_connection_requests": bool(allow_connection_requests),
-                "consent_version": consent_version,
-                "duration_minutes": int(duration_minutes),
-                "radius_meters": int(radius_meters),
-                "anchor_ciphertext": anchor_envelope["ciphertext"],
-                "anchor_iv": anchor_envelope["iv"],
-                "anchor_tag": anchor_envelope["tag"],
-                "anchor_algorithm": anchor_envelope["algorithm"],
-                "anchor_key_id": anchor_envelope["key_id"],
-                "anchor_cell_epoch": int(anchor_cell_epoch),
-                "anchor_cell_token": anchor_cell_token,
-            },
-        )
+            mapped = result.mappings().first()
+            row = dict(mapped) if mapped is not None else None
         if not row:
+            if admission_mode == "event_pilot":
+                raise NearbyPresenceError(
+                    "NEARBY_ADMISSION_REQUIRED",
+                    "Your event pass is no longer active.",
+                    status_code=403,
+                )
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_WRITE_FAILED",
                 "Check-in could not be saved.",
@@ -296,14 +402,31 @@ class PostgresNearbyPresenceStore:
         self._expire_due()
         return self._execute_one(
             """
-            SELECT p.*
+            SELECT
+              p.*,
+              event.display_name AS event_display_name,
+              event.venue_place_id AS event_venue_place_id,
+              event.venue_label AS event_venue_label,
+              event.starts_at AS event_starts_at,
+              event.ends_at AS event_ends_at
             FROM one_location_nearby_presences p
             JOIN actor_identity_cache profile
               ON profile.user_id = p.owner_user_id
              AND profile.phone_verified = TRUE
+            LEFT JOIN one_location_nearby_event_pilots event
+              ON event.event_id = p.event_id
             WHERE p.owner_user_id = :user_id
               AND p.status = 'active'
               AND p.expires_at > NOW()
+              AND (
+                p.admission_mode = 'uat_simulation'
+                OR (
+                  p.admission_mode = 'event_pilot'
+                  AND event.status = 'active'
+                  AND event.starts_at <= NOW()
+                  AND event.ends_at > NOW()
+                )
+              )
             LIMIT 1
             """,
             {"user_id": user_id},
@@ -325,7 +448,7 @@ class PostgresNearbyPresenceStore:
         return self._execute_many(
             """
             WITH viewer AS MATERIALIZED (
-              SELECT p.owner_user_id
+              SELECT p.owner_user_id, p.admission_mode, p.event_id
               FROM one_location_nearby_presences p
               JOIN actor_identity_cache profile
                 ON profile.user_id = p.owner_user_id
@@ -334,6 +457,17 @@ class PostgresNearbyPresenceStore:
                 AND p.version = :viewer_version
                 AND p.status = 'active'
                 AND p.expires_at > NOW()
+                AND (
+                  p.admission_mode = 'uat_simulation'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_nearby_event_pilots event
+                    WHERE event.event_id = p.event_id
+                      AND event.status = 'active'
+                      AND event.starts_at <= NOW()
+                      AND event.ends_at > NOW()
+                  )
+                )
               LIMIT 1
             )
             SELECT
@@ -381,6 +515,11 @@ class PostgresNearbyPresenceStore:
             FROM viewer
             JOIN one_location_nearby_presences p
               ON p.owner_user_id <> :viewer_user_id
+             AND p.admission_mode = viewer.admission_mode
+             AND (
+               viewer.admission_mode = 'uat_simulation'
+               OR p.event_id = viewer.event_id
+             )
              AND p.status = 'active'
              AND p.expires_at > NOW()
              AND p.anchor_cell_epoch = ANY(:cell_epochs)
@@ -388,6 +527,18 @@ class PostgresNearbyPresenceStore:
             JOIN actor_identity_cache profile
               ON profile.user_id = p.owner_user_id
              AND profile.phone_verified = TRUE
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM one_location_nearby_blocks block
+              WHERE (
+                  block.blocker_user_id = :viewer_user_id
+                  AND block.blocked_user_id = p.owner_user_id
+                )
+                OR (
+                  block.blocker_user_id = p.owner_user_id
+                  AND block.blocked_user_id = :viewer_user_id
+                )
+            )
             ORDER BY roster_rank, p.participant_alias
             LIMIT :limit
             """,
@@ -417,6 +568,8 @@ class PostgresNearbyPresenceStore:
               p.owner_user_id,
               p.participant_alias,
               p.allow_connection_requests,
+              p.admission_mode,
+              p.event_id,
               p.radius_meters,
               p.anchor_ciphertext,
               p.anchor_iv,
@@ -434,6 +587,29 @@ class PostgresNearbyPresenceStore:
               )
               AND p.status = 'active'
               AND p.expires_at > NOW()
+              AND (
+                p.admission_mode = 'uat_simulation'
+                OR EXISTS (
+                  SELECT 1
+                  FROM one_location_nearby_event_pilots event
+                  WHERE event.event_id = p.event_id
+                    AND event.status = 'active'
+                    AND event.starts_at <= NOW()
+                    AND event.ends_at > NOW()
+                )
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM one_location_nearby_blocks block
+                WHERE (
+                    block.blocker_user_id = :viewer_user_id
+                    AND block.blocked_user_id = p.owner_user_id
+                  )
+                  OR (
+                    block.blocker_user_id = p.owner_user_id
+                    AND block.blocked_user_id = :viewer_user_id
+                  )
+              )
             ORDER BY p.owner_user_id
             """,
             {
@@ -442,25 +618,233 @@ class PostgresNearbyPresenceStore:
             },
         )
 
+    def apply_safety_action(
+        self,
+        *,
+        viewer_user_id: str,
+        participant_alias: str,
+        reason_code: str | None,
+    ) -> bool:
+        params = {
+            "viewer_user_id": viewer_user_id,
+            "participant_alias": participant_alias,
+            "reason_code": reason_code,
+        }
+        with get_db().engine.begin() as conn:
+            pair_result = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT
+                      p.owner_user_id,
+                      p.participant_alias,
+                      p.admission_mode,
+                      p.event_id,
+                      p.version
+                    FROM one_location_nearby_presences p
+                    WHERE (
+                        p.owner_user_id = :viewer_user_id
+                        OR p.participant_alias = CAST(:participant_alias AS UUID)
+                      )
+                      AND p.status = 'active'
+                      AND p.expires_at > NOW()
+                    ORDER BY p.owner_user_id
+                    FOR UPDATE OF p
+                    """
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+            rows = [dict(item) for item in pair_result]
+            viewer = next(
+                (row for row in rows if str(row.get("owner_user_id") or "") == viewer_user_id),
+                None,
+            )
+            target = next(
+                (
+                    row
+                    for row in rows
+                    if str(row.get("participant_alias") or "") == participant_alias
+                ),
+                None,
+            )
+            if (
+                not viewer
+                or not target
+                or str(target.get("owner_user_id") or "") == viewer_user_id
+                or str(viewer.get("admission_mode") or "")
+                != str(target.get("admission_mode") or "")
+                or (
+                    str(viewer.get("admission_mode") or "") == "event_pilot"
+                    and str(viewer.get("event_id") or "") != str(target.get("event_id") or "")
+                )
+            ):
+                return False
+            target_user_id = str(target["owner_user_id"])
+            pair = {
+                "user_a": min(viewer_user_id, target_user_id),
+                "user_b": max(viewer_user_id, target_user_id),
+            }
+            conn.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtext(:user_a),
+                      hashtext(:user_b)
+                    )
+                    """
+                ),
+                pair,
+            )
+            block_inserted = conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_nearby_blocks (
+                      blocker_user_id,
+                      blocked_user_id
+                    )
+                    VALUES (:viewer_user_id, :target_user_id)
+                    ON CONFLICT (blocker_user_id, blocked_user_id) DO NOTHING
+                    RETURNING blocker_user_id
+                    """
+                ),
+                {
+                    "viewer_user_id": viewer_user_id,
+                    "target_user_id": target_user_id,
+                },
+            ).first()
+            conn.execute(
+                text(
+                    """
+                    UPDATE connection_requests
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE status = 'pending'
+                      AND (
+                        (
+                          requester_user_id = :viewer_user_id
+                          AND addressee_user_id = :target_user_id
+                        )
+                        OR (
+                          requester_user_id = :target_user_id
+                          AND addressee_user_id = :viewer_user_id
+                        )
+                      )
+                    """
+                ),
+                {
+                    "viewer_user_id": viewer_user_id,
+                    "target_user_id": target_user_id,
+                },
+            )
+            action = "blocked"
+            report_inserted = None
+            if reason_code is not None:
+                report_inserted = conn.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_nearby_reports (
+                          reporter_user_id,
+                          reported_user_id,
+                          event_id,
+                          reason_code,
+                          reporter_presence_version,
+                          reported_presence_version
+                        )
+                        VALUES (
+                          :viewer_user_id,
+                          :target_user_id,
+                          CAST(:event_id AS UUID),
+                          :reason_code,
+                          :viewer_version,
+                          :target_version
+                        )
+                        ON CONFLICT DO NOTHING
+                        RETURNING report_id
+                        """
+                    ),
+                    {
+                        "viewer_user_id": viewer_user_id,
+                        "target_user_id": target_user_id,
+                        "event_id": viewer.get("event_id"),
+                        "reason_code": reason_code,
+                        "viewer_version": int(viewer["version"]),
+                        "target_version": int(target["version"]),
+                    },
+                ).first()
+                action = "reported"
+            if block_inserted or report_inserted:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_nearby_audit_events (
+                          actor_user_id,
+                          target_user_id,
+                          event_id,
+                          action,
+                          outcome,
+                          presence_version
+                        )
+                        VALUES (
+                          :viewer_user_id,
+                          :target_user_id,
+                          CAST(:event_id AS UUID),
+                          :action,
+                          'succeeded',
+                          :viewer_version
+                        )
+                        """
+                    ),
+                    {
+                        "viewer_user_id": viewer_user_id,
+                        "target_user_id": target_user_id,
+                        "event_id": viewer.get("event_id"),
+                        "action": action,
+                        "viewer_version": int(viewer["version"]),
+                    },
+                )
+        return True
+
     def checkout(self, user_id: str) -> bool:
         row = self._execute_one(
             """
-            UPDATE one_location_nearby_presences
-            SET
-              status = 'checked_out',
-              anchor_ciphertext = NULL,
-              anchor_iv = NULL,
-              anchor_tag = NULL,
-              anchor_algorithm = NULL,
-              anchor_key_id = NULL,
-              anchor_cell_epoch = NULL,
-              anchor_cell_token = NULL,
-              checked_out_at = NOW(),
-              version = version + 1,
-              updated_at = NOW()
-            WHERE owner_user_id = :user_id
-              AND status = 'active'
-            RETURNING id
+            WITH changed AS (
+              UPDATE one_location_nearby_presences
+              SET
+                status = 'checked_out',
+                anchor_ciphertext = NULL,
+                anchor_iv = NULL,
+                anchor_tag = NULL,
+                anchor_algorithm = NULL,
+                anchor_key_id = NULL,
+                anchor_cell_epoch = NULL,
+                anchor_cell_token = NULL,
+                checked_out_at = NOW(),
+                version = version + 1,
+                updated_at = NOW()
+              WHERE owner_user_id = :user_id
+                AND status = 'active'
+              RETURNING id, owner_user_id, event_id, version
+            ),
+            audited AS (
+              INSERT INTO one_location_nearby_audit_events (
+                actor_user_id,
+                event_id,
+                action,
+                outcome,
+                presence_version
+              )
+              SELECT
+                owner_user_id,
+                event_id,
+                'checked_out',
+                'succeeded',
+                version
+              FROM changed
+              RETURNING audit_id
+            )
+            SELECT id FROM changed
             """,
             {"user_id": user_id},
         )
@@ -482,9 +866,48 @@ class PostgresNearbyPresenceStore:
             """,
             {"hours": hours},
         )
+        safety = self._execute_one(
+            """
+            WITH removed_reports AS (
+              DELETE FROM one_location_nearby_reports
+              WHERE expires_at <= NOW()
+              RETURNING report_id
+            ),
+            removed_audit AS (
+              DELETE FROM one_location_nearby_audit_events
+              WHERE expires_at <= NOW()
+              RETURNING audit_id
+            ),
+            removed_abuse AS (
+              DELETE FROM one_location_nearby_abuse_windows
+              WHERE expires_at <= NOW()
+              RETURNING principal_user_id
+            ),
+            removed_admissions AS (
+              DELETE FROM one_location_nearby_admission_claims claim
+              WHERE claim.expires_at <= NOW()
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM one_location_nearby_presences presence
+                  WHERE presence.admission_claim_id =
+                    claim.admission_claim_id
+                )
+              RETURNING admission_claim_id
+            )
+            SELECT
+              (SELECT COUNT(*) FROM removed_reports) AS reports,
+              (SELECT COUNT(*) FROM removed_audit) AS audit_events,
+              (SELECT COUNT(*) FROM removed_abuse) AS abuse_windows,
+              (SELECT COUNT(*) FROM removed_admissions) AS admissions
+            """
+        )
         return {
             "expired": expired_count,
             "deleted": int((deleted or {}).get("count") or 0),
+            "reportsDeleted": int((safety or {}).get("reports") or 0),
+            "auditEventsDeleted": int((safety or {}).get("audit_events") or 0),
+            "abuseWindowsDeleted": int((safety or {}).get("abuse_windows") or 0),
+            "admissionClaimsDeleted": int((safety or {}).get("admissions") or 0),
         }
 
 
@@ -716,9 +1139,10 @@ def _roster_seed(now: datetime) -> str:
 
 
 def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "status": "active",
         "audience": str(row.get("audience") or "all_opted_in"),
+        "admissionMode": str(row.get("admission_mode") or "uat_simulation"),
         "allowConnectionRequests": bool(row.get("allow_connection_requests")),
         "consentVersion": str(row.get("consent_version") or NEARBY_PRESENCE_CONSENT_VERSION),
         "radiusMeters": int(row.get("radius_meters") or NEARBY_PRESENCE_RADIUS_METERS),
@@ -726,6 +1150,19 @@ def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, 
         "expiresAt": row.get("expires_at"),
         "placeLabel": str(anchor.get("label") or "Selected place"),
     }
+    if str(row.get("admission_mode") or "") == "event_pilot":
+        payload["event"] = {
+            "eventId": str(row.get("event_id") or ""),
+            "displayName": str(row.get("event_display_name") or ""),
+            "venue": {
+                "placeId": str(row.get("event_venue_place_id") or ""),
+                "label": str(row.get("event_venue_label") or ""),
+            },
+            "startsAt": row.get("event_starts_at"),
+            "endsAt": row.get("event_ends_at"),
+            "radiusMeters": int(row.get("radius_meters") or NEARBY_PRESENCE_RADIUS_METERS),
+        }
+    return payload
 
 
 class OneLocationNearbyPresenceService:
@@ -777,6 +1214,7 @@ class OneLocationNearbyPresenceService:
         duration_minutes: int,
         consent_accepted: bool,
         allow_connection_requests: bool,
+        event_context: EventAdmissionContext | None = None,
     ) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
         if not consent_accepted:
@@ -785,7 +1223,9 @@ class OneLocationNearbyPresenceService:
                 "Confirm nearby visibility before checking in.",
                 status_code=422,
             )
-        normalized_place_id = str(place_id or "").strip()
+        normalized_place_id = str(
+            event_context.venue_place_id if event_context else place_id or ""
+        ).strip()
         if not normalized_place_id:
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_PLACE_REQUIRED",
@@ -804,8 +1244,13 @@ class OneLocationNearbyPresenceService:
         point_time = _normalize_captured_at(captured_at)
         now = self._now()
         age_seconds = (now - point_time).total_seconds()
+        maximum_point_age = (
+            NEARBY_PRESENCE_EVENT_MAX_POINT_AGE_SECONDS
+            if event_context
+            else NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS
+        )
         if (
-            age_seconds > NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS
+            age_seconds > maximum_point_age
             or age_seconds < -NEARBY_PRESENCE_FUTURE_TOLERANCE_SECONDS
         ):
             raise NearbyPresenceError(
@@ -834,8 +1279,8 @@ class OneLocationNearbyPresenceService:
 
         normalized_current_lat = float(current_lat)
         normalized_current_lng = float(current_lng)
-        normalized_place_lat = float(place_lat)
-        normalized_place_lng = float(place_lng)
+        normalized_place_lat = float(event_context.venue_latitude if event_context else place_lat)
+        normalized_place_lng = float(event_context.venue_longitude if event_context else place_lng)
         if not _valid_coordinates(
             lat=normalized_current_lat,
             lng=normalized_current_lng,
@@ -866,7 +1311,9 @@ class OneLocationNearbyPresenceService:
 
         anchor = {
             "placeId": normalized_place_id,
-            "label": str(place_label or "Selected place").strip()[:300],
+            "label": str(
+                event_context.venue_label if event_context else place_label or "Selected place"
+            ).strip()[:300],
             "latitude": normalized_place_lat,
             "longitude": normalized_place_lng,
         }
@@ -878,6 +1325,9 @@ class OneLocationNearbyPresenceService:
         epoch = _cell_epoch(now)
         self._store.upsert_presence(
             user_id=owner_user_id,
+            admission_mode="event_pilot" if event_context else "uat_simulation",
+            event_id=event_context.event_id if event_context else None,
+            admission_claim_id=(event_context.admission_claim_id if event_context else None),
             allow_connection_requests=bool(allow_connection_requests),
             consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
             duration_minutes=normalized_duration,
@@ -1001,6 +1451,11 @@ class OneLocationNearbyPresenceService:
             or not target
             or str(target.get("owner_user_id") or "") == owner_user_id
             or not bool(target.get("allow_connection_requests"))
+            or str(viewer.get("admission_mode") or "") != str(target.get("admission_mode") or "")
+            or (
+                str(viewer.get("admission_mode") or "") == "event_pilot"
+                and str(viewer.get("event_id") or "") != str(target.get("event_id") or "")
+            )
         ):
             raise NearbyPresenceError(
                 "NEARBY_ATTENDEE_UNAVAILABLE",
@@ -1055,6 +1510,73 @@ class OneLocationNearbyPresenceService:
                 status_code=404,
             )
         return {"relationship": relationship}
+
+    def block(
+        self,
+        *,
+        user_id: str,
+        participant_alias: str,
+    ) -> dict[str, Any]:
+        owner_user_id = self._require_user(user_id)
+        self._require_verified_profile(owner_user_id)
+        normalized_alias = self._normalize_participant_alias(participant_alias)
+        if not self._store.apply_safety_action(
+            viewer_user_id=owner_user_id,
+            participant_alias=normalized_alias,
+            reason_code=None,
+        ):
+            raise NearbyPresenceError(
+                "NEARBY_ATTENDEE_UNAVAILABLE",
+                "This person is no longer available.",
+                status_code=404,
+            )
+        return self.get_state(user_id=owner_user_id)
+
+    def report(
+        self,
+        *,
+        user_id: str,
+        participant_alias: str,
+        reason_code: str,
+    ) -> dict[str, Any]:
+        owner_user_id = self._require_user(user_id)
+        self._require_verified_profile(owner_user_id)
+        normalized_alias = self._normalize_participant_alias(participant_alias)
+        normalized_reason = str(reason_code or "").strip().lower()
+        if normalized_reason not in {
+            "spam",
+            "harassment",
+            "unsafe_behavior",
+            "other",
+        }:
+            raise NearbyPresenceError(
+                "NEARBY_REPORT_REASON_INVALID",
+                "Choose a report reason.",
+                status_code=422,
+            )
+        if not self._store.apply_safety_action(
+            viewer_user_id=owner_user_id,
+            participant_alias=normalized_alias,
+            reason_code=normalized_reason,
+        ):
+            raise NearbyPresenceError(
+                "NEARBY_ATTENDEE_UNAVAILABLE",
+                "This person is no longer available.",
+                status_code=404,
+            )
+        return self.get_state(user_id=owner_user_id)
+
+    @staticmethod
+    def _normalize_participant_alias(participant_alias: str) -> str:
+        raw_alias = str(participant_alias or "").strip()
+        try:
+            return str(UUID(raw_alias))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise NearbyPresenceError(
+                "NEARBY_ATTENDEE_UNAVAILABLE",
+                "This person is no longer available.",
+                status_code=404,
+            ) from exc
 
     def purge_terminal(self, *, older_than_hours: float = 12.0) -> dict[str, int]:
         return self._store.purge_terminal(older_than_hours=older_than_hours)

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 126,
+  "expected_migration_version": 127,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -732,6 +732,9 @@
       "participant_alias",
       "status",
       "audience",
+      "admission_mode",
+      "event_id",
+      "admission_claim_id",
       "allow_connection_requests",
       "consent_version",
       "radius_meters",
@@ -748,6 +751,65 @@
       "version",
       "created_at",
       "updated_at"
+    ],
+    "one_location_nearby_event_pilots": [
+      "event_id",
+      "display_name",
+      "venue_place_id",
+      "venue_label",
+      "venue_latitude",
+      "venue_longitude",
+      "radius_meters",
+      "status",
+      "starts_at",
+      "ends_at",
+      "created_by_user_id",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_nearby_admission_claims": [
+      "admission_claim_id",
+      "event_id",
+      "jti_hash",
+      "expires_at",
+      "claimed_by_user_id",
+      "claimed_at",
+      "created_at"
+    ],
+    "one_location_nearby_blocks": [
+      "blocker_user_id",
+      "blocked_user_id",
+      "created_at"
+    ],
+    "one_location_nearby_reports": [
+      "report_id",
+      "reporter_user_id",
+      "reported_user_id",
+      "event_id",
+      "reason_code",
+      "reporter_presence_version",
+      "reported_presence_version",
+      "created_at",
+      "expires_at"
+    ],
+    "one_location_nearby_abuse_windows": [
+      "principal_user_id",
+      "action",
+      "window_started_at",
+      "request_count",
+      "expires_at"
+    ],
+    "one_location_nearby_audit_events": [
+      "audit_id",
+      "actor_user_id",
+      "target_user_id",
+      "event_id",
+      "action",
+      "outcome",
+      "presence_version",
+      "operation_id",
+      "created_at",
+      "expires_at"
     ],
     "one_location_sms_contacts": [
       "owner_user_id",

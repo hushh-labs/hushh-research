@@ -135,6 +135,20 @@ steps:
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
         append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
+        if [[ "${_ONE_LOCATION_NEARBY_PRESENCE_MODE}" == "event_pilot" ]]; then
+          if [[ -z "${_ONE_LOCATION_RETENTION_TOKEN_SECRET}" ]]; then
+            echo "_ONE_LOCATION_RETENTION_TOKEN_SECRET is required for event_pilot." >&2
+            exit 1
+          fi
+          if ! gcloud secrets describe "${_ONE_LOCATION_RETENTION_TOKEN_SECRET}" \
+            --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Required One Location retention secret is unavailable." >&2
+            exit 1
+          fi
+          secrets="${secrets},ONE_LOCATION_RETENTION_TOKEN=${_ONE_LOCATION_RETENTION_TOKEN_SECRET}:latest"
+        else
+          append_optional_secret "${_ONE_LOCATION_RETENTION_TOKEN_SECRET}" "ONE_LOCATION_RETENTION_TOKEN"
+        fi
 
         # Runtime identity may differ from deploy identity: the dev environment
         # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
@@ -214,6 +228,7 @@ steps:
         append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        append_optional_env "ONE_LOCATION_NEARBY_PRESENCE_MODE" "${_ONE_LOCATION_NEARBY_PRESENCE_MODE}"
 
         # Join with '|' (not ',') so env VALUES may themselves contain commas.
         # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
@@ -340,6 +355,7 @@ substitutions:
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  _ONE_LOCATION_RETENTION_TOKEN_SECRET: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""
@@ -355,6 +371,9 @@ substitutions:
   # off (append_optional_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.
   _KAI_ANALYZE_DURABLE_RUN_STORE: ""
+  # Production remains fail-closed unless the release workflow explicitly
+  # selects event_pilot. Non-production defaults to uat_simulation in code.
+  _ONE_LOCATION_NEARBY_PRESENCE_MODE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _CONSENT_API_PUBLIC_ORIGIN: ""
   _DB_POOL_MIN_SIZE: "1"

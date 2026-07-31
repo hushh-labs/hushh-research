@@ -165,18 +165,23 @@ Nearby Check-In is a separate short-lived presence workflow owned by Your Map.
 It never widens a private live-location grant, and a Connect relationship never
 grants nearby or live-location visibility.
 
-1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
-   captures one fresh foreground point, shows nearby provider places, and lets
-   the owner choose or search the exact public place before continuing. There
-   is no event code.
-2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
-   their safe display label to other opted-in check-ins within the fixed
-   500-meter radius. Allowing Connect requests is a separate switch and
-   defaults off.
-3. On confirmation, the backend resolves the selected place itself and requires
-   the fresh point's complete accuracy envelope to remain inside 500 meters.
-   Accuracy never expands the admission radius.
-4. Raw device coordinates and accuracy exist only in request memory. The
+1. In `uat_simulation`, the signed-in, phone-verified vault owner opens Check in
+   on Your Map. One captures one fresh foreground point, shows nearby provider
+   places, and lets the owner choose or search the exact public place before
+   continuing.
+2. In the production `event_pilot`, the owner first claims an organizer-issued,
+   signed, one-time event pass. The backend stores only its SHA-256 claim digest,
+   binds the claim to that owner, and supplies the server-owned event venue.
+   Raw passes are never logged or persisted by the backend.
+3. Both modes capture one fresh foreground point before publication. The backend
+   requires the point's complete accuracy envelope to remain inside the fixed
+   500-meter radius around the selected simulation place or admitted event
+   venue. Accuracy never expands the admission radius.
+4. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
+   their safe display label to other opted-in check-ins. Production presence is
+   additionally bounded by the admitted event end. Allowing Connect requests is
+   a separate switch and defaults off.
+5. Raw device coordinates and accuracy exist only in request memory. The
    selected public-place anchor is persisted only as an AES-256-GCM envelope,
    alongside a server-keyed six-hour spatial candidate token, rotating alias,
    consent posture, fixed radius, and expiry metadata. Checkout clears all
@@ -184,21 +189,24 @@ grants nearby or live-location visibility.
    roster visibility and Connect authorization stop synchronously; encrypted
    material is scrubbed by the next feature operation or the hosted hourly
    retention job.
-5. The candidate token is never accepted as proof of proximity. The service
+6. The candidate token is never accepted as proof of proximity. The service
    decrypts candidate anchors and applies exact Haversine distance before
    returning at most 20 active people. Spot A and Spot B therefore match when
-   their selected public-place anchors are within 500 meters. Peers never
-   receive one another's place, coordinates, distance, direction, contact
-   details, or stable user id.
-6. Presence uses server-authoritative expiry and has no watcher, heartbeat,
+   their selected public-place anchors are within 500 meters. Production
+   results are also restricted to the same admitted event. Peers never receive
+   one another's place, coordinates, distance, direction, contact details, or
+   stable user id.
+7. Presence uses server-authoritative expiry and has no watcher, heartbeat,
    automatic extension, arrival detection, movement history, or distance
    ranking. Closing the app does not check out; the explicit Check out action
    remains available and idempotent.
-7. Connect submits only the rotating alias in a JSON body. The backend performs
+8. Connect submits only the rotating alias in a JSON body. The backend performs
    the exact distance assessment, binds it to both presence versions, then
    atomically revalidates activity, expiry, phone verification, and the target's
    Connect opt-in before creating the canonical pending request. It does not
-   auto-connect, create a location grant, or retain co-presence context.
+   auto-connect, create a location grant, or retain co-presence context. Block
+   immediately hides both users from one another and cancels pending requests;
+   Report records the safety event and also blocks the reported user.
 
 An active nearby presence may hand off to the existing recipient-scoped private
 Check-In as a second, explicit consent. The client shows the precise point first
@@ -217,12 +225,20 @@ operation id with different details, expired publication, or rotated recipient
 key fails closed. Nearby presence itself still creates no grant and exposes no
 precise coordinate.
 
-This is a visibly labelled local/UAT simulation. Its routes are rate limited per
-signed principal and fail closed in production; Check out remains available as
-a privacy/recovery action. Browser/device GPS is forgeable. Production requires
-organizer admission proof (signed QR/NFC/provider signal), replay resistance,
-shared abuse limits, and bidirectional Block/Report before trusted attendance
-or spoof resistance may be claimed.
+Local/UAT defaults to the visibly labelled `uat_simulation`. Production is
+available only when the governed runtime gate is exactly `event_pilot` and an
+event is active; otherwise Nearby Check-In is unavailable and Your Map keeps
+the existing recipient-scoped private Check-In flow. The global mode and
+per-event status are independent kill switches. Production uses one-time
+organizer admission, database-backed replay protection and abuse limits,
+same-event roster isolation, and bidirectional Block/Report. Browser/device GPS
+remains forgeable, so the pilot does not claim tamper-resistant physical
+attendance. Check out remains available as a privacy/recovery action.
+
+Maintainers create, activate, pause, close, and issue admissions through
+`consent-protocol/scripts/one_location_event_pilot.py`. Pausing or closing an
+event atomically checks out its active attendees and scrubs encrypted anchors;
+a closed event cannot be reopened.
 
 ## Agent And Tool Contract
 
@@ -303,9 +319,11 @@ Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
 terminal access requests, referrals, and related metadata-only events are
 retained for at most 12 hours after expiry or revocation, then purged from the
 database. The runtime runs opportunistic cleanup during state/read flows.
-Before nearby presence is enabled in a hosted environment, operators must
-configure and verify the hourly `one-location-retention-purge-uat` job through
-`deploy/one-location/setup_retention_scheduler.sh`. It calls
+Before nearby presence is enabled in a hosted environment, the release must
+configure and verify the hourly environment-specific retention job through
+`deploy/one-location/setup_retention_scheduler.sh`:
+`one-location-retention-purge-uat` in UAT or
+`one-location-retention-purge-production` in production. It calls
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
 `ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within

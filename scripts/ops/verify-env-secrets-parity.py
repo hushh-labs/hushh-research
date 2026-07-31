@@ -77,6 +77,15 @@ BACKEND_PROD_PHONE_TEST_REQUIRED = (
     "HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET",
 )
 
+BACKEND_ONE_LOCATION_EVENT_PILOT_SECRET_REQUIRED = (
+    "ONE_LOCATION_RETENTION_TOKEN",
+)
+
+BACKEND_ONE_LOCATION_EVENT_PILOT_RUNTIME_REQUIRED = (
+    "ONE_LOCATION_RETENTION_TOKEN",
+    "ONE_LOCATION_NEARBY_PRESENCE_MODE",
+)
+
 GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 FRONTEND_REQUIRED = (
@@ -687,6 +696,35 @@ def _one_email_runtime_semantics(
     }
 
 
+def _one_location_event_pilot_runtime_semantics(
+    env_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Validate the production pilot mode without rendering secret values."""
+
+    retention_source = _runtime_source_label(
+        env_map.get("ONE_LOCATION_RETENTION_TOKEN", {})
+    )
+    checks = {
+        "mode": (
+            _literal_runtime_value(
+                env_map, "ONE_LOCATION_NEARBY_PRESENCE_MODE"
+            )
+            == "event_pilot"
+        ),
+        "retention_secret": (
+            _secret_name_from_source(retention_source)
+            == "ONE_LOCATION_RETENTION_TOKEN"
+        ),
+    }
+    return {
+        "status": "valid" if all(checks.values()) else "mismatch",
+        "checks": {
+            key: "valid" if value else "mismatch"
+            for key, value in checks.items()
+        },
+    }
+
+
 def _parity_targets(
     backend_revision: str | None, frontend_revision: str | None
 ) -> tuple[bool, bool]:
@@ -778,6 +816,14 @@ def main() -> int:
         help="Also require production fixed-code phone-test secrets on the backend runtime.",
     )
     parser.add_argument(
+        "--require-one-location-event-pilot",
+        action="store_true",
+        help=(
+            "Require the production One Location event-pilot mode and its "
+            "dedicated retention token mount."
+        ),
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -815,6 +861,8 @@ def main() -> int:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if checks_backend and args.require_prod_phone_test:
         required.extend(BACKEND_PROD_PHONE_TEST_REQUIRED)
+    if checks_backend and args.require_one_location_event_pilot:
+        required.extend(BACKEND_ONE_LOCATION_EVENT_PILOT_SECRET_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
@@ -849,6 +897,11 @@ def main() -> int:
             "prod_phone_test": list(BACKEND_PROD_PHONE_TEST_REQUIRED)
             if checks_backend and args.require_prod_phone_test
             else [],
+            "one_location_event_pilot": list(
+                BACKEND_ONE_LOCATION_EVENT_PILOT_SECRET_REQUIRED
+            )
+            if checks_backend and args.require_one_location_event_pilot
+            else [],
             "plaid": list(BACKEND_PLAID_REQUIRED)
             if checks_backend and args.require_plaid
             else [],
@@ -871,6 +924,9 @@ def main() -> int:
         "domain_runtime_contract": {"status": "not_checked"},
         "firebase_project_contract": {"status": "not_checked"},
         "one_email_runtime_semantics": {"status": "not_checked"},
+        "one_location_event_pilot_runtime_semantics": {
+            "status": "not_checked"
+        },
     }
 
     print(f"Project: {args.project}")
@@ -920,6 +976,12 @@ def main() -> int:
         print(
             "Required production phone-test backend secrets "
             f"({len(BACKEND_PROD_PHONE_TEST_REQUIRED)}): {_format_names(BACKEND_PROD_PHONE_TEST_REQUIRED)}"
+        )
+    if checks_backend and args.require_one_location_event_pilot:
+        print(
+            "Required One Location event-pilot backend secrets "
+            f"({len(BACKEND_ONE_LOCATION_EVENT_PILOT_SECRET_REQUIRED)}): "
+            f"{_format_names(BACKEND_ONE_LOCATION_EVENT_PILOT_SECRET_REQUIRED)}"
         )
     if checks_frontend:
         print(
@@ -1050,6 +1112,12 @@ def main() -> int:
                 _classify_runtime_key(backend_env, key)
                 for key in BACKEND_REVIEWER_SMOKE_REQUIRED
             ]
+        backend_one_location_event_pilot_entries = []
+        if checks_backend and args.require_one_location_event_pilot:
+            backend_one_location_event_pilot_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_ONE_LOCATION_EVENT_PILOT_RUNTIME_REQUIRED
+            ]
 
         report["runtime_contract"]["frontend"] = frontend_entries
         report["runtime_contract"]["backend"] = backend_entries
@@ -1060,6 +1128,9 @@ def main() -> int:
             backend_connected_systems_entries
         )
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
+        report["runtime_contract"]["backend_one_location_event_pilot"] = (
+            backend_one_location_event_pilot_entries
+        )
         report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
         report["runtime_contract"]["backend_serving_revisions"] = backend_revisions
 
@@ -1073,6 +1144,21 @@ def main() -> int:
             if one_email_runtime_semantics["status"] != "valid":
                 report["classifications"].append(
                     "one_email_runtime_semantics_failed"
+                )
+        if checks_backend and args.require_one_location_event_pilot:
+            one_location_runtime_semantics = (
+                _one_location_event_pilot_runtime_semantics(backend_env)
+            )
+            report["one_location_event_pilot_runtime_semantics"] = (
+                one_location_runtime_semantics
+            )
+            print(
+                "One Location event-pilot runtime semantics: "
+                f"{one_location_runtime_semantics['status']}"
+            )
+            if one_location_runtime_semantics["status"] != "valid":
+                report["classifications"].append(
+                    "one_location_event_pilot_runtime_semantics_failed"
                 )
 
         runtime_classifications = []
@@ -1088,6 +1174,11 @@ def main() -> int:
         )
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
+        )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(
+                backend_one_location_event_pilot_entries
+            )
         )
         report["classifications"].extend(runtime_classifications)
 
@@ -1120,6 +1211,13 @@ def main() -> int:
                     backend_reviewer_smoke_entries,
                 )
             )
+        if checks_backend and args.require_one_location_event_pilot:
+            print(
+                _render_runtime_summary(
+                    "Backend One Location event-pilot runtime env contract",
+                    backend_one_location_event_pilot_entries,
+                )
+            )
 
         runtime_failures = [
             entry["key"]
@@ -1131,6 +1229,7 @@ def main() -> int:
                 + backend_voice_entries
                 + backend_connected_systems_entries
                 + backend_reviewer_smoke_entries
+                + backend_one_location_event_pilot_entries
             )
             if entry["status"] in {"legacy", "missing"}
         ]

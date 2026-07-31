@@ -34,6 +34,14 @@ from hushh_mcp.services.one_location_agent_service import (
     database_error_detail,
     location_error_detail,
 )
+from hushh_mcp.services.one_location_event_admission_service import (
+    EventAdmissionError,
+    OneLocationEventAdmissionService,
+)
+from hushh_mcp.services.one_location_nearby_abuse_service import (
+    NearbyAbuseLimitError,
+    OneLocationNearbyAbuseService,
+)
 from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
@@ -182,6 +190,12 @@ class NearbyPresenceCheckInRequest(_CamelModel):
     )
     consent_accepted: bool = Field(alias="consentAccepted")
     allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
+    admission_id: str | None = Field(
+        default=None,
+        alias="admissionId",
+        min_length=36,
+        max_length=36,
+    )
 
 
 class NearbyConnectionRequest(_CamelModel):
@@ -194,12 +208,30 @@ class NearbyConnectionRequest(_CamelModel):
     )
 
 
+class NearbyAdmissionRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    admission_token: str = Field(alias="admissionToken", min_length=20, max_length=2_048)
+
+
+class NearbySafetyRequest(NearbyConnectionRequest):
+    reason_code: str | None = Field(default=None, alias="reasonCode", max_length=40)
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
 
 def _nearby_presence_service() -> OneLocationNearbyPresenceService:
     return OneLocationNearbyPresenceService()
+
+
+def _nearby_event_admission_service() -> OneLocationEventAdmissionService:
+    return OneLocationEventAdmissionService()
+
+
+def _nearby_abuse_service() -> OneLocationNearbyAbuseService:
+    return OneLocationNearbyAbuseService()
 
 
 def _user_id(token_data: dict[str, Any]) -> str:
@@ -217,7 +249,10 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, NearbyPresenceError):
+    if isinstance(
+        exc,
+        (NearbyPresenceError, EventAdmissionError, NearbyAbuseLimitError),
+    ):
         return HTTPException(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": exc.message},
@@ -247,29 +282,32 @@ def _retention_auth_enabled() -> bool:
     return True
 
 
-def _nearby_presence_simulation_enabled() -> bool:
-    """Expose the spoofable radius simulation only in non-production lanes."""
+def _nearby_presence_mode() -> str:
+    """Resolve the fail-closed server authority for Nearby Check-In."""
 
     environment = (
         str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
     )
     safe_environments = {"development", "dev", "local", "test", "uat", "staging"}
-    if environment not in safe_environments:
-        return False
     mode = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_MODE") or "").strip().lower()
-    if mode:
-        return mode == "uat_simulation" and environment in safe_environments
-    return True
+    if environment in safe_environments:
+        if mode == "disabled":
+            return "disabled"
+        return "uat_simulation"
+    if environment == "production" and mode == "event_pilot":
+        return "event_pilot"
+    return "disabled"
 
 
-def _require_nearby_presence_simulation() -> None:
-    if _nearby_presence_simulation_enabled():
-        return
+def _require_nearby_presence_available(*, uat_only: bool = False) -> str:
+    mode = _nearby_presence_mode()
+    if mode != "disabled" and (not uat_only or mode == "uat_simulation"):
+        return mode
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail={
             "code": "NEARBY_PRESENCE_UNAVAILABLE",
-            "message": "Nearby check-in simulation is not available in this environment.",
+            "message": "Nearby check-in is not available right now.",
         },
     )
 
@@ -600,7 +638,7 @@ async def maps_nearby_places(
     payload: MapsNearbyPlacesRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
+    _require_nearby_presence_available(uat_only=True)
     _user_id(token_data)
     _set_private_no_store(response)
     try:
@@ -616,6 +654,84 @@ async def maps_nearby_places(
         ) from exc
 
 
+@router.get("/location/nearby-presence/capability")
+def get_nearby_presence_capability(
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _user_id(token_data)
+    _set_private_no_store(response)
+    mode = _nearby_presence_mode()
+    available = mode != "disabled"
+    if mode == "event_pilot":
+        try:
+            available = _nearby_event_admission_service().has_active_event()
+        except Exception as exc:
+            raise _handle_error(exc) from exc
+    return {
+        "available": available,
+        "mode": mode,
+        "admissionRequired": mode == "event_pilot",
+    }
+
+
+@router.post("/location/nearby-presence/admission")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+async def claim_nearby_admission(
+    request: Request,
+    response: Response,
+    payload: NearbyAdmissionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if _require_nearby_presence_available() != "event_pilot":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NEARBY_ADMISSION_UNAVAILABLE",
+                "message": "Event passes are not used in this environment.",
+            },
+        )
+    _set_private_no_store(response)
+    user_id = _user_id(token_data)
+    try:
+        await run_in_threadpool(
+            _nearby_abuse_service().consume,
+            user_id=user_id,
+            action="admission",
+        )
+        return await run_in_threadpool(
+            _nearby_event_admission_service().claim,
+            user_id=user_id,
+            admission_token=payload.admission_token,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/nearby-presence/admission")
+def get_current_nearby_admission(
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if _require_nearby_presence_available() != "event_pilot":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NEARBY_ADMISSION_UNAVAILABLE",
+                "message": "Event passes are not used in this environment.",
+            },
+        )
+    _set_private_no_store(response)
+    try:
+        return {
+            "admission": _nearby_event_admission_service().current_admission(
+                user_id=_user_id(token_data)
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/nearby-presence/check-in")
 @limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
 async def check_in_nearby(
@@ -626,25 +742,50 @@ async def check_in_nearby(
 ):
     """Publish a short-lived presence after verifying a fresh nearby-place fix."""
 
-    _require_nearby_presence_simulation()
+    mode = _require_nearby_presence_available()
     _set_private_no_store(response)
+    user_id = _user_id(token_data)
     try:
-        place = await _maps_service().place_details(payload.place_id)
+        event_context = None
+        if mode == "event_pilot":
+            await run_in_threadpool(
+                _nearby_abuse_service().consume,
+                user_id=user_id,
+                action="check_in",
+            )
+            event_context = await run_in_threadpool(
+                _nearby_event_admission_service().require_context,
+                user_id=user_id,
+                admission_claim_id=payload.admission_id or "",
+            )
+            place = {
+                "placeId": event_context.venue_place_id,
+                "label": event_context.venue_label,
+                "latitude": event_context.venue_latitude,
+                "longitude": event_context.venue_longitude,
+            }
+        else:
+            place = await _maps_service().place_details(payload.place_id)
+        place_latitude = place.get("latitude")
+        place_longitude = place.get("longitude")
+        if place_latitude is None or place_longitude is None:
+            raise GoogleMapsError("Place details did not include coordinates.", status_code=502)
         service = _nearby_presence_service()
         state = await run_in_threadpool(
             service.check_in,
-            user_id=_user_id(token_data),
+            user_id=user_id,
             place_id=str(place.get("placeId") or payload.place_id),
             place_label=str(place.get("label") or "Selected place"),
             current_lat=payload.current_lat,
             current_lng=payload.current_lng,
-            place_lat=float(place.get("latitude")),
-            place_lng=float(place.get("longitude")),
+            place_lat=float(place_latitude),
+            place_lng=float(place_longitude),
             accuracy_m=payload.accuracy_m,
             captured_at=payload.captured_at,
             duration_minutes=payload.duration_minutes,
             consent_accepted=payload.consent_accepted,
             allow_connection_requests=payload.allow_connection_requests,
+            event_context=event_context,
         )
         return state
     except GoogleMapsError as exc:
@@ -671,10 +812,13 @@ def get_nearby_presence(
     response: Response,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
+    mode = _require_nearby_presence_available()
     _set_private_no_store(response)
+    user_id = _user_id(token_data)
     try:
-        return _nearby_presence_service().get_state(user_id=_user_id(token_data))
+        if mode == "event_pilot":
+            _nearby_abuse_service().consume(user_id=user_id, action="roster")
+        return _nearby_presence_service().get_state(user_id=user_id)
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -701,12 +845,60 @@ def request_nearby_connection(
     payload: NearbyConnectionRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
+    mode = _require_nearby_presence_available()
     _set_private_no_store(response)
+    user_id = _user_id(token_data)
     try:
+        if mode == "event_pilot":
+            _nearby_abuse_service().consume(user_id=user_id, action="connect")
         return _nearby_presence_service().request_connection(
-            user_id=_user_id(token_data),
+            user_id=user_id,
             participant_alias=payload.participant_alias,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/nearby-presence/block")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_CONNECT)
+def block_nearby_attendee(
+    request: Request,
+    response: Response,
+    payload: NearbySafetyRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    mode = _require_nearby_presence_available()
+    _set_private_no_store(response)
+    user_id = _user_id(token_data)
+    try:
+        if mode == "event_pilot":
+            _nearby_abuse_service().consume(user_id=user_id, action="block")
+        return _nearby_presence_service().block(
+            user_id=user_id,
+            participant_alias=payload.participant_alias,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/nearby-presence/report")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_CONNECT)
+def report_nearby_attendee(
+    request: Request,
+    response: Response,
+    payload: NearbySafetyRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    mode = _require_nearby_presence_available()
+    _set_private_no_store(response)
+    user_id = _user_id(token_data)
+    try:
+        if mode == "event_pilot":
+            _nearby_abuse_service().consume(user_id=user_id, action="report")
+        return _nearby_presence_service().report(
+            user_id=user_id,
+            participant_alias=payload.participant_alias,
+            reason_code=payload.reason_code or "",
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

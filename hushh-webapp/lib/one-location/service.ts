@@ -14,7 +14,9 @@ import type {
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
+  OneLocationNearbyAdmission,
   OneLocationNearbyAttendee,
+  OneLocationNearbyCapability,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   OneLocationGrant,
@@ -518,6 +520,7 @@ export class OneLocationService {
     message: string;
     retryLocation: boolean;
     openAppSettings: boolean;
+    resetAdmission: boolean;
   } {
     const code = apiErrorCode(error);
     if (code === "NEARBY_PRESENCE_LOCATION_TOO_COARSE") {
@@ -525,6 +528,7 @@ export class OneLocationService {
         message: "Turn on precise location, then try again.",
         retryLocation: true,
         openAppSettings: true,
+        resetAdmission: false,
       };
     }
     if (code === "NEARBY_PRESENCE_LOCATION_STALE") {
@@ -532,6 +536,7 @@ export class OneLocationService {
         message: "Your location reading expired. Refresh it and try again.",
         retryLocation: true,
         openAppSettings: false,
+        resetAdmission: false,
       };
     }
     if (code === "NEARBY_PRESENCE_OUTSIDE_RADIUS") {
@@ -539,6 +544,7 @@ export class OneLocationService {
         message: "That place is too far away. Choose a closer place.",
         retryLocation: false,
         openAppSettings: false,
+        resetAdmission: false,
       };
     }
     if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
@@ -546,6 +552,19 @@ export class OneLocationService {
         message: "Verify your phone number before checking in nearby.",
         retryLocation: false,
         openAppSettings: false,
+        resetAdmission: false,
+      };
+    }
+    if (
+      code === "NEARBY_ADMISSION_REQUIRED" ||
+      code === "NEARBY_ADMISSION_INVALID" ||
+      code === "NEARBY_EVENT_CLOSED"
+    ) {
+      return {
+        message: "Your event pass is no longer active. Enter a new pass.",
+        retryLocation: false,
+        openAppSettings: false,
+        resetAdmission: true,
       };
     }
     if (code === "NEARBY_PRESENCE_UNAVAILABLE") {
@@ -553,6 +572,7 @@ export class OneLocationService {
         message: "Nearby check-in is not available in this environment.",
         retryLocation: false,
         openAppSettings: false,
+        resetAdmission: false,
       };
     }
     if (error instanceof ApiError && error.status === 429) {
@@ -560,12 +580,14 @@ export class OneLocationService {
         message: "Too many check-in attempts. Wait a moment and try again.",
         retryLocation: false,
         openAppSettings: false,
+        resetAdmission: false,
       };
     }
     return {
       message: "Check-in didn't complete. Your location is not visible.",
       retryLocation: false,
       openAppSettings: false,
+      resetAdmission: false,
     };
   }
 
@@ -618,6 +640,44 @@ export class OneLocationService {
     );
   }
 
+  static async getNearbyCapability(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationNearbyCapability> {
+    return apiJson<OneLocationNearbyCapability>(
+      "/api/one/location/nearby-presence/capability",
+      {
+        method: "GET",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async claimNearbyAdmission(params: {
+    vaultOwnerToken: string;
+    admissionToken: string;
+  }): Promise<OneLocationNearbyAdmission> {
+    return apiJson<OneLocationNearbyAdmission>(
+      "/api/one/location/nearby-presence/admission",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ admissionToken: params.admissionToken }),
+      },
+    );
+  }
+
+  static async getCurrentNearbyAdmission(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationNearbyAdmission | null> {
+    const response = await apiJson<{
+      admission: OneLocationNearbyAdmission | null;
+    }>("/api/one/location/nearby-presence/admission", {
+      method: "GET",
+      headers: authHeaders(params.vaultOwnerToken),
+    });
+    return response.admission ?? null;
+  }
+
   static async checkInNearby(params: {
     vaultOwnerToken: string;
     placeId: string;
@@ -625,6 +685,7 @@ export class OneLocationService {
     durationMinutes: 30 | 60 | 120;
     consentAccepted: boolean;
     allowConnectionRequests: boolean;
+    admissionId?: string;
   }): Promise<OneLocationNearbyPresenceState> {
     return apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence/check-in",
@@ -640,6 +701,7 @@ export class OneLocationService {
           durationMinutes: params.durationMinutes,
           consentAccepted: params.consentAccepted,
           allowConnectionRequests: params.allowConnectionRequests,
+          ...(params.admissionId ? { admissionId: params.admissionId } : {}),
         }),
       },
     );
@@ -667,6 +729,38 @@ export class OneLocationService {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ participantAlias: params.participantAlias }),
+      },
+    );
+  }
+
+  static async blockNearbyAttendee(params: {
+    vaultOwnerToken: string;
+    participantAlias: string;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence/block",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ participantAlias: params.participantAlias }),
+      },
+    );
+  }
+
+  static async reportNearbyAttendee(params: {
+    vaultOwnerToken: string;
+    participantAlias: string;
+    reasonCode: "spam" | "harassment" | "unsafe_behavior" | "other";
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence/report",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          participantAlias: params.participantAlias,
+          reasonCode: params.reasonCode,
+        }),
       },
     );
   }

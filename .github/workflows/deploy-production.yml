@@ -400,7 +400,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_ONE_LOCATION_RETENTION_TOKEN_SECRET=ONE_LOCATION_RETENTION_TOKEN,_ONE_LOCATION_NEARBY_PRESENCE_MODE=event_pilot,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -493,6 +493,7 @@ jobs:
             --require-voice \
             --require-connected-systems \
             --require-prod-phone-test \
+            --require-one-location-event-pilot \
             --assert-runtime-env-contract
 
       - name: Verify production Connected Systems Omni Gateway
@@ -502,6 +503,16 @@ jobs:
         run: |
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_connected_systems_gateway.py \
             --project "${{ env.GCP_PROJECT_ID }}"
+
+      - name: Configure production One Location retention
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
+        shell: bash
+        env:
+          DEPLOY_ENV: production
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          BACKEND_URL: ${{ steps.backend-url.outputs.url }}
+        run: bash deploy/one-location/setup_retention_scheduler.sh
 
       # New revisions are deployed with --no-traffic (see _CLOUD_RUN_NO_TRAFFIC=true
       # above), so promotion is an explicit, reversible step: shift 100% to the
@@ -539,6 +550,24 @@ jobs:
           # rollback step below reverts traffic to the predeploy revision.
           bash scripts/ci/cloudrun-http-health.sh \
             "${{ steps.backend-url.outputs.url }}" "/health" 5 30 5 200
+          retention_token="$(gcloud secrets versions access latest \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --secret=ONE_LOCATION_RETENTION_TOKEN)"
+          if [ -z "$retention_token" ]; then
+            echo "One Location retention token is empty or inaccessible." >&2
+            exit 1
+          fi
+          echo "::add-mask::$retention_token"
+          retention_status="$(curl --silent --show-error --max-time 300 \
+            --output /tmp/one-location-retention-smoke.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "X-Hushh-Maintenance-Token: $retention_token" \
+            "${{ steps.backend-url.outputs.url }}/api/one/location/retention/purge?older_than_hours=12")"
+          if [ "$retention_status" != "200" ]; then
+            echo "One Location retention smoke failed with HTTP $retention_status." >&2
+            exit 1
+          fi
 
       - name: Post-deploy frontend runtime health gate
         id: health-frontend

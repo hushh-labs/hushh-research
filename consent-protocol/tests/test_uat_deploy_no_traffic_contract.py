@@ -142,6 +142,8 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert '|| [ "$parity_failed" = "true" ]' in workflow
     assert "parity_failed=$parity_failed (warning-only)" not in workflow
     assert "--require-connected-systems" in workflow
+    assert "--require-one-location-event-pilot" in workflow
+    assert "_ONE_LOCATION_RETENTION_TOKEN_SECRET=ONE_LOCATION_RETENTION_TOKEN" in workflow
     assert "- name: Verify production Connected Systems Omni Gateway" in workflow
     assert (
         workflow.index("- name: Verify production Connected Systems Omni Gateway")
@@ -152,6 +154,9 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert '|| [ "$connected_systems_failed" = "true" ]' in workflow
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai" in workflow
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow
+    retention_position = workflow.index("- name: Configure production One Location retention")
+    assert parity_position < retention_position < promote_position
+    assert "run: bash deploy/one-location/setup_retention_scheduler.sh" in workflow
 
 
 def test_production_release_result_fails_closed_on_upstream_or_missing_classification() -> None:
@@ -183,6 +188,7 @@ def test_production_wif_has_one_keyless_setup_path() -> None:
     assert 'readonly BACKEND_ARTIFACT_LOCATION="us"' in setup_script
     assert "gcloud artifacts repositories add-iam-policy-binding" in setup_script
     assert '"roles/artifactregistry.reader"' in setup_script
+    assert '"roles/cloudscheduler.admin"' in setup_script
     assert "gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER" in setup_script
     assert "gh variable set GCP_DEPLOY_SERVICE_ACCOUNT" in setup_script
     assert "service-account keys create" not in setup_script
@@ -199,6 +205,11 @@ def test_production_health_gates_only_probe_after_successful_promotion() -> None
         "if: steps.scope.outputs.deploy_frontend == 'true' "
         "&& steps.promote-traffic.outcome == 'success'"
     ) in workflow
+    health_position = workflow.index("- name: Post-deploy backend runtime health gate")
+    promote_position = workflow.index("- name: Promote deployed revisions to production traffic")
+    assert promote_position < health_position
+    assert "/api/one/location/retention/purge?older_than_hours=12" in workflow
+    assert "--secret=ONE_LOCATION_RETENTION_TOKEN" in workflow
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:

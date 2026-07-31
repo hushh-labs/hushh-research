@@ -245,7 +245,7 @@ Used by:
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so maintenance endpoints require `X-Hushh-Maintenance-Token`. |
 | `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Yes (hosted retention) | Dedicated maintenance token for One Location retention purge. It is not shared with One Email maintenance tokens. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `api/routes/one/location.py` | Optional local/test override | One Location retention auth defaults on; `false` is honored only in local/test environments. |
-| `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `api/routes/one/location.py` | Optional non-production override | `disabled` or `uat_simulation`. Development/UAT/staging default to the simulation; production remains disabled even if misconfigured. |
+| `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `api/routes/one/location.py` | Governed rollout gate | Development/UAT/staging default to `uat_simulation`; `disabled` closes the feature. Production enables the admitted event pilot only for the exact value `event_pilot`; every other value fails closed. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults to `true`. Backend orchestrates consent/send/writeback metadata only; it must not decrypt exports or persist review draft plaintext. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Must be on the service allowlist. Current approved value: `attr.identity.*`. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Real Workspace mailbox to impersonate for support/invite send. Defaults to `ONE_EMAIL_ADDRESS`. |
@@ -340,7 +340,7 @@ Used by:
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | Yes (hosted renewal) | No | Hosted Cloud Run env | Must be `true` in UAT/production. |
 | `ONE_LOCATION_RETENTION_TOKEN` | Yes (hosted retention) | Yes | Secret Manager | Dedicated token for location retention purge. Do not reuse `ONE_EMAIL_WATCH_RENEW_TOKEN`. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
-| `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Optional non-production override | No | Local/UAT Cloud Run env | Use `uat_simulation` or `disabled`; omit from production because production is hard-disabled in code. |
+| `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Governed rollout gate | No | Hosted Cloud Run env | Development/UAT/staging default to `uat_simulation`. Production requires the exact `event_pilot` value from the governed deployment; unset or any other value disables Nearby Check-In. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | Optional | No | Hosted Cloud Run env | Must remain `true` in dev/UAT strict client-side ZK mode. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | Optional | No | Hosted Cloud Run env | Must remain allowlisted. Current approved value: `attr.identity.*`. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | Optional override | No | Local: `.env`; Prod: Cloud Run env | Must be a real Workspace user mailbox, not a group. Defaults to `ONE_EMAIL_ADDRESS`. |
@@ -365,8 +365,10 @@ One mailbox production caveats:
 - Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30` with the same maintenance token.
 - Hosted One Location retention must run
   `deploy/one-location/setup_retention_scheduler.sh` and verify the hourly
-  `one-location-retention-purge-uat` job before nearby presence is enabled. The
-  job calls `POST /api/one/location/retention/purge?older_than_hours=12` with
+  environment-specific job (`one-location-retention-purge-uat` or
+  `one-location-retention-purge-production`) before nearby presence is enabled.
+  The job calls
+  `POST /api/one/location/retention/purge?older_than_hours=12` with
   `X-Hushh-Maintenance-Token` set to the dedicated
   `ONE_LOCATION_RETENTION_TOKEN`.
 - One Email KYC connector private keys are client/vault-owned. Do not configure backend connector public, key-id, or private-key env vars for strict client-side ZK mode.

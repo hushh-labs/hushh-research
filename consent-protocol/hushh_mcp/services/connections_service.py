@@ -378,6 +378,8 @@ class ConnectionsService:
                         p.owner_user_id,
                         p.participant_alias,
                         p.allow_connection_requests,
+                        p.admission_mode,
+                        p.event_id,
                         p.version
                       FROM one_location_nearby_presences p
                       JOIN actor_identity_cache profile
@@ -389,6 +391,17 @@ class ConnectionsService:
                         )
                         AND p.status = 'active'
                         AND p.expires_at > NOW()
+                        AND (
+                          p.admission_mode = 'uat_simulation'
+                          OR EXISTS (
+                            SELECT 1
+                            FROM one_location_nearby_event_pilots event
+                            WHERE event.event_id = p.event_id
+                              AND event.status = 'active'
+                              AND event.starts_at <= NOW()
+                              AND event.ends_at > NOW()
+                          )
+                        )
                       ORDER BY p.owner_user_id
                       FOR UPDATE OF p
                     ),
@@ -404,6 +417,23 @@ class ConnectionsService:
                       WHERE viewer.owner_user_id = :requester_user_id
                         AND viewer.version = :requester_presence_version
                         AND target.version = :target_presence_version
+                        AND viewer.admission_mode = target.admission_mode
+                        AND (
+                          viewer.admission_mode = 'uat_simulation'
+                          OR viewer.event_id = target.event_id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM one_location_nearby_blocks block
+                          WHERE (
+                              block.blocker_user_id = viewer.owner_user_id
+                              AND block.blocked_user_id = target.owner_user_id
+                            )
+                            OR (
+                              block.blocker_user_id = target.owner_user_id
+                              AND block.blocked_user_id = viewer.owner_user_id
+                            )
+                        )
                     ),
                     connected AS MATERIALIZED (
                       SELECT 1
@@ -460,6 +490,28 @@ class ConnectionsService:
                         AND NOT EXISTS (SELECT 1 FROM existing)
                       ON CONFLICT DO NOTHING
                       RETURNING requester_user_id, addressee_user_id
+                    ),
+                    audited AS (
+                      INSERT INTO one_location_nearby_audit_events (
+                        actor_user_id,
+                        target_user_id,
+                        event_id,
+                        action,
+                        outcome,
+                        presence_version
+                      )
+                      SELECT
+                        e.requester_user_id,
+                        e.addressee_user_id,
+                        viewer.event_id,
+                        'connection_requested',
+                        'succeeded',
+                        viewer.version
+                      FROM eligible e
+                      JOIN locked viewer
+                        ON viewer.owner_user_id = e.requester_user_id
+                      WHERE EXISTS (SELECT 1 FROM inserted)
+                      RETURNING audit_id
                     )
                     SELECT
                       e.addressee_user_id AS target_user_id,
@@ -862,42 +914,209 @@ class ConnectionsService:
         denied_scopes: list[str] | None = None,
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        req = self._load_request(request_id)
-        if str(req.get("addressee_user_id")) != user_id:
+        initial_request = self._load_request(request_id)
+        if str(initial_request.get("addressee_user_id")) != user_id:
             raise ConnectionsError(
                 "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
             )
-        if str(req.get("status")) == "accepted":
-            return {"status": "accepted", "requestId": req.get("id"), "connectionId": None}
-        if str(req.get("status")) != "pending":
-            raise ConnectionsError(
-                "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
-            )
-
-        requester = str(req.get("requester_user_id"))
+        requester = str(initial_request.get("requester_user_id"))
         user_a, user_b = self._canonical_pair(requester, user_id)
-        conn = self._execute_one(
-            """
-            INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-            VALUES (:a, :b, 'active', 'request', NOW(), NOW())
-            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-              status = 'active', revoked_at = NULL, updated_at = NOW()
-            RETURNING id
-            """,
-            {"a": user_a, "b": user_b},
-        )
-        # Mirror both directional trusted edges so location/SOS readers keep working.
-        self._mirror_trusted_edge(requester, user_id)
-        self._mirror_trusted_edge(user_id, requester)
-        self._execute_one(
-            """
-            UPDATE connection_requests
-            SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
-            WHERE id = :id
-            RETURNING id
-            """,
-            {"id": req.get("id")},
-        )
+        params = {
+            "request_id": str(initial_request.get("id") or ""),
+            "a": user_a,
+            "b": user_b,
+        }
+        blocked = False
+        connection_id: str | None = None
+        req: dict[str, Any]
+        with get_db().engine.begin() as db_conn:
+            # Nearby Block and request acceptance use the same canonical pair
+            # lock, so a block that commits first always prevents acceptance.
+            db_conn.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtext(:a),
+                      hashtext(:b)
+                    )
+                    """
+                ),
+                params,
+            )
+            request_result = (
+                db_conn.execute(
+                    text(
+                        """
+                    SELECT id, requester_user_id, addressee_user_id, status, metadata
+                    FROM connection_requests
+                    WHERE id = :request_id
+                    FOR UPDATE
+                    """
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+            if request_result is None:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    "Request not found.",
+                    status_code=404,
+                )
+            req = dict(request_result)
+            if str(req.get("addressee_user_id")) != user_id:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_ADDRESSEE",
+                    "Only the addressee can accept.",
+                    status_code=403,
+                )
+            if str(req.get("status")) == "accepted":
+                existing_connection = (
+                    db_conn.execute(
+                        text(
+                            """
+                        SELECT id
+                        FROM connections
+                        WHERE user_a_id = :a
+                          AND user_b_id = :b
+                          AND status = 'active'
+                        LIMIT 1
+                        """
+                        ),
+                        params,
+                    )
+                    .mappings()
+                    .first()
+                )
+                return {
+                    "status": "accepted",
+                    "requestId": req.get("id"),
+                    "connectionId": (
+                        str(existing_connection["id"]) if existing_connection is not None else None
+                    ),
+                }
+            if str(req.get("status")) != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
+            block_exists = db_conn.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM one_location_nearby_blocks block
+                    WHERE (
+                        block.blocker_user_id = :a
+                        AND block.blocked_user_id = :b
+                      )
+                      OR (
+                        block.blocker_user_id = :b
+                        AND block.blocked_user_id = :a
+                      )
+                    LIMIT 1
+                    """
+                ),
+                params,
+            ).first()
+            if block_exists:
+                db_conn.execute(
+                    text(
+                        """
+                        UPDATE connection_requests
+                        SET
+                          status = 'cancelled',
+                          responded_at = NOW(),
+                          updated_at = NOW()
+                        WHERE id = :request_id
+                          AND status = 'pending'
+                        """
+                    ),
+                    params,
+                )
+                blocked = True
+            else:
+                connection_result = (
+                    db_conn.execute(
+                        text(
+                            """
+                        INSERT INTO connections (
+                          user_a_id,
+                          user_b_id,
+                          status,
+                          source,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (:a, :b, 'active', 'request', NOW(), NOW())
+                        ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                          status = 'active',
+                          revoked_at = NULL,
+                          updated_at = NOW()
+                        RETURNING id
+                        """
+                        ),
+                        params,
+                    )
+                    .mappings()
+                    .first()
+                )
+                connection_id = (
+                    str(connection_result["id"]) if connection_result is not None else None
+                )
+                for owner, trusted in ((requester, user_id), (user_id, requester)):
+                    db_conn.execute(
+                        text(
+                            """
+                            INSERT INTO trusted_connections (
+                              owner_user_id,
+                              trusted_user_id,
+                              status,
+                              source,
+                              created_at,
+                              updated_at
+                            )
+                            VALUES (
+                              :owner,
+                              :trusted,
+                              'active',
+                              'connection',
+                              NOW(),
+                              NOW()
+                            )
+                            ON CONFLICT (
+                              owner_user_id,
+                              trusted_user_id
+                            ) DO UPDATE SET
+                              status = 'active',
+                              revoked_at = NULL,
+                              updated_at = NOW(),
+                              source = 'connection'
+                            """
+                        ),
+                        {"owner": owner, "trusted": trusted},
+                    )
+                db_conn.execute(
+                    text(
+                        """
+                        UPDATE connection_requests
+                        SET
+                          status = 'accepted',
+                          responded_at = NOW(),
+                          updated_at = NOW()
+                        WHERE id = :request_id
+                          AND status = 'pending'
+                        """
+                    ),
+                    params,
+                )
+        if blocked:
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_NOT_FOUND",
+                "Request is no longer available.",
+                status_code=404,
+            )
         # Best-effort feed rows for both sides of the new connection.
         FeedService().record_event(
             user_id=user_id,
@@ -945,7 +1164,7 @@ class ConnectionsService:
                     owner_user_id=user_id,
                     requester_user_id=requester,
                     connection_request_id=str(req.get("id") or ""),
-                    connection_id=str((conn or {}).get("id") or ""),
+                    connection_id=str(connection_id or ""),
                     requester_public_key=requester_public_key,
                     requester_key_id=(str(metadata.get("requester_key_id") or "").strip() or None),
                     requester_label=self._lookup_display_name(requester),
@@ -960,7 +1179,7 @@ class ConnectionsService:
         return {
             "status": "accepted",
             "requestId": req.get("id"),
-            "connectionId": (conn or {}).get("id"),
+            "connectionId": connection_id,
             "requestedScopes": granted_requested,
             "deniedScopes": denied_final,
         }

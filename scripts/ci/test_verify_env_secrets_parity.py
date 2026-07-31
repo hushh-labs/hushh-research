@@ -48,3 +48,71 @@ def test_one_email_runtime_semantics_rejects_noncanonical_mailbox():
 
     assert result["status"] == "mismatch"
     assert result["checks"]["mailbox"] == "mismatch"
+
+
+def _valid_one_location_event_pilot_env() -> dict[str, dict[str, object]]:
+    return {
+        "ONE_LOCATION_NEARBY_PRESENCE_MODE": {"value": "event_pilot"},
+        "ONE_LOCATION_RETENTION_TOKEN": {
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "ONE_LOCATION_RETENTION_TOKEN",
+                    "key": "latest",
+                }
+            }
+        },
+    }
+
+
+def test_one_location_event_pilot_runtime_requires_exact_mode_and_secret_mount():
+    result = _module()._one_location_event_pilot_runtime_semantics(
+        _valid_one_location_event_pilot_env()
+    )
+
+    assert result == {
+        "status": "valid",
+        "checks": {
+            "mode": "valid",
+            "retention_secret": "valid",
+        },
+    }
+
+
+def test_one_location_event_pilot_runtime_rejects_noncanonical_configurations():
+    module = _module()
+    invalid_envs = [
+        {
+            "ONE_LOCATION_RETENTION_TOKEN": _valid_one_location_event_pilot_env()[
+                "ONE_LOCATION_RETENTION_TOKEN"
+            ],
+        },
+        {
+            **_valid_one_location_event_pilot_env(),
+            "ONE_LOCATION_NEARBY_PRESENCE_MODE": {"value": "disabled"},
+        },
+        {
+            **_valid_one_location_event_pilot_env(),
+            "ONE_LOCATION_NEARBY_PRESENCE_MODE": {"value": "EVENT_PILOT"},
+        },
+        {
+            **_valid_one_location_event_pilot_env(),
+            "ONE_LOCATION_NEARBY_PRESENCE_MODE": {
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": "ONE_LOCATION_NEARBY_PRESENCE_MODE",
+                        "key": "latest",
+                    }
+                }
+            },
+        },
+        {
+            "ONE_LOCATION_NEARBY_PRESENCE_MODE": {"value": "event_pilot"},
+            "ONE_LOCATION_RETENTION_TOKEN": {"value": "literal-token"},
+        },
+    ]
+
+    assert all(
+        module._one_location_event_pilot_runtime_semantics(env)["status"]
+        == "mismatch"
+        for env in invalid_envs
+    )

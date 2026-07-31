@@ -1644,6 +1644,11 @@ export function LocationImmersiveMap() {
             closeNearbyCheckIn();
           }}
           onStateChange={setNearbyPresenceState}
+          onPrivateCheckIn={() =>
+            router.push(`${ROUTES.ONE_LOCATION}?action=private-check-in`, {
+              scroll: false,
+            })
+          }
         />
       ) : null}
     </main>

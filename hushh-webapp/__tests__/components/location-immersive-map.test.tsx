@@ -149,9 +149,11 @@ vi.mock(
     NearbyCheckInSheet: ({
       open,
       onStateChange,
+      onPrivateCheckIn,
     }: {
       open: boolean;
       onStateChange: (state: unknown) => void;
+      onPrivateCheckIn: () => void;
     }) => (
       <div
         data-testid="nearby-check-in-sheet-mock"
@@ -190,6 +192,13 @@ vi.mock(
           }
         >
           Publish nearby state
+        </button>
+        <button
+          type="button"
+          data-testid="open-private-check-in"
+          onClick={onPrivateCheckIn}
+        >
+          Open private Check-In
         </button>
       </div>
     ),
@@ -469,6 +478,12 @@ describe("LocationImmersiveMap demo experience", () => {
     );
     expect(navigationHarness.push).toHaveBeenCalledWith(
       "/one/location/map?action=check-in",
+      { scroll: false },
+    );
+
+    fireEvent.click(screen.getByTestId("open-private-check-in"));
+    expect(navigationHarness.push).toHaveBeenCalledWith(
+      "/one/location?action=private-check-in",
       { scroll: false },
     );
   });

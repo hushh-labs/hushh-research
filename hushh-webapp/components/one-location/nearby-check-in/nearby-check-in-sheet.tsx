@@ -1,26 +1,39 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   Clock3,
   Loader2,
   MapPin,
+  MoreVertical,
   Search,
   ShieldCheck,
+  TicketCheck,
   UsersRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
@@ -36,6 +49,8 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationNearbyAttendee,
+  OneLocationNearbyAdmission,
+  OneLocationNearbyCapability,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   PlainLocationPoint,
@@ -57,6 +72,11 @@ const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
 };
 
 type LocationRecovery = "app-settings" | "location-settings" | null;
+type NearbyReportReason = "spam" | "harassment" | "unsafe_behavior" | "other";
+type PendingSafetyAction = {
+  attendee: OneLocationNearbyAttendee;
+  reasonCode?: NearbyReportReason;
+};
 
 function distanceLabel(distanceMeters?: number | null): string {
   if (
@@ -66,7 +86,8 @@ function distanceLabel(distanceMeters?: number | null): string {
   ) {
     return "Nearby";
   }
-  if (distanceMeters < 1_000) return `${Math.max(1, Math.round(distanceMeters))} m`;
+  if (distanceMeters < 1_000)
+    return `${Math.max(1, Math.round(distanceMeters))} m`;
   return `${(distanceMeters / 1_000).toFixed(1)} km`;
 }
 
@@ -107,12 +128,18 @@ function NearbyPersonRow({
   interactionDisabled,
   onConnect,
   onRespond,
+  onBlock,
+  onReport,
 }: {
   attendee: OneLocationNearbyAttendee;
   busy: boolean;
   interactionDisabled: boolean;
   onConnect: () => void;
   onRespond: () => void;
+  onBlock: () => void;
+  onReport: (
+    reasonCode: "spam" | "harassment" | "unsafe_behavior" | "other",
+  ) => void;
 }) {
   const cta = relationshipCta(attendee.relationship);
   const connectionUnavailable =
@@ -120,8 +147,7 @@ function NearbyPersonRow({
   const buttonLabel = connectionUnavailable
     ? "Not accepting requests"
     : cta.label;
-  const accessibleLabel =
-    connectionUnavailable
+  const accessibleLabel = connectionUnavailable
       ? `${attendee.displayName} is not accepting connection requests`
       : cta.action === "respond"
       ? `Respond to ${attendee.displayName}'s connection request`
@@ -148,11 +174,7 @@ function NearbyPersonRow({
         className="shrink-0"
         variant={cta.action === "connect" ? "default" : "secondary"}
         aria-label={accessibleLabel}
-        disabled={
-          interactionDisabled ||
-          cta.disabled ||
-          connectionUnavailable
-        }
+        disabled={interactionDisabled || cta.disabled || connectionUnavailable}
         onClick={cta.action === "respond" ? onRespond : onConnect}
       >
         {busy ? (
@@ -164,6 +186,47 @@ function NearbyPersonRow({
           buttonLabel
         )}
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-9 w-9 shrink-0"
+            aria-label={`Safety options for ${attendee.displayName}`}
+            disabled={interactionDisabled}
+          >
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="!z-[713] min-w-52">
+          <DropdownMenuItem
+            className="cursor-pointer text-destructive focus:bg-destructive focus:text-destructive-foreground"
+            onSelect={onBlock}
+          >
+            Block from Nearby
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={() => onReport("spam")}
+          >
+            Report spam
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={() => onReport("harassment")}
+          >
+            Report harassment
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={() => onReport("unsafe_behavior")}
+          >
+            Report unsafe behaviour
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }
@@ -175,6 +238,7 @@ export function NearbyCheckInSheet({
   captureCurrentPosition,
   onOpenChange,
   onStateChange,
+  onPrivateCheckIn,
 }: {
   open: boolean;
   ownerId: string | null;
@@ -182,6 +246,7 @@ export function NearbyCheckInSheet({
   captureCurrentPosition: () => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
+  onPrivateCheckIn?: () => void;
 }) {
   const router = useRouter();
   const ownerEpochRef = useRef(0);
@@ -190,6 +255,18 @@ export function NearbyCheckInSheet({
   const presenceMutationGenerationRef = useRef(0);
   const mutationInFlightRef = useRef(false);
   const searchGenerationRef = useRef(0);
+  const capabilityRef = useRef<OneLocationNearbyCapability | null>(null);
+  const admissionRef = useRef<OneLocationNearbyAdmission | null>(null);
+  const [capability, setCapability] =
+    useState<OneLocationNearbyCapability | null>(null);
+  capabilityRef.current = capability;
+  const [capabilityLoading, setCapabilityLoading] = useState(false);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [admissionPass, setAdmissionPass] = useState("");
+  const [admission, setAdmission] = useState<OneLocationNearbyAdmission | null>(
+    null,
+  );
+  admissionRef.current = admission;
   const [point, setPoint] = useState<PlainLocationPoint | null>(null);
   const [automaticPlaces, setAutomaticPlaces] = useState<
     OneLocationNearbyPlaceSuggestion[]
@@ -215,6 +292,8 @@ export function NearbyCheckInSheet({
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [pendingSafetyAction, setPendingSafetyAction] =
+    useState<PendingSafetyAction | null>(null);
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -222,6 +301,39 @@ export function NearbyCheckInSheet({
       onStateChange?.(next);
     },
     [onStateChange],
+  );
+
+  const loadCapability = useCallback(
+    async (
+      expectedOwnerEpoch = ownerEpochRef.current,
+    ): Promise<OneLocationNearbyCapability | null> => {
+      if (!ownerId || !vaultOwnerToken) return null;
+      setCapabilityLoading(true);
+      setCapabilityError(null);
+      try {
+        const next = await OneLocationService.getNearbyCapability({
+          vaultOwnerToken,
+        });
+        if (ownerEpochRef.current !== expectedOwnerEpoch) return null;
+        setCapability(next);
+        capabilityRef.current = next;
+        return next;
+      } catch {
+        if (ownerEpochRef.current === expectedOwnerEpoch) {
+          setCapability(null);
+          capabilityRef.current = null;
+          setCapabilityError(
+            "Nearby Check-In could not be verified. Please try again.",
+          );
+        }
+        return null;
+      } finally {
+        if (ownerEpochRef.current === expectedOwnerEpoch) {
+          setCapabilityLoading(false);
+        }
+      }
+    },
+    [ownerId, vaultOwnerToken],
   );
 
   const loadPresence = useCallback(
@@ -304,7 +416,9 @@ export function NearbyCheckInSheet({
             : (suggestions[0]?.placeId ?? ""),
         );
         if (suggestions.length === 0) {
-          setPlacesError("No nearby places found. Search for the place instead.");
+          setPlacesError(
+            "No nearby places found. Search for the place instead.",
+          );
         }
       } catch (error) {
         if (
@@ -322,8 +436,13 @@ export function NearbyCheckInSheet({
     [ownerId, vaultOwnerToken],
   );
 
-  const captureAndLoadPlaces = useCallback(async () => {
+  const captureAndLoadPlaces = useCallback(
+    async (
+      eventAdmission = admissionRef.current,
+      explicitMode = capabilityRef.current?.mode,
+    ) => {
     if (!ownerId || !vaultOwnerToken) return;
+      if (explicitMode === "event_pilot" && !eventAdmission) return;
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++requestGenerationRef.current;
     setCapturing(true);
@@ -422,6 +541,21 @@ export function NearbyCheckInSheet({
         return;
       }
       setPoint(nextPoint);
+        if (explicitMode === "event_pilot") {
+          if (!eventAdmission) {
+            setPoint(null);
+            return;
+          }
+          const eventPlace = {
+            placeId: eventAdmission.event.venue.placeId,
+            text: eventAdmission.event.venue.label,
+            distanceMeters: null,
+          };
+          setAutomaticPlaces([eventPlace]);
+          setPlaces([eventPlace]);
+          setSelectedPlaceId(eventPlace.placeId);
+          return;
+        }
       await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
     } catch {
       if (
@@ -446,7 +580,89 @@ export function NearbyCheckInSheet({
         setCapturing(false);
       }
     }
-  }, [captureCurrentPosition, loadPlaces, ownerId, vaultOwnerToken]);
+    },
+    [captureCurrentPosition, loadPlaces, ownerId, vaultOwnerToken],
+  );
+
+  const bootstrap = useCallback(
+    async ({
+      resetSetup = false,
+      background = false,
+    }: {
+      resetSetup?: boolean;
+      background?: boolean;
+    } = {}) => {
+      if (!ownerId || !vaultOwnerToken) return;
+      const expectedOwnerEpoch = ownerEpochRef.current;
+      if (resetSetup) {
+        requestGenerationRef.current += 1;
+        searchGenerationRef.current += 1;
+        setPoint(null);
+        setAutomaticPlaces([]);
+        setPlaces([]);
+        setSelectedPlaceId("");
+        setSearch("");
+        setSearching(false);
+        setConsentAccepted(false);
+        setAllowConnectionRequests(false);
+        setDurationMinutes(60);
+        setLocationError(null);
+        setLocationRecovery(null);
+        setPresenceLoadError(null);
+        setPlacesError(null);
+      }
+      const nextCapability = await loadCapability(expectedOwnerEpoch);
+      if (!nextCapability || ownerEpochRef.current !== expectedOwnerEpoch) {
+        return;
+      }
+      if (!nextCapability.available) {
+        publishState(EMPTY_NEARBY_STATE);
+        return;
+      }
+      const next = await loadPresence(background, expectedOwnerEpoch);
+      if (
+        !open ||
+        next === null ||
+        next.presence ||
+        ownerEpochRef.current !== expectedOwnerEpoch
+      ) {
+        return;
+      }
+      if (nextCapability.mode === "event_pilot") {
+        try {
+          const restoredAdmission =
+            await OneLocationService.getCurrentNearbyAdmission({
+              vaultOwnerToken,
+            });
+          if (ownerEpochRef.current !== expectedOwnerEpoch) return;
+          setAdmission(restoredAdmission);
+          admissionRef.current = restoredAdmission;
+          if (restoredAdmission) {
+            await captureAndLoadPlaces(restoredAdmission, nextCapability.mode);
+          }
+        } catch {
+          if (ownerEpochRef.current === expectedOwnerEpoch) {
+            setAdmission(null);
+            admissionRef.current = null;
+            setPresenceLoadError(
+              "Your event pass status could not be restored. Please retry.",
+            );
+          }
+        }
+        return;
+      }
+      await captureAndLoadPlaces(null, nextCapability.mode);
+    },
+    [
+      captureAndLoadPlaces,
+      loadCapability,
+      loadPresence,
+      open,
+      ownerId,
+      publishState,
+      vaultOwnerToken,
+    ],
+  );
 
   useEffect(() => {
     ownerEpochRef.current += 1;
@@ -455,6 +671,13 @@ export function NearbyCheckInSheet({
     presenceMutationGenerationRef.current += 1;
     mutationInFlightRef.current = false;
     searchGenerationRef.current += 1;
+    setCapability(null);
+    capabilityRef.current = null;
+    setCapabilityLoading(false);
+    setCapabilityError(null);
+    setAdmissionPass("");
+    setAdmission(null);
+    admissionRef.current = null;
     setPoint(null);
     setAutomaticPlaces([]);
     setPlaces([]);
@@ -471,6 +694,7 @@ export function NearbyCheckInSheet({
     setLocationRecovery(null);
     setPresenceLoadError(null);
     setPlacesError(null);
+    setPendingSafetyAction(null);
     publishState(EMPTY_NEARBY_STATE);
     return () => {
       requestGenerationRef.current += 1;
@@ -483,47 +707,13 @@ export function NearbyCheckInSheet({
 
   useEffect(() => {
     if (!ownerId || !vaultOwnerToken) return;
-    const expectedOwnerEpoch = ownerEpochRef.current;
-    if (open) {
-      requestGenerationRef.current += 1;
-      searchGenerationRef.current += 1;
-      setPoint(null);
-      setAutomaticPlaces([]);
-      setPlaces([]);
-      setSelectedPlaceId("");
-      setSearch("");
-      setSearching(false);
-      setConsentAccepted(false);
-      setAllowConnectionRequests(false);
-      setDurationMinutes(60);
-      setLocationError(null);
-      setLocationRecovery(null);
-      setPresenceLoadError(null);
-      setPlacesError(null);
-    }
-    void loadPresence(!open, expectedOwnerEpoch).then((next) => {
-      if (
-        !open ||
-        next === null ||
-        next.presence ||
-        ownerEpochRef.current !== expectedOwnerEpoch
-      ) {
-        return;
-      }
-      void captureAndLoadPlaces();
-    });
+    void bootstrap({ resetSetup: open, background: !open });
     return () => {
       requestGenerationRef.current += 1;
       presenceReadGenerationRef.current += 1;
       searchGenerationRef.current += 1;
     };
-  }, [
-    captureAndLoadPlaces,
-    loadPresence,
-    open,
-    ownerId,
-    vaultOwnerToken,
-  ]);
+  }, [bootstrap, open, ownerId, vaultOwnerToken]);
 
   useEffect(() => {
     if (!state.presence || !ownerId || !vaultOwnerToken) return;
@@ -546,7 +736,7 @@ export function NearbyCheckInSheet({
           !next.presence &&
           ownerEpochRef.current === expectedOwnerEpoch
         ) {
-          void captureAndLoadPlaces();
+          void bootstrap();
         }
       } finally {
         inFlight = false;
@@ -574,21 +764,12 @@ export function NearbyCheckInSheet({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };
-  }, [
-    captureAndLoadPlaces,
-    loadPresence,
-    open,
-    ownerId,
-    state.presence,
-    vaultOwnerToken,
-  ]);
+  }, [bootstrap, loadPresence, open, ownerId, state.presence, vaultOwnerToken]);
 
   useEffect(() => {
     if (!open || state.presence || !locationRecovery) return;
     return appInteractionCoordinator.subscribeLifecycle(() => {
-      if (
-        appInteractionCoordinator.getLifecycleSnapshot().state === "active"
-      ) {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
         void captureAndLoadPlaces();
       }
     });
@@ -596,7 +777,15 @@ export function NearbyCheckInSheet({
 
   useEffect(() => {
     const query = search.trim();
-    if (!open || !ownerId || !vaultOwnerToken || !point) return;
+    if (
+      !open ||
+      !ownerId ||
+      !vaultOwnerToken ||
+      !point ||
+      capability?.mode !== "uat_simulation"
+    ) {
+      return;
+    }
     const expectedOwnerEpoch = ownerEpochRef.current;
     const ownerToken = vaultOwnerToken;
     const generation = ++searchGenerationRef.current;
@@ -657,7 +846,15 @@ export function NearbyCheckInSheet({
         });
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [automaticPlaces, open, ownerId, point, search, vaultOwnerToken]);
+  }, [
+    automaticPlaces,
+    capability?.mode,
+    open,
+    ownerId,
+    point,
+    search,
+    vaultOwnerToken,
+  ]);
 
   const selectedPlace = useMemo(
     () => places.find((place) => place.placeId === selectedPlaceId) ?? null,
@@ -666,16 +863,46 @@ export function NearbyCheckInSheet({
 
   const retryPresenceLoad = async () => {
     if (!open || !ownerId || !vaultOwnerToken) return;
-    const expectedOwnerEpoch = ownerEpochRef.current;
-    const next = await loadPresence(false, expectedOwnerEpoch);
+    await bootstrap();
+  };
+
+  const claimAdmission = async () => {
+    const rawPass = admissionPass.trim();
     if (
-      next === null ||
-      next.presence ||
-      ownerEpochRef.current !== expectedOwnerEpoch
+      !ownerId ||
+      !vaultOwnerToken ||
+      !rawPass ||
+      busy !== null ||
+      mutationInFlightRef.current
     ) {
       return;
     }
-    void captureAndLoadPlaces();
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    mutationInFlightRef.current = true;
+    setBusy("admission");
+    try {
+      const next = await OneLocationService.claimNearbyAdmission({
+        vaultOwnerToken,
+        admissionToken: rawPass,
+      });
+      if (ownerEpochRef.current !== expectedOwnerEpoch) return;
+      setAdmissionPass("");
+      setAdmission(next);
+      admissionRef.current = next;
+      setPlacesError(null);
+      toast.success(`Event pass accepted for ${next.event.displayName}.`);
+      await captureAndLoadPlaces(next);
+    } catch {
+      if (ownerEpochRef.current === expectedOwnerEpoch) {
+        setAdmissionPass("");
+        toast.error("This event pass is invalid, expired, or already used.");
+      }
+    } finally {
+      if (ownerEpochRef.current === expectedOwnerEpoch) {
+        mutationInFlightRef.current = false;
+        setBusy(null);
+      }
+    }
   };
 
   const checkIn = async () => {
@@ -684,7 +911,8 @@ export function NearbyCheckInSheet({
       !vaultOwnerToken ||
       !point ||
       !selectedPlace ||
-      !consentAccepted
+      !consentAccepted ||
+      (capability?.mode === "event_pilot" && !admission)
     ) {
       return;
     }
@@ -724,6 +952,7 @@ export function NearbyCheckInSheet({
         durationMinutes,
         consentAccepted: true,
         allowConnectionRequests,
+        ...(admission ? { admissionId: admission.admissionId } : {}),
       });
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -746,15 +975,20 @@ export function NearbyCheckInSheet({
         return;
       }
       const details = OneLocationService.nearbyCheckInErrorDetails(error);
-      if (details.retryLocation) {
+      if (details.resetAdmission) {
+        setAdmission(null);
+        admissionRef.current = null;
+        setPoint(null);
+        setAutomaticPlaces([]);
+        setPlaces([]);
+        setSelectedPlaceId("");
+      } else if (details.retryLocation) {
         setPoint(null);
         setLocationError(details.message);
         setLocationRecovery(
           details.openAppSettings && isNative() ? "app-settings" : null,
         );
-      } else if (
-        details.message.toLowerCase().includes("closer place")
-      ) {
+      } else if (details.message.toLowerCase().includes("closer place")) {
         setPlacesError(details.message);
       }
       toast.error(details.message);
@@ -777,6 +1011,7 @@ export function NearbyCheckInSheet({
     presenceReadGenerationRef.current += 1;
     mutationInFlightRef.current = true;
     setBusy("checkout");
+    let restartSetup = false;
     try {
       const next = await OneLocationService.checkoutNearby({
         vaultOwnerToken: ownerToken,
@@ -791,7 +1026,7 @@ export function NearbyCheckInSheet({
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
       toast.success("You checked out.");
-      void captureAndLoadPlaces();
+      restartSetup = true;
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
@@ -808,6 +1043,12 @@ export function NearbyCheckInSheet({
       ) {
         mutationInFlightRef.current = false;
         setBusy(null);
+        if (restartSetup) {
+          void captureAndLoadPlaces(
+            admissionRef.current,
+            capabilityRef.current?.mode,
+          );
+        }
       }
     }
   };
@@ -875,6 +1116,52 @@ export function NearbyCheckInSheet({
     }
   };
 
+  const applySafetyAction = async (
+    attendee: OneLocationNearbyAttendee,
+    reasonCode?: "spam" | "harassment" | "unsafe_behavior" | "other",
+  ) => {
+    if (
+      !ownerId ||
+      !vaultOwnerToken ||
+      busy !== null ||
+      mutationInFlightRef.current
+    ) {
+      return;
+    }
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    const key = `${reasonCode ? "report" : "block"}:${attendee.participantAlias}`;
+    mutationInFlightRef.current = true;
+    setBusy(key);
+    try {
+      const next = reasonCode
+        ? await OneLocationService.reportNearbyAttendee({
+            vaultOwnerToken,
+            participantAlias: attendee.participantAlias,
+            reasonCode,
+          })
+        : await OneLocationService.blockNearbyAttendee({
+            vaultOwnerToken,
+            participantAlias: attendee.participantAlias,
+          });
+      if (ownerEpochRef.current !== expectedOwnerEpoch) return;
+      publishState(next);
+      toast.success(
+        reasonCode
+          ? "Report received. This person is now hidden."
+          : "This person is now hidden from Nearby.",
+      );
+    } catch {
+      if (ownerEpochRef.current === expectedOwnerEpoch) {
+        toast.error("That safety action could not be completed. Please retry.");
+      }
+    } finally {
+      if (ownerEpochRef.current === expectedOwnerEpoch) {
+        mutationInFlightRef.current = false;
+        setBusy(null);
+      }
+    }
+  };
+
   const openRecoverySettings = async () => {
     if (!locationRecovery || busy !== null) return;
     setBusy("settings");
@@ -897,7 +1184,11 @@ export function NearbyCheckInSheet({
         side="bottom"
         dragDismiss={false}
         showDragHandle={false}
-        className="gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+        overlayClassName={pendingSafetyAction !== null ? "!z-[497]" : undefined}
+        className={cn(
+          "gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] lg:left-auto lg:right-0 lg:top-[var(--app-safe-area-top-effective,0px)] lg:bottom-[max(var(--kb-height,0px),var(--app-safe-area-bottom-effective,0px))] lg:max-h-none lg:w-[26rem] lg:rounded-none lg:rounded-l-[var(--app-card-radius-feature)] lg:border-l lg:border-t-0 lg:pr-[env(safe-area-inset-right,0px)] lg:data-[state=closed]:slide-out-to-right lg:data-[state=open]:slide-in-from-right",
+          pendingSafetyAction !== null && "!z-[498]",
+        )}
         data-testid="one-location-nearby-check-in-sheet"
       >
         <SheetHeader className="border-b border-border/60 px-5 pb-4 text-left">
@@ -908,12 +1199,20 @@ export function NearbyCheckInSheet({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <SheetTitle>Check in nearby</SheetTitle>
+                {capability?.mode === "uat_simulation" ? (
                 <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
                   Preview
                 </span>
+                ) : capability?.mode === "event_pilot" ? (
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                    Event
+                  </span>
+                ) : null}
               </div>
               <SheetDescription>
-                UAT simulation for opted-in people within 500 metres.
+                {capability?.mode === "event_pilot"
+                  ? "Meet opted-in One users at the same admitted event."
+                  : "Opted-in people within 500 metres."}
               </SheetDescription>
             </div>
           </div>
@@ -927,14 +1226,75 @@ export function NearbyCheckInSheet({
                 } nearby.`
               : "Nearby check-in is not active."}
           </p>
-          {loadingPresence && !state.presence ? (
+          {capabilityLoading && !capability ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking event availability&hellip;
+            </div>
+          ) : null}
+
+          {capabilityError ? (
+            <div
+              className="rounded-2xl border border-destructive/20 bg-destructive/10 p-4"
+              role="alert"
+            >
+              <p className="text-sm text-destructive">{capabilityError}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                disabled={capabilityLoading}
+                onClick={() => void bootstrap()}
+              >
+                {capabilityLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Retry
+              </Button>
+              {onPrivateCheckIn ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 ml-2"
+                  onClick={onPrivateCheckIn}
+                >
+                  Share privately instead
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {capability && !capability.available ? (
+            <div className="rounded-2xl border border-border/60 bg-muted/60 p-4">
+              <p className="font-semibold">Nearby Check-In is closed</p>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                There is no active admitted event right now. No location was
+                collected.
+              </p>
+              {onPrivateCheckIn ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="mt-3"
+                  onClick={onPrivateCheckIn}
+                >
+                  Share privately instead
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {capability?.available && loadingPresence && !state.presence ? (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Checking your current status…
             </div>
           ) : null}
 
-          {presenceLoadError && !state.presence ? (
+          {capability?.available && presenceLoadError && !state.presence ? (
             <div
               className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
               role="alert"
@@ -956,7 +1316,10 @@ export function NearbyCheckInSheet({
             </div>
           ) : null}
 
-          {loadingPresence && !state.presence ? null : state.presence ? (
+          {!capability?.available ||
+          capabilityLoading ||
+          capabilityError ||
+          (loadingPresence && !state.presence) ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
               <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
                 <div className="flex items-start gap-3">
@@ -1002,6 +1365,10 @@ export function NearbyCheckInSheet({
                             }),
                           )
                         }
+                        onBlock={() => setPendingSafetyAction({ attendee })}
+                        onReport={(reasonCode) =>
+                          setPendingSafetyAction({ attendee, reasonCode })
+                        }
                       />
                     ))}
                   </ul>
@@ -1035,14 +1402,66 @@ export function NearbyCheckInSheet({
                 never pinned on your map.
               </p>
             </div>
+          ) : capability.mode === "event_pilot" && !admission ? (
+            <div className="space-y-5" data-testid="nearby-event-admission">
+              <section className="rounded-2xl border border-[var(--app-accent)]/30 bg-[var(--app-accent-surface)] p-4">
+                <div className="flex items-start gap-3">
+                  <TicketCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                  <div>
+                    <h2 className="font-semibold">Enter your event pass</h2>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                      Each organizer pass works once. We verify it before asking
+                      for your location.
+                    </p>
+                  </div>
+                </div>
+                <label className="mt-4 block">
+                  <span className="sr-only">Event pass</span>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={admissionPass}
+                    onChange={(event) => setAdmissionPass(event.target.value)}
+                    placeholder="Paste event pass"
+                    className="h-11"
+                    disabled={busy !== null}
+                  />
+                </label>
+                <Button
+                  type="button"
+                  className="mt-3 h-11 w-full"
+                  disabled={!admissionPass.trim() || busy !== null}
+                  onClick={() => void claimAdmission()}
+                >
+                  {busy === "admission" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <TicketCheck className="h-4 w-4" />
+                  )}
+                  Continue
+                </Button>
+              </section>
+              <p className="text-center text-xs leading-5 text-muted-foreground">
+                The pass is cleared immediately after verification and is never
+                saved on this device.
+              </p>
+            </div>
           ) : (
             <div className="space-y-5" data-testid="nearby-presence-setup">
               <section>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">Choose your place</h2>
+                    <h2 className="font-semibold">
+                      {capability.mode === "event_pilot"
+                        ? admission?.event.displayName
+                        : "Choose your place"}
+                    </h2>
                     <p className="text-sm text-muted-foreground">
-                      The nearest result is selected for you.
+                      {capability.mode === "event_pilot"
+                        ? "Your organizer-selected venue is locked for this check-in."
+                        : "The nearest result is selected for you."}
                     </p>
                   </div>
                   {capturing ? (
@@ -1080,6 +1499,22 @@ export function NearbyCheckInSheet({
                           Open settings
                         </Button>
                       ) : null}
+                    </div>
+                  </div>
+                ) : capability.mode === "event_pilot" && admission ? (
+                  <div className="mt-3 flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/50 p-3">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold">
+                        {admission.event.venue.label}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Visible within {admission.event.radiusMeters} m until{" "}
+                        {new Date(admission.event.endsAt).toLocaleTimeString(
+                          [],
+                          { hour: "numeric", minute: "2-digit" },
+                        )}
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1181,11 +1616,9 @@ export function NearbyCheckInSheet({
                       Let nearby checked-in users see me
                     </span>
                     <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                      Your current point is sent once to Google to suggest nearby
-                      places; searching may send it again to improve results.
-                      Hussh does not store the raw GPS fix, and nearby people
-                      never receive it. If you check in, they see your name only.
-                      Closing the app does not check you out.
+                      {capability.mode === "event_pilot"
+                        ? "Hussh checks one fresh precise location against the organizer venue. The raw GPS fix is not stored or shown to anyone. Admitted people see your name only. Closing the app does not check you out."
+                        : "Your current point is sent once to Google to suggest nearby places; searching may send it again to improve results. Hussh does not store the raw GPS fix, and nearby people never receive it. If you check in, they see your name only. Closing the app does not check you out."}
                     </span>
                   </span>
                 </label>
@@ -1230,6 +1663,44 @@ export function NearbyCheckInSheet({
           )}
         </div>
       </SheetContent>
+      <AlertDialog
+        open={pendingSafetyAction !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingSafetyAction(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingSafetyAction?.reasonCode
+                ? "Report and hide this person?"
+                : "Hide this person from Nearby?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingSafetyAction?.reasonCode
+                ? "This sends a metadata-only safety report, hides this person from your Nearby results, and cancels pending connection requests."
+                : "You and this person will no longer appear in each other's Nearby results, and pending connection requests will be cancelled."}{" "}
+              Existing One connections and private location shares are not
+              changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const pending = pendingSafetyAction;
+                setPendingSafetyAction(null);
+                if (pending) {
+                  void applySafetyAction(pending.attendee, pending.reasonCode);
+                }
+              }}
+            >
+              {pendingSafetyAction?.reasonCode ? "Report and hide" : "Hide"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }

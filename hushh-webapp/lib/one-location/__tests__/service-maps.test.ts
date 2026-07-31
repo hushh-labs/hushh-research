@@ -125,7 +125,66 @@ describe("OneLocationService maps methods", () => {
       message: "Turn on precise location, then try again.",
       retryLocation: true,
       openAppSettings: true,
+      resetAdmission: false,
     });
+  });
+
+  it("restores a claimed event admission without returning the raw pass", async () => {
+    const admission = {
+      admissionId: "7debb48d-4a5b-49dc-80c1-0ace848f42d8",
+      event: {
+        eventId: "ec01fe7f-780e-4bec-a62a-6a613fa02376",
+        displayName: "Hussh Event",
+        venue: { placeId: "venue", label: "Demo Hall" },
+        radiusMeters: 500,
+        startsAt: "2026-07-30T10:00:00Z",
+        endsAt: "2026-07-30T12:00:00Z",
+      },
+      idempotentReplay: true,
+    };
+    const spy = vi
+      .spyOn(apiClient, "apiJson")
+      .mockResolvedValue({ admission } as never);
+
+    const result = await OneLocationService.getCurrentNearbyAdmission({
+      vaultOwnerToken: "t",
+    });
+
+    expect(result).toEqual(admission);
+    expect(spy).toHaveBeenCalledWith(
+      "/api/one/location/nearby-presence/admission",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(JSON.stringify(spy.mock.calls[0])).not.toContain("admissionToken");
+  });
+
+  it("binds production event check-in to the claimed admission id", async () => {
+    const spy = vi.spyOn(apiClient, "apiJson").mockResolvedValue({
+      presence: null,
+      attendees: [],
+    } as never);
+
+    await OneLocationService.checkInNearby({
+      vaultOwnerToken: "t",
+      placeId: "event-venue",
+      point: {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        accuracyM: 15,
+        capturedAt: "2026-07-30T10:00:00Z",
+        sourcePlatform: "web",
+      },
+      durationMinutes: 60,
+      consentAccepted: true,
+      allowConnectionRequests: false,
+      admissionId: "7debb48d-4a5b-49dc-80c1-0ace848f42d8",
+    });
+
+    const body = String(spy.mock.calls[0]?.[1]?.body);
+    expect(body).toContain(
+      '"admissionId":"7debb48d-4a5b-49dc-80c1-0ace848f42d8"',
+    );
+    expect(body).not.toContain("admissionToken");
   });
 
   it("reverseGeocode returns the friendly address", async () => {

@@ -358,9 +358,35 @@ export type OneLocationNearbyAttendee = {
   canConnect: boolean;
 };
 
+export type OneLocationNearbyEvent = {
+  eventId: string;
+  displayName: string;
+  venue: {
+    placeId: string;
+    label: string;
+  };
+  radiusMeters: number;
+  startsAt: string;
+  endsAt: string;
+};
+
+export type OneLocationNearbyCapability = {
+  available: boolean;
+  mode: "disabled" | "uat_simulation" | "event_pilot";
+  admissionRequired: boolean;
+};
+
+export type OneLocationNearbyAdmission = {
+  admissionId: string;
+  event: OneLocationNearbyEvent;
+  idempotentReplay: boolean;
+};
+
 export type OneLocationNearbyPresence = {
   status: "active";
   audience: "all_opted_in";
+  admissionMode: "uat_simulation" | "event_pilot";
+  event?: OneLocationNearbyEvent | null;
   /** Fixed mutual-discovery radius selected by the server contract. */
   radiusMeters: number;
   allowConnectionRequests: boolean;

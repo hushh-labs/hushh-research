@@ -1,14 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure the bounded One Location retention endpoint in UAT. This script is
-# intentionally operator-run; landing it does not mutate Cloud Scheduler.
+# Configure and verify the bounded One Location retention endpoint in a hosted
+# environment. CI and operators use the same idempotent contract.
 
-PROJECT_ID="${PROJECT_ID:-hushh-pda-uat}"
+DEPLOY_ENV="${DEPLOY_ENV:-uat}"
+case "${DEPLOY_ENV}" in
+  uat)
+    DEFAULT_PROJECT_ID="hushh-pda-uat"
+    DEFAULT_JOB_NAME="one-location-retention-purge-uat"
+    ;;
+  production)
+    DEFAULT_PROJECT_ID="hushh-pda"
+    DEFAULT_JOB_NAME="one-location-retention-purge-production"
+    ;;
+  *)
+    echo "DEPLOY_ENV must be uat or production" >&2
+    exit 1
+    ;;
+esac
+
+PROJECT_ID="${PROJECT_ID:-${DEFAULT_PROJECT_ID}}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-us-central1}"
 BACKEND_URL="${BACKEND_URL:-}"
 RETENTION_TOKEN_SECRET="${RETENTION_TOKEN_SECRET:-ONE_LOCATION_RETENTION_TOKEN}"
-JOB_NAME="${JOB_NAME:-one-location-retention-purge-uat}"
+JOB_NAME="${JOB_NAME:-${DEFAULT_JOB_NAME}}"
 CRON="${CRON:-17 * * * *}"
 TIMEZONE="${TIMEZONE:-America/Los_Angeles}"
 OLDER_THAN_HOURS="${OLDER_THAN_HOURS:-12}"
@@ -57,10 +73,15 @@ fi
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" \
-  --format='value(state,schedule,httpTarget.uri)')"
+  --format='value(state,schedule,httpTarget.httpMethod,httpTarget.uri)')"
+JOB_TOKEN="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" \
+  --location="${SCHEDULER_LOCATION}" \
+  --format='value(httpTarget.headers.X-Hushh-Maintenance-Token)')"
 
 EXPECTED_URI="${URI}"
-if [[ "${JOB_EVIDENCE}" != ENABLED$'\t'"${CRON}"$'\t'"${EXPECTED_URI}" ]]; then
+if [[ "${JOB_EVIDENCE}" != ENABLED$'\t'"${CRON}"$'\t'POST$'\t'"${EXPECTED_URI}" ]] \
+  || [[ "${JOB_TOKEN}" != "${TOKEN}" ]]; then
   echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
   exit 1
 fi

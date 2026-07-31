@@ -136,34 +136,76 @@ class _TransactionalDB:
 
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
-    # 1) load request row -> addressee is user-b (the acceptor)
-    # 2) insert connections -> returns id
-    # 3) insert trusted edge a->b
-    # 4) insert trusted edge b->a
-    # 5) update request -> accepted
-    db = _RecordingDB(
+    request_row = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    events = []
+    transactional = _TransactionalDB(
         [
-            [
-                {
-                    "id": "req-1",
-                    "requester_user_id": "user-a",
-                    "addressee_user_id": "user-b",
-                    "status": "pending",
-                }
-            ],
+            [],  # canonical pair advisory lock
+            [request_row],  # request row revalidated under the pair lock
+            [],  # no Nearby block
             [{"id": "conn-1"}],
-            [{"id": "tc-1"}],
-            [{"id": "tc-2"}],
-            [{"id": "req-1"}],
-        ]
+            [],  # trusted edge a -> b
+            [],  # trusted edge b -> a
+            [],  # request accepted
+        ],
+        events,
+    )
+    db = SimpleNamespace(
+        execute_raw=lambda sql, params=None: SimpleNamespace(data=[request_row]),
+        engine=transactional.engine,
     )
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.accept_request("user-b", "req-1")
     assert out["status"] == "accepted"
     assert out["connectionId"] == "conn-1"
     # Two trusted_connections INSERTs happened.
-    trusted_inserts = [c for c in db.calls if "INSERT INTO trusted_connections" in c[0]]
+    trusted_inserts = [
+        c for c in transactional.connection.calls if "INSERT INTO trusted_connections" in c[0]
+    ]
     assert len(trusted_inserts) == 2
+    assert events[0] == ("begin", None)
+    assert events[-1] == ("commit", None)
+
+
+def test_accept_cancels_request_when_nearby_block_committed_first():
+    svc = _svc()
+    request_row = {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    events = []
+    transactional = _TransactionalDB(
+        [
+            [],  # canonical pair advisory lock
+            [request_row],
+            [(1,)],  # block exists
+            [],  # request cancellation
+        ],
+        events,
+    )
+    db = SimpleNamespace(
+        execute_raw=lambda sql, params=None: SimpleNamespace(data=[request_row]),
+        engine=transactional.engine,
+    )
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        pytest.raises(ConnectionsError) as exc,
+    ):
+        svc.accept_request("user-b", "req-1")
+
+    assert exc.value.code == "CONNECTION_REQUEST_NOT_FOUND"
+    assert events[-1] == ("commit", None)
+    assert not any(
+        "INSERT INTO connections" in sql for sql, _params in transactional.connection.calls
+    )
 
 
 def test_accept_rejected_when_not_addressee():

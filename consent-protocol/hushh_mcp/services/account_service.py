@@ -182,6 +182,39 @@ class AccountService:
                 WHERE owner_user_id = :user_id
                 """
             ),
+            "one_location_nearby_reports": text(
+                """
+                DELETE FROM one_location_nearby_reports
+                WHERE reporter_user_id = :user_id
+                   OR reported_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_blocks": text(
+                """
+                DELETE FROM one_location_nearby_blocks
+                WHERE blocker_user_id = :user_id
+                   OR blocked_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_audit_events": text(
+                """
+                DELETE FROM one_location_nearby_audit_events
+                WHERE actor_user_id = :user_id
+                   OR target_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_abuse_windows": text(
+                """
+                DELETE FROM one_location_nearby_abuse_windows
+                WHERE principal_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_admission_claims": text(
+                """
+                DELETE FROM one_location_nearby_admission_claims
+                WHERE claimed_by_user_id = :user_id
+                """
+            ),
             "one_location_sms_contacts": text(
                 """
                 DELETE FROM one_location_sms_contacts
@@ -690,7 +723,12 @@ class AccountService:
         results["one_kyc_workflows"] = True
         for table_name in (
             "one_location_events",
+            "one_location_nearby_reports",
+            "one_location_nearby_blocks",
+            "one_location_nearby_audit_events",
+            "one_location_nearby_abuse_windows",
             "one_location_nearby_presences",
+            "one_location_nearby_admission_claims",
             "one_location_sms_contacts",
             "one_location_referrals",
             "one_location_public_invite_submissions",
@@ -863,6 +901,11 @@ class AccountService:
             "marketplace_profile": False,
             "one_kyc_workflows": False,
             "one_location_events": False,
+            "one_location_nearby_reports": False,
+            "one_location_nearby_blocks": False,
+            "one_location_nearby_audit_events": False,
+            "one_location_nearby_abuse_windows": False,
+            "one_location_nearby_admission_claims": False,
             "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
             "one_location_referrals": False,
@@ -1092,7 +1135,12 @@ class AccountService:
                 results["one_kyc_workflows"] = True
                 for table_name in (
                     "one_location_events",
+                    "one_location_nearby_reports",
+                    "one_location_nearby_blocks",
+                    "one_location_nearby_audit_events",
+                    "one_location_nearby_abuse_windows",
                     "one_location_nearby_presences",
+                    "one_location_nearby_admission_claims",
                     "one_location_sms_contacts",
                     "one_location_referrals",
                     "one_location_public_invite_submissions",

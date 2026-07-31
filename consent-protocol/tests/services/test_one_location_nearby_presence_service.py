@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from hushh_mcp.services import one_location_nearby_presence_service as nearby_presence
+from hushh_mcp.services.one_location_event_admission_service import (
+    EventAdmissionContext,
+)
 from hushh_mcp.services.one_location_nearby_presence_service import (
     NEARBY_PRESENCE_CONSENT_VERSION,
     NEARBY_PRESENCE_RADIUS_METERS,
@@ -73,6 +76,7 @@ class FakeStore:
         self.upsert_args: dict | None = None
         self.checkout_calls = 0
         self.candidate_args: dict | None = None
+        self.safety_actions: list[dict] = []
 
     def get_verified_profile(self, user_id):
         return self.profile
@@ -114,6 +118,10 @@ class FakeStore:
     def checkout(self, user_id):
         self.checkout_calls += 1
         self.presence = None
+        return True
+
+    def apply_safety_action(self, **kwargs):
+        self.safety_actions.append(kwargs)
         return True
 
     def purge_terminal(self, **kwargs):
@@ -177,6 +185,39 @@ def test_check_in_encrypts_selected_place_and_never_persists_raw_gps():
     assert "Spot A" not in serialized
     assert "current_lat" not in store.upsert_args
     assert "current_lng" not in store.upsert_args
+
+
+def test_event_check_in_locks_to_admitted_venue_and_event_expiry():
+    store = FakeStore()
+    service, _ = _service(store)
+    event = EventAdmissionContext(
+        admission_claim_id="7debb48d-4a5b-49dc-80c1-0ace848f42d8",
+        event_id="ec01fe7f-780e-4bec-a62a-6a613fa02376",
+        display_name="Hussh Event",
+        venue_place_id="organizer-venue",
+        venue_label="Demo Hall",
+        venue_latitude=37.4276,
+        venue_longitude=-122.1698,
+        radius_meters=500,
+        starts_at=NOW - timedelta(minutes=5),
+        ends_at=NOW + timedelta(minutes=45),
+    )
+
+    _check_in(
+        service,
+        place_id="client-place-is-ignored",
+        place_label="Client label is ignored",
+        place_lat=0,
+        place_lng=0,
+        event_context=event,
+    )
+
+    assert store.upsert_args["admission_mode"] == "event_pilot"
+    assert store.upsert_args["event_id"] == event.event_id
+    assert store.upsert_args["admission_claim_id"] == event.admission_claim_id
+    serialized = str(store.upsert_args)
+    assert "client-place-is-ignored" not in serialized
+    assert "Client label is ignored" not in serialized
 
 
 def test_keys_are_vault_rooted_and_purpose_separated(monkeypatch):
@@ -464,6 +505,41 @@ def test_checkout_is_idempotent_and_purge_contract_is_bounded():
         "expired": 1,
         "deleted": 2,
     }
+
+
+def test_block_and_report_use_alias_only_and_refresh_the_filtered_roster():
+    store = FakeStore()
+    store.presence = _anchor_row(
+        user_id="viewer",
+        alias="viewer-alias",
+        place_id="spot-a",
+        label="Spot A",
+        lat=37.4275,
+        lng=-122.1697,
+    )
+    service, _ = _service(store)
+
+    blocked = service.block(user_id="viewer", participant_alias=TARGET_ALIAS)
+    reported = service.report(
+        user_id="viewer",
+        participant_alias=TARGET_ALIAS,
+        reason_code="unsafe_behavior",
+    )
+
+    assert blocked["attendees"] == []
+    assert reported["attendees"] == []
+    assert store.safety_actions == [
+        {
+            "viewer_user_id": "viewer",
+            "participant_alias": TARGET_ALIAS,
+            "reason_code": None,
+        },
+        {
+            "viewer_user_id": "viewer",
+            "participant_alias": TARGET_ALIAS,
+            "reason_code": "unsafe_behavior",
+        },
+    ]
 
 
 def test_cell_cover_handles_epoch_and_antimeridian_boundaries():

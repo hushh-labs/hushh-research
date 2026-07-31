@@ -65,6 +65,25 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `cleanup_consent_audit_noise.py`: remove audit noise with explicit operator intent.
 - `cleanup_user_consent_surface.py`: repair consent-surface rows after contract changes.
 
+### One Location Event Operations
+
+- `one_location_event_pilot.py`: production operator surface for creating,
+  activating, pausing, or closing an admitted Nearby Check-In event and issuing
+  its one-time passes. The script never prints raw passes and refuses to
+  overwrite an output file. Admission output must be outside the repository or
+  under the ignored root `tmp/` directory, for example:
+
+```bash
+python consent-protocol/scripts/one_location_event_pilot.py \
+  issue-admissions \
+  --event-id "<event-id>" \
+  --count 25 \
+  --output "tmp/one-location-event-passes.json"
+```
+
+Keep the output out of git and distribute it only through the approved event
+operator channel.
+
 ### Observability and Ops Subfolders
 
 - `ops/`: backend operational helpers that support release and infrastructure maintenance.
