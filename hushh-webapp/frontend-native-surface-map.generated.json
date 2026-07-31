@@ -2214,21 +2214,16 @@
       "page_file": "app/one/connect/settings/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects legacy Gemini settings links to the canonical Profile preference.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.connect.settings",
-          "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+          "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -2243,9 +2238,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-          "next_route": "/one/connect/settings",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+          "next_route": "/one/profile/preferences/gemini",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -5189,6 +5184,61 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/preferences/gemini",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.gemini",
+          "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/preferences/kai",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "physical_page_exists": true,
@@ -7758,5 +7808,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "eb9df2e76a1a5efa107b4ebd80dec102514441a8d9b2dd19db8cba7348cdf538"
+  "content_sha256": "e53f6704fd1c45215fa85f53420a9167027c3877d8545a1d3a5946f27b780602"
 }

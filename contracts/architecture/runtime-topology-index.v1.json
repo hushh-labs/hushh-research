@@ -2016,8 +2016,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -2027,7 +2027,7 @@
       "native_surface_id": "native-route-connect-settings",
       "page_file": "app/one/connect/settings/page.tsx",
       "pathname": "/one/connect/settings",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -3330,6 +3330,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "pathname": "/one/profile/preferences/gemini",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.gemini"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "pathname": "/one/profile/preferences/kai",
@@ -4366,13 +4389,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "ec8e4dae0987de143e456d0f70a489b5083a7c85028a46a7ced57d868ada8bc2",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "4796d2cecf0abcd7a9cfcd49b2c36cc02a8e8dec3744dd7feddeab0c22486b65",
+    "cache_manifest": "4de3e2980f72c70f7b641d91c4d4b3a10614cbcb5fdc8d1cd18620aaf0a8a92d",
     "data_plane": "e9b1b6c81b126126038bbfe410910c3728f9a7c902b786533b72ad1780a949af",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "2ee25ff096741040ea1a0af51bc0068d2265657c47c38926fa2dd856c0f608ac",
-    "route_layout": "a1de085f6c6fd8b9497fd7ac30930cf8612aeef966656f1e9175e94ecc801926",
-    "surface_map": "e1d357b5e32d0d1163d51ab9c0e21e224094312618380584f560d2961fe27666",
+    "route_index": "96b8a5f0dc3fd3e0fb9c6f97132fca11256c8c422c469d8d8a35bab9bf82866a",
+    "route_layout": "6f59201fa2ecc0256cb0e3aeb7887d3f8fc3ca2c0b6e548782e360df936f7e62",
+    "surface_map": "5bb314d4860229cc3fa3eaf0b6d6157ea419dec860595819f0a71a5ac85fec3d",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4384,7 +4407,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 115,
+    "physical_routes": 116,
     "semantic_routes": 14,
     "table_families": 41
   }
