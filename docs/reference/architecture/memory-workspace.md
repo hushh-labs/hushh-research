@@ -24,4 +24,7 @@ An explicit `empty` materialization is hidden from Memory and cannot be requeste
 
 PKM events and durable Kai terminal checkpoints are metadata-only. They must never retain raw cards, debate transcripts, model prose, votes, market sources, or decrypted PKM context. Migration 128 redacts existing decision-event metadata and clears the operational checkpoint cache; it does not delete encrypted owner PKM history.
 
-The rollout seam is `NEXT_PUBLIC_MEMORY_WORKSPACE_ENABLED=true`: enable it first in UAT after migration 128 and the runtime policy guards are deployed. It is off by default. No hosted MCP handshake, developer credential authority, or encrypted export format changes.
+Memory is available by default once the vault is unlocked. The former
+`NEXT_PUBLIC_MEMORY_WORKSPACE_ENABLED` rollout flag is retired: migration 128
+and the runtime policy guards are now baseline requirements. No hosted MCP
+handshake, developer credential authority, or encrypted export format changes.

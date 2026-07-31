@@ -5,7 +5,6 @@ import { Check, ChevronLeft, Edit3, Loader2, Lock, Minus, ShieldAlert, Trash2, X
 import { useRouter } from "next/navigation";
 
 import { PkmDataManagerPanel } from "@/components/profile/pkm-data-manager";
-import { PkmMemoryBrowser } from "@/components/profile/pkm-memory-browser";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { SettingsGroup, SettingsRow, SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
@@ -89,7 +88,7 @@ const MEMORY_WORKSPACE_TABS = [
   { value: "browse", label: "Saved" },
   { value: "add", label: "Add" },
   { value: "sharing", label: "Sharing" },
-] as const;
+];
 
 const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
   manifest: null,
@@ -875,7 +874,11 @@ export function PkmNaturalPanel({
             {memoryActionMessage ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{memoryActionMessage}</p> : null}
             {memoryActionError ? <p className="text-sm text-destructive">{memoryActionError}</p> : null}
             {sharingImpactError ? <p className="text-sm text-destructive">{sharingImpactError}</p> : null}
-            {domainMemoryCards.length > 0 ? <PkmMemoryBrowser cards={domainMemoryCards} renderCard={renderMemoryCard} /> : null}
+            {domainMemoryCards.length > 0 ? (
+              <SurfaceInset className="divide-y divide-[color:var(--app-card-border-standard)] px-4">
+                {domainMemoryCards.map((card) => <div key={card.id}>{renderMemoryCard(card)}</div>)}
+              </SurfaceInset>
+            ) : null}
           </div>
         ) : null}
       </div></>
