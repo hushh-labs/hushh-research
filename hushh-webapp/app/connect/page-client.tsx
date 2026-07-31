@@ -224,17 +224,13 @@ export default function ConnectPageClient() {
           idToken,
           counterpartUserId: person.userId,
         });
-        if (catalog.items.length === 0 && catalog.offerableItems.length === 0) {
-          await sendConnectionRequest(person);
-          return;
-        }
         setScopeDraft({
           person,
           catalog,
-          // A requested capability belongs to the counterpart, so they must
-          // still approve it. Starting selected simply states the sender's
-          // intent; it never grants access on its own.
-          requestedHandles: catalog.items.map((item) => item.handle),
+          // A requested capability belongs to the counterpart, so it must be
+          // an intentional sender choice and still needs recipient approval.
+          // Never imply a request merely because a capability is eligible.
+          requestedHandles: [],
           offeredHandles: [],
         });
       } catch (catalogError) {
@@ -578,10 +574,11 @@ export default function ConnectPageClient() {
       >
         <DialogContent showCloseButton={false} className="gap-5">
           <DialogHeader className="text-left">
-            <DialogTitle>Choose connection scopes</DialogTitle>
+            <DialogTitle>Review connection capabilities</DialogTitle>
             <DialogDescription>
-              Connection acceptance does not share information. Each selected
-              scope needs its owner&apos;s approval.
+              A connection never shares information by itself. Choose only the
+              capabilities you want to request or offer; the other person can
+              approve a subset or decline them all.
             </DialogDescription>
           </DialogHeader>
 
@@ -642,6 +639,21 @@ export default function ConnectPageClient() {
                       }
                     />
                   ))}
+                </SettingsGroup>
+              ) : null}
+              {scopeDraft.catalog.items.length === 0 &&
+              scopeDraft.catalog.offerableItems.length === 0 ? (
+                <SettingsGroup
+                  title="No capabilities available yet"
+                  description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
+                  separatorInset
+                >
+                  <SettingsRow
+                    title="Connection only"
+                    description="This request does not grant access to any information or Kai debate."
+                    density="compact"
+                    disabled
+                  />
                 </SettingsGroup>
               ) : null}
             </div>
