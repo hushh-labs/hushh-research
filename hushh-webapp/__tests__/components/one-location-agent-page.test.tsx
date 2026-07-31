@@ -510,8 +510,8 @@ async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
       name: "Your circle is ready.",
     }),
   ).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
@@ -1393,8 +1393,8 @@ describe("OneLocationAgentPage", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
 
-    expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     await act(async () => {

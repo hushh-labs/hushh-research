@@ -17,7 +17,6 @@ import {
   UserPlus,
 } from "lucide-react";
 
-
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
@@ -104,11 +103,7 @@ const WELCOME_ORBIT_ITEMS = [
   },
 ] as const;
 
-const ONBOARDING_IMAGE_SOURCES = [
-  ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
-  "/one-location/onboarding/feature-checkin-pin-transparent.webp",
-] as const;
-
+const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
 
 const AVATAR_TONES = [
   { background: "#2f80ed", foreground: "#ffffff" },
@@ -246,9 +241,9 @@ function OnboardingSkipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-full text-[16px] font-bold disabled:opacity-50",
+        "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
         floating
-          ? "h-10 min-h-10 bg-white px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)]"
+          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
           : inverse
           ? "text-white"
           : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
@@ -256,6 +251,62 @@ function OnboardingSkipButton({
     >
       Skip
     </button>
+  );
+}
+
+function OnboardingNavigation({
+  onBack,
+  onSkip,
+  disabled = false,
+  inverse = false,
+  floating = false,
+  busy = false,
+  className,
+}: {
+  onBack: () => void;
+  onSkip: () => void;
+  disabled?: boolean;
+  inverse?: boolean;
+  floating?: boolean;
+  busy?: boolean;
+  className?: string;
+}) {
+  return (
+    <nav
+      aria-label="Onboarding"
+      className={cn(
+        "relative z-40 flex h-14 shrink-0 items-center justify-between",
+        className,
+      )}
+      data-one-onboarding-navigation
+    >
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={disabled}
+        className={cn(
+          "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
+          floating
+            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
+            : inverse
+              ? "bg-white/15 text-white"
+              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
+        )}
+        aria-label="Go back"
+      >
+        {busy ? (
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        ) : (
+          <ArrowLeft className="h-6 w-6" aria-hidden="true" />
+        )}
+      </button>
+      <OnboardingSkipButton
+        inverse={inverse}
+        floating={floating}
+        onClick={onSkip}
+        disabled={disabled}
+      />
+    </nav>
   );
 }
 
@@ -333,26 +384,14 @@ function WelcomeScreen({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <header className="relative z-10 flex h-16 shrink-0 items-center justify-between pt-2">
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={leaving}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white disabled:opacity-50"
-          aria-label="Go back"
-        >
-          {leaving ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ArrowLeft className="h-6 w-6" />
-          )}
-        </button>
-        <OnboardingSkipButton
-          inverse
-          onClick={onSkip}
-          disabled={leaving}
-        />
-      </header>
+      <OnboardingNavigation
+        inverse
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+        className="pt-2"
+      />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 text-center">
           <p className="inline-flex items-center gap-2 text-[19px] font-bold">
@@ -461,7 +500,7 @@ function FeatureStatusPill({
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#f2f5f8] dark:bg-[#171d27]"
+      className="relative aspect-[1.72/1] w-full overflow-hidden rounded-[26px] bg-[#f2f5f8] dark:bg-[#171d27]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
@@ -545,7 +584,7 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#f4f6f8] dark:bg-[#171d27]"
+      className="relative aspect-[0.68/1] w-full overflow-hidden rounded-[26px] bg-[#f4f6f8] dark:bg-[#171d27]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
@@ -579,15 +618,16 @@ function CheckInFeatureCard() {
       >
         <MapBackdrop tone="checkin" />
         <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-        <img
-          src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
-          alt=""
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          className="absolute bottom-[72px] right-[24%] h-[42px] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
-        />
+        <span
+          className="absolute bottom-[88px] right-[23%] z-20 h-7 w-7 drop-shadow-[0_7px_9px_rgba(28,177,103,0.26)]"
+          data-one-checkin-pin
+        >
+          <MapPin
+            className="h-full w-full fill-[#27b96a] text-[#27b96a]"
+            strokeWidth={1.8}
+          />
+          <span className="absolute left-1/2 top-[37%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+        </span>
         {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
         <img
           src="/one-location/onboarding/orbit-office.webp"
@@ -595,7 +635,7 @@ function CheckInFeatureCard() {
           loading="eager"
           decoding="async"
           fetchPriority="high"
-          className="absolute bottom-[43px] left-1/2 w-[88%] -translate-x-1/2 object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+          className="absolute bottom-[38px] left-1/2 w-[54%] origin-bottom -translate-x-1/2 rotate-[4deg] object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
           data-one-checkin-art
         />
       </div>
@@ -609,7 +649,7 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[26px] bg-[#fff3f2] dark:bg-[#2a191c]"
+      className="relative aspect-[0.68/1] w-full overflow-hidden rounded-[26px] bg-[#fff3f2] dark:bg-[#2a191c]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
@@ -637,7 +677,7 @@ function SaveMySoulFeatureCard() {
         </p>
       </div>
       <div
-        className="absolute bottom-[45px] left-1/2 flex h-[92px] w-[92px] -translate-x-1/2 items-center justify-center"
+        className="absolute bottom-[42px] left-1/2 flex h-20 w-20 -translate-x-1/2 items-center justify-center"
         data-one-sms-radar
         aria-hidden="true"
       >
@@ -653,7 +693,7 @@ function SaveMySoulFeatureCard() {
         />
         <span
           data-one-sms-core
-          className="relative z-10 flex h-[62px] w-[62px] items-center justify-center text-[16px] font-bold text-white"
+          className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
         >
           <span
             data-one-onboarding-motion
@@ -680,6 +720,9 @@ function FeaturesScreen({
   locationPreparationRetry,
   notificationBusy,
   requireLocationToContinue,
+  onBack,
+  onSkip,
+  leaving,
   onContinue,
 }: {
   locationGranted: boolean;
@@ -689,6 +732,9 @@ function FeaturesScreen({
   locationPreparationRetry: boolean;
   notificationBusy: boolean;
   requireLocationToContinue: boolean;
+  onBack: () => void;
+  onSkip: () => void;
+  leaving: boolean;
   onContinue: () => void;
 }) {
   const waitingForLocation = requireLocationToContinue && !locationGranted;
@@ -710,43 +756,55 @@ function FeaturesScreen({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(env(safe-area-inset-top,0px),34px)] dark:bg-[#0c1017]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]"
       data-one-feature-screen
     >
-      <header className="shrink-0" data-one-feature-header>
-        <h1
-          className="text-[36px] font-bold leading-none tracking-[-0.025em] text-[#111823] dark:text-[#f6f8fc]"
-          data-one-feature-heading
-        >
-          Stay connected
-        </h1>
-        <p
-          className="mt-3 text-[16px] leading-6 text-[#737a84] dark:text-[#aeb8c7]"
-          data-one-feature-subtitle
-        >
-          For everyday plans, meetups, and emergencies.
-        </p>
-      </header>
-      <div className="mt-6 grid min-h-0 flex-1 gap-4" data-one-feature-grid>
-        <ShareLocationFeatureCard />
-        <div
-          className="grid min-h-0 grid-cols-2 gap-4"
-          data-one-feature-lower-grid
-        >
-          <CheckInFeatureCard />
-          <SaveMySoulFeatureCard />
-        </div>
-      </div>
-      <p
-        className={cn(
-          "shrink-0 pt-2 text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
-          !waitingForLocation && !permissionBusy && "sr-only",
-        )}
-        aria-live="polite"
+      <OnboardingNavigation
+        floating
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+      />
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        data-one-feature-scroll
       >
-        {status}
-      </p>
-      <div className="mt-5 shrink-0" data-one-feature-cta>
+        <header className="mt-3 shrink-0" data-one-feature-header>
+          <h1
+            className="text-[36px] font-bold leading-none tracking-[-0.025em] text-[#111823] dark:text-[#f6f8fc]"
+            data-one-feature-heading
+          >
+            Stay connected
+          </h1>
+          <p
+            className="mt-3 text-[16px] leading-6 text-[#737a84] dark:text-[#aeb8c7]"
+            data-one-feature-subtitle
+          >
+            For everyday plans, meetups, and emergencies.
+          </p>
+        </header>
+        <div className="mt-6 grid shrink-0 gap-4" data-one-feature-grid>
+          <ShareLocationFeatureCard />
+          <div
+            className="grid grid-cols-2 items-start gap-4"
+            data-one-feature-lower-grid
+          >
+            <CheckInFeatureCard />
+            <SaveMySoulFeatureCard />
+          </div>
+        </div>
+        <p
+          className={cn(
+            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+            !waitingForLocation && !permissionBusy && "sr-only",
+          )}
+          aria-live="polite"
+        >
+          {status}
+        </p>
+      </div>
+      <div className="shrink-0 pt-8" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -769,62 +827,72 @@ function FeaturesScreen({
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
-        [data-one-feature-grid] {
-          grid-template-rows: minmax(0, .86fr) minmax(0, 1.14fr);
-        }
+        [data-one-feature-scroll] { scrollbar-width: none; }
+        [data-one-feature-scroll]::-webkit-scrollbar { display: none; }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 18px);
+            padding-top: max(env(safe-area-inset-top, 0px), 8px);
             padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
           }
-          [data-one-feature-heading] { font-size: 31px; }
-          [data-one-feature-subtitle] { margin-top: 6px; font-size: 14px; line-height: 20px; }
-          [data-one-feature-grid] { margin-top: 14px; gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 10px; }
-          [data-one-feature-card] { border-radius: 20px; }
-          [data-one-feature-copy] { padding-top: 12px; padding-left: 13px; padding-right: 10px; }
-          [data-one-use-case-tag] { padding: 3px 9px; font-size: 9.5px; }
-          [data-one-feature-title] { margin-top: 7px; font-size: 15px; line-height: 1.1; }
-          [data-one-feature-body] { margin-top: 5px; font-size: 10.5px; line-height: 1.24; }
-          [data-one-use-case-alert] { height: 27px; padding-left: 7px; padding-right: 7px; font-size: 8.5px; }
-          [data-one-feature-cta] { margin-top: 12px; }
-          [data-one-feature-cta] button { min-height: 48px; height: 48px; }
+          [data-one-onboarding-navigation] { height: 52px; }
+          [data-one-feature-header] { margin-top: 8px; }
+          [data-one-feature-heading] { font-size: 32px; }
+          [data-one-feature-subtitle] { margin-top: 7px; font-size: 14px; line-height: 20px; }
+          [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
+          [data-one-feature-lower-grid] { gap: 12px; }
+          [data-one-feature-cta] { padding-top: 14px; }
+          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
         }
         @media (max-height: 680px) {
-          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
-          [data-one-feature-heading] { font-size: 28px; }
-          [data-one-feature-subtitle] { font-size: 12.5px; }
-          [data-one-feature-grid] { margin-top: 10px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-copy] { padding-top: 9px; padding-left: 10px; padding-right: 7px; }
-          [data-one-use-case-tag] { padding: 2px 7px; font-size: 8.5px; }
-          [data-one-feature-title] { margin-top: 5px; font-size: 13px; }
-          [data-one-feature-body] { margin-top: 4px; font-size: 9px; }
-          [data-one-use-case-alert] { height: 23px; font-size: 7.5px; }
-          [data-one-sms-radar] { bottom: 34px; width: 72px; height: 72px; }
-          [data-one-sms-core] { width: 50px; height: 50px; font-size: 14px; }
-          [data-one-feature-cta] { margin-top: 9px; }
-          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
+          [data-one-feature-heading] { font-size: 30px; }
+          [data-one-feature-grid] { margin-top: 12px; }
+          [data-one-feature-cta] { padding-top: 10px; }
+          [data-one-feature-cta] button { min-height: 48px; height: 48px; }
+        }
+        @media (max-width: 430px) {
+          [data-one-feature-screen] { padding-left: 20px; padding-right: 20px; }
+          [data-one-feature-heading] { font-size: 32px; }
+          [data-one-feature-subtitle] { font-size: 14px; }
+          [data-one-feature-grid] { gap: 12px; }
+          [data-one-feature-lower-grid] { gap: 12px; }
+          [data-one-feature-card] { border-radius: 22px; }
+          [data-one-feature-copy] { padding-top: 14px; padding-left: 12px; padding-right: 10px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] { width: 58%; padding: 16px 14px 0; }
+          [data-one-use-case-tag] { padding: 3px 9px; font-size: 10px; }
+          [data-one-feature-title] { margin-top: 8px; font-size: 15.5px; line-height: 1.12; }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 18px; }
+          [data-one-feature-body] { margin-top: 6px; font-size: 11px; line-height: 1.3; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11.5px; }
+          [data-one-use-case-alert] { height: 28px; padding-left: 7px; padding-right: 7px; font-size: 8px; }
         }
         @media (max-width: 380px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { font-size: 32px; }
-          [data-one-feature-subtitle] { font-size: 14px; }
-          [data-one-feature-grid] { gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 10px; }
-          [data-one-feature-copy] { padding-left: 12px; padding-right: 8px; }
-          [data-one-feature-title] { font-size: 15px; }
-          [data-one-feature-body] { font-size: 10.5px; }
-          [data-one-use-case-alert] { font-size: 8px; }
         }
         @media (max-width: 340px) {
-          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
+          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
           [data-one-feature-heading] { font-size: 29px; }
-          [data-one-feature-card] { border-radius: 18px; }
-          [data-one-feature-title] { font-size: 13px; }
-          [data-one-feature-body] { font-size: 9.25px; }
-          [data-one-use-case-alert] { height: 23px; gap: 3px; padding-left: 5px; padding-right: 5px; font-size: 7px; }
+          [data-one-feature-grid] { gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-card] { border-radius: 20px; }
+          [data-one-feature-copy] { padding-top: 11px; padding-left: 10px; padding-right: 7px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] { padding: 13px 11px 0; }
+          [data-one-use-case-tag] { padding: 3px 7px; font-size: 9px; }
+          [data-one-feature-title] { margin-top: 6px; font-size: 14px; }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
+          [data-one-feature-body] { margin-top: 5px; font-size: 10.5px; }
+          [data-one-use-case-alert] { height: 26px; gap: 3px; padding-left: 5px; padding-right: 5px; font-size: 8px; }
           [data-one-use-case-alert] > span:first-child { width: 13px; height: 13px; }
+          [data-one-checkin-pin] { bottom: 58px; width: 24px; height: 24px; }
+          [data-one-checkin-art] { bottom: 35px; }
+          [data-one-sms-radar] { bottom: 22px; width: 52px; height: 52px; }
+          [data-one-sms-core] { width: 38px; height: 38px; font-size: 12px; }
+        }
+        @media (max-width: 300px) {
+          [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
+          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
+          [data-one-feature-title] { font-size: 16px; }
+          [data-one-feature-body] { font-size: 11px; }
+          [data-one-use-case-alert] { font-size: 9px; }
         }
       `}</style>
 
@@ -927,17 +995,13 @@ function PeopleScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
-      </header>
+      <OnboardingNavigation
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+        className="px-5 pt-2"
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <h1 className="mt-3 text-[34px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
           Add people
@@ -1063,6 +1127,9 @@ function CircleScreen({
   requestsSending,
   failedCount,
   settlementRetryCount,
+  onBack,
+  onSkip,
+  leaving,
 }: {
   currentUserName: string;
   currentUserPhotoUrl?: string | null;
@@ -1070,6 +1137,9 @@ function CircleScreen({
   requestsSending: boolean;
   failedCount: number;
   settlementRetryCount: number;
+  onBack: () => void;
+  onSkip: () => void;
+  leaving: boolean;
 }) {
   const shown = members.slice(0, 4);
   const positions = [
@@ -1092,8 +1162,15 @@ function CircleScreen({
             : "I've invited your people - I'll tell you when they join.";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),24px)] dark:bg-[#0c1017]">
-      <div className="shrink-0 pt-2 text-left">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]">
+      <OnboardingNavigation
+        floating
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+      />
+      <div className="shrink-0 pt-3 text-left" data-one-circle-heading>
         <h1 className="text-[36px] font-bold leading-[1.05] text-[#111823] dark:text-[#f5f7fb]">
           Your circle is ready.
         </h1>
@@ -1159,6 +1236,12 @@ function CircleScreen({
       <style>{`
         @keyframes oneCircleReady { 0%, 100% { opacity: .52; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.02); } }
         @keyframes oneCircleMemberIn { from { opacity: 0; transform: translateY(10px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @media (max-height: 680px) {
+          [data-one-onboarding-navigation] { height: 52px; }
+          [data-one-circle-heading] { padding-top: 6px; }
+          [data-one-circle-heading] h1 { font-size: 31px; }
+          [data-one-circle-heading] p { margin-top: 8px; font-size: 14px; line-height: 20px; }
+        }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
@@ -1206,8 +1289,10 @@ export function OneLocationOnboardingFlow({
   const [failedRequestCount, setFailedRequestCount] = useState(0);
   const [requestsSending, setRequestsSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const requestBatchRef = useRef(0);
+  const requestedConnectionIdsRef = useRef<Set<string>>(new Set());
   const permissionPromptAttemptedRef = useRef(false);
   const locationPreparationCompleteRef = useRef(false);
   const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
@@ -1289,20 +1374,31 @@ export function OneLocationOnboardingFlow({
     const timer = window.setTimeout(() => {
       if (completionInFlightRef.current) return;
       completionInFlightRef.current = true;
+      setCompletionBusy(true);
       void Promise.resolve(onComplete()).catch(() => {
         completionInFlightRef.current = false;
+        setCompletionBusy(false);
         setSettlementRetryCount((current) => current + 1);
       });
     }, delay);
     return () => window.clearTimeout(timer);
   }, [onComplete, screen, settlementRetryCount]);
 
-  const runSkip = async () => {
-    if (leaving) return;
+  const runSkip = async (settleCircle = false) => {
+    if (leaving || (settleCircle && completionInFlightRef.current)) return;
+    if (settleCircle) {
+      completionInFlightRef.current = true;
+      setCompletionBusy(true);
+    }
     setLeaving(true);
     try {
       await onSkip();
     } catch {
+      if (settleCircle) completionInFlightRef.current = false;
+      if (settleCircle) {
+        setCompletionBusy(false);
+        setSettlementRetryCount((current) => current + 1);
+      }
       setLeaving(false);
     }
   };
@@ -1320,6 +1416,14 @@ export function OneLocationOnboardingFlow({
   const openFeatures = () => {
     setScreen("features");
     requestMissingPermissions();
+  };
+
+  const backFromFeatures = () => {
+    if (startAt === "permissions") {
+      void runBack();
+      return;
+    }
+    setScreen("welcome");
   };
 
   const continueFromFeatures = () => {
@@ -1340,7 +1444,11 @@ export function OneLocationOnboardingFlow({
       selectedIds.includes(person.userId),
     );
     const requestIds = selectedPeople
-      .filter((person) => person.relationship === "none")
+      .filter(
+        (person) =>
+          person.relationship === "none" &&
+          !requestedConnectionIdsRef.current.has(person.userId),
+      )
       .map((person) => person.userId);
     const activeIds = new Set(
       connections.map((connection) => connection.userId),
@@ -1360,13 +1468,20 @@ export function OneLocationOnboardingFlow({
     setRequestsSending(requestIds.length > 0);
     setSettlementRetryCount(0);
     completionInFlightRef.current = false;
+    setCompletionBusy(false);
     setScreen("circle");
 
     const batchId = ++requestBatchRef.current;
     if (requestIds.length === 0) return;
+    requestIds.forEach((userId) =>
+      requestedConnectionIdsRef.current.add(userId),
+    );
 
     void onSendConnectionRequests(requestIds)
       .then((result) => {
+        result.failedUserIds.forEach((userId) =>
+          requestedConnectionIdsRef.current.delete(userId),
+        );
         if (requestBatchRef.current !== batchId) return;
         const sentIds = new Set(result.sentUserIds);
         setCircleMembers(
@@ -1379,6 +1494,9 @@ export function OneLocationOnboardingFlow({
         setRequestsSending(false);
       })
       .catch(() => {
+        requestIds.forEach((userId) =>
+          requestedConnectionIdsRef.current.delete(userId),
+        );
         if (requestBatchRef.current !== batchId) return;
         setCircleMembers(
           optimisticMembers.filter((member) => member.status === "connected"),
@@ -1425,6 +1543,9 @@ export function OneLocationOnboardingFlow({
             locationPreparationRetry={locationPreparationRetry}
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
+            onBack={backFromFeatures}
+            onSkip={() => void runSkip()}
+            leaving={leaving}
             onContinue={continueFromFeatures}
           />
         ) : null}
@@ -1451,6 +1572,11 @@ export function OneLocationOnboardingFlow({
             requestsSending={requestsSending}
             failedCount={failedRequestCount}
             settlementRetryCount={settlementRetryCount}
+            onBack={() => {
+              if (!completionBusy) setScreen("people");
+            }}
+            onSkip={() => void runSkip(true)}
+            leaving={leaving || completionBusy || requestsSending}
           />
         ) : null}
       </section>
