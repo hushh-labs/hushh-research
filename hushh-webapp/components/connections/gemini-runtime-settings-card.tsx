@@ -267,44 +267,45 @@ export function GeminiRuntimeSettingsCard({
           source: "connections_gemini_api_key",
         },
       });
-      await Promise.all([
-        PersonalKnowledgeModelService.storeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
-          secret: transport,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_transport",
-          },
-        }),
-        PersonalKnowledgeModelService.storeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_PROJECT_REF,
-          secret: "",
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_vertex_project",
-          },
-        }),
-        PersonalKnowledgeModelService.storeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_LOCATION_REF,
-          secret: "",
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_vertex_location",
-          },
-        }),
-      ]);
+      // Write sequentially: these credentials share one encrypted vault domain,
+      // so a Promise.all would race read-modify-writes against each other and
+      // self-induce version conflicts.
+      await PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
+        secret: transport,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_transport",
+        },
+      });
+      await PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_VERTEX_PROJECT_REF,
+        secret: "",
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_vertex_project",
+        },
+      });
+      await PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_VERTEX_LOCATION_REF,
+        secret: "",
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_vertex_location",
+        },
+      });
       await persistMode("byok");
       setDraftKey("");
       invalidateCredentialValidation();
@@ -340,41 +341,41 @@ export function GeminiRuntimeSettingsCard({
           source: "connections_gemini_api_key_remove",
         },
       });
-      await Promise.all([
-        PersonalKnowledgeModelService.removeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_transport_remove",
-          },
-        }),
-        PersonalKnowledgeModelService.removeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_PROJECT_REF,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_vertex_project_remove",
-          },
-        }),
-        PersonalKnowledgeModelService.removeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_VERTEX_LOCATION_REF,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "connections_gemini_vertex_location_remove",
-          },
-        }),
-      ]);
+      // Remove sequentially for the same reason as saveByok: these credentials
+      // share one encrypted vault domain and must not race each other.
+      await PersonalKnowledgeModelService.removeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_RUNTIME_TRANSPORT_REF,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_transport_remove",
+        },
+      });
+      await PersonalKnowledgeModelService.removeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_VERTEX_PROJECT_REF,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_vertex_project_remove",
+        },
+      });
+      await PersonalKnowledgeModelService.removeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_VERTEX_LOCATION_REF,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "connections_gemini_vertex_location_remove",
+        },
+      });
       await persistMode("hushh_managed_vertex");
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
