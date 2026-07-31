@@ -37,20 +37,25 @@ export function TopShellTabs({
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Query tabs swap content inside one route. Route-backed workspaces (RIA)
+  // own distinct durable screens and therefore use the single full route
+  // envelope for both taps and swipes.
+  const transitionMode =
+    tabSet.queryParam === null ? "full" : "contextual";
   const optimisticValue = useMemo(() => {
     const activeIntent = [...interactionIntents]
       .reverse()
       .find(
         (intent) =>
           intent.kind === "navigation" &&
-          intent.transitionMode === "contextual" &&
+          intent.transitionMode === transitionMode &&
           (intent.status === "accepted" || intent.status === "committing") &&
           tabSet.tabs.some((tab) => tab.href === intent.target),
       );
     return activeIntent
       ? tabSet.tabs.find((tab) => tab.href === activeIntent.target)?.value
       : null;
-  }, [interactionIntents, tabSet.tabs]);
+  }, [interactionIntents, tabSet.tabs, transitionMode]);
   const selectedValue = optimisticValue ?? tabSet.activeValue;
   const activeIndex = Math.max(
     0,
@@ -87,10 +92,10 @@ export function TopShellTabs({
           router.replace(tab.href, { scroll: false });
         },
         "tap",
-        "contextual",
+        transitionMode,
       );
     },
-    [navigationMode, router, selectedValue, tabSet],
+    [navigationMode, router, selectedValue, tabSet, transitionMode],
   );
 
   return (

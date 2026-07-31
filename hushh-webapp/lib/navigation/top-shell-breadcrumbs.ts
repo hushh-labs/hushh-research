@@ -139,6 +139,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";

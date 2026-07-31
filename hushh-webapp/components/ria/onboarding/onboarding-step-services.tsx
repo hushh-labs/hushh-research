@@ -10,11 +10,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import {
-  RiaAiActionPill,
-  RiaSelectControl,
-} from "@/components/ria/ui/ria-primitives";
+import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
 
 const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
   { label: "Portfolio Management", icon: BarChart3 },
@@ -204,12 +202,10 @@ export function OnboardingStepServices({
           {AVAILABLE_SERVICES.map(({ label, icon: Icon }, i) => {
             const selected = servicesOffered.includes(label);
             return (
-              <button
+              <label
                 key={label}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => toggleService(label)}
-                className="flex min-h-[60px] w-full items-center gap-[14px] px-[18px] py-3 text-left"
+                htmlFor={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
+                className="flex min-h-[60px] w-full cursor-pointer items-center gap-[14px] px-[18px] py-3 text-left"
                 style={
                   i > 0
                     ? { borderTop: "1px solid var(--ria-divider-inner)" }
@@ -229,8 +225,13 @@ export function OnboardingStepServices({
                 <span className="min-w-0 flex-1 text-[16px] font-medium leading-5 text-foreground">
                   {label}
                 </span>
-                <RiaSelectControl checked={selected} variant="radio" />
-              </button>
+                <Checkbox
+                  id={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
+                  checked={selected}
+                  onCheckedChange={() => toggleService(label)}
+                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:border-[color:var(--ria-select-fill)] data-[state=checked]:bg-[color:var(--ria-select-fill)]"
+                />
+              </label>
             );
           })}
         </div>

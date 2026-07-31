@@ -734,12 +734,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
   const handleTopShellBack = useCallback(() => {
     navigateTopShellBack({
-      router,
       pathname: normalizedPathname,
       searchParams,
       breadcrumb: topShellBreadcrumb,
+      navigate: (action) => {
+        requestInternalAppNavigation({
+          href: action.href,
+          replace: action.mode === "replace",
+          scroll: false,
+          source: "tap",
+          transitionMode: "full",
+        });
+      },
     });
-  }, [normalizedPathname, router, searchParams, topShellBreadcrumb]);
+  }, [normalizedPathname, searchParams, topShellBreadcrumb]);
 
   // The avatar opens Profile from EVERY signed-in screen, so tag the current
   // route as the `?from` origin. The shared top-bar back control then retraces

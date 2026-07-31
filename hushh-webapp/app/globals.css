@@ -2767,9 +2767,20 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-mask-blur: var(--app-shared-chrome-mask-blur);
   --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur));
   --ambient-chrome-wash: 58%;
-  --ambient-chrome-ramp-hold: 42%;
-  --ambient-chrome-ramp-mid: 72%;
-  --ambient-chrome-ramp-mid-alpha: 0.44;
+  /* One feather profile drives both chrome edges. Edge classes may choose
+     geometry, never their own opacity curve. */
+  --ambient-chrome-fade-solid: 94%;
+  --ambient-chrome-fade-dense: 91%;
+  --ambient-chrome-fade-mid: 72%;
+  --ambient-chrome-fade-soft: 38%;
+  --ambient-chrome-fade-trace: 12%;
+  --ambient-chrome-fade-dense-stop: 16%;
+  --ambient-chrome-fade-mid-stop: 38%;
+  --ambient-chrome-fade-soft-stop: 64%;
+  --ambient-chrome-fade-trace-stop: 84%;
+  --ambient-chrome-fade-mask-mid: 0.72;
+  --ambient-chrome-fade-mask-soft: 0.38;
+  --ambient-chrome-fade-mask-trace: 0.12;
   -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
   backdrop-filter: var(--ambient-chrome-backdrop-filter);
   will-change: background-color, backdrop-filter;
@@ -2784,7 +2795,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   /* Keep the shell legible without turning the top edge into an opaque slab.
      The final 12–14px tail is deliberately short, but its eased curve mirrors
      the bottom dock instead of falling from full opacity inside one hard step. */
-  --ambient-chrome-wash: 94%;
+  --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
   --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
   --ambient-chrome-top-visible-height: var(--top-shell-mask-visible-height);
   background-color: color-mix(
@@ -2796,19 +2807,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.97)
+    #000
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
       ),
-    rgba(0, 0, 0, 0.77)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
       ),
-    rgba(0, 0, 0, 0.40)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
       ),
-    rgba(0, 0, 0, 0.13)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
       ),
@@ -2818,19 +2829,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.97)
+    #000
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
       ),
-    rgba(0, 0, 0, 0.77)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
       ),
-    rgba(0, 0, 0, 0.40)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
       ),
-    rgba(0, 0, 0, 0.13)
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
       calc(
         var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
       ),
@@ -2851,11 +2862,11 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-color: transparent;
   background-image: linear-gradient(
     to top,
-    color-mix(in srgb, var(--ambient-chrome-bg) 94%, transparent) 0%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 91%, transparent) 16%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 72%, transparent) 38%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 38%, transparent) 64%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 12%, transparent) 84%,
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-solid), transparent) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-dense), transparent) var(--ambient-chrome-fade-dense-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-mid), transparent) var(--ambient-chrome-fade-mid-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-soft), transparent) var(--ambient-chrome-fade-soft-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-trace), transparent) var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
   /* `backdrop-filter` affects transparent pixels unless the element itself is
@@ -2864,19 +2875,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   -webkit-mask-image: linear-gradient(
     to top,
     #000 0%,
-    #000 16%,
-    rgba(0, 0, 0, 0.72) 38%,
-    rgba(0, 0, 0, 0.38) 64%,
-    rgba(0, 0, 0, 0.12) 84%,
+    #000 var(--ambient-chrome-fade-dense-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
   mask-image: linear-gradient(
     to top,
     #000 0%,
-    #000 16%,
-    rgba(0, 0, 0, 0.72) 38%,
-    rgba(0, 0, 0, 0.38) 64%,
-    rgba(0, 0, 0, 0.12) 84%,
+    #000 var(--ambient-chrome-fade-dense-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
 }

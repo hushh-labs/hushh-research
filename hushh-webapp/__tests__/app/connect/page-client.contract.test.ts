@@ -17,8 +17,23 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain("icon={Users}\n          accent");
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
-    expect(source).toContain("icon={Sparkles}");
+    expect(source).not.toContain("Private configuration");
+    expect(source).not.toContain("icon={Sparkles}");
     expect(source).toContain("icon={UserRound}");
     expect(source).toContain("separatorInset");
+  });
+
+  it("requires an explicit capability review for every connection request", () => {
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("Review connection capabilities");
+    expect(source).toContain("No capabilities available yet");
+    expect(source).toContain("requestedHandles: []");
+    expect(source).not.toContain(
+      "if (catalog.items.length === 0 && catalog.offerableItems.length === 0)",
+    );
   });
 });

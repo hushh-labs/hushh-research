@@ -14,10 +14,10 @@ export default function RiaLayout({
     <VaultLockGuard>
       <PhoneMandateGuard>
         <RouteErrorBoundary fallbackRoute="/ria">
-          {/* Apple-style swipe pager: a horizontal swipe hops to the adjacent
-              RIA tab while the pinned chrome stays put. RIA-scoped by
-              construction — this layout does not wrap /marketplace, so Connect
-              keeps its own card-deck swipe. Guards above are untouched. */}
+          {/* The onboarding wrapper owns only its five local wizard steps.
+              Profile, Clients, and Picks use the shared route-tab gesture in
+              the app shell, so their route transition and tab motion stay in
+              parity with every other top-shell workspace. */}
           <RiaSwipePager>{children}</RiaSwipePager>
         </RouteErrorBoundary>
       </PhoneMandateGuard>

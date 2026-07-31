@@ -92,6 +92,45 @@ def test_scope_catalog_is_directory_bounded_and_separates_offerable_scopes():
     assert exc.value.code == "CONNECTION_SCOPE_TARGET_FORBIDDEN"
 
 
+def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
+    svc = ConnectionsService(
+        scope_entries_lookup=lambda _owner: [
+            {
+                "scope": "attr.financial.holdings",
+                "label": "Holdings",
+                "domain": "financial",
+                "path": "holdings",
+                "wildcard": False,
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "consent_required",
+            },
+            {
+                "scope": "attr.financial.tax_id",
+                "label": "Tax ID",
+                "domain": "financial",
+                "path": "tax_id",
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "private",
+            },
+        ]
+    )
+    svc._execute_one = lambda _sql, _params=None: {"id": "connection-1"}
+
+    result = svc.get_information_scope_catalog("user-a", "user-b", query="hold")
+
+    assert [entry["scope"] for entry in result["items"]] == ["attr.financial.holdings"]
+    assert result["items"][0]["match_reason"] == "substring_match"
+
+    svc._execute_one = lambda _sql, _params=None: None
+    with pytest.raises(ConnectionsError) as exc:
+        svc.get_information_scope_catalog("user-a", "user-b")
+    assert exc.value.code == "CONNECTION_INFORMATION_SCOPE_FORBIDDEN"
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 
@@ -310,6 +349,44 @@ def test_cancel_rejected_when_not_requester():
     assert exc.value.status_code == 403
 
 
+def test_cancel_marks_request_and_pending_scope_proposals_declined():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [{"id": "proposal-1"}],
+            [{"id": "event-1"}],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+    proposal_update = next(
+        (sql, params) for sql, params in db.calls if "UPDATE connection_scope_proposals" in sql
+    )
+    assert proposal_update[1] == {"status": "declined", "request_id": "req-1"}
+    _, event_params = next(
+        (sql, params)
+        for sql, params in db.calls
+        if "INSERT INTO connection_scope_proposal_events" in sql
+    )
+    assert event_params == {
+        "proposal_id": "proposal-1",
+        "event_type": "DECLINED",
+        "actor_user_id": "user-a",
+        "reason": "connection_cancelled",
+    }
+
+
 def test_reject_rejected_when_not_addressee():
     svc = _svc()
     db = _RecordingDB(
@@ -368,6 +445,38 @@ def test_search_directory_filters_by_query_against_display_name():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.search_directory("user-a", query="car", page=1, limit=20)
     assert [i["userId"] for i in out["items"]] == ["user-c"]
+
+
+def test_search_directory_delegates_pagination_to_eligible_directory_query():
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
+        calls.append((owner_user_id, options))
+        return {
+            "items": [{"userId": "user-c", "displayName": "Cara"}],
+            "page": 2,
+            "hasMore": True,
+        }
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])  # no pending / connections
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="cara", page=2, limit=20)
+
+    assert calls == [("user-a", {"query": "cara", "page": 2, "limit": 20})]
+    assert out == {
+        "items": [
+            {
+                "userId": "user-c",
+                "displayName": "Cara",
+                "photoUrl": None,
+                "email": None,
+                "relationship": "none",
+            }
+        ],
+        "page": 2,
+        "hasMore": True,
+    }
 
 
 def test_list_connections_maps_rows():

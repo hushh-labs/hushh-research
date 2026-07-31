@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, KeyRound, Loader2, Trash2 } from "lucide-react";
+import { CheckCircle2, Loader2, Trash2 } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
@@ -183,7 +184,7 @@ export function GeminiRuntimeSettingsCard({
       confirmation: {
         confirmedByUser: true,
         surface: "web",
-        source: "connections_gemini_runtime_mode",
+          source: "profile_gemini_runtime_mode",
       },
     });
     assertRuntimeSecretStored(result);
@@ -319,7 +320,7 @@ export function GeminiRuntimeSettingsCard({
         confirmation: {
           confirmedByUser: true,
           surface: "web",
-          source: "connections_gemini_api_key",
+          source: "profile_gemini_api_key",
         },
       });
       assertRuntimeSecretStored(credentialResult);
@@ -332,7 +333,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_transport",
+            source: "profile_gemini_transport",
           },
         });
       assertRuntimeSecretStored(transportResult);
@@ -345,7 +346,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_vertex_project",
+            source: "profile_gemini_vertex_project",
           },
         });
       assertRuntimeSecretStored(projectResult);
@@ -358,7 +359,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_vertex_location",
+            source: "profile_gemini_vertex_location",
           },
         });
       assertRuntimeSecretStored(locationResult);
@@ -396,7 +397,7 @@ export function GeminiRuntimeSettingsCard({
         confirmation: {
           confirmedByUser: true,
           surface: "web",
-          source: "connections_gemini_api_key_remove",
+          source: "profile_gemini_api_key_remove",
         },
       });
       assertRuntimeSecretStored(credentialResult);
@@ -408,7 +409,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_transport_remove",
+            source: "profile_gemini_transport_remove",
           },
         });
       assertRuntimeSecretStored(transportResult);
@@ -420,7 +421,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_vertex_project_remove",
+            source: "profile_gemini_vertex_project_remove",
           },
         });
       assertRuntimeSecretStored(projectResult);
@@ -432,7 +433,7 @@ export function GeminiRuntimeSettingsCard({
           confirmation: {
             confirmedByUser: true,
             surface: "web",
-            source: "connections_gemini_vertex_location_remove",
+            source: "profile_gemini_vertex_location_remove",
           },
         });
       assertRuntimeSecretStored(locationResult);
@@ -453,13 +454,12 @@ export function GeminiRuntimeSettingsCard({
     <SettingsGroup
       title="Gemini"
       description="Choose how your private agent reaches Gemini."
-      testId="connections-gemini-runtime"
+      testId="profile-gemini-runtime"
       separatorInset
     >
       <SettingsRow
         asChild
-        icon={KeyRound}
-        iconTone="blue"
+        leading={<GeminiLogo className="h-8 w-8" />}
         title="Hushh managed Gemini"
         description="Ready now with Hushh-managed Gemini. No personal key is needed."
         trailing={
@@ -467,7 +467,7 @@ export function GeminiRuntimeSettingsCard({
             <Badge variant="secondary">Selected</Badge>
           ) : null
         }
-        testId="connections-managed-runtime"
+        testId="profile-managed-runtime"
       >
         <button
           type="button"
@@ -478,8 +478,7 @@ export function GeminiRuntimeSettingsCard({
 
       <SettingsRow
         asChild
-        icon={KeyRound}
-        iconTone="purple"
+        leading={<GeminiLogo className="h-8 w-8" />}
         title="Use my Gemini API key"
         description={
           requiresExplicitSelection && !vaultReady
@@ -491,7 +490,7 @@ export function GeminiRuntimeSettingsCard({
             <Badge variant="secondary">Selected</Badge>
           ) : null
         }
-        testId="connections-byok-runtime"
+        testId="profile-byok-runtime"
       >
         <button
           type="button"

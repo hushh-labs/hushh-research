@@ -130,6 +130,7 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
+    const edgeBack = read("components/app-ui/app-edge-back-gesture.tsx");
 
     expect(source).toContain("import { navigateTopShellBack }");
     expect(source).toContain("const handleTopShellBack");
@@ -138,9 +139,13 @@ describe("Top app bar responsive contract", () => {
     expect(back).toContain(
       'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
     );
-    expect(back).toContain(
-      "params.router[action.mode](action.href, { scroll: false })",
-    );
+    expect(back).toContain("params.navigate(action);");
+    expect(source).toContain("replace: action.mode === \"replace\"");
+    expect(source).toContain('source: "tap"');
+    expect(source).toContain('transitionMode: "full"');
+    expect(edgeBack).toContain("requestInternalAppNavigation({");
+    expect(edgeBack).toContain('source: "native_back"');
+    expect(edgeBack).toContain('transitionMode: "full"');
     expect(source).not.toContain("router.back();");
   });
 
@@ -271,7 +276,8 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     expect(source).toContain("navigateTopShellBack({");
-    expect(back).toContain("router: TopShellBackRouter");
+    expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
+    expect(back).toContain("params.navigate(action);");
     expect(source).not.toContain("history.back()");
   });
 

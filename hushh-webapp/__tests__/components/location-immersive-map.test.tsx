@@ -265,6 +265,19 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
+  it("uses a full-width mobile disclosure and a bounded desktop reading measure", () => {
+    experienceHarness.demoMode = false;
+
+    render(<LocationImmersiveMap />);
+
+    expect(screen.getByTestId("one-location-map-disclosure")).toHaveClass(
+      "inset-x-0",
+      "md:left-1/2",
+      "md:w-[min(52rem,calc(100%-4rem))]",
+      "md:-translate-x-1/2",
+    );
+  });
+
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
     render(<LocationImmersiveMap />);
 
@@ -284,8 +297,8 @@ describe("LocationImmersiveMap demo experience", () => {
       "text-[var(--app-accent-fg)]",
     );
     expect(screen.getByTestId("one-location-map-close")).toHaveClass(
-      "!bg-[var(--app-accent-surface)]",
-      "!text-[var(--app-accent-deep)]",
+      "bg-[var(--app-accent)]",
+      "text-[var(--app-accent-fg)]",
     );
     await waitFor(() => {
       expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledTimes(1);
@@ -401,6 +414,33 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(navigationHarness.replace).toHaveBeenCalledTimes(1);
     expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
       scroll: false,
+    });
+  });
+
+  it("keeps an empty people tray compact", async () => {
+    experienceHarness.demoMode = false;
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    const trayToggle = screen.getByTestId("one-location-map-tray-toggle");
+    if (trayToggle.getAttribute("aria-expanded") === "false") {
+      fireEvent.click(trayToggle);
+    }
+    await waitFor(() => {
+      expect(trayToggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
+        height:
+          "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))",
+      });
     });
   });
 

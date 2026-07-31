@@ -110,7 +110,7 @@ python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .e
 
 When `REVIEWER_UID` is present, it is the first shadow user. Legacy reviewer ids are fallback only.
 
-For protocol or prompt hardening that is expected to pass acceptance criteria, add `--enforce-gates`. The script fails nonzero when schema, domain, mutation, intent, fallback, fragmentation, finance-contamination, or unresolved-domain gates regress.
+For protocol or prompt hardening that is expected to pass acceptance criteria, add `--enforce-gates`. The script fails nonzero when schema, domain, durable-domain coverage, mutation, intent, fallback, finance-contamination, or unresolved-domain gates regress.
 
 Shadow replay is still read-only and must not send decrypted PKM values to the model. It reconstructs the domain/scope surface from manifests and scope registry metadata, then runs natural prompt chains against that shape. If the reviewer fixture is missing expected domains, repair or reseed that reviewer account rather than switching to another UID.
 
@@ -132,13 +132,13 @@ If reviewer secrets are not present in the local maintainer env, add `--gcp-secr
 - `fallback_rate`
 - `finance_contamination_count`
 - `unresolved_domain_count`
-- `fragmentation_score`
+- `durable_domain_coverage_rate`
 - `drift_flag_counts`
 - `average_latency_ms`
 - `p95_latency_ms`
 - `timeout_count`
 
-`fragmentation_score` is the ratio of unique actual durable domains to unique expected domains for the run. The target is close to `1.0`: too low means under-coverage, too high means domain fragmentation.
+`durable_domain_coverage_rate` is the share of expected durable cases that resolve to one of that case's allowed domains with a write-eligible durable result. Each case is counted once, so an allowed alternative domain cannot manufacture a false under-coverage failure. The minimum gate is `0.95`.
 
 ## Promotion Gates
 

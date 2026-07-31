@@ -64,8 +64,7 @@ DEFAULT_GATE_THRESHOLDS = {
     "mutation_ok_rate": 0.90,
     "intent_ok_rate": 0.90,
     "fallback_rate": 0.10,
-    "fragmentation_score_min": 0.80,
-    "fragmentation_score_max": 1.20,
+    "durable_domain_coverage_rate": 0.95,
 }
 # Release coverage keeps one coherent chain across every storage decision class
 # and every canonical domain without repeating the long-form research matrix.
@@ -519,14 +518,9 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_GATE_THRESHOLDS["fallback_rate"],
     )
     parser.add_argument(
-        "--min-fragmentation-score",
+        "--min-durable-domain-coverage-rate",
         type=float,
-        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_min"],
-    )
-    parser.add_argument(
-        "--max-fragmentation-score",
-        type=float,
-        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_max"],
+        default=DEFAULT_GATE_THRESHOLDS["durable_domain_coverage_rate"],
     )
     return parser.parse_args()
 
@@ -3431,7 +3425,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
             "inner_failure_count": 0,
             "finance_contamination_count": 0,
             "unresolved_domain_count": 0,
-            "fragmentation_score": 0.0,
+            "durable_domain_coverage_rate": 0.0,
             "drift_flag_counts": {},
         }
 
@@ -3447,7 +3441,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
     fallback_rate = round(sum(1 for item in results if item.used_fallback) / total, 4)
     finance_contamination_count = sum(1 for item in results if item.finance_contamination)
     unresolved_domain_count = sum(1 for item in results if item.unresolved_domain)
-    fragmentation_score = _durable_domain_fragmentation_score(results)
+    durable_domain_coverage_rate = _durable_domain_coverage_rate(results)
     drift_flag_counts: dict[str, int] = {}
     for item in results:
         for flag, enabled in item.drift_flags.items():
@@ -3470,37 +3464,34 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "inner_failure_count": sum(item.inner_failure_count for item in results),
         "finance_contamination_count": finance_contamination_count,
         "unresolved_domain_count": unresolved_domain_count,
-        "fragmentation_score": fragmentation_score,
+        "durable_domain_coverage_rate": durable_domain_coverage_rate,
         "drift_flag_counts": drift_flag_counts,
     }
 
 
-def _durable_domain_fragmentation_score(
+def _durable_domain_coverage_rate(
     results: list[EvaluationResult],
 ) -> float:
-    """Compare only durable, write-eligible domain choices.
+    """Measure valid domain coverage for each durable case.
 
-    Ephemeral and ambiguous cases may intentionally carry multiple acceptable
-    domain choices for evaluation, but they are not expected to create a PKM
-    domain. Including those alternatives only in the denominator manufactures
-    under-coverage even when every durable case resolves correctly.
+    A case may intentionally allow more than one canonical domain. Comparing
+    the set of emitted domains with the union of every allowed domain makes a
+    valid alternative look like missing coverage. Count each durable case once
+    instead: its output must remain durable, write-eligible, and within that
+    case's allowed domain set.
     """
 
-    actual_domains = {
-        item.actual_domain
-        for item in results
-        if item.actual_save_class == "durable"
-        and item.actual_domain
+    durable_cases = [item for item in results if item.expected_save_class == "durable"]
+    if not durable_cases:
+        return 1.0
+    covered_cases = sum(
+        item.actual_save_class == "durable"
         and item.actual_write_mode != "do_not_save"
-    }
-    expected_domains = {
-        domain
-        for item in results
-        if item.expected_save_class == "durable"
-        for domain in item.expected_domains
-        if domain and domain != _GENERAL_DOMAIN_KEY
-    }
-    return round(len(actual_domains) / max(1, len(expected_domains)), 4)
+        and item.actual_domain != _GENERAL_DOMAIN_KEY
+        and item.actual_domain in item.expected_domains
+        for item in durable_cases
+    )
+    return round(covered_cases / len(durable_cases), 4)
 
 
 def _contract_signature(record: dict[str, Any]) -> tuple[str, str, str, str, str]:
@@ -3591,8 +3582,7 @@ def _gate_thresholds(args: argparse.Namespace) -> dict[str, float]:
         "mutation_ok_rate": float(args.min_mutation_ok_rate),
         "intent_ok_rate": float(args.min_intent_ok_rate),
         "fallback_rate": float(args.max_fallback_rate),
-        "fragmentation_score_min": float(args.min_fragmentation_score),
-        "fragmentation_score_max": float(args.max_fragmentation_score),
+        "durable_domain_coverage_rate": float(args.min_durable_domain_coverage_rate),
     }
 
 
@@ -3619,16 +3609,13 @@ def _gate_failures_for_summary(
     max_fallback = float(thresholds["fallback_rate"])
     if fallback_rate > max_fallback:
         failures.append(f"{label}:fallback {fallback_rate:.4f} > {max_fallback:.4f}")
-    fragmentation_score = float(summary.get("fragmentation_score") or 0.0)
-    min_fragmentation = float(thresholds["fragmentation_score_min"])
-    max_fragmentation = float(thresholds["fragmentation_score_max"])
-    if fragmentation_score < min_fragmentation:
+    durable_domain_coverage_rate = float(summary.get("durable_domain_coverage_rate") or 0.0)
+    min_durable_domain_coverage_rate = float(thresholds["durable_domain_coverage_rate"])
+    if durable_domain_coverage_rate < min_durable_domain_coverage_rate:
         failures.append(
-            f"{label}:fragmentation {fragmentation_score:.4f} < {min_fragmentation:.4f}"
-        )
-    if fragmentation_score > max_fragmentation:
-        failures.append(
-            f"{label}:fragmentation {fragmentation_score:.4f} > {max_fragmentation:.4f}"
+            f"{label}:durable_domain_coverage "
+            f"{durable_domain_coverage_rate:.4f} < "
+            f"{min_durable_domain_coverage_rate:.4f}"
         )
     if int(summary.get("finance_contamination_count") or 0) > 0:
         failures.append(

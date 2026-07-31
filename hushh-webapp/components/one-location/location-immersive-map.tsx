@@ -964,6 +964,10 @@ export function LocationImmersiveMap() {
   }, [nearbyAttendees, searchQuery]);
 
   const drawerEntryCount = markers.length + nearbyAttendees.length;
+  const hasVisibleTrayResults =
+    filteredPeople.length > 0 ||
+    filteredNearbyAttendees.length > 0 ||
+    selected !== null;
 
   const peopleDrawerLabel = useMemo(() => {
     if (nearbyPresenceState.presence) {
@@ -1146,7 +1150,7 @@ export function LocationImmersiveMap() {
         className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
-          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
+          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
           aria-label="Back to Location"
           data-testid="one-location-map-close"
           disabled={closing}
@@ -1200,7 +1204,7 @@ export function LocationImmersiveMap() {
         ) : null}
         {rendererReady ? (
           <ShellActionSurface
-            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
+            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
             aria-label="Show my location"
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
@@ -1212,7 +1216,7 @@ export function LocationImmersiveMap() {
       </div>
       {!rendererReady ? (
         <section
-          className="absolute inset-x-4 z-20 rounded-3xl border border-border/60 bg-background/95 p-5 shadow-2xl backdrop-blur"
+          className="absolute inset-x-0 z-20 rounded-none border border-border/60 bg-background/95 p-5 shadow-2xl backdrop-blur md:left-1/2 md:right-auto md:w-[min(52rem,calc(100%-4rem))] md:-translate-x-1/2 md:rounded-3xl"
           data-testid="one-location-map-disclosure"
           style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
         >
@@ -1268,7 +1272,9 @@ export function LocationImmersiveMap() {
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
             height: trayExpanded
-              ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
+              ? hasVisibleTrayResults
+                ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
+                : "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))"
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [

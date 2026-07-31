@@ -9,6 +9,7 @@ discovery directory `list_directory_candidates`, read-only.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from contextlib import contextmanager
@@ -44,6 +45,28 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     return OneLocationAgentService().list_directory_candidates(owner_user_id=owner_user_id)
 
 
+def _default_directory_search(
+    owner_user_id: str, *, query: str, page: int, limit: int
+) -> dict[str, Any]:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().search_directory_candidates(
+        owner_user_id=owner_user_id,
+        query=query,
+        page=page,
+        limit=limit,
+    )
+
+
+def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bool:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().is_directory_candidate(
+        owner_user_id=owner_user_id,
+        candidate_user_id=candidate_user_id,
+    )
+
+
 def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
     """Best-effort real push (deferred import keeps Firebase off the import path)."""
     from hushh_mcp.services.push_notifications import send_connection_request_push
@@ -51,14 +74,27 @@ def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None
     send_connection_request_push(addressee_user_id, requester_user_id)
 
 
+def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
+    """Read discoverable scope metadata only; never materialized information."""
+    from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+
+    return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+
+
 class ConnectionsService:
     def __init__(
         self,
         *,
         directory_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
+        directory_search: Callable[..., dict[str, Any]] | None = None,
+        directory_visible: Callable[[str, str], bool] | None = None,
+        scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
+        self._directory_search = directory_search or _default_directory_search
+        self._directory_visible = directory_visible or _default_directory_visible
+        self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
 
     # ---- DB seam ----
@@ -194,7 +230,84 @@ class ConnectionsService:
             "offerableItems": self._scope_catalog_for_owner(viewer),
         }
 
+    def get_information_scope_catalog(
+        self,
+        viewer_user_id: str,
+        counterpart_user_id: str,
+        *,
+        query: str = "",
+        domain: str = "",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+
+        This is deliberately post-connection and metadata-only. A relationship
+        never grants access to values: callers must make a separate, consented
+        request that binds a requester-owned connector key before an encrypted
+        export can exist.
+        """
+        from hushh_mcp.consent.scope_generator import rank_scope_matches
+
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        active_connection = self._execute_one(
+            """
+            SELECT id
+            FROM connections
+            WHERE status = 'active'
+              AND user_a_id = LEAST(:viewer, :counterpart)
+              AND user_b_id = GREATEST(:viewer, :counterpart)
+            LIMIT 1
+            """,
+            {"viewer": viewer, "counterpart": counterpart},
+        )
+        if not active_connection:
+            raise ConnectionsError(
+                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
+                "Connect with this person before searching their available scopes.",
+                status_code=403,
+            )
+
+        safe_entries = [
+            {
+                "scope": str(entry.get("scope") or ""),
+                "label": str(entry.get("label") or "") or None,
+                "domain": str(entry.get("domain") or "") or None,
+                "path": str(entry.get("path") or "") or None,
+                "wildcard": bool(entry.get("wildcard")),
+            }
+            for entry in self._scope_entries_lookup(counterpart)
+            if isinstance(entry, dict)
+            and str(entry.get("scope") or "").startswith("attr.")
+            and entry.get("exposure_eligibility") is not False
+            and entry.get("consumer_visible") is not False
+            and entry.get("internal_only") is not True
+            and entry.get("visibility_posture") != "private"
+        ]
+        return {
+            "counterpartUserId": counterpart,
+            "items": rank_scope_matches(
+                safe_entries,
+                query=query,
+                domain=domain,
+                limit=limit,
+            ),
+        }
+
     def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
+        directory_visible = getattr(self, "_directory_visible", None)
+        if directory_visible is not None:
+            if directory_visible(viewer_user_id, counterpart_user_id):
+                return
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
         visible_user_ids = {
             str(person.get("userId") or "").strip()
             for person in self._directory_lookup(viewer_user_id)
@@ -1516,11 +1629,20 @@ class ConnectionsService:
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
         # relationship is annotated on top.
-        people = self._directory_lookup(user_id) or []
-        if needle:
-            people = [
-                p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-            ]
+        directory_search = getattr(self, "_directory_search", None)
+        if directory_search is not None:
+            directory_page = directory_search(user_id, query=needle, page=page, limit=limit)
+            people = directory_page.get("items") or []
+            has_more = bool(directory_page.get("hasMore"))
+        else:
+            people = self._directory_lookup(user_id) or []
+            if needle:
+                people = [
+                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
+                ]
+            offset = (page - 1) * limit
+            has_more = offset + limit < len(people)
+            people = people[offset : offset + limit]
 
         # Load the caller's pending requests (both directions) and active
         # connections once, then classify each person in Python.
@@ -1565,11 +1687,6 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        total = len(people)
-        offset = (page - 1) * limit
-        window = people[offset : offset + limit]
-        has_more = offset + limit < total
-
         return {
             "items": [
                 {
@@ -1579,7 +1696,7 @@ class ConnectionsService:
                     "email": p.get("email"),
                     "relationship": relationship(str(p.get("userId") or "")),
                 }
-                for p in window
+                for p in people
             ],
             "page": page,
             "hasMore": has_more,

@@ -780,19 +780,11 @@
   },
   {
     "route": "/one/connect/settings",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/connections/gemini-runtime-configuration-page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects legacy Gemini settings links to the canonical Profile preference.",
     "voicePlaybook": {
       "playbookId": "route.connect.settings",
-      "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+      "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -807,9 +799,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-      "nextRoute": "/one/connect/settings",
-      "returnPolicy": "stay",
+      "completionBoundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+      "nextRoute": "/one/profile/preferences/gemini",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -2513,6 +2505,42 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/preferences/gemini",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.gemini",
+      "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

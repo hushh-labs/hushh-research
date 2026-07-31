@@ -53,7 +53,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByLabelText("Agent response stream")).toHaveClass("w-full", "max-w-none");
   });
 
-  it("does not simulate response tokens while only progress is available", () => {
+  it("shows an app-owned pending state while progress is available but response text has not arrived", () => {
     const event = agentToolEventToVisibleStreamEvent("start", makeToolEvent(), 1_700_001);
 
     render(
@@ -64,8 +64,8 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
-    expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
   });
 
   it("formats actual working notes without treating them as response tokens", () => {
@@ -81,6 +81,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByText("Working notes")).toBeInTheDocument();
     expect(screen.getByText("Checking context")).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("Comparing the active settings."))).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search as SearchIcon, Sparkles, UserRound, Users } from "lucide-react";
+import { Search as SearchIcon, UserRound, Users } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -27,10 +27,10 @@ import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ConnectionsService,
+  type ConnectionInformationScopeCatalog,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
   type DirectoryPerson,
@@ -46,10 +46,19 @@ export default function ConnectPageClient() {
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
+  const [outgoingRequestIds, setOutgoingRequestIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const [informationScopeDraft, setInformationScopeDraft] = useState<{
+    connection: ConnectionSummaryEntry;
+    catalog: ConnectionInformationScopeCatalog;
+  } | null>(null);
+  const [informationScopeQuery, setInformationScopeQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -70,6 +79,24 @@ export default function ConnectPageClient() {
     }
   }, [user]);
 
+  const loadOutgoingRequestIds = useCallback(async () => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const requests = await ConnectionsService.listRequests({
+        idToken,
+        direction: "outgoing",
+      });
+      setOutgoingRequestIds(
+        Object.fromEntries(
+          requests.map((request) => [request.counterpartUserId, request.id]),
+        ),
+      );
+    } catch {
+      // Keep discovery available when the auxiliary request list is unavailable.
+    }
+  }, [user]);
+
   useEffect(() => {
     let cancelled = false;
     void loadConnections().then((rows) => {
@@ -81,10 +108,16 @@ export default function ConnectPageClient() {
   }, [loadConnections]);
 
   useEffect(() => {
+    void loadOutgoingRequestIds();
+  }, [loadOutgoingRequestIds]);
+
+  useEffect(() => {
     let cancelled = false;
     async function run() {
       if (!user) return;
       try {
+        setHasMore(false);
+        setCurrentPage(1);
         setLoading(true);
         setError(null);
         const idToken = await user.getIdToken();
@@ -93,7 +126,11 @@ export default function ConnectPageClient() {
           query: debouncedQuery,
           page: 1,
         });
-        if (!cancelled) setPeople(page.items);
+        if (!cancelled) {
+          setPeople(page.items);
+          setHasMore(page.hasMore);
+          setCurrentPage(page.page);
+        }
       } catch (loadError) {
         if (!cancelled)
           setError(
@@ -111,6 +148,34 @@ export default function ConnectPageClient() {
     };
   }, [user, debouncedQuery]);
 
+  const loadMorePeople = useCallback(async () => {
+    if (!user || loadingMore || !hasMore) return;
+    try {
+      setLoadingMore(true);
+      const idToken = await user.getIdToken();
+      const page = await ConnectionsService.searchDirectory({
+        idToken,
+        query: debouncedQuery,
+        page: currentPage + 1,
+      });
+      setPeople((current) => {
+        const existing = new Set(current.map((person) => person.userId));
+        return [
+          ...current,
+          ...page.items.filter((person) => !existing.has(person.userId)),
+        ];
+      });
+      setHasMore(page.hasMore);
+      setCurrentPage(page.page);
+    } catch (loadError) {
+      toast.error(
+        loadError instanceof Error ? loadError.message : "Failed to load more people",
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [currentPage, debouncedQuery, hasMore, loadingMore, user]);
+
   const sendConnectionRequest = useCallback(
     async (
       person: DirectoryPerson,
@@ -121,7 +186,7 @@ export default function ConnectPageClient() {
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
-        await ConnectionsService.sendRequest({
+        const request = await ConnectionsService.sendRequest({
           idToken,
           addresseeUserId: person.userId,
           requestedScopeHandles,
@@ -134,6 +199,10 @@ export default function ConnectPageClient() {
               : p,
           ),
         );
+        setOutgoingRequestIds((current) => ({
+          ...current,
+          [person.userId]: request.id,
+        }));
         setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         toast.success("Connection request sent");
@@ -160,17 +229,13 @@ export default function ConnectPageClient() {
           idToken,
           counterpartUserId: person.userId,
         });
-        if (catalog.items.length === 0 && catalog.offerableItems.length === 0) {
-          await sendConnectionRequest(person);
-          return;
-        }
         setScopeDraft({
           person,
           catalog,
-          // A requested capability belongs to the counterpart, so they must
-          // still approve it. Starting selected simply states the sender's
-          // intent; it never grants access on its own.
-          requestedHandles: catalog.items.map((item) => item.handle),
+          // A requested capability belongs to the counterpart, so it must be
+          // an intentional sender choice and still needs recipient approval.
+          // Never imply a request merely because a capability is eligible.
+          requestedHandles: [],
           offeredHandles: [],
         });
       } catch (catalogError) {
@@ -183,7 +248,7 @@ export default function ConnectPageClient() {
         setBusyId((current) => (current === person.userId ? null : current));
       }
     },
-    [sendConnectionRequest, user],
+    [user],
   );
 
   const handleConnect = useCallback(
@@ -251,6 +316,77 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  const viewInformationScopes = useCallback(
+    async (connection: ConnectionSummaryEntry) => {
+      if (!user) return;
+      try {
+        setBusyId(connection.connectionId);
+        const idToken = await user.getIdToken();
+        const catalog = await ConnectionsService.searchInformationScopes({
+          idToken,
+          counterpartUserId: connection.userId,
+          limit: 50,
+        });
+        setInformationScopeQuery("");
+        setInformationScopeDraft({ connection, catalog });
+      } catch (scopeError) {
+        toast.error(
+          scopeError instanceof Error
+            ? scopeError.message
+            : "Could not load available scopes",
+        );
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [user],
+  );
+
+  const visibleInformationScopes = informationScopeDraft?.catalog.items.filter(
+    (item) => {
+      const query = informationScopeQuery.trim().toLowerCase();
+      return !query || `${item.label ?? ""} ${item.scope}`.toLowerCase().includes(query);
+    },
+  );
+
+  const cancelConnectionRequest = useCallback(
+    async (person: DirectoryPerson) => {
+      if (!user) return;
+      const requestId = outgoingRequestIds[person.userId];
+      if (!requestId) {
+        toast.error("This request is still loading. Try again in a moment.");
+        return;
+      }
+      try {
+        setBusyId(person.userId);
+        const idToken = await user.getIdToken();
+        await ConnectionsService.cancel({ idToken, requestId });
+        setPeople((current) =>
+          current.map((candidate) =>
+            candidate.userId === person.userId
+              ? { ...candidate, relationship: "none" }
+              : candidate,
+          ),
+        );
+        setOutgoingRequestIds((current) => {
+          const { [person.userId]: _cancelled, ...remaining } = current;
+          return remaining;
+        });
+        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        toast.success("Connection request cancelled");
+      } catch (cancelError) {
+        toast.error(
+          cancelError instanceof Error
+            ? cancelError.message
+            : "Failed to cancel connection request",
+        );
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [outgoingRequestIds, user],
+  );
+
   return (
     <AppPageShell
       as="main"
@@ -282,17 +418,6 @@ export default function ConnectPageClient() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup title="Private configuration" separatorInset>
-              <SettingsRow
-                icon={Sparkles}
-                iconTone="purple"
-                title="Gemini"
-                description="Choose Hussh managed Gemini or your own Google AI Studio key."
-                density="compact"
-                chevron
-                onClick={() => router.push(ROUTES.CONNECT_SETTINGS)}
-              />
-            </SettingsGroup>
             <SettingsGroup
               title={`My connections (${connections.length})`}
               separatorInset
@@ -313,46 +438,58 @@ export default function ConnectPageClient() {
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
-                      pendingRemoveId === connection.connectionId ? (
-                        <span className="flex shrink-0 items-center gap-1">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            effect="fill"
-                            size="sm"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => void handleRemove(connection)}
-                          >
-                            {busyId === connection.connectionId
-                              ? "Removing…"
-                              : "Confirm"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => setPendingRemoveId(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </span>
-                      ) : (
+                      <span className="flex shrink-0 items-center gap-1">
                         <Button
                           type="button"
                           variant="none"
                           effect="fade"
                           size="sm"
-                          onClick={() =>
-                            setPendingRemoveId(connection.connectionId)
-                          }
-                          aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                          className="text-muted-foreground hover:text-destructive"
+                          disabled={busyId === connection.connectionId}
+                          onClick={() => void viewInformationScopes(connection)}
                         >
-                          Remove
+                          {busyId === connection.connectionId ? "Loading…" : "Scopes"}
                         </Button>
-                      )
+                        {pendingRemoveId === connection.connectionId ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              effect="fill"
+                              size="sm"
+                              disabled={busyId === connection.connectionId}
+                              onClick={() => void handleRemove(connection)}
+                            >
+                              {busyId === connection.connectionId
+                                ? "Removing…"
+                                : "Confirm"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fade"
+                              size="sm"
+                              disabled={busyId === connection.connectionId}
+                              onClick={() => setPendingRemoveId(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="none"
+                            effect="fade"
+                            size="sm"
+                            onClick={() =>
+                              setPendingRemoveId(connection.connectionId)
+                            }
+                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </span>
                     }
                   />
                 ))
@@ -368,7 +505,7 @@ export default function ConnectPageClient() {
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search people by name or email"
+                  placeholder="Search people by name"
                   aria-label="Search people"
                   className="h-10 pl-11"
                 />
@@ -415,21 +552,53 @@ export default function ConnectPageClient() {
                         description={description}
                         density="compact"
                         trailing={
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fill"
-                            size="sm"
-                            disabled={cta.disabled || busyId === person.userId}
-                            onClick={() => void handleConnect(person)}
-                          >
-                            {busyId === person.userId ? "Sending…" : cta.label}
-                          </Button>
+                          person.relationship === "pending_outgoing" ? (
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fill"
+                              size="sm"
+                              disabled={
+                                busyId === person.userId ||
+                                !outgoingRequestIds[person.userId]
+                              }
+                              onClick={() => void cancelConnectionRequest(person)}
+                            >
+                              {busyId === person.userId
+                                ? "Cancelling…"
+                                : "Cancel request"}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fill"
+                              size="sm"
+                              disabled={cta.disabled || busyId === person.userId}
+                              onClick={() => void handleConnect(person)}
+                            >
+                              {busyId === person.userId ? "Sending…" : cta.label}
+                            </Button>
+                          )
                         }
                       />
                     );
                   })
                 )}
+                {hasMore ? (
+                  <div className="flex justify-center px-3 py-2">
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fill"
+                      size="sm"
+                      disabled={loadingMore}
+                      onClick={() => void loadMorePeople()}
+                    >
+                      {loadingMore ? "Loading…" : "Load more people"}
+                    </Button>
+                  </div>
+                ) : null}
               </SettingsGroup>
             </div>
           </div>
@@ -444,10 +613,11 @@ export default function ConnectPageClient() {
       >
         <DialogContent showCloseButton={false} className="gap-5">
           <DialogHeader className="text-left">
-            <DialogTitle>Choose connection scopes</DialogTitle>
+            <DialogTitle>Review connection capabilities</DialogTitle>
             <DialogDescription>
-              Connection acceptance does not share information. Each selected
-              scope needs its owner&apos;s approval.
+              A connection never shares information by itself. Choose only the
+              capabilities you want to request or offer; the other person can
+              approve a subset or decline them all.
             </DialogDescription>
           </DialogHeader>
 
@@ -510,6 +680,21 @@ export default function ConnectPageClient() {
                   ))}
                 </SettingsGroup>
               ) : null}
+              {scopeDraft.catalog.items.length === 0 &&
+              scopeDraft.catalog.offerableItems.length === 0 ? (
+                <SettingsGroup
+                  title="No capabilities available yet"
+                  description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
+                  separatorInset
+                >
+                  <SettingsRow
+                    title="Connection only"
+                    description="This request does not grant access to any information or Kai debate."
+                    density="compact"
+                    disabled
+                  />
+                </SettingsGroup>
+              ) : null}
             </div>
           ) : null}
 
@@ -540,6 +725,65 @@ export default function ConnectPageClient() {
               {scopeDraft && busyId === scopeDraft.person.userId
                 ? "Sending…"
                 : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={informationScopeDraft !== null}
+        onOpenChange={(open) => {
+          if (!open) setInformationScopeDraft(null);
+        }}
+      >
+        <DialogContent className="gap-5">
+          <DialogHeader className="text-left">
+            <DialogTitle>Available information scopes</DialogTitle>
+            <DialogDescription>
+              {informationScopeDraft?.connection.displayName || "This person"} controls which
+              scopes appear here. This is metadata only; requesting a scope still requires their
+              explicit consent before an encrypted export can be created.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="search"
+            value={informationScopeQuery}
+            onChange={(event) => setInformationScopeQuery(event.target.value)}
+            placeholder="Search available scopes"
+            aria-label="Search available scopes"
+          />
+          <div className="max-h-[45vh] overflow-y-auto">
+            {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
+              <SettingsGroup title="Discoverable scopes" separatorInset>
+                {visibleInformationScopes.map((item) => (
+                  <SettingsRow
+                    key={item.scope}
+                    title={item.label || item.scope}
+                    description={item.scope}
+                    density="compact"
+                    disabled
+                  />
+                ))}
+              </SettingsGroup>
+            ) : (
+              <SettingsGroup title="No matching scopes" separatorInset>
+                <SettingsRow
+                  title="Nothing is available for this search"
+                  description="Private, internal, and empty scopes are never listed."
+                  density="compact"
+                  disabled
+                />
+              </SettingsGroup>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              onClick={() => setInformationScopeDraft(null)}
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -64,6 +64,8 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -511,7 +513,10 @@ function profileRouteRequiresUnlockedVault(
   if (panel === "security") {
     return true;
   }
-  return panel === "preferences" && detail === "kai-preferences";
+  return (
+    panel === "preferences" &&
+    (detail === "kai-preferences" || detail === "gemini")
+  );
 }
 
 function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
@@ -3073,6 +3078,18 @@ function ProfilePageContent() {
           }
           stackTrailingOnMobile
         />
+        <SettingsRow
+          leading={<GeminiLogo className="h-8 w-8" />}
+          title="Gemini"
+          description="Choose Hushh managed Gemini or keep your own key in your encrypted vault."
+          chevron
+          onClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
+          }
+        />
       </SettingsGroup>
     </div>
   );
@@ -3761,6 +3778,23 @@ function ProfilePageContent() {
             vaultOwnerToken={vaultOwnerToken}
             canEdit={canEditKaiPreferences}
             onRequestUnlock={() => requestVaultUnlock("profile_data")}
+          />
+        ),
+      });
+    } else if (activeDetail === "gemini") {
+      profileStackEntries.push({
+        key: "detail:gemini",
+        title: "Gemini",
+        description: "Choose how your private agent reaches Gemini.",
+        content: (
+          <GeminiRuntimeSettingsCard
+            userId={user.uid}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken}
+            needsVaultCreation={vaultAccess.needsVaultCreation}
+            needsUnlock={vaultAccess.needsUnlock}
+            onRequestVaultCreation={() => requestVaultUnlock("profile_data")}
+            onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
           />
         ),
       });

@@ -58,6 +58,10 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import {
+  getWelcomePromptSetIndex,
+  getWelcomePrompts,
+} from "@/lib/agent/agent-welcome-prompts";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
@@ -238,12 +242,6 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hi, I'm One \u2014 your private agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a memory",
-  "Explain consent flows",
-] as const;
-
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
   domains: [],
@@ -584,10 +582,12 @@ function formatAgentDisplayName(displayName?: string | null, email?: string | nu
 
 function AgentWelcomePanel({
   name,
+  prompts,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  prompts: readonly string[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
@@ -604,7 +604,7 @@ function AgentWelcomePanel({
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {prompts.map((prompt) => (
             <button
               key={prompt}
               type="button"
@@ -1193,6 +1193,7 @@ export function AgentChatWorkspace({
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
   const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
+  const [welcomePromptSetIndex, setWelcomePromptSetIndex] = useState(0);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
@@ -1202,6 +1203,7 @@ export function AgentChatWorkspace({
   const historyDrawerRef = useRef<HTMLDivElement | null>(null);
   const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
+  const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
@@ -1582,6 +1584,17 @@ export function AgentChatWorkspace({
     return () => unsubscribe();
   }, [user?.uid]);
 
+  const welcomePrompts = useMemo(
+    () => getWelcomePrompts(welcomePromptSetIndex, { hasPortfolioData }),
+    [hasPortfolioData, welcomePromptSetIndex],
+  );
+
+  useEffect(() => {
+    if (welcomePromptSetInitializedRef.current) return;
+    welcomePromptSetInitializedRef.current = true;
+    setWelcomePromptSetIndex(getWelcomePromptSetIndex(null));
+  }, []);
+
   useEffect(() => {
     abortAgentTurnWork();
     setIsChatLoading(false);
@@ -1623,6 +1636,7 @@ export function AgentChatWorkspace({
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
+    setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
   }, [abortAgentTurnWork]);
 
   const updateMessage = (
@@ -2067,7 +2081,7 @@ export function AgentChatWorkspace({
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
-        toast.error("Unlock your vault before saving to PKM.");
+        toast.error("Unlock your vault before saving to Memory.");
         return;
       }
 
@@ -2128,7 +2142,7 @@ export function AgentChatWorkspace({
               vaultKey,
               forceRefresh: true,
             }).catch(() => undefined);
-            toast.success("Saved to PKM.");
+            toast.success("Saved to Memory.");
             return;
           }
 
@@ -2140,7 +2154,7 @@ export function AgentChatWorkspace({
           const message =
             error instanceof Error && error.message
               ? error.message
-              : "Failed to save PKM memory.";
+              : "Failed to save this memory.";
           appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent",
@@ -2420,7 +2434,7 @@ export function AgentChatWorkspace({
           reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
         return;
       }
 
@@ -2435,7 +2449,7 @@ export function AgentChatWorkspace({
         current_domains: turnPkmContext.domains,
         source_text: sourceText,
       });
-      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+      upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2473,24 +2487,24 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
 
         if (confirmationCards.length === 0) {
-          upsertPkmStatusMessage("I didn't find durable PKM memory to save from that.", "done");
+          upsertPkmStatusMessage("I didn't find a memory to save from that.", "done");
         }
       } catch (error) {
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not save that PKM memory.";
+            : "One could not save that memory.";
         appendDebugEvent(debugTurnId, "pkm_tool_failed", {
           message,
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+        upsertPkmStatusMessage("One could not save that memory.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -2512,7 +2526,7 @@ export function AgentChatWorkspace({
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: "PKM review prepared.",
+          resultSummary: "Memory review prepared.",
         };
       }
 
@@ -2684,7 +2698,7 @@ export function AgentChatWorkspace({
         execution: "frontend",
         current_domains: pkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking whether this belongs in PKM...", "streaming");
+      upsertPkmStatusMessage("Checking whether this belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2734,7 +2748,7 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
@@ -2755,11 +2769,11 @@ export function AgentChatWorkspace({
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not update PKM memory for this turn.";
+            : "One could not update Memory for this message.";
         appendDebugEvent(debugTurnId, "pkm_memory_failed", {
           message,
         });
-        upsertPkmStatusMessage("Agent could not update PKM memory for this turn.", "error");
+        upsertPkmStatusMessage("One could not update Memory for this message.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -3900,6 +3914,7 @@ export function AgentChatWorkspace({
               {!hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
+                  prompts={welcomePrompts}
                   disabled={isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />

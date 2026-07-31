@@ -70,6 +70,26 @@ def connection_scope_catalog(
         raise _handle(exc) from exc
 
 
+@router.get("/connections/{counterpart_user_id}/information-scopes")
+def connection_information_scope_catalog(
+    counterpart_user_id: str = Path(..., min_length=1, max_length=128),
+    query: str = Query(default="", max_length=160),
+    domain: str = Query(default="", max_length=80),
+    limit: int = Query(default=20, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().get_information_scope_catalog(
+            firebase_uid,
+            counterpart_user_id,
+            query=query,
+            domain=domain,
+            limit=limit,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/connections/requests")
 def list_connection_requests(
     direction: str = Query(default="incoming", pattern="^(incoming|outgoing)$"),

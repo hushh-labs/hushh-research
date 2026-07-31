@@ -1,5 +1,7 @@
-import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
+import { redirect } from "next/navigation";
+
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function ConnectSettingsPage() {
-  return <GeminiRuntimeConfigurationPage />;
+  redirect(ROUTES.PROFILE_PREFERENCES_GEMINI);
 }
