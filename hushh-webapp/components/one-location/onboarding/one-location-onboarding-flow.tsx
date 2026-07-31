@@ -961,7 +961,7 @@ function PeopleScreen({
     );
   };
 
-  const canContinue = !loading && selectedIds.length > 0;
+  const canContinue = !loading;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
@@ -1081,7 +1081,7 @@ function PeopleScreen({
         >
           {selectedIds.length > 0
             ? `${selectedIds.length} selected`
-            : "Select at least one person to continue"}
+            : "Add anyone you'd like — or just continue"}
         </p>
         <PrimaryButton
           onClick={() => onContinue(selectedIds)}
@@ -1381,7 +1381,6 @@ export function OneLocationOnboardingFlow({
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
-    if (selectedIds.length === 0) return;
     setSelectedPeopleIds(selectedIds);
     const selectedPeople = people.filter((person) =>
       selectedIds.includes(person.userId),
@@ -1435,6 +1434,14 @@ export function OneLocationOnboardingFlow({
       });
   };
 
+  // People is an optional step: "Skip" advances into the flow without adding
+  // anyone (or without changing an existing selection) instead of tearing down
+  // onboarding. It reuses the Continue path, so no requests are sent for an
+  // empty/unchanged selection and all prior onboarding data is preserved.
+  const handlePeopleSkip = () => {
+    handlePeopleContinue(selectedPeopleIds);
+  };
+
   return (
     <main
       className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
@@ -1479,7 +1486,7 @@ export function OneLocationOnboardingFlow({
             initialSelectedIds={selectedPeopleIds}
             onRetry={onRetryPeople}
             onBack={() => setScreen("features")}
-            onSkip={() => void runSkip()}
+            onSkip={handlePeopleSkip}
             leaving={leaving}
             onSelectionChange={setSelectedPeopleIds}
             onContinue={handlePeopleContinue}

@@ -61,6 +61,7 @@ class AccountService:
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
+            "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
             ),
@@ -173,6 +174,12 @@ class AccountService:
                 WHERE owner_user_id = :user_id
                    OR actor_user_id = :user_id
                    OR recipient_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_presences": text(
+                """
+                DELETE FROM one_location_nearby_presences
+                WHERE owner_user_id = :user_id
                 """
             ),
             "one_location_sms_contacts": text(
@@ -521,6 +528,7 @@ class AccountService:
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
                 "kai_portfolio_source_preferences",
+                "kai_analyze_runs",
                 "consent_export_refresh_jobs",
                 "consent_exports",
                 "connected_system_audit_events",
@@ -682,6 +690,7 @@ class AccountService:
         results["one_kyc_workflows"] = True
         for table_name in (
             "one_location_events",
+            "one_location_nearby_presences",
             "one_location_sms_contacts",
             "one_location_referrals",
             "one_location_public_invite_submissions",
@@ -854,6 +863,7 @@ class AccountService:
             "marketplace_profile": False,
             "one_kyc_workflows": False,
             "one_location_events": False,
+            "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
@@ -1082,6 +1092,7 @@ class AccountService:
                 results["one_kyc_workflows"] = True
                 for table_name in (
                     "one_location_events",
+                    "one_location_nearby_presences",
                     "one_location_sms_contacts",
                     "one_location_referrals",
                     "one_location_public_invite_submissions",

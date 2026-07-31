@@ -126,6 +126,19 @@ export class KaiProfileSyncService {
       };
     }
 
+    // A prior attempt may already have committed the canonical encrypted PKM
+    // payload but been interrupted while removing the temporary pre-vault
+    // browser record. Finish that cleanup first; re-writing the domain would
+    // add unnecessary revisions and leaves a wider plaintext window.
+    if (
+      await PreVaultOnboardingService.finalizeKnownVaultCommit({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+      })
+    ) {
+      return { synced: true, reason: "pre_vault_source_retired" };
+    }
+
     const pendingState = params.pendingState ?? (await this.getPendingSyncState(params.userId));
     if (!pendingState.hasPending) {
       return {
@@ -189,7 +202,15 @@ export class KaiProfileSyncService {
     }
 
     if (pendingState.onboardingPayload) {
-      await PreVaultOnboardingService.markSynced(params.userId);
+      // The save above is the authoritative encrypted PKM commit. Only once
+      // it has returned successfully may the pre-vault Preferences/localStorage
+      // draft be replaced with a short-lived encrypted handoff and retired.
+      // If either operation fails, the local origin is deliberately retained
+      // and this service retries on the next vault unlock.
+      await PreVaultOnboardingService.completeAfterVaultCommit({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+      });
     }
     if (pendingState.navPayload) {
       await KaiNavTourLocalService.markSynced(params.userId);

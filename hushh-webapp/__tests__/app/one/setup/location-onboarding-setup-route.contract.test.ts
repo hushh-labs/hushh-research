@@ -21,7 +21,7 @@ describe("Location setup route contract", () => {
     expect(adapter).toContain("<OneLocationAgentPage");
     expect(adapter).toContain('mode="setup"');
     expect(adapter).toContain(".finish({ suppressErrorToast: true })");
-    expect(adapter).toContain("coordinator.skip({ suppressErrorToast: true })");
+    expect(adapter).toContain(".skip({ suppressErrorToast: true })");
     expect(adapter).toContain('terminalPresentation: "automatic"');
     expect(adapter).not.toContain("vaultPrerequisiteRouteKey");
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");

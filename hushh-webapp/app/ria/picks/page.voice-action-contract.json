@@ -302,6 +302,54 @@
       "speaker_persona": "kai"
     },
     {
+      "action_id": "ria.picks.open_view_debate",
+      "label": "Show Debate Config",
+      "meaning": "Opens the read-only debate config sub-view of Picks — the screening rules and conviction bands Kai's investor debate runs on.",
+      "aliases": [
+        "show debate config",
+        "open debate",
+        "show debate rules"
+      ],
+      "search_keywords": [
+        "debate",
+        "config",
+        "conviction",
+        "screening"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?view=debate"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?view=debate"
+      },
+      "control_ids": [
+        "ria_picks_view_debate"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
       "action_id": "ria.picks.start_edit_package",
       "label": "Edit Advisor Package",
       "meaning": "Represents opening the editable advisor package draft. Voice can explain it, but editing stays manual.",

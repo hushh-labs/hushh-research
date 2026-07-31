@@ -1,5 +1,6 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -273,6 +274,13 @@ class DebateRunManager {
   private runBuffers = new Map<string, KaiStreamEnvelope[]>();
   private runSeenSeq = new Map<string, Set<number>>();
   private runSecrets = new Map<string, RunSecrets>();
+  // Fresh-start analyze context kept per run so a cross-instance stream miss
+  // (Cloud Run fans /run/start and /run/{id}/stream across instances while run
+  // state is in-memory) can be recovered via the single-request inline stream.
+  private runStartContext = new Map<
+    string,
+    { ticker: string; riskProfile: string; userContext?: Record<string, unknown> | null }
+  >();
   private runHistoryEntries = new Map<string, AnalysisHistoryEntry>();
   private streamControllers = new Map<string, AbortController>();
   private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
@@ -784,6 +792,11 @@ class DebateRunManager {
       pickSourceKind: pickSourceKind || undefined,
     });
     this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
+    this.runStartContext.set(task.runId, {
+      ticker,
+      riskProfile,
+      userContext: userContext ?? null,
+    });
     await this.connectRunStream(task.runId, {
       userId,
       vaultOwnerToken,
@@ -840,6 +853,25 @@ class DebateRunManager {
         });
 
         if (!response.ok) {
+          // Prod fans the backend across multiple Cloud Run instances while
+          // run state is in-memory per-process, so /run/start and
+          // /run/{id}/stream can land on different instances and the stream
+          // request 404s even though the run is live elsewhere. When that
+          // happens on web for a fresh run we still hold context for, fall
+          // back to the single-request inline analyze stream (start+stream on
+          // one backend request — the same path portfolio import uses) so the
+          // debate completes instead of pausing. Same-instance, native, and
+          // resume paths are untouched.
+          const recovered = await this.streamViaInlineFallback(
+            runId,
+            controller,
+            {
+              userId: params.userId,
+              vaultOwnerToken: params.vaultOwnerToken,
+              status: response.status,
+            }
+          );
+          if (recovered) return;
           throw new Error(`Run stream request failed: HTTP ${response.status}`);
         }
 
@@ -885,6 +917,68 @@ class DebateRunManager {
         }
       }
     }
+  }
+
+  /**
+   * Recover a fresh run when the resumable stream request misses its owning
+   * Cloud Run instance (HTTP 404 ANALYZE_RUN_NOT_FOUND). Web-only: replays the
+   * debate over the single-request inline analyze stream, which starts and
+   * streams on one backend request, so a multi-instance backend can no longer
+   * strand the client. Returns true when the debate ran to a terminal event.
+   */
+  private async streamViaInlineFallback(
+    runId: string,
+    controller: AbortController,
+    params: { userId: string; vaultOwnerToken: string; status: number }
+  ): Promise<boolean> {
+    // Only the cross-instance "run not found" case is recoverable this way, and
+    // only on web — native streams start+read on one plugin call, so it never
+    // hits the multi-instance gap.
+    if (params.status !== 404) return false;
+    if (Capacitor.isNativePlatform()) return false;
+
+    // Resume paths (attach / 409 conflict) have no fresh analyze context to
+    // replay, so they fall through to the existing reconnect/pause behavior.
+    const startContext = this.runStartContext.get(runId);
+    if (!startContext) return false;
+
+    const currentTask = this.tasks.get(runId);
+    if (!currentTask || currentTask.status !== "running") return false;
+
+    // The inline stream re-emits the full debate from the beginning on a single
+    // instance, so restart this client's transcript from scratch.
+    this.resetRunBuffer(runId);
+
+    const response = await ApiService.streamKaiAnalysis({
+      userId: params.userId,
+      ticker: startContext.ticker,
+      riskProfile: startContext.riskProfile,
+      userContext: startContext.userContext ?? {},
+      vaultOwnerToken: params.vaultOwnerToken,
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+
+    this.upsertTask({
+      ...currentTask,
+      streamState: "connected",
+      streamMessage: null,
+    });
+
+    // Same consumer/handler as the resumable path, so buffers, history,
+    // background chips, and client-abort cancel all behave identically.
+    await consumeCanonicalKaiStream(
+      response,
+      (envelope) => {
+        this.handleEnvelope(runId, envelope);
+      },
+      {
+        signal: controller.signal,
+        idleTimeoutMs: 360000,
+        requireTerminal: true,
+      }
+    );
+    return true;
   }
 
   private handleEnvelope(runId: string, envelope: KaiStreamEnvelope): void {

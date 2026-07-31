@@ -27,7 +27,7 @@ describe("Agent command handoff contract", () => {
     );
   });
 
-  it("joins the unlock PKM warmup before falling back to a turn-specific load", () => {
+  it("uses the current turn's warm cache before loading its private context", () => {
     const source = fs.readFileSync(workspacePath, "utf8");
     const loadContext = source.slice(
       source.indexOf("const loadTurnPkmContext"),
@@ -37,7 +37,6 @@ describe("Agent command handoff contract", () => {
       ),
     );
 
-    expect(loadContext).toContain("warmAgentPkmContext({");
     expect(loadContext).toContain("peekAgentPkmContext({");
     expect(loadContext).toContain("message: text");
     expect(loadContext).toContain("loadAgentPkmContext({");

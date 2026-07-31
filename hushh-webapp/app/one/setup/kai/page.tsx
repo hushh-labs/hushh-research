@@ -650,6 +650,15 @@ function KaiOnboardingPageContent({
           layout="page"
           initialStep={0}
           initialAnswers={wizardAnswers}
+          terminalFooter={
+            isStaticFinanceSetupRoute ? (
+              <SetupCapabilityTerminalFooter
+                capabilityId="finance"
+                isOperationallyReady={false}
+                coordinator={financeSetupCoordinator}
+              />
+            ) : null
+          }
           // Back returns to the hub but retains the active task. Only the
           // explicit terminal Skip action may clear it.
           onBack={() => {
@@ -740,13 +749,6 @@ function KaiOnboardingPageContent({
           }}
         />
       </CapabilityCinematicIntroGate>
-      {isStaticFinanceSetupRoute ? (
-        <SetupCapabilityTerminalFooter
-          capabilityId="finance"
-          isOperationallyReady={false}
-          coordinator={financeSetupCoordinator}
-        />
-      ) : null}
     </>
   );
 }

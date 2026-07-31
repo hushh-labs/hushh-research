@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       dist_tag:
-        description: "npm dist-tag to publish (beta only; latest promotion is a separate authenticated dist-tag action)"
+        description: "npm dist-tag to publish after package verification"
         required: true
-        default: beta
+        default: latest
         type: choice
         options:
           - beta
+          - latest
 
 permissions:
   contents: read
@@ -21,6 +22,9 @@ jobs:
     environment: npm-publish
     env:
       PACKAGE_DIR: packages/hushh-mcp
+      # Both release verification and npm's prepack lifecycle generate the
+      # canonical gateway contract. They must use the synced Python runtime.
+      HUSHH_MCP_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
     steps:
       - name: Assert main-only release dispatch
@@ -69,8 +73,11 @@ jobs:
 
       - name: Publish package
         working-directory: ${{ env.PACKAGE_DIR }}
-        # OIDC is selected by npm automatically. Do not add NODE_AUTH_TOKEN.
-        run: npm publish --tag beta --provenance
+        # The granular npm token is held only in the protected npm-publish
+        # environment. OIDC remains available for provenance generation.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag "${{ inputs.dist_tag }}" --provenance
 
       - name: Verify exact published package from a clean npm cache
         shell: bash

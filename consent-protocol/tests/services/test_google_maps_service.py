@@ -38,6 +38,74 @@ async def test_autocomplete_parses_suggestions(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_autocomplete_applies_location_bias_without_restricting_search(
+    monkeypatch,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        assert body["locationBias"]["circle"] == {
+            "center": {"latitude": 37.4275, "longitude": -122.1697},
+            "radius": 2_000.0,
+        }
+        assert "locationRestriction" not in body
+        return httpx.Response(200, json={"suggestions": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    assert (
+        await gms.GoogleMapsService().autocomplete(
+            "Stanford",
+            lat=37.4275,
+            lng=-122.1697,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_returns_bounded_distance_ranked_picker(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/v1/places:searchNearby")
+        body = json.loads(request.content.decode())
+        assert body["maxResultCount"] == 8
+        assert body["rankPreference"] == "DISTANCE"
+        assert body["locationRestriction"]["circle"]["radius"] == 500.0
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "spot-a",
+                        "displayName": {"text": "Spot A"},
+                        "formattedAddress": "Stanford, CA",
+                        "location": {
+                            "latitude": 37.4276,
+                            "longitude": -122.1697,
+                        },
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(
+        lat=37.4275,
+        lng=-122.1697,
+    )
+
+    assert result == [
+        {
+            "placeId": "spot-a",
+            "text": "Spot A, Stanford, CA",
+            "distanceMeters": 11,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_place_details_parses_location(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/places/p1")

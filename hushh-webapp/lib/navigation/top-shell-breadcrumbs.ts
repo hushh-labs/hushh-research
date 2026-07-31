@@ -13,6 +13,11 @@ import {
   resolveProfileRouteState,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import {
+  buildNearbyCheckInResumeHref,
+  isNearbyPrivateReturnToken,
+  NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
+} from "@/lib/one-location/nearby-private-navigation";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -54,6 +59,7 @@ function oneLocationActionLabel(action: string): string {
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
+    "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
@@ -427,6 +433,28 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  // Debate config is a read-only sub-view of Picks (/ria/picks?view=debate):
+  // it deepens one level below Picks, so back returns to Picks, not RIA home.
+  // Checked before the generic riaSubroutes loop, which would otherwise match
+  // the query-stripped /ria/picks pathname and flatten it to a 3-crumb Picks.
+  if (
+    (pathname === ROUTES.RIA_PICKS ||
+      pathname.startsWith(`${ROUTES.RIA_PICKS}/`)) &&
+    searchParams?.get("view") === "debate"
+  ) {
+    return {
+      backHref: ROUTES.RIA_PICKS,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA", href: ROUTES.RIA_HOME },
+        { label: "Picks", href: ROUTES.RIA_PICKS },
+        { label: "Debate" },
+      ],
+    };
+  }
+
   // RIA subtabs (level 3): back returns to the RIA home (level 2).
   const riaSubroutes: Array<[string, string]> = [
     [ROUTES.RIA_PICKS, "Picks"],
@@ -541,8 +569,9 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // The setup hub itself (`/one/setup`). Back returns to the One home so a user
-  // who opened setup from the dashboard can step out without completing it.
+  // The setup hub itself (`/one/setup`) follows completed phone verification.
+  // There is no confirmed previous step in this root flow, so never offer a
+  // top-shell path that can retrace a person into phone verification.
   if (pathname === ROUTES.ONE_SETUP) {
     const returnHref =
       normalizeInternalRouteHref(searchParams?.get("return_to")) || ROUTES.HOME;
@@ -550,7 +579,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: returnHref,
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: returnHref }, { label: "Setup" }],
     };
   }
@@ -674,8 +703,17 @@ function resolveTopShellBreadcrumbInner(
     // removed to fix the "two back buttons" UX.
     const action = String(searchParams?.get("action") || "").trim();
     if (action) {
+      const returnToNearbyCheckIn =
+        action === "private-check-in" &&
+        searchParams?.get("source") === "nearby";
+      const nearbyReturnToken =
+        searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
       return {
-        backHref: ROUTES.ONE_LOCATION,
+        backHref: returnToNearbyCheckIn
+          ? isNearbyPrivateReturnToken(nearbyReturnToken)
+            ? buildNearbyCheckInResumeHref(nearbyReturnToken)
+            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+          : ROUTES.ONE_LOCATION,
         width: "profile",
         align: "center",
         items: [

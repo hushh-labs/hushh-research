@@ -120,4 +120,21 @@ describe("Navbar bottom chrome contract", () => {
     expect(navbar).toContain("data-ambient-chrome-ignore");
     expect(agentBar).toContain("data-ambient-chrome-ignore");
   });
+
+  it("pins voice-only Foundation chrome instead of applying signed-in nav scroll-hide motion", () => {
+    const providers = read("app/providers.tsx");
+
+    expect(providers).toContain(
+      "const foundationVoiceOnlyChrome = isFoundationRoute;",
+    );
+    expect(providers).toContain(
+      "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
+    );
+    expect(providers).toContain(
+      "navigationHidden:\n      chromeState.hideCommandBar || foundationVoiceOnlyChrome,",
+    );
+    expect(providers).toContain(
+      "!pinnedBottomChrome &&\n      !hidesPersistentChrome",
+    );
+  });
 });

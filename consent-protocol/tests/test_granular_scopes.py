@@ -52,6 +52,12 @@ class TestStaticScopes:
             ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST.value == "cap.location.live.refer_request"
         )
 
+    def test_nearby_presence_capability_scope_values(self):
+        """Nearby presence is separate from live-location sharing."""
+        assert ConsentScope.CAP_LOCATION_NEARBY_PUBLISH.value == ("cap.location.nearby.publish")
+        assert ConsentScope.CAP_LOCATION_NEARBY_DISCOVER.value == ("cap.location.nearby.discover")
+        assert ConsentScope.CAP_LOCATION_NEARBY_REVOKE.value == ("cap.location.nearby.revoke")
+
     def test_retired_scopes_are_not_active_enum_members(self):
         assert SCOPE_POLICY_VERSION == 2
         assert "agent.one.orchestrate" in RETIRED_SCOPE_VALUES
@@ -106,6 +112,9 @@ class TestStaticScopes:
         assert ConsentScope.CAP_LOCATION_LIVE_REQUEST in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_REVOKE in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_PUBLISH in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_DISCOVER in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_REVOKE in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_VIEW not in ConsentScope.agent_scopes()
 
     def test_external_requestable_scope_contract(self):

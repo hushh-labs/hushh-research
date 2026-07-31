@@ -31,6 +31,7 @@ function printUsage() {
   console.log("  hushh-mcp --print-config");
   console.log("  hushh-mcp --print-codex-toml");
   console.log("  hushh-mcp --print-remote-config");
+  console.log("  hushh-mcp --print-client-credentials-config");
   console.log("  hushh-mcp --print-gateway-manifest");
   console.log("  hushh-mcp --print-agentforce-manifest");
   console.log("  hushh-mcp --print-salesforce-agentexchange-handoff");
@@ -44,6 +45,9 @@ function printUsage() {
   console.log("  HUSHH_MCP_PYTHON        Optional base Python interpreter for bootstrap");
   console.log("  CONSENT_API_URL         Backend origin for stdio bridge consent API calls");
   console.log("  HUSHH_DEVELOPER_TOKEN   Self-serve developer token used by stdio MCP");
+  console.log("  HUSHH_OAUTH_CLIENT_ID   Operations-provisioned OAuth client ID for stdio MCP");
+  console.log("  HUSHH_OAUTH_CLIENT_SECRET  Matching OAuth client secret; never combine with developer token");
+  console.log("  HUSHH_OAUTH_TOKEN_URL   Optional OAuth token endpoint override");
   console.log("  HUSHH_MCP_SKIP_BOOTSTRAP  Set to 1 to skip venv creation and pip install");
 }
 
@@ -87,6 +91,28 @@ function printRemoteConfig() {
             url: promotedRemoteUrl,
             headers: {
               Authorization: "Bearer <developer-token>",
+            },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function printClientCredentialsConfig() {
+  console.log(
+    JSON.stringify(
+      {
+        mcpServers: {
+          "hushh-consent": {
+            command: "npx",
+            args: ["-y", "@hushh/mcp"],
+            env: {
+              CONSENT_API_URL: promotedApiOrigin,
+              HUSHH_OAUTH_CLIENT_ID: "<operations-provisioned-client-id>",
+              HUSHH_OAUTH_CLIENT_SECRET: "<operations-provisioned-client-secret>",
             },
           },
         },
@@ -350,6 +376,19 @@ function buildEnv(runtimeDir) {
   return merged;
 }
 
+function validateAuthConfiguration(env) {
+  const developerToken = String(env.HUSHH_DEVELOPER_TOKEN || "").trim();
+  const clientId = String(env.HUSHH_OAUTH_CLIENT_ID || "").trim();
+  const clientSecret = String(env.HUSHH_OAUTH_CLIENT_SECRET || "").trim();
+
+  if (developerToken && (clientId || clientSecret)) {
+    fatal("Configure either HUSHH_DEVELOPER_TOKEN or OAuth client credentials, never both.");
+  }
+  if (Boolean(clientId) !== Boolean(clientSecret)) {
+    fatal("OAuth client-credentials mode requires both HUSHH_OAUTH_CLIENT_ID and HUSHH_OAUTH_CLIENT_SECRET.");
+  }
+}
+
 if (args.includes("--help") || args.includes("-h")) {
   printUsage();
   process.exit(0);
@@ -367,6 +406,11 @@ if (args.includes("--print-codex-toml")) {
 
 if (args.includes("--print-remote-config")) {
   printRemoteConfig();
+  process.exit(0);
+}
+
+if (args.includes("--print-client-credentials-config")) {
+  printClientCredentialsConfig();
   process.exit(0);
 }
 
@@ -423,6 +467,7 @@ const runtimeDir = resolveRuntimeDir();
 const python = ensureBootstrap(runtimeDir);
 const serverPath = path.join(runtimeDir, "mcp_server.py");
 const childEnv = buildEnv(runtimeDir);
+validateAuthConfiguration(childEnv);
 
 const child = spawn(python.command, [...python.args, serverPath], {
   cwd: runtimeDir,

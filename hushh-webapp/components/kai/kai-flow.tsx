@@ -3696,6 +3696,7 @@ export function KaiFlow({
           plaidLocalDualEnvironmentEnabled={
             plaidStatus?.local_dual_environment_enabled ?? false
           }
+          showSkip={mode !== "import"}
         />
       )}
 

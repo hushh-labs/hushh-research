@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-07-30
+
+- Added an explicit npm bridge configuration for operations-provisioned OAuth
+  client credentials. The bridge obtains and renews its short-lived Bearer
+  token in memory; client credentials never appear in MCP results or generated
+  remote configuration.
+- Made the header-only POST MCP migration explicit for users upgrading from
+  the published 0.1.3 package.
+
 ## 0.4.0 - 2026-07-20
 
 - Published one generated five-tool v0.4 catalog for bearer, PKCE, client

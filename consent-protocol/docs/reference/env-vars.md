@@ -23,7 +23,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | Variable | Where Read | Required | Notes |
 |----------|------------|----------|-------|
 | `APP_SIGNING_KEY` | `hushh_mcp/config.py` | Yes | Min 32 chars (64-char hex recommended). HMAC signing and state integrity only. |
-| `VAULT_DATA_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. Vault/PKM data encryption only. |
+| `VAULT_DATA_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. Root for vault/PKM encryption and purpose-separated HKDF keys that protect encrypted nearby-presence anchors and opaque spatial/roster indexes; never used for signing. |
 | `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Cloud SQL pooler username. |
 | `DB_PASSWORD` | same | Yes | Database password. |
 | `DB_HOST` | same | Yes | Cloud SQL host. |

@@ -352,6 +352,21 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "kai_analyze_run_store",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
+      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
+      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
+      "plaintext_posture": "terminal_result_and_metadata",
+      "expected_row_growth": "low_per_user_run"
+    },
+    {
       "id": "one_location_agent",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -362,6 +377,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -370,10 +386,10 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access or reveal only an explicit public snapshot; Invite to One links create metadata-only network readiness and never reveal private grants, ciphertext, or owner identity beyond a safe label.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants and nearby presence before deletion where possible.",
+      "trust_boundary": "Raw device coordinates exist on owner and recipient devices and only transiently in authenticated request memory for an explicit nearby-place verification. UAT nearby presence stores the selected public-place anchor only as AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token. Checkout clears anchor material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist raw device latitude/longitude, exact distance, plaintext venue labels or addresses, map previews, movement trails, or raw public tokens. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },

@@ -56,6 +56,7 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   ROUTES,
   isFoundationPublicRoute,
+  isOneSetupSurfaceRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
@@ -228,9 +229,11 @@ function AppShellFrame({ children }: ProvidersProps) {
           ? "0px"
           : isRiaRoute(pathname)
             ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-            : hideGlobalChrome || isPublicStandaloneRoute
+            : isOneSetupSurfaceRoute(pathname)
               ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-              : "var(--bottom-chrome-stack-height)",
+              : hideGlobalChrome || isPublicStandaloneRoute
+                ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+                : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
@@ -252,10 +255,21 @@ function AppShellFrame({ children }: ProvidersProps) {
     (topShellMetrics.shellVisible && !hidesPersistentChrome) ||
     isFoundationRoute ||
     chromeState.useOnboardingChrome;
+  // Foundation editorial routes retain the voice-only Agent Bar, but do not
+  // render a bottom navigation. Treat that as a pinned bottom-chrome posture:
+  // subscribing the shared hide driver when there is no nav travel makes the
+  // bar follow scroll progress and visibly bounce on research, blog, and
+  // developers pages.
+  const foundationVoiceOnlyChrome = isFoundationRoute;
+  // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
+  // the scroll-hide driver for ordinary signed-in navigation only.
+  const pinnedBottomChrome =
+    isRiaRoute(pathname) || foundationVoiceOnlyChrome;
   const bottomShellModel = {
     ambientEnabled:
       ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
-    navigationHidden: chromeState.hideCommandBar,
+    navigationHidden:
+      chromeState.hideCommandBar || foundationVoiceOnlyChrome,
     hidden: hidesPersistentChrome,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
@@ -264,18 +278,16 @@ function AppShellFrame({ children }: ProvidersProps) {
   // made pages like /consents appear to reload on scroll. This hook writes
   // `--bottom-chrome-progress` to the document root imperatively and returns
   // nothing, so scrolling no longer re-renders the React tree.
-  // RIA sub-agent = Apple-style ALWAYS-PINNED chrome: disable the shared
-  // bottom-glass hide driver on /ria/* so the glass panels stay put (the hook's
-  // disabled branch writes --bottom-chrome-progress:0). Path-based gate — this
-  // shell renders above PersonaProvider, so persona isn't available here.
-  const riaPinnedChrome = isRiaRoute(pathname);
+  // Pinned routes disable the shared hide driver (the hook's disabled branch
+  // writes --bottom-chrome-progress:0). This shell renders above
+  // PersonaProvider, so route state is the stable source of truth here.
   // Motion authority follows the bottom navigation, not the optional
   // decorative bottom glass. Hidden-shell and flow routes can retain the nav
   // while omitting that glass, and the persistent Agent Bar must still travel
   // with it. This matches Navbar's non-onboarding scroll-hide policy.
   useKaiBottomChromeProgressCssVar(
     !chromeState.useOnboardingChrome &&
-      !riaPinnedChrome &&
+      !pinnedBottomChrome &&
       !hidesPersistentChrome,
   );
   // Add a root platform class for native-iOS specific CSS hooks.

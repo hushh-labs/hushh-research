@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { ArrowLeft, Check } from "lucide-react";
 
@@ -79,6 +79,12 @@ export function KaiPreferencesWizard(props: {
   onAnswersChange?: (answers: WizardAnswers) => void | Promise<void>;
   onBack?: () => void;
   onComplete: (payload: WizardCompletePayload) => void | Promise<void>;
+  /**
+   * Route-owned terminal actions (for example, Skip Finance setup). Keeping
+   * this inside the wizard's bounded viewport prevents a sibling footer from
+   * extending a fullscreen flow underneath persistent onboarding chrome.
+   */
+  terminalFooter?: ReactNode;
 }) {
   const total = QUESTIONS.length;
   const layout = props.layout ?? "page";
@@ -253,14 +259,14 @@ export function KaiPreferencesWizard(props: {
       className={cn(
         "w-full bg-transparent flex flex-col",
         isPageLayout
-          ? "min-h-[100dvh] px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-5 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
           : "min-h-0 px-4 pt-4 pb-4"
       )}
     >
       <div
         className={cn(
           isPageLayout
-            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-col justify-center py-6"
+            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-scroll-bottom-pad,0px))] w-full max-w-[25rem] flex-1 flex-col py-6"
             : "w-full max-w-sm mx-auto flex min-h-[calc(100dvh-var(--app-screen-footer-pad))] flex-col",
           !isPageLayout && "min-h-0"
         )}
@@ -268,7 +274,7 @@ export function KaiPreferencesWizard(props: {
         <div
           className={cn(
             isPageLayout
-              ? "w-full"
+              ? "flex w-full flex-1 flex-col justify-center"
               : "contents"
           )}
         >
@@ -375,6 +381,9 @@ export function KaiPreferencesWizard(props: {
             </div>
           </div>
         </div>
+        {isPageLayout && props.terminalFooter ? (
+          <div className="w-full shrink-0">{props.terminalFooter}</div>
+        ) : null}
       </div>
 
       <AlertDialog open={horizonDialogOpen} onOpenChange={setHorizonDialogOpen}>
