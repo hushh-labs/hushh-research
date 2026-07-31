@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -84,7 +85,11 @@ type DomainDetailState = {
 };
 
 type MemoryWorkspaceTab = "browse" | "add" | "sharing";
-const MEMORY_WORKSPACE_ENABLED = process.env.NEXT_PUBLIC_MEMORY_WORKSPACE_ENABLED === "true";
+const MEMORY_WORKSPACE_TABS = [
+  { value: "browse", label: "Saved" },
+  { value: "add", label: "Add" },
+  { value: "sharing", label: "Sharing" },
+] as const;
 
 const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
   manifest: null,
@@ -870,18 +875,7 @@ export function PkmNaturalPanel({
             {memoryActionMessage ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{memoryActionMessage}</p> : null}
             {memoryActionError ? <p className="text-sm text-destructive">{memoryActionError}</p> : null}
             {sharingImpactError ? <p className="text-sm text-destructive">{sharingImpactError}</p> : null}
-            {domainMemoryCards.length > 0 && !MEMORY_WORKSPACE_ENABLED ? (
-              <SurfaceInset className="space-y-3 p-4">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Correct saved details</p>
-                  <p className="text-sm text-muted-foreground">Changes apply only to the selected detail in this encrypted category.</p>
-                </div>
-                <div className="divide-y divide-[color:var(--app-card-border-standard)]">
-                  {domainMemoryCards.map((card) => <div key={card.id}>{renderMemoryCard(card)}</div>)}
-                </div>
-              </SurfaceInset>
-            ) : null}
-            {domainMemoryCards.length > 0 && MEMORY_WORKSPACE_ENABLED ? <PkmMemoryBrowser cards={domainMemoryCards} renderCard={renderMemoryCard} /> : null}
+            {domainMemoryCards.length > 0 ? <PkmMemoryBrowser cards={domainMemoryCards} renderCard={renderMemoryCard} /> : null}
           </div>
         ) : null}
       </div></>
@@ -892,25 +886,27 @@ export function PkmNaturalPanel({
     <>
       {nativeBeacon}
       <div className="space-y-4">
-        {MEMORY_WORKSPACE_ENABLED ? (
-          <SettingsSegmentedTabs
-            value={workspaceTab}
-            onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
-            options={[
-              { value: "browse", label: "Browse" },
-              { value: "add", label: "Add" },
-              { value: "sharing", label: "Sharing" },
-            ]}
-            mobileColumns={3}
-          />
-        ) : null}
+        <SettingsSegmentedTabs
+          value={workspaceTab}
+          onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
+          options={MEMORY_WORKSPACE_TABS}
+          mobileColumns={3}
+        />
+        <SwipeViews
+          options={MEMORY_WORKSPACE_TABS}
+          tabSetId="memory"
+          activeValue={workspaceTab}
+          onSelectionChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
+          viewportMinHeight="0px"
+        >
+          <div className="space-y-4 pb-1 pr-px">
         <SettingsGroup separatorInset testId="memory-auto-save-group">
           <SettingsRow
             testId="memory-auto-save-row"
-            title="Save eligible memories automatically"
+            title="Save automatically"
             description={
               autoSavePolicyError ||
-              "High-confidence private preferences save in the background. Shared, corrective, destructive, or uncertain changes still ask first."
+              "Private preferences only. Everything else asks first."
             }
             tone={autoSavePolicyError ? "destructive" : "default"}
             trailing={
@@ -928,7 +924,6 @@ export function PkmNaturalPanel({
             }
           />
         </SettingsGroup>
-        {!MEMORY_WORKSPACE_ENABLED || workspaceTab === "browse" ? (
           <PkmDataManagerPanel
             signedIn
             loading={bootstrapLoading}
@@ -947,36 +942,34 @@ export function PkmNaturalPanel({
             onRefresh={() => setRefreshNonce((value) => value + 1)}
             onOpenDomain={(domain) => setSelectedDomainKey(domain.key)}
           />
-        ) : null}
-        {MEMORY_WORKSPACE_ENABLED && workspaceTab === "add" ? (
+          </div>
+          <div className="pb-1 pr-px">
           <SurfaceInset className="space-y-4 p-4" data-pkm-memory-capture="true">
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">Add a memory</p>
-              <p className="text-sm text-muted-foreground">Write a note in your own words. One prepares a private, review-first suggestion before anything is saved.</p>
+              <p className="text-sm font-semibold text-foreground">Add a detail</p>
+              <p className="text-sm text-muted-foreground">Write it naturally. Review it before it is saved.</p>
             </div>
-            <Textarea value={captureText} onChange={(event) => setCaptureText(event.target.value)} placeholder="For example: I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="muted" effect="fade" disabled={captureLoading || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
-                {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Prepare review
-              </Button>
-              {captureCards.length > 0 ? <Button type="button" effect="fade" disabled={captureSaving} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save reviewed memory</Button> : null}
-            </div>
+            <Textarea value={captureText} onChange={(event) => setCaptureText(event.target.value)} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
+            <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
+              {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review note
+            </Button>
             {captureMessage ? <p className="text-sm text-muted-foreground">{captureMessage}</p> : null}
             {captureCards.length > 0 ? (
-              <div className="divide-y divide-[color:var(--app-card-border-standard)] rounded-xl border border-[color:var(--app-card-border-standard)] px-3">
+              <SettingsGroup separatorInset>
                 {captureCards.map((card) => (
-                  <div key={card.card_id} className="space-y-1 py-3 text-sm">
-                    <p className="font-medium text-foreground">{String(card.merge_mode || card.mutation_intent || "Proposed update").replaceAll("_", " ")}</p>
-                    <p className="text-muted-foreground">{String(card.target_domain || "Saved details").replaceAll("_", " ")}{card.primary_json_path ? ` › ${String(card.primary_json_path).replaceAll(".", " › ")}` : ""}</p>
-                    {card.sharing_impact?.active_recipient_count ? <p className="text-xs text-muted-foreground">This change affects an existing shared bundle and will be reviewed before it is saved.</p> : null}
-                  </div>
+                  <SettingsRow
+                    key={card.card_id}
+                    title="Proposed saved detail"
+                    description={card.sharing_impact?.active_recipient_count ? "This may update a detail that is currently shared." : "This stays private unless you choose to share it later."}
+                  />
                 ))}
-                {getIgnoredPkmCards(captureCards).length > 0 ? <p className="py-3 text-xs text-muted-foreground">Some content was kept out because it is private, reserved, or not suitable for a saved memory.</p> : null}
-              </div>
+                {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}
+              </SettingsGroup>
             ) : null}
+            {captureCards.length > 0 ? <Button className="w-full justify-center" type="button" effect="fade" disabled={captureSaving} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save reviewed detail</Button> : null}
           </SurfaceInset>
-        ) : null}
-        {MEMORY_WORKSPACE_ENABLED && workspaceTab === "sharing" ? (
+          </div>
+          <div className="pb-1 pr-px">
           <SurfaceInset className="space-y-4 p-4" data-pkm-memory-sharing="true">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-foreground">Sharing preferences</p>
@@ -1009,7 +1002,8 @@ export function PkmNaturalPanel({
             })}
             {!sharingManifestsLoading && visibleMetadataDomains.length > 0 && Object.values(sharingManifests).every((manifest) => buildPkmShareBundles(manifest).length === 0) ? <p className="text-sm text-muted-foreground">There are no saved bundles available for sharing yet.</p> : null}
           </SurfaceInset>
-        ) : null}
+          </div>
+        </SwipeViews>
       </div>
     </>
   );
