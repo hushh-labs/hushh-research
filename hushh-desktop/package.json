@@ -1,0 +1,62 @@
+{
+  "name": "hushh-desktop",
+  "version": "1.4.1",
+  "main": "electron/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "cd backend && uv run build-backend.py",
+    "build:analysis-engine": "cd backend && uv run build-analysis-engine.py",
+    "build:daemon": "cd windows-daemon && powershell -ExecutionPolicy Bypass -File scripts/fetch-npu-model.ps1 && dotnet publish src/OneWindows.Daemon -c Release -r win-arm64 --self-contained true -o publish/OneWindows.Daemon",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [],
+  "author": "Hushh",
+  "description": "Hushh Desktop Application",
+  "dependencies": {
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.hushh.desktop.beta1",
+    "productName": "Hushh Desktop",
+    "asar": false,
+    "directories": {
+      "output": "installer"
+    },
+    "files": [
+      "electron/**/*",
+      "assets/**/*",
+      "package.json",
+      "backend/dist/hushh-backend.exe",
+      "frontend/.env*",
+      "frontend/.next/standalone/**/*",
+      "backend/.env"
+    ],
+    "extraResources": [
+      {
+        "from": "ai-library/geniex",
+        "to": "geniex"
+      },
+      {
+        "from": "windows-daemon/publish/OneWindows.Daemon",
+        "to": "windows-daemon"
+      },
+      {
+        "from": "backend/dist/hushh-analysis-engine.exe",
+        "to": "analysis-engine/hushh-analysis-engine.exe"
+      }
+    ],
+    "win": {
+      "target": "zip"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}

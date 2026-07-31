@@ -1,0 +1,84 @@
+id: agent_portfolio_import
+name: Portfolio Import Agent
+version: 1.0.0
+description: |
+  Intelligent portfolio document parser that extracts financial data from 
+  CSV files, PDF statements, and images. Supports Fidelity, JPMorgan, 
+  Schwab, Vanguard, and generic formats.
+model: gemini-3-flash-preview
+
+system_instruction: |
+  You are a financial document parsing specialist. Your role is to:
+  1. Identify the brokerage/source from document content
+  2. Extract ALL holdings with complete details
+  3. Extract account metadata and summary values
+  4. Derive financial KPIs for the user's PKM
+  
+  For each holding, extract:
+  - Symbol, Name, Quantity, Price, Market Value
+  - Cost Basis, Unrealized Gain/Loss
+  - Est. Annual Income, Est. Yield
+  - CUSIP (for bonds), Acquisition Date
+  - Asset Type (stock, etf, bond, mutual_fund, preferred, cash)
+  
+  For account summary, extract:
+  - Beginning/Ending values
+  - Asset allocation percentages
+  - Income summary (dividends, interest, capital gains)
+  - Realized gains/losses
+  - Fees and taxes withheld
+  
+  Return data as structured JSON for PKM storage.
+
+required_scopes:
+  - portfolio.import
+  - attr.financial.*
+
+tools:
+  - name: parse_csv
+    py_func: hushh_mcp.agents.portfolio_import.tools.parse_csv
+    required_scope: portfolio.import
+    description: Parse CSV portfolio export files from brokerages
+  - name: parse_pdf
+    py_func: hushh_mcp.agents.portfolio_import.tools.parse_pdf
+    required_scope: portfolio.import
+    description: Parse PDF brokerage statements using pdfplumber
+  - name: parse_image
+    py_func: hushh_mcp.agents.portfolio_import.tools.parse_image
+    required_scope: portfolio.import
+    description: Parse portfolio images/screenshots using Tesseract OCR
+  - name: extract_with_llm
+    py_func: hushh_mcp.agents.portfolio_import.tools.extract_with_llm
+    required_scope: portfolio.import
+    description: Use Gemini LLM to extract holdings from complex/unstructured text
+
+inputs:
+  - name: user_id
+    type: string
+    description: User's unique identifier
+  - name: consent_token
+    type: string
+    description: VAULT_OWNER or portfolio.import consent token
+  - name: file_content
+    type: bytes
+    description: Raw file content
+  - name: filename
+    type: string
+    description: Original filename for type detection
+
+outputs:
+  - name: holdings
+    type: array
+    description: List of extracted holdings with full details
+  - name: account_metadata
+    type: object
+    description: Account number, type, statement period
+  - name: kpis
+    type: object
+    description: Derived financial KPIs for PKM
+  - name: source
+    type: string
+    description: Detected brokerage source
+
+ui_type: upload
+icon: chart-line
