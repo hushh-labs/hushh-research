@@ -155,11 +155,6 @@ def test_approve_consent_supersedes_narrower_tokens(monkeypatch):
         lambda **_kwargs: SimpleNamespace(token=issued_grant, expires_at=123456789),
     )
     monkeypatch.setattr(consent, "revoke_token", lambda token: revoked_tokens.append(token))
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -217,11 +212,6 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
         consent,
         "issue_token",
         lambda **_kwargs: SimpleNamespace(token="grant_failure", expires_at=123456789),  # noqa: S106
-    )
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
     )
 
     client = TestClient(_build_app())
@@ -289,11 +279,6 @@ def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
 
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(consent, "issue_token", _issue_token)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -356,11 +341,6 @@ def test_approve_consent_reused_developer_token_records_current_request(monkeypa
             return len(events)
 
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -506,8 +486,7 @@ def test_approve_consent_rejects_incomplete_encrypted_export_payload(monkeypatch
     assert response.json()["detail"] == "encryptedIv is required."
 
 
-def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
-    sync_calls: list[dict] = []
+def test_retired_ria_attr_scope_cannot_reuse_a_legacy_consent_token(monkeypatch):
     events: list[dict] = []
 
     class _FakeConsentDBService:
@@ -536,15 +515,7 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
             events.append(kwargs)
             return len(events)
 
-    async def _mock_sync(self, **kwargs):  # noqa: ANN001
-        sync_calls.append(kwargs)
-
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        _mock_sync,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -555,14 +526,8 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["consent_token"] == "existing_ria_token"  # noqa: S105
-    assert events[0]["action"] == "CONSENT_GRANTED"
-    assert events[0]["request_id"] == "req_ria_reuse"
-    assert sync_calls == [
-        {
-            "user_id": "user_123",
-            "request_id": "req_ria_reuse",
-            "action": "CONSENT_GRANTED",
-        }
-    ]
+    assert response.status_code == 410
+    assert response.json()["detail"]["error_code"] == "SCOPE_RETIRED"
+    # A reused token is not a back door around the explicit bilateral proposal
+    # contract, and no generic consent event may activate a relationship.
+    assert events == []

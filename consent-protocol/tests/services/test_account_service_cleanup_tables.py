@@ -98,7 +98,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM relationship_share_events",
         "DELETE FROM relationship_share_grants",
         "DELETE FROM ria_pick_share_artifacts",
-        "DELETE FROM ria_pick_uploads",
         "DELETE FROM advisor_investor_relationships",
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",

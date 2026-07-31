@@ -36,7 +36,12 @@ describe("ConnectionsService", () => {
     const [path, opts] = mockApiFetch.mock.calls[0];
     expect(path).toBe("/api/one/connections/requests");
     expect(opts.method).toBe("POST");
-    expect(JSON.parse(opts.body as string)).toEqual({ addressee_user_id: "u2", message: undefined });
+    expect(JSON.parse(opts.body as string)).toEqual({
+      addressee_user_id: "u2",
+      message: undefined,
+      requested_scope_handles: [],
+      offered_scope_handles: [],
+    });
   });
 
   it("accept POSTs to the accept endpoint", async () => {
@@ -45,6 +50,40 @@ describe("ConnectionsService", () => {
     const [path, opts] = mockApiFetch.mock.calls[0];
     expect(path).toBe("/api/one/connections/requests/r1/accept");
     expect(opts.method).toBe("POST");
+    expect(opts.body).toBeUndefined();
+  });
+
+  it("loads counterpart-requestable and viewer-offerable scope catalogs", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        counterpartUserId: "u2",
+        items: [{ handle: "scp-u2", label: "RIA Picks", description: "Picks" }],
+        offerableItems: [{ handle: "scp-u1", label: "RIA Picks", description: "Picks" }],
+      }),
+    );
+
+    const catalog = await ConnectionsService.getScopeCatalog({ idToken: "tok", counterpartUserId: "u2" });
+
+    expect(mockApiFetch.mock.calls[0][0]).toBe("/api/one/connections/u2/scope-catalog");
+    expect(catalog.items[0].handle).toBe("scp-u2");
+    expect(catalog.offerableItems[0].handle).toBe("scp-u1");
+  });
+
+  it("sends both explicit scope selections when accepting a scoped request", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "accepted" } }));
+
+    await ConnectionsService.accept({
+      idToken: "tok",
+      requestId: "r1",
+      selectedRequestedScopeHandles: ["scp-ria"],
+      selectedOfferedScopeHandles: [],
+    });
+
+    const [, opts] = mockApiFetch.mock.calls[0];
+    expect(JSON.parse(opts.body as string)).toEqual({
+      selected_requested_scope_handles: ["scp-ria"],
+      selected_offered_scope_handles: [],
+    });
   });
 
   it("linkCircleInvite POSTs the peer id", async () => {

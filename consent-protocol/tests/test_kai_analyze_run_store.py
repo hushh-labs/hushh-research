@@ -264,6 +264,36 @@ def test_persist_and_load_roundtrip() -> None:
     asyncio.run(_scenario())
 
 
+def test_durable_terminal_receipt_excludes_source_material_and_pkm_context() -> None:
+    async def _scenario() -> None:
+        store = KaiAnalyzeRunStore()
+        rec = _terminal_record(status="completed", terminal_event="decision")
+        rec.terminal_payload = {
+            "decision": "buy",
+            "confidence": 0.81,
+            "raw_card": {"private_market_data": "must-not-persist"},
+            "final_statement": "model prose must-not-persist",
+            "debate_transcript": {"round1": {"agent": "must-not-persist"}},
+        }
+        rec.context = {
+            "pkm_context": "must-not-persist",
+            "pick_source_snapshot": {"source": "private"},
+        }
+        await store.persist_terminal(rec)
+
+        loaded = await store.load_terminal_run(rec.run_id)
+        assert loaded is not None
+        payload = loaded.terminal_payload
+        assert payload["decision"] == "buy"
+        assert payload["confidence"] == 0.81
+        serialized = json.dumps(payload)
+        assert "must-not-persist" not in serialized
+        assert "raw_card" not in serialized
+        assert "debate_transcript" not in serialized
+
+    asyncio.run(_scenario())
+
+
 def test_load_missing_returns_none() -> None:
     async def _scenario() -> None:
         store = KaiAnalyzeRunStore()

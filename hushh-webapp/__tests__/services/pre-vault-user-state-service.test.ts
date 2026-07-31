@@ -221,17 +221,53 @@ describe("PreVaultUserStateService.bootstrapState", () => {
         userId,
         setupCompleted: false,
         setupCapabilityIds: ["connections", "finance"],
+        oneRuntimeSetupChoice: "byok_pending_vault",
       });
 
-    const state = await PreVaultUserStateService.markOneRuntimeChoice(userId);
+    const state = await PreVaultUserStateService.markOneRuntimeChoice(
+      userId,
+      "byok_pending_vault",
+    );
 
     expect(PreVaultUserStateService.hasOneRuntimeChoice(state)).toBe(true);
     expect(state.setupCapabilityIds).toEqual(["connections", "finance"]);
+    expect(state.oneRuntimeSetupChoice).toBe("byok_pending_vault");
     expect(apiJsonMock).toHaveBeenCalledTimes(2);
     const updateOptions = apiJsonMock.mock.calls[1]?.[1] as RequestInit;
     expect(JSON.parse(String(updateOptions.body))).toEqual({
       userId,
       setupCapabilityIds: ["connections", "finance"],
+      oneRuntimeSetupChoice: "byok_pending_vault",
+    });
+  });
+
+  it("updates an existing Connections choice without storing a credential", async () => {
+    const userId = "bootstrap-runtime-choice-update-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["connections"],
+        oneRuntimeSetupChoice: "hushh_managed_vertex",
+      })
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["connections"],
+        oneRuntimeSetupChoice: "byok_pending_vault",
+      });
+
+    await PreVaultUserStateService.markOneRuntimeChoice(
+      userId,
+      "byok_pending_vault",
+    );
+
+    const updateOptions = apiJsonMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(updateOptions.body))).toEqual({
+      userId,
+      setupCapabilityIds: ["connections"],
+      oneRuntimeSetupChoice: "byok_pending_vault",
     });
   });
 });

@@ -153,9 +153,9 @@ describe("VaultFlow create validation", () => {
   it("explains why Create Vault is disabled for short or mismatched passphrases", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    const passphraseInput = await screen.findByLabelText("Vault Key");
-    const confirmInput = screen.getByLabelText("Confirm Vault Key");
-    const createButton = screen.getByRole("button", { name: "Create Vault" }) as HTMLButtonElement;
+    const passphraseInput = await screen.findByLabelText("Passphrase");
+    const confirmInput = screen.getByLabelText("Confirm passphrase");
+    const createButton = screen.getByRole("button", { name: "Create private vault" }) as HTMLButtonElement;
 
     // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
     // Vault confirmation uses normal submit behavior without adding that glyph.
@@ -181,10 +181,10 @@ describe("VaultFlow create validation", () => {
       />,
     );
 
-    fireEvent.change(await screen.findByLabelText("Vault Key"), {
+    fireEvent.change(await screen.findByLabelText("Passphrase"), {
       target: { value: "correct horse battery staple" },
     });
-    const confirmation = screen.getByLabelText("Confirm Vault Key");
+    const confirmation = screen.getByLabelText("Confirm passphrase");
     fireEvent.change(confirmation, {
       target: { value: "correct horse battery staple" },
     });
@@ -205,9 +205,9 @@ describe("VaultFlow create validation", () => {
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByRole("heading", { name: "Create Your Vault" })).toBeTruthy();
-    expect(screen.getByLabelText("Vault Key")).toBeTruthy();
-    expect(screen.getByLabelText("Confirm Vault Key")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Create your private vault" })).toBeTruthy();
+    expect(screen.getByLabelText("Passphrase")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
     expect(screen.queryByRole("button", { name: /continue to vault setup/i })).toBeNull();
     expect(document.querySelector('[data-vault-flow-step="create"]')).toBeTruthy();
@@ -216,7 +216,23 @@ describe("VaultFlow create validation", () => {
     );
   });
 
-  it("uses compact Vault Key primary copy with Passkey and Recovery Key alternatives", async () => {
+  it("defers new vault creation until the root setup completion boundary", async () => {
+    render(
+      <VaultFlow
+        user={user}
+        onSuccess={vi.fn()}
+        allowVaultCreation={false}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Finish setup first" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create private vault" })).toBeNull();
+    expect(createVaultMock).not.toHaveBeenCalled();
+  });
+
+  it("uses compact passphrase primary copy with passkey and recovery alternatives", async () => {
     checkVaultMock.mockResolvedValue(true);
     getVaultStateMock.mockResolvedValue(
       vaultState("passphrase", [passphraseWrapper, passkeyWrapper]),
@@ -224,19 +240,19 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault Key")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
     const unlockButton = screen.getByRole("button", { name: "Unlock" }) as HTMLButtonElement;
 
     expect(unlockButton.disabled).toBe(true);
-    expect(screen.getByText("Other methods")).toBeTruthy();
+    expect(screen.getByText("Use another method")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Recovery Key" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
     );
   });
 
-  it("uses Vault Key and Recovery Key alternatives when Passkey is primary", async () => {
+  it("uses passphrase and recovery alternatives when passkey is primary", async () => {
     checkVaultMock.mockResolvedValue(true);
     getVaultStateMock.mockResolvedValue(
       vaultState("generated_default_web_prf", [passphraseWrapper, passkeyWrapper]),
@@ -244,9 +260,9 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByText("Other methods")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Vault Key" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Recovery Key" })).toBeTruthy();
+    expect(await screen.findByText("Use another method")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Passkey" })).toBeNull();
   });
 
@@ -258,12 +274,12 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Recovery Key" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Recovery key" }));
 
     expect(await screen.findByLabelText("Recovery Key")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
-    expect(screen.getByText("Other methods")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Vault Key" })).toBeTruthy();
+    expect(screen.getByText("Use another method")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
@@ -276,10 +292,10 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault Key")).toBeTruthy();
-    expect(screen.getByText("Other methods")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(screen.getByText("Use another method")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Passkey" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Recovery Key" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
   });
 
   it("keeps the hard-gate Sign out escape tappable while passkey unlock is pending", async () => {

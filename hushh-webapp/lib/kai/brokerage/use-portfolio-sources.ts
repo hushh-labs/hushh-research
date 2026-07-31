@@ -76,6 +76,12 @@ export interface UsePortfolioSourcesResult {
   activePortfolio: PortfolioData | null;
   freshness: PortfolioFreshness | null;
   isPlaidRefreshing: boolean;
+  /** The active source remains the last confirmed source while this settles. */
+  isChangingSource: boolean;
+  /** A saved-statement selection is being durably persisted. */
+  isChangingStatementSnapshot: boolean;
+  /** Source and saved-statement changes require an unlocked Vault. */
+  canChangePortfolioSource: boolean;
   changeActiveSource: (nextSource: PortfolioSource) => Promise<void>;
   changeActiveStatementSnapshot: (snapshotId: string) => Promise<void>;
   deleteStatementSnapshot: (snapshotId: string) => Promise<void>;
@@ -173,7 +179,12 @@ export function usePortfolioSources({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshTracking, setRefreshTracking] = useState<RefreshTracking | null>(null);
+  const [isChangingSource, setIsChangingSource] = useState(false);
+  const [isChangingStatementSnapshot, setIsChangingStatementSnapshot] =
+    useState(false);
   const reloadInflightRef = useRef<Promise<void> | null>(null);
+  const sourceChangeInflightRef = useRef<Promise<void> | null>(null);
+  const statementSnapshotChangeInflightRef = useRef<Promise<void> | null>(null);
   const lastReloadStartedAtRef = useRef(0);
   const plaidPollAttemptRef = useRef(0);
   const growthPortfolioReadyKeyRef = useRef<string | null>(null);
@@ -413,9 +424,9 @@ export function usePortfolioSources({
           plaidStatus: nextPlaidStatus,
           preferredSource: desiredSource,
         });
-      } catch (loadError) {
+      } catch {
         startTransition(() => {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load portfolio sources.");
+          setError("Portfolio sources are unavailable right now. Please try again.");
         });
       } finally {
         if (!isBackground) {
@@ -476,6 +487,72 @@ export function usePortfolioSources({
     if (activeSource === "statement") return statementPortfolio;
     return plaidPortfolio;
   }, [activeSource, plaidPortfolio, statementPortfolio]);
+  const canChangePortfolioSource = Boolean(userId && vaultOwnerToken && vaultKey);
+
+  /**
+   * Source selection has two durable projections: the server preference used
+   * by Plaid and the encrypted financial source metadata used by the client.
+   * Keep the confirmed source visible until both settle, and compensate the
+   * server preference if the encrypted write cannot be committed.
+   */
+  const persistFinancialSourceSelection = useCallback(
+    async (params: {
+      nextSource: PortfolioSource;
+      previousSource: PortfolioSource;
+      nextFinancial: Record<string, unknown>;
+      fullBlob: Record<string, unknown>;
+      expectedDataVersion?: number;
+    }) => {
+      if (!userId || !vaultOwnerToken || !vaultKey) {
+        throw new Error("Unlock your Vault before changing the portfolio source.");
+      }
+
+      let backendPreferenceChanged = false;
+      try {
+        await PlaidPortfolioService.setActiveSource({
+          userId,
+          activeSource: params.nextSource,
+          vaultOwnerToken,
+        });
+        backendPreferenceChanged = true;
+
+        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+          userId,
+          vaultKey,
+          domain: "financial",
+          domainData: params.nextFinancial,
+          summary: buildFinancialDomainSummary(params.nextFinancial),
+          baseFullBlob: params.fullBlob,
+          mergeDecision: {
+            merge_mode: "replace_domain",
+            target_domain: "financial",
+          },
+          expectedDataVersion: params.expectedDataVersion,
+          vaultOwnerToken,
+        });
+
+        if (!result.success) {
+          throw new Error(
+            result.conflict
+              ? "Your portfolio changed elsewhere. Please try again."
+              : "Your portfolio source could not be saved. Please try again."
+          );
+        }
+
+        return result;
+      } catch (selectionError) {
+        if (backendPreferenceChanged && params.previousSource !== params.nextSource) {
+          await PlaidPortfolioService.setActiveSource({
+            userId,
+            activeSource: params.previousSource,
+            vaultOwnerToken,
+          }).catch(() => undefined);
+        }
+        throw selectionError;
+      }
+    },
+    [userId, vaultKey, vaultOwnerToken]
+  );
 
   useEffect(() => {
     if (!userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
@@ -499,46 +576,85 @@ export function usePortfolioSources({
 
   const changeActiveSource = useCallback(
     async (nextSource: PortfolioSource) => {
-      setActiveSource(nextSource);
-      if (!userId || !vaultOwnerToken) return;
-      await PlaidPortfolioService.setActiveSource({
-        userId,
-        activeSource: nextSource,
-        vaultOwnerToken,
-      });
-      if (vaultKey) {
-        const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
-        const nowIso = new Date().toISOString();
-        const nextFinancial =
-          nextSource === "statement"
-            ? (() => {
-                const snapshotId = getActiveStatementSnapshotId(financial);
-                return snapshotId ? setActiveStatementSnapshot(financial, snapshotId, nowIso) : null;
-              })()
-            : setActivePlaidSource(financial, plaidStatus, nowIso);
-        if (nextFinancial) {
-          await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-            userId,
-            vaultKey,
-            domain: "financial",
-            domainData: nextFinancial,
-            summary: buildFinancialDomainSummary(nextFinancial),
-            baseFullBlob: fullBlob,
-            mergeDecision: {
-              merge_mode: "replace_domain",
-              target_domain: "financial",
-            },
+      if (nextSource === activeSource) return;
+      if (!userId || !vaultOwnerToken || !vaultKey) {
+        throw new Error("Unlock your Vault before changing the portfolio source.");
+      }
+      if (!availableSources.includes(nextSource)) {
+        throw new Error("That portfolio source is not ready yet.");
+      }
+      if (statementSnapshotChangeInflightRef.current) {
+        throw new Error("Finish changing the saved statement before selecting another source.");
+      }
+      if (sourceChangeInflightRef.current) {
+        return sourceChangeInflightRef.current;
+      }
+
+      const previousSource = activeSource;
+      const request = (async () => {
+        setIsChangingSource(true);
+        try {
+          const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
+          const nowIso = new Date().toISOString();
+          const nextFinancial =
+            nextSource === "statement"
+              ? (() => {
+                  const snapshotId = getActiveStatementSnapshotId(financial);
+                  return snapshotId
+                    ? setActiveStatementSnapshot(financial, snapshotId, nowIso)
+                    : null;
+                })()
+              : setActivePlaidSource(financial, plaidStatus, nowIso);
+
+          if (!nextFinancial) {
+            throw new Error("That portfolio source is not ready yet.");
+          }
+
+          const result = await persistFinancialSourceSelection({
+            nextSource,
+            previousSource,
+            nextFinancial,
+            fullBlob,
             expectedDataVersion,
-            vaultOwnerToken,
+          });
+          const savedFinancial =
+            toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
+
+          applyFinancialSnapshot({
+            financial: savedFinancial,
+            plaidStatus,
+            preferredSource: nextSource,
           });
           await refreshDerivedMarketCaches();
+          await reload();
+        } catch (selectionError) {
+          // The visible source stays confirmed until the complete durable write
+          // succeeds. Reconcile a compensated server preference in the
+          // background without replacing the last safe portfolio view.
+          setActiveSource(previousSource);
+          void reload({ background: true });
+          throw selectionError;
+        } finally {
+          setIsChangingSource(false);
+        }
+      })();
+
+      sourceChangeInflightRef.current = request;
+      try {
+        await request;
+      } finally {
+        if (sourceChangeInflightRef.current === request) {
+          sourceChangeInflightRef.current = null;
         }
       }
-      await reload();
     },
     [
+      activeSource,
+      applyFinancialSnapshot,
+      availableSources,
       loadFinancialContext,
       plaidStatus,
+      persistFinancialSourceSelection,
       refreshDerivedMarketCaches,
       reload,
       userId,
@@ -552,60 +668,69 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault to switch statements.");
       }
-      startTransition(() => {
-        setActiveSource("statement");
-        setActiveStatementSnapshotId(snapshotId);
-      });
-      const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
-      const nowIso = new Date().toISOString();
-      const nextFinancial = setActiveStatementSnapshot(financial, snapshotId, nowIso);
-      if (!nextFinancial) {
+      if (!statementSnapshots.some((snapshot) => snapshot.id === snapshotId)) {
         throw new Error("That statement snapshot is no longer available.");
       }
-      applyFinancialSnapshot({
-        financial: nextFinancial,
-        plaidStatus,
-        preferredSource: "statement",
-      });
+      if (sourceChangeInflightRef.current) {
+        throw new Error("Finish changing the portfolio source before selecting another statement.");
+      }
+      if (statementSnapshotChangeInflightRef.current) {
+        return statementSnapshotChangeInflightRef.current;
+      }
+
+      const previousSource = activeSource;
+      const request = (async () => {
+        setIsChangingStatementSnapshot(true);
+        try {
+          const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
+          const nowIso = new Date().toISOString();
+          const nextFinancial = setActiveStatementSnapshot(financial, snapshotId, nowIso);
+          if (!nextFinancial) {
+            throw new Error("That statement snapshot is no longer available.");
+          }
+
+          const result = await persistFinancialSourceSelection({
+            nextSource: "statement",
+            previousSource,
+            nextFinancial,
+            fullBlob,
+            expectedDataVersion,
+          });
+          const savedFinancial =
+            toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
+          applyFinancialSnapshot({
+            financial: savedFinancial,
+            plaidStatus,
+            preferredSource: "statement",
+          });
+          await refreshDerivedMarketCaches();
+          await reload();
+        } catch (selectionError) {
+          void reload({ background: true });
+          throw selectionError;
+        } finally {
+          setIsChangingStatementSnapshot(false);
+        }
+      })();
+
+      statementSnapshotChangeInflightRef.current = request;
       try {
-        await PlaidPortfolioService.setActiveSource({
-          userId,
-          activeSource: "statement",
-          vaultOwnerToken,
-        });
-        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-          userId,
-          vaultKey,
-          domain: "financial",
-          domainData: nextFinancial,
-          summary: buildFinancialDomainSummary(nextFinancial),
-          baseFullBlob: fullBlob,
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-          expectedDataVersion,
-          vaultOwnerToken,
-        });
-        const savedFinancial = toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
-        applyFinancialSnapshot({
-          financial: savedFinancial,
-          plaidStatus,
-          preferredSource: "statement",
-        });
-        void refreshDerivedMarketCaches();
-        void reload({ background: true });
-      } catch (error) {
-        void reload();
-        throw error;
+        await request;
+      } finally {
+        if (statementSnapshotChangeInflightRef.current === request) {
+          statementSnapshotChangeInflightRef.current = null;
+        }
       }
     },
     [
+      activeSource,
       applyFinancialSnapshot,
       loadFinancialContext,
       plaidStatus,
+      persistFinancialSourceSelection,
       refreshDerivedMarketCaches,
       reload,
+      statementSnapshots,
       userId,
       vaultKey,
       vaultOwnerToken,
@@ -617,6 +742,9 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault to delete this statement.");
       }
+      if (sourceChangeInflightRef.current || statementSnapshotChangeInflightRef.current) {
+        throw new Error("Finish the current portfolio change before deleting a statement.");
+      }
       const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
       const nowIso = new Date().toISOString();
       const nextFinancial = removeStatementSnapshot(financial, snapshotId, nowIso);
@@ -624,12 +752,15 @@ export function usePortfolioSources({
         throw new Error("That statement snapshot is no longer available.");
       }
       const nextActiveSource = getStoredActiveSource(nextFinancial);
-      await PlaidPortfolioService.setActiveSource({
+      // Removing a saved statement must not be blocked by the derived server
+      // preference. The encrypted financial record remains authoritative for
+      // the next active source and is committed before the view changes.
+      void PlaidPortfolioService.setActiveSource({
         userId,
         activeSource: nextActiveSource,
         vaultOwnerToken,
       }).catch(() => undefined);
-      await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: "financial",
@@ -643,10 +774,24 @@ export function usePortfolioSources({
         expectedDataVersion,
         vaultOwnerToken,
       });
+      if (!result.success) {
+        throw new Error(
+          result.conflict
+            ? "Your portfolio changed elsewhere. Please try again."
+            : "Your saved statement could not be deleted. Please try again."
+        );
+      }
       await refreshDerivedMarketCaches();
       await reload();
     },
-    [loadFinancialContext, refreshDerivedMarketCaches, reload, userId, vaultKey, vaultOwnerToken]
+    [
+      loadFinancialContext,
+      refreshDerivedMarketCaches,
+      reload,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ]
   );
 
   const refreshPlaid = useCallback(
@@ -854,6 +999,9 @@ export function usePortfolioSources({
     availableSources,
     activePortfolio,
     freshness,
+    isChangingSource,
+    isChangingStatementSnapshot,
+    canChangePortfolioSource,
     changeActiveSource,
     changeActiveStatementSnapshot,
     deleteStatementSnapshot,

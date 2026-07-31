@@ -71,6 +71,27 @@ def test_create_request_requires_identifier():
     assert exc.value.status_code == 422
 
 
+def test_scope_catalog_is_directory_bounded_and_separates_offerable_scopes():
+    svc = _svc()
+    svc._directory_lookup = lambda _viewer: [{"userId": "ria-user", "displayName": "Ria"}]
+    svc._scope_catalog_for_owner = lambda owner: [
+        {"handle": f"scp-{owner}", "label": "RIA Picks", "description": "Picks"}
+    ]
+
+    result = svc.get_scope_catalog("investor-user", "ria-user")
+
+    assert result["items"] == [
+        {"handle": "scp-ria-user", "label": "RIA Picks", "description": "Picks"}
+    ]
+    assert result["offerableItems"] == [
+        {"handle": "scp-investor-user", "label": "RIA Picks", "description": "Picks"}
+    ]
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.get_scope_catalog("investor-user", "hidden-user")
+    assert exc.value.code == "CONNECTION_SCOPE_TARGET_FORBIDDEN"
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 
@@ -137,10 +158,11 @@ class _TransactionalDB:
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
     # 1) load request row -> addressee is user-b (the acceptor)
-    # 2) insert connections -> returns id
-    # 3) insert trusted edge a->b
-    # 4) insert trusted edge b->a
-    # 5) update request -> accepted
+    # 2) no scope proposals
+    # 3) insert connections -> returns id
+    # 4) insert trusted edge a->b
+    # 5) insert trusted edge b->a
+    # 6) update request -> accepted
     db = _RecordingDB(
         [
             [
@@ -151,6 +173,7 @@ def test_accept_creates_connection_and_two_trusted_edges():
                     "status": "pending",
                 }
             ],
+            [],  # proposal review -> no scopes
             [{"id": "conn-1"}],
             [{"id": "tc-1"}],
             [{"id": "tc-2"}],
@@ -186,56 +209,85 @@ def test_accept_rejected_when_not_addressee():
     assert exc.value.status_code == 403
 
 
-def test_list_requests_incoming_surfaces_requested_scopes():
-    """The incoming read path must parse metadata and echo the requester's bundled
-    data ask as ``requestedScopes`` so the addressee can review/modify it. Covers
-    both metadata shapes the driver may return (parsed dict + raw JSON string)."""
+def test_accept_with_scope_proposals_requires_explicit_bilateral_selection():
     svc = _svc()
-    rows = [
-        {
-            "id": "req-dict",
-            "requester_user_id": "ria-1",
-            "addressee_user_id": "user-a",
-            "status": "pending",
-            "message": "pick for you",
-            "counterpart_user_id": "ria-1",
-            "counterpart_display_name": "Ada RIA",
-            # JSONB path: driver already parsed the cell into a dict.
-            "metadata": {"requested_scopes": ["vault.read.finance", " vault.read.portfolio "]},
-        },
-        {
-            "id": "req-str",
-            "requester_user_id": "ria-2",
-            "addressee_user_id": "user-a",
-            "status": "pending",
-            "message": None,
-            "counterpart_user_id": "ria-2",
-            "counterpart_display_name": None,
-            # Raw JSON-string path.
-            "metadata": '{"requested_scopes": ["vault.read.identity"]}',
-        },
-        {
-            "id": "req-plain",
-            "requester_user_id": "friend-1",
-            "addressee_user_id": "user-a",
-            "status": "pending",
-            "message": None,
-            "counterpart_user_id": "friend-1",
-            "counterpart_display_name": None,
-            "metadata": None,  # plain connect, no ask
-        },
-    ]
-    with patch("hushh_mcp.services.connections_service.get_db", _db_returning(rows)):
-        out = svc.list_requests("user-a", direction="incoming")
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "ria-user",
+                    "addressee_user_id": "investor-user",
+                    "status": "pending",
+                }
+            ],
+            [
+                {
+                    "id": "proposal-1",
+                    "scope_handle": "scp-ria",
+                    "capability_key": "ria_active_picks_feed_v1",
+                    "direction": "requested",
+                    "owner_user_id": "ria-user",
+                    "receiver_user_id": "investor-user",
+                    "status": "pending",
+                }
+            ],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.accept_request("investor-user", "req-1")
 
-    by_id = {r["id"]: r for r in out}
-    # Whitespace is stripped and order preserved.
-    assert by_id["req-dict"]["requestedScopes"] == [
-        "vault.read.finance",
-        "vault.read.portfolio",
+    assert exc.value.code == "CONNECTION_SCOPE_SELECTION_REQUIRED"
+    assert not any("INSERT INTO connections" in sql for sql, _ in db.calls)
+
+
+def test_scope_proposal_history_hides_authority_columns():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "ria-user",
+                    "addressee_user_id": "investor-user",
+                    "status": "accepted",
+                }
+            ],
+            [
+                {
+                    "id": "proposal-1",
+                    "scope_handle": "scp-ria",
+                    "capability_key": "ria_active_picks_feed_v1",
+                    "direction": "requested",
+                    "owner_user_id": "ria-user",
+                    "receiver_user_id": "investor-user",
+                    "status": "active",
+                    "created_at": "2026-07-30T00:00:00Z",
+                    "resolved_at": "2026-07-30T00:01:00Z",
+                }
+            ],
+            [
+                {
+                    "connection_scope_proposal_id": "proposal-1",
+                    "event_type": "ACTIVATED",
+                    "reason": None,
+                    "created_at": "2026-07-30T00:01:00Z",
+                }
+            ],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.get_scope_proposal_history("investor-user", "req-1")
+
+    item = result["items"][0]
+    assert item["scopeHandle"] == "scp-ria"
+    assert item["history"] == [
+        {"type": "ACTIVATED", "reason": None, "createdAt": "2026-07-30T00:01:00Z"}
     ]
-    assert by_id["req-str"]["requestedScopes"] == ["vault.read.identity"]
-    assert by_id["req-plain"]["requestedScopes"] == []
+    assert "id" not in item
+    assert "capabilityKey" not in item
+    assert "ownerUserId" not in item
 
 
 def test_cancel_rejected_when_not_requester():
@@ -337,7 +389,7 @@ def test_list_connections_maps_rows():
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
     svc = _svc()
-    # Call sequence: SELECT, UPDATE trusted_connections, UPDATE connections
+    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation, trusted edges, connection.
     db = _RecordingDB(
         [
             [
@@ -348,6 +400,9 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
                     "status": "active",
                 }
             ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
             [{"id": "conn-1"}],  # UPDATE connections
         ]
@@ -437,6 +492,9 @@ def test_remove_connection_self_heals_when_already_revoked():
                     "status": "revoked",
                 }
             ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
             [],  # UPDATE trusted_connections -> already clean, 0 rows (no-op)
             [],  # UPDATE connections -> status != 'active', no row returned
         ]

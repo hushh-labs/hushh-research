@@ -7,7 +7,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import {
+  ConnectedSystemLogo,
+  ConnectedSystemsPanel,
+} from "@/components/profile/connected-systems-panel";
 import { ConnectedSystemsService } from "@/lib/services/connected-systems-service";
 import {
   CACHE_KEYS,
@@ -248,6 +251,21 @@ describe("ConnectedSystemsPanel", () => {
       bindingStatus: "unbound",
       binding: null,
     });
+  });
+
+  it("keeps registered CRM marks in their original colors on a light canvas", () => {
+    render(
+      <ConnectedSystemLogo
+        system={{ ...system, customerDisplayName: "Chase" }}
+      />,
+    );
+
+    const logo = screen.getByRole("img", { name: "Chase logo" });
+    expect(logo).toHaveClass("filter-none");
+    expect(logo.parentElement).toHaveClass(
+      "!bg-white",
+      "dark:!bg-white",
+    );
   });
 
   it("lists dynamically registered CRM systems without requiring vault unlock", async () => {

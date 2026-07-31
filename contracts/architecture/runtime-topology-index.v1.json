@@ -972,7 +972,7 @@
       "id": "ria_marketplace_relationships",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services"
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services"
     },
     {
       "data_class": "personal_metadata",
@@ -2293,8 +2293,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "market_data",
           "financial_resource"
@@ -3369,8 +3369,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -4211,8 +4211,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "ria_workspace",
           "consent_list"
@@ -4366,13 +4366,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "ec8e4dae0987de143e456d0f70a489b5083a7c85028a46a7ced57d868ada8bc2",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
-    "data_plane": "fa6abbabfb1c1808839089bc020ad1a2fb9a4d2c71db2430bd44813707ff9a53",
+    "cache_manifest": "4796d2cecf0abcd7a9cfcd49b2c36cc02a8e8dec3744dd7feddeab0c22486b65",
+    "data_plane": "e9b1b6c81b126126038bbfe410910c3728f9a7c902b786533b72ad1780a949af",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "2826d42fba01cbca263a49c3ff66797dc107c9679a1375d102ea9183be71bc82",
-    "route_layout": "079e52f558cf36f1f446c10d456523237a04359b0ff81f22a2e98117120130ac",
-    "surface_map": "e49363c8420c934c9922febc34e6ef336c1aa28012b5c813b86f8dddb00cc5cd",
+    "route_index": "2ee25ff096741040ea1a0af51bc0068d2265657c47c38926fa2dd856c0f608ac",
+    "route_layout": "a1de085f6c6fd8b9497fd7ac30930cf8612aeef966656f1e9175e94ecc801926",
+    "surface_map": "e1d357b5e32d0d1163d51ab9c0e21e224094312618380584f560d2961fe27666",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

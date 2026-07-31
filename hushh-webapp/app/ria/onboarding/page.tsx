@@ -843,7 +843,7 @@ export default function RiaOnboardingPage({
         }
         return;
       }
-      router.push(ROUTES.RIA_HOME);
+      router.push(ROUTES.RIA_PROFILE);
       return;
     }
 

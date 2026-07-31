@@ -207,10 +207,7 @@ class _FakeConsentDBService:
 
 
 class _NoOpRIAIAMService:
-    """Stub RIA IAM service that accepts all calls."""
-
-    async def sync_relationship_from_consent_action(self, **_kwargs):
-        return
+    """Stub RIA IAM service for consent routes without RIA authority."""
 
     async def get_persona_state(self, user_id):
         return {
@@ -256,10 +253,11 @@ def test_vault_userid_query_params_reject_oversized_values_before_service(monkey
     assert [response.status_code for response in responses] == [422, 422, 422, 422]
 
 
-def test_full_handshake_lifecycle(monkeypatch):
+def test_private_ria_attr_export_is_retired_before_any_grant(monkeypatch):
     """
-    Simulate the canonical handshake: request -> approve -> revoke.
-    Verify events are recorded at each step.
+    Generic attr.* exports are not a relationship capability. They are retired
+    before a token or RIA relationship could be materialized; explicit
+    connection-scope proposals own that authority instead.
     """
     fake_db = _FakeConsentDBService()
     issued_token = "token_handshake_granted"  # noqa: S105
@@ -309,37 +307,16 @@ def test_full_handshake_lifecycle(monkeypatch):
     assert len(pending) == 1
     assert pending[0]["scope"] == "attr.financial.*"
 
-    # 3) Investor approves.
+    # 3) A generic RIA attr.* approval is rejected. The caller must use the
+    # explicit connection proposal envelope, never this legacy export route.
     resp = client.post(
         "/api/consent/pending/approve",
         json={"userId": "investor_1", "requestId": "req_handshake"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "approved"
-    assert data["consent_token"] == issued_token
-
-    # Verify CONSENT_GRANTED event recorded.
-    granted_events = [e for e in fake_db.events if e["action"] == "CONSENT_GRANTED"]
-    assert len(granted_events) == 1
-    assert granted_events[0]["scope"] == "attr.financial.*"
-    assert granted_events[0]["request_id"] == "req_handshake"
-
-    # 4) Investor revokes.
-    # First ensure active token is present in the fake DB.
-    active_key = ("ria:profile_abc", "attr.financial.*")
-    assert active_key in fake_db.active
-
-    resp = client.post(
-        "/api/consent/revoke",
-        json={"userId": "investor_1", "scope": "attr.financial.*"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "revoked"
-
-    # Verify REVOKED event recorded.
-    revoked_events = [e for e in fake_db.events if e["action"] == "REVOKED"]
-    assert len(revoked_events) == 1
+    assert resp.status_code == 410
+    assert resp.json()["detail"]["error_code"] == "SCOPE_RETIRED"
+    assert issued_token not in fake_db.active
+    assert not [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
 
 
 def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):

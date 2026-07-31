@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
@@ -24,27 +24,18 @@ def _handle(exc: Exception) -> HTTPException:
 class CreateRequestBody(BaseModel):
     addressee_user_id: str | None = None
     query: str | None = None
-    message: str | None = None
-    # Optional granular data-scope request bundled with the connection request.
-    # The requester publishes an on-device X25519 public key so the addressee can
-    # ZK-wrap each granted scope to it (reuses the proven consent export path).
-    requested_scopes: list[str] | None = None
-    requester_public_key: str | None = None
-    requester_key_id: str | None = None
+    message: str | None = Field(None, max_length=1000)
+    requested_scope_handles: list[str] = Field(default_factory=list, max_length=25)
+    offered_scope_handles: list[str] = Field(default_factory=list, max_length=25)
+
+
+class AcceptConnectionRequestBody(BaseModel):
+    selected_requested_scope_handles: list[str] = Field(default_factory=list, max_length=25)
+    selected_offered_scope_handles: list[str] = Field(default_factory=list, max_length=25)
 
 
 class LinkCircleInviteBody(BaseModel):
     peer_user_id: str
-
-
-class AcceptRequestBody(BaseModel):
-    # Optional per-scope decision applied at accept time. Scopes the addressee
-    # left OUT of `granted_scopes` (or listed in `denied_scopes`) are recorded as
-    # denied; the rest are minted as pending scope requests for later resolution
-    # in the consent center. Omit both to accept the connection with every
-    # requested scope queued.
-    granted_scopes: list[str] | None = None
-    denied_scopes: list[str] | None = None
 
 
 @router.get("/connections/directory")
@@ -68,6 +59,17 @@ def list_connections(firebase_uid: str = Depends(require_firebase_auth)):
         raise _handle(exc) from exc
 
 
+@router.get("/connections/{counterpart_user_id}/scope-catalog")
+def connection_scope_catalog(
+    counterpart_user_id: str = Path(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().get_scope_catalog(firebase_uid, counterpart_user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/connections/requests")
 def list_connection_requests(
     direction: str = Query(default="incoming", pattern="^(incoming|outgoing)$"),
@@ -75,29 +77,6 @@ def list_connection_requests(
 ):
     try:
         return {"items": _service().list_requests(firebase_uid, direction=direction)}
-    except Exception as exc:  # noqa: BLE001
-        raise _handle(exc) from exc
-
-
-@router.get("/connections/requestable-scopes")
-def list_requestable_scopes(firebase_uid: str = Depends(require_firebase_auth)):
-    # Global, presence-safe catalog for the Connect scope picker. Auth-gated but
-    # user-agnostic: it reflects no specific user's holdings, so it cannot leak
-    # whether the person being connected with has any given data.
-    try:
-        return _service().list_requestable_scopes()
-    except Exception as exc:  # noqa: BLE001
-        raise _handle(exc) from exc
-
-
-@router.get("/connections/received-exports")
-def list_received_exports(firebase_uid: str = Depends(require_firebase_auth)):
-    # Scope exports other users sealed to THIS user's Connect requester key.
-    # The payload carries only ciphertext + the X25519-wrapped export key; the
-    # server never holds the plaintext, and only the addressee's on-device
-    # private key can unwrap it (zero-knowledge).
-    try:
-        return {"items": _service().list_received_scope_exports(firebase_uid)}
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
@@ -114,11 +93,21 @@ def create_connection_request(
                 addressee_user_id=body.addressee_user_id,
                 query=body.query,
                 message=body.message,
-                requested_scopes=body.requested_scopes,
-                requester_public_key=body.requester_public_key,
-                requester_key_id=body.requester_key_id,
+                requested_scope_handles=body.requested_scope_handles,
+                offered_scope_handles=body.offered_scope_handles,
             )
         }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/requests/{request_id}/scopes")
+def connection_scope_proposal_history(
+    request_id: str = Path(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().get_scope_proposal_history(firebase_uid, request_id)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
@@ -139,7 +128,7 @@ def link_circle_invite(
 @router.post("/connections/requests/{request_id}/accept")
 def accept_connection_request(
     request_id: str = Path(...),
-    body: AcceptRequestBody | None = None,
+    body: AcceptConnectionRequestBody | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -147,8 +136,12 @@ def accept_connection_request(
             "result": _service().accept_request(
                 firebase_uid,
                 request_id,
-                granted_scopes=(body.granted_scopes if body else None),
-                denied_scopes=(body.denied_scopes if body else None),
+                selected_requested_scope_handles=(
+                    body.selected_requested_scope_handles if body else None
+                ),
+                selected_offered_scope_handles=(
+                    body.selected_offered_scope_handles if body else None
+                ),
             )
         }
     except Exception as exc:  # noqa: BLE001

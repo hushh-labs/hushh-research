@@ -224,7 +224,7 @@ export function ConnectedSystemLogo({
 
   return (
     <span
-      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]`}
+      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)] ${logo ? "!bg-white dark:!bg-white" : ""}`}
     >
       {logo ? (
         <Image
@@ -232,7 +232,7 @@ export function ConnectedSystemLogo({
           alt={logo.alt || `${label} logo`}
           width={size === "hero" ? 48 : 40}
           height={size === "hero" ? 48 : 40}
-          className="h-full w-full object-contain"
+          className="h-full w-full object-contain filter-none"
           unoptimized
         />
       ) : (

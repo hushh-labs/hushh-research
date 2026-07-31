@@ -95,6 +95,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
             onOpenChange={setShowUnlock}
             title="Set up your private vault"
             description="Set up or open your private vault to inspect CRM records and approve CRM actions."
+            allowVaultCreation={false}
             onSuccess={() => setShowUnlock(false)}
           />
         ) : null}

@@ -89,7 +89,7 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "One gets more useful when you choose its starting point.",
+        name: "Choose how One reaches Gemini.",
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Connections settings")).toBeNull();
@@ -117,7 +117,7 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(action.className).toContain("text-center");
   });
 
-  it("keeps intro clearance inside the visible viewport", () => {
+  it("lets the shared flow shell own viewport clearance without clipping an inner surface", () => {
     const gateSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
@@ -127,11 +127,9 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(gateSource).toContain(
-      "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))]",
-    );
-    expect(gateSource).toContain(
       "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
     );
+    expect(gateSource).not.toContain("overflow-hidden");
   });
 
   it("keeps every authored setup journey on the shared, non-durable gate", () => {

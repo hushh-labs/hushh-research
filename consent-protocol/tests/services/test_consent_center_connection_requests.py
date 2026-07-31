@@ -19,10 +19,8 @@ def test_consents_pending_count_includes_incoming_connection_requests():
     fake_conn.list_requests.assert_called_once_with("user-a", direction="incoming")
 
 
-def test_incoming_entries_surface_requested_scopes_for_modify_flow():
-    """A connection request that bundles a data ask must forward those scopes to
-    the recipient so the consent center can offer "modify the list" (grant a
-    subset). A plain connect with no ask must degrade to an empty list."""
+def test_incoming_entries_surface_public_scope_proposals_for_selection():
+    """Connection review exposes proposal presentation only, never raw scopes."""
     svc = ConsentCenterService.__new__(ConsentCenterService)
 
     fake_conn = MagicMock()
@@ -32,12 +30,20 @@ def test_incoming_entries_surface_requested_scopes_for_modify_flow():
             "counterpartUserId": "ria-1",
             "counterpartDisplayName": "Ada RIA",
             "message": "sharing a pick",
-            "requestedScopes": ["vault.read.finance", "vault.read.portfolio"],
+            "scopes": [
+                {
+                    "scopeHandle": "scp_1",
+                    "direction": "requested",
+                    "label": "RIA Picks",
+                    "description": "Use this RIA's published investment picks.",
+                    "status": "pending",
+                }
+            ],
         },
         {
             "id": "req-plain",
             "counterpartUserId": "friend-1",
-            # no requestedScopes key at all → plain connect
+            # no scopes key at all → plain connect
         },
     ]
 
@@ -48,11 +54,15 @@ def test_incoming_entries_surface_requested_scopes_for_modify_flow():
         entries = asyncio.run(svc._incoming_connection_request_entries("user-a"))
 
     by_id = {e["id"]: e for e in entries}
-    assert by_id["req-scoped"]["requested_scopes"] == [
-        "vault.read.finance",
-        "vault.read.portfolio",
+    assert by_id["req-scoped"]["metadata"]["scope_proposals"] == [
+        {
+            "scopeHandle": "scp_1",
+            "direction": "requested",
+            "label": "RIA Picks",
+            "description": "Use this RIA's published investment picks.",
+            "status": "pending",
+        }
     ]
     assert by_id["req-scoped"]["kind"] == "connection_request"
-    # Plain connect: field is present and empty so the UI simply hides "Choose data".
-    assert by_id["req-plain"]["requested_scopes"] == []
+    assert by_id["req-plain"]["metadata"]["scope_proposals"] == []
     fake_conn.list_requests.assert_called_once_with("user-a", direction="incoming")

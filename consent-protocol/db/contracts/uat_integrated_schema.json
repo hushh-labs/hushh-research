@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 126,
+  "expected_migration_version": 130,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -36,6 +36,7 @@
       "recovery_encrypted_vault_key",
       "recovery_salt",
       "recovery_iv",
+      "one_runtime_setup_choice",
       "onboarding_journey_version",
       "onboarding_phase",
       "onboarding_active_capability",
@@ -449,6 +450,8 @@
       "grant_key",
       "provider_user_id",
       "receiver_user_id",
+      "connection_request_id",
+      "connection_scope_proposal_id",
       "status",
       "granted_at",
       "revoked_at",
@@ -464,21 +467,40 @@
       "event_type",
       "provider_user_id",
       "receiver_user_id",
+      "connection_request_id",
+      "connection_scope_proposal_id",
       "metadata",
       "created_at"
     ],
-    "ria_pick_uploads": [
+    "connection_scope_proposals": [
       "id",
-      "ria_profile_id",
-      "uploaded_by_user_id",
-      "label",
+      "connection_request_id",
+      "scope_handle",
+      "capability_key",
+      "direction",
+      "owner_user_id",
+      "receiver_user_id",
       "status",
-      "row_count",
-      "template_version",
-      "activated_at",
-      "package_metadata",
       "created_at",
-      "updated_at"
+      "expires_at",
+      "resolved_at",
+      "metadata"
+    ],
+    "connection_scope_proposal_events": [
+      "id",
+      "connection_scope_proposal_id",
+      "event_type",
+      "actor_user_id",
+      "reason",
+      "created_at"
+    ],
+    "ria_pick_legacy_retirements": [
+      "legacy_upload_id",
+      "ria_profile_id",
+      "owner_user_id",
+      "top_pick_count",
+      "retired_at",
+      "reason"
     ],
     "ria_pick_share_artifacts": [
       "id",

@@ -28,8 +28,43 @@ REQUIRED_TABLES = (
     "marketplace_public_profiles",
     "relationship_share_grants",
     "relationship_share_events",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
+    "ria_pick_legacy_retirements",
     "runtime_persona_state",
 )
+
+REQUIRED_COLUMNS = {
+    "relationship_share_grants": (
+        "connection_request_id",
+        "connection_scope_proposal_id",
+    ),
+    "relationship_share_events": (
+        "connection_request_id",
+        "connection_scope_proposal_id",
+    ),
+    "connection_scope_proposals": (
+        "connection_request_id",
+        "scope_handle",
+        "capability_key",
+        "direction",
+        "owner_user_id",
+        "receiver_user_id",
+        "status",
+        "expires_at",
+    ),
+    "connection_scope_proposal_events": (
+        "connection_scope_proposal_id",
+        "event_type",
+    ),
+    "ria_pick_legacy_retirements": (
+        "legacy_upload_id",
+        "owner_user_id",
+        "ria_profile_id",
+        "top_pick_count",
+        "retired_at",
+    ),
+}
 
 REQUIRED_TEMPLATE_IDS = (
     "ria_financial_summary_v1",
@@ -50,6 +85,22 @@ async def main() -> int:
                 failures.append(f"Missing table: {table}")
             else:
                 existing_tables.add(table)
+
+        for table, expected_columns in REQUIRED_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            rows = await conn.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = $1
+                """,
+                table,
+            )
+            actual_columns = {str(row["column_name"]) for row in rows}
+            for column in expected_columns:
+                if column not in actual_columns:
+                    failures.append(f"Missing column: {table}.{column}")
 
         if "consent_scope_templates" in existing_tables:
             try:

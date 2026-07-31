@@ -8,6 +8,7 @@ import { MapPin, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -44,13 +45,7 @@ import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 /** Subset of SettingsRow's icon-well tones (that type is not exported). */
 export type FeedIconTone =
-  | "accent"
-  | "blue"
-  | "purple"
-  | "green"
-  | "orange"
-  | "red"
-  | "gray";
+  "accent" | "blue" | "purple" | "green" | "orange" | "red" | "gray";
 
 export type FeedActionTone = "primary" | "ghost" | "danger";
 
@@ -199,7 +194,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "one_location_state_guest",
     enabled: Boolean(userId) && Boolean(vaultOwnerToken),
     load: async () => {
-      if (!vaultOwnerToken) throw new Error("Unlock to review location requests");
+      if (!vaultOwnerToken)
+        throw new Error("Unlock to review location requests");
       const state = await OneLocationService.getState(vaultOwnerToken);
       if (userId) OneLocationStateResource.write(userId, state);
       return state;
@@ -222,7 +218,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
       // Write-through so a revisit renders instantly (useStaleResource peeks
       // the cache but never populates it; the loader owns that here).
       if (userId) {
-        cache.set(CACHE_KEYS.CONNECTIONS_INCOMING(userId), requests, CACHE_TTL.SHORT);
+        cache.set(
+          CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+          requests,
+          CACHE_TTL.SHORT,
+        );
       }
       return requests;
     },
@@ -330,45 +330,70 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    // Connection requests — inline Confirm / Decline.
+    // Scoped connection requests require the Consent Center review surface.
+    // A feed shortcut must never turn an omitted scope decision into a silent
+    // decline (or, worse, an implied approval).
     const pendingConnections = (connectionRequests ?? []).filter(
       (request: ConnectionRequest) => request.status === "pending",
     );
     for (const request of pendingConnections) {
       const label = request.counterpartDisplayName?.trim() || "Someone";
+      const requiresScopeReview = (request.scopes?.length ?? 0) > 0;
+      const reviewHref = buildConsentCenterHref("pending", {
+        requestId: request.id,
+      });
       items.push({
         id: `connection:${request.id}`,
         icon: UserRound,
         iconTone: "green",
         title: label,
         description: request.message?.trim() || "Wants to connect with you.",
-        actions: [
-          {
-            key: "decline",
-            label: "Decline",
-            tone: "ghost",
-            disabled: !userId,
-            confirm: true,
-            run: async () => {
-              const idToken = await user?.getIdToken();
-              if (!idToken) return;
-              await ConnectionsService.reject({ idToken, requestId: request.id });
-              await connectionsRefresh({ force: true });
-            },
-          },
-          {
-            key: "confirm",
-            label: "Confirm",
-            tone: "primary",
-            disabled: !userId,
-            run: async () => {
-              const idToken = await user?.getIdToken();
-              if (!idToken) return;
-              await ConnectionsService.accept({ idToken, requestId: request.id });
-              await connectionsRefresh({ force: true });
-            },
-          },
-        ],
+        href: requiresScopeReview ? reviewHref : null,
+        actions: requiresScopeReview
+          ? [
+              {
+                key: "review",
+                label: "Review",
+                tone: "primary",
+                disabled: !userId,
+                run: () => router.push(reviewHref),
+              },
+            ]
+          : [
+              {
+                key: "decline",
+                label: "Decline",
+                tone: "ghost",
+                disabled: !userId,
+                confirm: true,
+                run: async () => {
+                  const idToken = await user?.getIdToken();
+                  if (!idToken) return;
+                  await ConnectionsService.reject({
+                    idToken,
+                    requestId: request.id,
+                  });
+                  CacheSyncService.onConnectionCapabilityMutated(userId);
+                  await connectionsRefresh({ force: true });
+                },
+              },
+              {
+                key: "confirm",
+                label: "Confirm",
+                tone: "primary",
+                disabled: !userId,
+                run: async () => {
+                  const idToken = await user?.getIdToken();
+                  if (!idToken) return;
+                  await ConnectionsService.accept({
+                    idToken,
+                    requestId: request.id,
+                  });
+                  CacheSyncService.onConnectionCapabilityMutated(userId);
+                  await connectionsRefresh({ force: true });
+                },
+              },
+            ],
         sortAt: Date.now(),
       });
     }

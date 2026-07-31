@@ -94,6 +94,22 @@ This is the supported contributor entrypoint. It installs dependencies, hydrates
 It does not print secret values and sets profile files to `chmod 600`.
 For backend Gmail and voice, bootstrap hydrates `consent-protocol/.env` using the same key names as hosted runtime. Missing Gmail/voice cloud values are warnings by default and only become failures with `--strict`.
 
+### Local agent credential resilience
+
+Local profile hydration is read-only and uses this ordered credential policy:
+
+1. refreshable `gcloud` user credentials;
+2. refreshable Application Default Credentials (ADC) when the interactive `gcloud` session has expired;
+3. existing local profile values only when neither source can refresh.
+
+Bootstrap never prints a credential or secret. It fails closed for an invalid local
+`APP_SIGNING_KEY` or `VAULT_DATA_KEY` instead of reporting a stale cache as ready.
+This improves agent-session resilience but does not bypass a Google Workspace
+session policy: if ADC itself expires, reauthenticate with
+`gcloud auth application-default login`. Use `gcloud auth login` only when you
+also need interactive CLI operations. Do not create service-account key files for
+local agent operation; GitHub deployment remains on its separate OIDC/WIF path.
+
 6. Activate the chosen runtime profile:
 
 ```bash

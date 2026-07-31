@@ -15,7 +15,6 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Bot,
   Check,
   ChevronRight,
   Copy,
@@ -829,9 +828,14 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
+  const hasStreamContent =
+    streamEvents.length > 0 ||
+    Boolean(message.thought?.trim()) ||
+    Boolean(message.sources?.length) ||
+    Boolean(message.text.trim());
   const shouldRenderStreamPanel =
     !isUser &&
-    (isStreaming || streamEvents.length > 0 || Boolean(message.thought));
+    hasStreamContent;
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -875,15 +879,10 @@ function AgentBubble({
   return (
     <div
       className={cn(
-        "motion-step-enter flex w-full gap-3",
+        "motion-step-enter flex w-full",
         isUser ? "justify-end" : "justify-start"
       )}
     >
-      {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground sm:grid">
-          <Bot className="h-3.5 w-3.5" />
-        </div>
-      ) : null}
       <div
         className={cn(
           "min-w-0",
@@ -912,6 +911,7 @@ function AgentBubble({
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
               thinkingText={message.thought}
+              sources={message.sources}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -926,32 +926,6 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
-        {!isUser && message.sources && message.sources.length > 0 ? (
-          <nav
-            aria-label="Sources"
-            className="mt-2 flex flex-wrap items-center gap-1.5"
-          >
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Sources
-            </span>
-            {message.sources.map((source) => (
-              <span
-                key={source.agentId}
-                title={source.reason || undefined}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-black/10 bg-background/70 px-2 py-0.5 text-[11px] dark:border-white/10"
-              >
-                <span className="font-semibold text-foreground">
-                  {source.label}
-                </span>
-                {source.reason ? (
-                  <span className="max-w-[13rem] truncate text-muted-foreground">
-                    {source.reason}
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </nav>
-        ) : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",

@@ -275,6 +275,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
             onOpenChange={setVaultOpen}
             title="Unlock to continue"
             description="Enter your passphrase to save these KYC details securely."
+            allowVaultCreation={false}
             onSuccess={() => setVaultOpen(false)}
           />
         ) : null}

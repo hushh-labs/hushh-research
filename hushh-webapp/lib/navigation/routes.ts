@@ -139,6 +139,7 @@ export const ROUTES = {
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
   LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
+  /** Compatibility redirect only; new RIA entry points use the profile tab. */
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -271,21 +272,16 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
  * setup journey is resolved. While `/one/setup` is still active, the authored
  * setup route remains replayable just like every other capability.
  */
-export function resolveCompletedSetupCapabilityTarget(
-  {
-    capabilityId,
-    completedCapabilityIds,
-    rootSetupResolved,
-  }: {
-    capabilityId: string;
-    completedCapabilityIds: readonly string[];
-    rootSetupResolved: boolean;
-  },
-): string | null {
-  if (
-    !rootSetupResolved ||
-    !completedCapabilityIds.includes(capabilityId)
-  ) {
+export function resolveCompletedSetupCapabilityTarget({
+  capabilityId,
+  completedCapabilityIds,
+  rootSetupResolved,
+}: {
+  capabilityId: string;
+  completedCapabilityIds: readonly string[];
+  rootSetupResolved: boolean;
+}): string | null {
+  if (!rootSetupResolved || !completedCapabilityIds.includes(capabilityId)) {
     return null;
   }
   return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;

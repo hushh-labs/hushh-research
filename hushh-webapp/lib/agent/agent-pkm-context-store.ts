@@ -13,6 +13,11 @@ type PkmInventoryFact = {
   value: string;
 };
 
+export type LocalPkmDuplicateMatch =
+  | { kind: "exact"; domain: string; path: string[] }
+  | { kind: "possible"; domain: string; path: string[] }
+  | null;
+
 type PkmInventory = {
   facts: PkmInventoryFact[];
   domainFactCounts: Map<string, number>;
@@ -117,6 +122,10 @@ function tokenize(value: string): Set<string> {
       .map((token) => token.trim())
       .filter((token) => token.length >= 3)
   );
+}
+
+function normalizedMemoryValue(value: string): string {
+  return compactWhitespace(value).toLowerCase();
 }
 
 function containsAny(text: string, patterns: RegExp[]): boolean {
@@ -363,6 +372,28 @@ export class AgentPkmContextStore {
       message: params.message || "",
       maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
     });
+  }
+
+  /**
+   * Compare only against the already-unlocked, memory-only bounded inventory.
+   * This never triggers a decrypt, network request, or model call and returns
+   * locations—not values—so a caller can require review without leaking a
+   * full domain back into a proposal request.
+   */
+  static findLocalDuplicate(params: { userId: string; candidate: string }): LocalPkmDuplicateMatch {
+    const candidate = normalizedMemoryValue(params.candidate);
+    if (!candidate) return null;
+    const inventory = workingSets.get(params.userId)?.inventory;
+    if (!inventory) return null;
+    const exact = inventory.facts.find((fact) => normalizedMemoryValue(fact.value) === candidate);
+    if (exact) return { kind: "exact", domain: exact.domain, path: [...exact.path] };
+    const candidateTokens = tokenize(candidate);
+    const possible = inventory.facts.find((fact) => {
+      const factTokens = tokenize(fact.value);
+      const overlap = [...candidateTokens].filter((token) => factTokens.has(token)).length;
+      return candidateTokens.size >= 3 && overlap >= Math.min(3, candidateTokens.size);
+    });
+    return possible ? { kind: "possible", domain: possible.domain, path: [...possible.path] } : null;
   }
 
   static async load(params: {

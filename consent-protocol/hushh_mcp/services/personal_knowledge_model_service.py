@@ -21,6 +21,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from db.db_client import JsonParam, get_db
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_manifest_path
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
@@ -538,6 +539,11 @@ class PersonalKnowledgeModelService:
     def _is_externalizable_manifest_path(cls, path: str, *, path_type: str = "leaf") -> bool:
         normalized = cls._normalize_manifest_path(path)
         if not normalized or path_type != "leaf":
+            return False
+        # Analysis history is encrypted private source material.  It can inform
+        # a compact decision projection, but raw cards and debate transcripts
+        # must never become a PCHP/MCP export leaf.
+        if is_private_pkm_manifest_path(domain="financial", path=normalized):
             return False
         return not any(
             segment in cls._EXTERNALIZABLE_BLOCKED_PATH_PARTS for segment in normalized.split(".")
@@ -2049,7 +2055,45 @@ class PersonalKnowledgeModelService:
             return False
 
     @staticmethod
-    def _extract_decision_records(summary: dict | None) -> list[dict]:
+    def _sanitize_decision_event_records(records: list[dict] | None) -> list[dict]:
+        """Keep decision-event metadata auditable without retaining model output.
+
+        PKM events are a control/audit plane, not an encrypted source-artifact
+        store.  In particular, never copy votes, prose, sources, cards,
+        transcripts, metrics, or arbitrary nested metadata into this table.
+        """
+        if not isinstance(records, list):
+            return []
+        sanitized: list[dict] = []
+        for index, raw in enumerate(records[:200]):
+            if not isinstance(raw, dict):
+                continue
+            ticker = re.sub(r"[^A-Z0-9._-]", "", str(raw.get("ticker") or "").upper())[:32]
+            decision_type = str(raw.get("decision_type") or raw.get("decision") or "HOLD").upper()
+            decision_type = re.sub(r"[^A-Z _-]", "", decision_type)[:32] or "HOLD"
+            try:
+                confidence = max(0.0, min(float(raw.get("confidence") or 0.0), 1.0))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            created_at = str(raw.get("created_at") or raw.get("timestamp") or "").strip()[:64]
+            safe: dict[str, object] = {
+                "id": index + 1,
+                "ticker": ticker,
+                "decision_type": decision_type,
+                "confidence": confidence,
+                "created_at": created_at,
+            }
+            metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+            source = str(metadata.get("source") or "decision_projection").strip()[:64]
+            safe["metadata"] = {
+                "source": source or "decision_projection",
+                "consensus_reached": metadata.get("consensus_reached") is True,
+            }
+            sanitized.append(safe)
+        return sanitized
+
+    @classmethod
+    def _extract_decision_records(cls, summary: dict | None) -> list[dict]:
         """Extract decision payloads from legacy summary maps before sanitization."""
         if not isinstance(summary, dict):
             return []
@@ -2089,10 +2133,12 @@ class PersonalKnowledgeModelService:
                     "metadata": {"source": "summary_map"},
                 }
             )
-        return items
+        return cls._sanitize_decision_event_records(items)
 
-    @staticmethod
-    def _extract_projection_decision_records(write_projections: list[dict] | None) -> list[dict]:
+    @classmethod
+    def _extract_projection_decision_records(
+        cls, write_projections: list[dict] | None
+    ) -> list[dict]:
         """Extract explicit decision projections from the canonical write envelope."""
         if not isinstance(write_projections, list):
             return []
@@ -2113,7 +2159,7 @@ class PersonalKnowledgeModelService:
             if not isinstance(raw_decisions, list):
                 return []
             decisions = [row for row in raw_decisions if isinstance(row, dict)]
-            return decisions
+            return cls._sanitize_decision_event_records(decisions)
         return []
 
     @staticmethod
@@ -2161,6 +2207,15 @@ class PersonalKnowledgeModelService:
             ).data
             decisions: list[dict] = []
             seen: set[str] = set()
+
+            def _readable_records(records: list[dict]) -> list[dict]:
+                # Preserve the legacy caller shape while ensuring raw audit
+                # metadata never becomes a secondary source-material channel.
+                return [
+                    {key: value for key, value in record.items() if key not in {"id", "metadata"}}
+                    for record in self._sanitize_decision_event_records(records)
+                ]
+
             for row in rows:
                 metadata = row.get("metadata") if isinstance(row, dict) else {}
                 payload = metadata if isinstance(metadata, dict) else {}
@@ -2168,9 +2223,7 @@ class PersonalKnowledgeModelService:
                 if not isinstance(raw_decisions, list):
                     continue
                 if str(payload.get("projection_mode") or "").strip().lower() == "replace_all":
-                    return [decision for decision in raw_decisions if isinstance(decision, dict)][
-                        :limit
-                    ]
+                    return _readable_records(raw_decisions)[:limit]
                 for decision in raw_decisions:
                     if not isinstance(decision, dict):
                         continue
@@ -2180,8 +2233,8 @@ class PersonalKnowledgeModelService:
                     seen.add(identity)
                     decisions.append(decision)
                     if len(decisions) >= limit:
-                        return decisions
-            return decisions
+                        return _readable_records(decisions)
+            return _readable_records(decisions)
         except Exception as e:
             logger.error("Error loading recent decision records for %s: %s", user_id, e)
             return []
@@ -2682,7 +2735,6 @@ class PersonalKnowledgeModelService:
 
             from hushh_mcp.consent.token import revoke_token
             from hushh_mcp.services.consent_db import ConsentDBService
-            from hushh_mcp.services.ria_iam_service import RIAIAMService
 
             consent_service = ConsentDBService()
             external_tokens = await consent_service.get_active_tokens(user_id)
@@ -2723,16 +2775,6 @@ class PersonalKnowledgeModelService:
                         "disabled_scopes": disabled_scopes,
                     },
                 )
-                try:
-                    await RIAIAMService().sync_relationship_from_consent_action(
-                        user_id=user_id,
-                        request_id=request_id,
-                        action="REVOKED",
-                        agent_id=agent_id,
-                        scope=granted_scope,
-                    )
-                except Exception:
-                    logger.exception("ria.relationship_sync_failed action=REVOKED")
                 revoked_ids.append(token_id)
 
             return revoked_ids
@@ -2871,62 +2913,95 @@ class PersonalKnowledgeModelService:
                     top_level_path
                 )
 
-        changed_scope_paths: set[str] = set()
+        def _is_owner_manageable_scope(entry: ScopeRegistryEntry) -> bool:
+            projection = (
+                entry.summary_projection if isinstance(entry.summary_projection, dict) else {}
+            )
+            top_level_path = self._top_level_scope_path_for_registry_entry(entry)
+            state = str(projection.get("materialization_state") or "unknown").strip().lower()
+            leaf_count = self._to_non_negative_int(projection.get("materialized_leaf_count")) or 0
+            return bool(
+                top_level_path
+                and state == "materialized"
+                and leaf_count > 0
+                and projection.get("consumer_visible") is not False
+                and projection.get("internal_only") is not True
+                and self._is_externalizable_manifest_path(top_level_path)
+            )
+
+        manageable_by_handle: dict[str, ScopeRegistryEntry] = {}
+        manageable_by_top_level: dict[str, ScopeRegistryEntry] = {}
+        for entry in normalized_manifest.scope_registry:
+            if not _is_owner_manageable_scope(entry):
+                continue
+            top_level_path = self._top_level_scope_path_for_registry_entry(entry)
+            if entry.scope_handle:
+                manageable_by_handle[entry.scope_handle] = entry
+            if top_level_path:
+                manageable_by_top_level[top_level_path] = entry
+
+        # Resolve the complete batch before mutating any in-memory manifest
+        # state.  Partial success would make a parent tri-state control lie
+        # about which bundles remain private.
+        resolved_changes: list[tuple[ScopeRegistryEntry, dict, str]] = []
+        resolved_handles: set[str] = set()
         for raw_change in changes:
             if not isinstance(raw_change, dict):
-                continue
+                result["code"] = "invalid_scope_target"
+                result["message"] = "Each sharing change must name one available bundle."
+                return result
             target_handle = self._clean_text(
-                str(raw_change.get("scope_handle") or ""),
-                allow_none=True,
+                str(raw_change.get("scope_handle") or ""), allow_none=True
             )
             target_top_level = self._normalize_manifest_path(raw_change.get("top_level_scope_path"))
+            by_handle = manageable_by_handle.get(target_handle or "") if target_handle else None
+            by_top_level = (
+                manageable_by_top_level.get(target_top_level) if target_top_level else None
+            )
+            if not by_handle and not by_top_level:
+                result["code"] = "invalid_scope_target"
+                result["message"] = (
+                    "One or more sharing bundles are unavailable or contain no saved information."
+                )
+                return result
+            if by_handle and by_top_level and by_handle.scope_handle != by_top_level.scope_handle:
+                result["code"] = "invalid_scope_target"
+                result["message"] = "A sharing bundle handle does not match its requested section."
+                return result
+            entry = by_handle or by_top_level
+            if entry is None or entry.scope_handle in resolved_handles:
+                result["code"] = "invalid_scope_target"
+                result["message"] = "A sharing bundle can be changed only once per request."
+                return result
+            resolved_handles.add(entry.scope_handle)
+            resolved_changes.append(
+                (entry, raw_change, self._top_level_scope_path_for_registry_entry(entry))
+            )
+
+        changed_scope_paths: set[str] = set()
+        for entry, raw_change, entry_top_level in resolved_changes:
             explicit_posture = self._clean_text(
                 str(raw_change.get("visibility_posture") or ""),
                 allow_none=True,
             )
             exposure_enabled = raw_change.get("exposure_enabled") is not False
-            matched = False
-            for entry in normalized_manifest.scope_registry:
-                entry_top_level = self._top_level_scope_path_for_registry_entry(entry)
-                next_posture = self._normalize_visibility_posture(
-                    explicit_posture
-                    if explicit_posture
-                    else ("consent_required" if exposure_enabled else "private"),
-                    exposure_enabled=exposure_enabled,
-                    consumer_visible=(
-                        entry.summary_projection.get("consumer_visible") is not False
-                        and entry.summary_projection.get("internal_only") is not True
-                    ),
-                    sensitivity_tier=entry.sensitivity_tier,
-                    top_level_scope_path=entry_top_level,
-                    owner_override=False,
-                )
-                if target_handle and entry.scope_handle == target_handle:
-                    entry.visibility_posture = next_posture
-                    entry.exposure_enabled = next_posture != "private"
-                    entry.owner_consent_override = False
-                    entry.default_projection_ready = False
-                    entry.default_projection_updated_at = None
-                    matched = True
-                    if entry_top_level:
-                        changed_scope_paths.add(entry_top_level)
-                    continue
-                if target_top_level and entry_top_level == target_top_level:
-                    entry.visibility_posture = next_posture
-                    entry.exposure_enabled = next_posture != "private"
-                    entry.owner_consent_override = False
-                    entry.default_projection_ready = False
-                    entry.default_projection_updated_at = None
-                    matched = True
-                    changed_scope_paths.add(entry_top_level)
-            if not matched:
-                logger.warning(
-                    "Ignoring unknown PKM scope exposure change user=%s domain=%s handle=%s top_level=%s",
-                    user_id,
-                    canonical_domain,
-                    target_handle,
-                    target_top_level,
-                )
+            next_posture = self._normalize_visibility_posture(
+                explicit_posture
+                if explicit_posture
+                else ("consent_required" if exposure_enabled else "private"),
+                exposure_enabled=exposure_enabled,
+                consumer_visible=True,
+                sensitivity_tier=entry.sensitivity_tier,
+                top_level_scope_path=entry_top_level,
+                owner_override=False,
+            )
+            entry.visibility_posture = next_posture
+            entry.exposure_enabled = next_posture != "private"
+            entry.owner_consent_override = False
+            entry.default_projection_ready = False
+            entry.default_projection_updated_at = None
+            if entry_top_level:
+                changed_scope_paths.add(entry_top_level)
 
         next_manifest_version = current_manifest_version + 1
         now = datetime.now(UTC)

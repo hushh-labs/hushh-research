@@ -118,23 +118,13 @@ require_cmd python3
 declare -a SUMMARY=()
 declare -a WARNINGS=()
 declare -a MISSING_REQUIRED=()
+declare -a HYDRATED_FILES=()
 
 GCLOUD_AVAILABLE=false
+ADC_AVAILABLE=false
+CLOUD_READ_AVAILABLE=false
 GCLOUD_ACCOUNT=""
-if command -v gcloud >/dev/null 2>&1; then
-  if gcloud config get-value account >/tmp/hushh-bootstrap-gcloud-account.txt 2>/dev/null; then
-    GCLOUD_ACCOUNT="$(tr -d '\r\n' </tmp/hushh-bootstrap-gcloud-account.txt)"
-    if [ -n "$GCLOUD_ACCOUNT" ] && [ "$GCLOUD_ACCOUNT" != "(unset)" ]; then
-      GCLOUD_AVAILABLE=true
-    else
-      WARNINGS+=("gcloud is installed but no active account/project context was available; using templates and cached profile values where possible")
-    fi
-  else
-    WARNINGS+=("gcloud is installed but no active account/project context was available; using templates and cached profile values where possible")
-  fi
-else
-  WARNINGS+=("gcloud is not installed; using templates and cached profile values where possible")
-fi
+ADC_ACCESS_TOKEN=""
 
 BACKEND_DIR="$REPO_ROOT/consent-protocol"
 FRONTEND_DIR="$REPO_ROOT/hushh-webapp"
@@ -242,6 +232,68 @@ if completed.stderr:
     sys.stderr.write(completed.stderr)
 PY
 }
+
+detect_cloud_credential_sources() {
+  if ! command -v gcloud >/dev/null 2>&1; then
+    WARNINGS+=("gcloud is not installed; using templates and cached profile values where possible")
+    return
+  fi
+
+  if run_with_timeout "$GCLOUD_TIMEOUT_SECONDS" gcloud auth print-access-token >/dev/null 2>&1; then
+    GCLOUD_AVAILABLE=true
+    GCLOUD_ACCOUNT="$(gcloud config get-value account 2>/dev/null | tr -d '\r\n')"
+  fi
+
+  if command -v curl >/dev/null 2>&1 && \
+    ADC_ACCESS_TOKEN="$(run_with_timeout "$GCLOUD_TIMEOUT_SECONDS" gcloud auth application-default print-access-token 2>/dev/null)" && \
+    [ -n "$ADC_ACCESS_TOKEN" ]; then
+    ADC_AVAILABLE=true
+  fi
+
+  if [ "$GCLOUD_AVAILABLE" = "true" ] || [ "$ADC_AVAILABLE" = "true" ]; then
+    CLOUD_READ_AVAILABLE=true
+  fi
+
+  if [ "$GCLOUD_AVAILABLE" != "true" ] && [ "$ADC_AVAILABLE" = "true" ]; then
+    WARNINGS+=("gcloud user credentials could not refresh; using Application Default Credentials for read-only profile hydration")
+  elif [ "$CLOUD_READ_AVAILABLE" != "true" ]; then
+    WARNINGS+=("no refreshable Google Cloud credential source was available; using templates and cached profile values where possible")
+  fi
+}
+
+adc_rest_get() {
+  local url="$1"
+  if [ "$ADC_AVAILABLE" != "true" ]; then
+    return 1
+  fi
+  if [ -z "$ADC_ACCESS_TOKEN" ]; then
+    return 1
+  fi
+
+  # Keep the bearer credential out of process arguments and output. curl reads
+  # it only from its short-lived stdin configuration.
+  printf 'url = "%s"\nheader = "Authorization: Bearer %s"\n' "$url" "$ADC_ACCESS_TOKEN" | \
+    curl --config - --silent --fail --max-time "$GCLOUD_TIMEOUT_SECONDS"
+}
+
+decode_secret_manager_payload() {
+  python3 -c '
+import base64
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+    encoded = str((payload.get("payload") or {}).get("data") or "")
+    if not encoded:
+        raise ValueError("missing payload")
+    sys.stdout.buffer.write(base64.b64decode(encoded, validate=True))
+except (ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+'
+}
+
+detect_cloud_credential_sources
 
 read_env_value() {
   local file="$1"
@@ -429,10 +481,15 @@ get_secret_value() {
   local project="$1"
   local secret="$2"
   local value=""
-  if [ "$GCLOUD_AVAILABLE" != "true" ]; then
-    return 1
+  if [ "$GCLOUD_AVAILABLE" = "true" ] && \
+    value="$(run_with_timeout "$GCLOUD_TIMEOUT_SECONDS" gcloud secrets versions access latest --secret="$secret" --project="$project" 2>/dev/null)"; then
+    value="${value%$'\n'}"
+    value="${value%$'\r'}"
+    printf '%s' "$value"
+    return 0
   fi
-  if value="$(run_with_timeout "$GCLOUD_TIMEOUT_SECONDS" gcloud secrets versions access latest --secret="$secret" --project="$project" 2>/dev/null)"; then
+  if [ "$ADC_AVAILABLE" = "true" ] && \
+    value="$(adc_rest_get "https://secretmanager.googleapis.com/v1/projects/${project}/secrets/${secret}/versions/latest:access" | decode_secret_manager_payload)"; then
     value="${value%$'\n'}"
     value="${value%$'\r'}"
     printf '%s' "$value"
@@ -452,9 +509,12 @@ service_json_path() {
         --region="$REGION" \
         --format=json >"$out" 2>/dev/null; then
       :
+    elif [ "$ADC_AVAILABLE" = "true" ] && \
+      adc_rest_get "https://run.googleapis.com/v2/projects/${project}/locations/${REGION}/services/${service}" >"$out" 2>/dev/null; then
+      :
     else
       echo "{}" >"$out"
-      if [ "$GCLOUD_AVAILABLE" = "true" ]; then
+      if [ "$CLOUD_READ_AVAILABLE" = "true" ]; then
         WARNINGS+=("cloud run describe failed for ${project}/${service}; using cached profile/template values where possible")
       fi
     fi
@@ -468,19 +528,15 @@ run_env_value() {
   local key="$3"
   local json_file
   json_file="$(service_json_path "$project" "$service")"
-  jq -r --arg key "$key" '.spec.template.spec.containers[0].env[]? | select(.name==$key) | (.value // empty)' "$json_file" | head -n1
+  jq -r --arg key "$key" '((.spec.template.spec.containers[0].env? // .template.containers[0].env? // [])[]? | select(.name==$key) | (.value // empty))' "$json_file" | head -n1
 }
 
 run_service_url() {
   local project="$1"
   local service="$2"
-  if [ "$GCLOUD_AVAILABLE" != "true" ]; then
-    return 0
-  fi
-  run_with_timeout "$GCLOUD_TIMEOUT_SECONDS" gcloud run services describe "$service" \
-    --project="$project" \
-    --region="$REGION" \
-    --format='value(status.url)' 2>/dev/null || true
+  local json_file
+  json_file="$(service_json_path "$project" "$service")"
+  jq -r '.status.url // .uri // empty' "$json_file" | head -n1
 }
 
 run_service_annotation() {
@@ -489,7 +545,7 @@ run_service_annotation() {
   local key="$3"
   local json_file
   json_file="$(service_json_path "$project" "$service")"
-  jq -r --arg key "$key" '.spec.template.metadata.annotations[$key] // empty' "$json_file" | head -n1
+  jq -r --arg key "$key" '(.spec.template.metadata.annotations? // .template.annotations? // {})[$key] // empty' "$json_file" | head -n1
 }
 
 set_if_non_empty() {
@@ -533,6 +589,41 @@ is_placeholder_value() {
       return 1
       ;;
   esac
+}
+
+validate_local_backend_crypto_material() {
+  local file="$1"
+  python3 - "$file" <<'PY'
+import pathlib
+import string
+import sys
+
+path = pathlib.Path(sys.argv[1])
+values: dict[str, str] = {}
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    if key in {"APP_SIGNING_KEY", "VAULT_DATA_KEY"}:
+        values[key] = value.strip()
+
+app_signing_key = values.get("APP_SIGNING_KEY", "")
+vault_data_key = values.get("VAULT_DATA_KEY", "")
+valid_signing_key = len(app_signing_key) >= 32
+valid_vault_key = len(vault_data_key) == 64 and all(
+    character in string.hexdigits for character in vault_data_key
+)
+if valid_signing_key and valid_vault_key:
+    raise SystemExit(0)
+
+issues: list[str] = []
+if not valid_signing_key:
+    issues.append("APP_SIGNING_KEY must be present and at least 32 characters")
+if not valid_vault_key:
+    issues.append("VAULT_DATA_KEY must be a 64-character hexadecimal value")
+print("; ".join(issues), file=sys.stderr)
+raise SystemExit(1)
+PY
 }
 
 set_secret_key() {
@@ -1108,18 +1199,37 @@ for profile in "${profiles[@]}"; do
   copy_template_if_needed "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile").example" "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile")"
 done
 
-hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$UAT_PROJECT_ID"
-hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$UAT_PROJECT_ID"
-hydrate_frontend_cloud "$FRONTEND_DIR/.env.uat.local" "uat" "$UAT_PROJECT_ID" "uat"
-# dev keeps the uat runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
-# infrastructure replica of UAT living in its own GCP project.
-hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
-hydrate_frontend_cloud "$FRONTEND_DIR/.env.prod.local" "prod" "$PROD_PROJECT_ID" "production"
+if profile_is_in_focus "local"; then
+  hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$UAT_PROJECT_ID"
+  hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$UAT_PROJECT_ID"
+  HYDRATED_FILES+=("$BACKEND_DIR/.env" "$FRONTEND_DIR/.env.local.local")
+fi
+if profile_is_in_focus "uat"; then
+  hydrate_frontend_cloud "$FRONTEND_DIR/.env.uat.local" "uat" "$UAT_PROJECT_ID" "uat"
+  HYDRATED_FILES+=("$FRONTEND_DIR/.env.uat.local")
+fi
+if profile_is_in_focus "dev"; then
+  # dev keeps the UAT runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
+  # infrastructure replica of UAT living in its own GCP project.
+  hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
+  HYDRATED_FILES+=("$FRONTEND_DIR/.env.dev.local")
+fi
+if profile_is_in_focus "prod"; then
+  hydrate_frontend_cloud "$FRONTEND_DIR/.env.prod.local" "prod" "$PROD_PROJECT_ID" "production"
+  HYDRATED_FILES+=("$FRONTEND_DIR/.env.prod.local")
+fi
 
 ensure_shape_from_template "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
 for profile in "${profiles[@]}"; do
   ensure_shape_from_template "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile").example" "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile")"
 done
+
+if [ -z "$FOCUS_PROFILE" ] || [ "$FOCUS_PROFILE" = "local" ]; then
+  if ! validate_local_backend_crypto_material "$BACKEND_DIR/.env"; then
+    echo "Local backend profile has invalid core cryptographic material. Refresh a live Google Cloud credential source and rerun bootstrap." >&2
+    exit 1
+  fi
+fi
 
 chmod 600 "$BACKEND_DIR/.env"
 for profile in "${profiles[@]}"; do
@@ -1161,10 +1271,7 @@ validate_canonical_keys "prod" \
   "development" \
   "production"
 
-for path in \
-  "$BACKEND_DIR/.env" \
-  "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.dev.local" "$FRONTEND_DIR/.env.prod.local"
-do
+for path in "${HYDRATED_FILES[@]}"; do
   key_count="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$path" | wc -l | tr -d ' ')"
   SUMMARY+=("hydrated ${path#$REPO_ROOT/} (${key_count} keys)")
 done
@@ -1195,7 +1302,9 @@ fi
 
 echo ""
 if [ "$GCLOUD_AVAILABLE" = "true" ]; then
-  echo "Hydrated from gcloud account: ${GCLOUD_ACCOUNT:-"(unknown)"}"
+  echo "Hydrated from refreshable gcloud user credentials: ${GCLOUD_ACCOUNT:-"(unknown)"}"
+elif [ "$ADC_AVAILABLE" = "true" ]; then
+  echo "Hydrated from refreshable Application Default Credentials"
 else
   echo "Hydration source: templates and cached local profile files only"
 fi

@@ -72,6 +72,7 @@ class AnalyzeRunRecord:
         return len(self.events)
 
     def to_public_dict(self) -> dict[str, Any]:
+        context = self.context if isinstance(self.context, dict) else {}
         return {
             "run_id": self.run_id,
             "user_id": self.user_id,
@@ -86,6 +87,12 @@ class AnalyzeRunRecord:
             "events_count": len(self.events),
             "terminal_event": self.terminal_event,
             "terminal_payload": self.terminal_payload,
+            # Provenance is written by the server-side source resolver at run
+            # start. Never expose the in-memory authorized package snapshot.
+            "pick_source": context.get("pick_source"),
+            "pick_source_label": context.get("pick_source_label"),
+            "pick_source_kind": context.get("pick_source_kind"),
+            "pick_source_snapshot": context.get("pick_source_snapshot"),
         }
 
 

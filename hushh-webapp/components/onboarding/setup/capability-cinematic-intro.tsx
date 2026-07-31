@@ -60,14 +60,14 @@ function fallbackCopy(
     return {
       id: capabilityId,
       title: "Connections",
-      setupTitle: "Choose how One runs",
-      setupBlurb: "Pick the option that feels right for you.",
+      setupTitle: "Choose how One reaches Gemini",
+      setupBlurb: "Use Hushh managed Gemini now, or add your own key privately after setup.",
       actionLabel: "Continue",
       resumeActionLabel: "Continue",
       href: "/one/setup/connections",
-      introPremise: "One gets more useful when you choose its starting point.",
+      introPremise: "Choose how One reaches Gemini.",
       introPromise:
-        "Choose the way One works for you. You can change it later.",
+        "Use Hushh managed Gemini now, or bring your own key to encrypt privately after setup.",
     };
   }
 
@@ -119,22 +119,14 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className={`motion-step-enter relative isolate mx-auto flex w-full max-w-[36rem] flex-col items-start overflow-hidden ${
+      className={`motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start ${
         embedded
-          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
+          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))] justify-center"
           : ""
       }`}
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
-      {/* Decorative only: copy remains semantic and immediately available. */}
-      <div
-        className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-        aria-hidden="true"
-      >
-        <span className="absolute -left-20 top-[18%] h-52 w-52 rounded-full bg-[var(--app-accent-tint)] blur-3xl" />
-        <span className="absolute -right-16 bottom-[14%] h-40 w-40 rounded-full bg-[var(--app-accent-tint)] blur-3xl" />
-      </div>
       <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
       <h1
         id={`capability-intro-${capabilityId}`}
@@ -170,7 +162,7 @@ export function CapabilityCinematicIntroGate({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] justify-center px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] pt-[var(--top-content-pad)]"
+      className="justify-center"
     >
       {content}
     </FullscreenFlowShell>

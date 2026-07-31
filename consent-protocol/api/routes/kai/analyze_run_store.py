@@ -12,12 +12,11 @@ prod-parity bug). UAT runs a single instance, so it never reproduces there.
 
 What this does
 --------------
-Persists a single **coarse terminal checkpoint** per run to Postgres (table
+Persists a single **metadata-only terminal receipt** per run to Postgres (table
 ``kai_analyze_runs``, migration 125) at the moment a run reaches a terminal
 state (``completed`` / ``failed`` / ``canceled``). A ``/stream`` request that
-misses the local in-memory buffer can then read that checkpoint back and replay
-one synthetic terminal frame, so the client renders the final DecisionCard
-instead of stalling.
+misses the local in-memory buffer can then read that receipt back and replay a
+safe terminal frame instead of stalling.
 
 Deliberate constraints
 ----------------------
@@ -30,6 +29,8 @@ Deliberate constraints
   The same statements run on real Postgres and on the offline SQLite test
   harness, so the cross-instance recovery test gates in CI.
 * **All parameterized** (``$1..$N``) -> bandit B608 safe.
+* **No source material** -- cards, transcripts, model output, market inputs,
+  and PKM context remain in the live in-memory stream only.
 * **Fail-safe**: :meth:`persist_terminal` never raises; :meth:`load_terminal_run`
   returns ``None`` on any error. When the feature flag is off the store is never
   constructed and none of this executes.
@@ -52,6 +53,31 @@ _TERMINAL_STATUSES = frozenset({"completed", "failed", "canceled"})
 # Default retention for a durable checkpoint. Matches the in-memory manager's
 # 6h retention so durable replay and local buffering expire on the same horizon.
 _DEFAULT_RETENTION_SECONDS = 6 * 60 * 60
+
+
+def _safe_terminal_receipt(run: Any) -> dict[str, Any]:
+    """Return the only terminal payload allowed in durable storage.
+
+    A run's live terminal payload can include market source material, model
+    prose and temporary PKM context.  Those belong in the active stream only;
+    a cross-instance checkpoint needs just enough metadata to tell the client
+    that the run reached a terminal state.
+    """
+    payload = getattr(run, "terminal_payload", None)
+    source = payload if isinstance(payload, dict) else {}
+    decision = str(source.get("decision") or source.get("decision_type") or "").strip()[:32]
+    try:
+        confidence = max(0.0, min(float(source.get("confidence") or 0.0), 1.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "run_id": str(getattr(run, "run_id", "") or ""),
+        "ticker": str(getattr(run, "ticker", "") or "")[:32],
+        "status": str(getattr(run, "status", "") or "")[:32],
+        "decision": decision or None,
+        "confidence": confidence,
+        "completed_at": str(getattr(run, "completed_at", "") or "")[:64] or None,
+    }
 
 
 class KaiAnalyzeRunStore:
@@ -79,8 +105,8 @@ class KaiAnalyzeRunStore:
             return
 
         try:
-            payload = getattr(run, "terminal_payload", None)
-            payload_json = json.dumps(payload if isinstance(payload, dict) else {})
+            checkpoint_payload = _safe_terminal_receipt(run)
+            payload_json = json.dumps(checkpoint_payload)
             now = int(time.time())
             expires_at = now + self._retention_seconds
 

@@ -243,6 +243,7 @@ export function EmailOnboardingSetupClient() {
           }}
           title="Open your private vault"
           description="KYC uses your private vault to prepare consent-bound responses."
+          allowVaultCreation={false}
           onSuccess={() => setEnablePending(true)}
         />
       ) : null}
