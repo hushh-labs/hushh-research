@@ -3,6 +3,7 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   getCapabilitySetupCopy,
@@ -127,6 +128,9 @@ export function CapabilityCinematicIntroGate({
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
+      {capabilityId === "connections" ? (
+        <GeminiLogo className="mb-5 h-12 w-12" />
+      ) : null}
       <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
       <h1
         id={`capability-intro-${capabilityId}`}

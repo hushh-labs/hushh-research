@@ -914,22 +914,17 @@ export function PkmNaturalPanel({
             }
             tone={autoSavePolicyError ? "destructive" : "default"}
             trailing={
-              <div className="flex min-h-11 items-center gap-2">
-                <span aria-live="polite" className="text-xs font-medium text-muted-foreground">
-                  {autoSavePolicy.enabled ? "On" : "Off"}
-                </span>
-                <Switch
-                  checked={autoSavePolicy.enabled}
-                  onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
-                  disabled={autoSavePolicyLoading || autoSavePolicySaving}
-                  aria-label={
-                    autoSavePolicy.enabled
-                      ? "Turn automatic memory saving off"
-                      : "Turn automatic memory saving on"
-                  }
-                  className="shrink-0"
-                />
-              </div>
+              <Switch
+                checked={autoSavePolicy.enabled}
+                onCheckedChange={(enabled) => void updateAutoSavePolicy(enabled)}
+                disabled={autoSavePolicyLoading || autoSavePolicySaving}
+                aria-label={
+                  autoSavePolicy.enabled
+                    ? "Turn automatic memory saving off"
+                    : "Turn automatic memory saving on"
+                }
+                className="shrink-0"
+              />
             }
           />
         </SettingsGroup>

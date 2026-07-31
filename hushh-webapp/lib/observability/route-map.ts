@@ -18,6 +18,7 @@ export const ROUTE_ID_VALUES = [
   "profile_account_phone",
   "profile_preferences",
   "profile_preferences_kai",
+  "profile_preferences_gemini",
   "profile_preferences_device",
   "profile_security",
   "profile_security_vault",
@@ -115,6 +116,8 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
   if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
     return "profile_preferences_kai";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_GEMINI)
+    return "profile_preferences_gemini";
   if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
     return "profile_preferences_device";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";

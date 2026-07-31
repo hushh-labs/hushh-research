@@ -171,6 +171,8 @@ export type AppStreamPanelProps = {
   evidenceTitle?: string;
   response?: ReactNode;
   responseText?: string;
+  /** App-owned state shown while the model has not emitted response text yet. */
+  responsePendingLabel?: string;
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
@@ -190,6 +192,7 @@ export function AppStreamPanel({
   evidenceTitle = "Consulted specialists",
   response,
   responseText = "",
+  responsePendingLabel,
   isStreaming = false,
   isError = false,
   opportunities,
@@ -197,6 +200,9 @@ export function AppStreamPanel({
 }: AppStreamPanelProps) {
   const hasResponseText = responseText.trim().length > 0;
   const hasResponse = Boolean(response) || hasResponseText;
+  const showResponsePending = Boolean(
+    responsePendingLabel && isStreaming && !hasResponse && !isError,
+  );
   const showProgressMeter =
     progressIndeterminate || (typeof progressValue === "number" && Number.isFinite(progressValue));
 
@@ -259,6 +265,17 @@ export function AppStreamPanel({
             defaultOpen={false}
             bodyClassName="px-3 py-2.5"
           />
+        ) : null}
+
+        {showResponsePending ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/55 px-3 py-2 text-sm text-muted-foreground"
+          >
+            <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
+            <span>{responsePendingLabel}</span>
+          </div>
         ) : null}
 
         {hasResponse ? (

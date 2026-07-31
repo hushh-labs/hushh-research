@@ -132,7 +132,6 @@ describe("PkmNaturalPanel", () => {
       name: "Turn automatic memory saving on",
     });
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Off")).toBeTruthy();
 
     fireEvent.click(toggle);
 
@@ -152,7 +151,9 @@ describe("PkmNaturalPanel", () => {
         name: "Turn automatic memory saving off",
       }),
     ).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("On")).toBeTruthy();
+    expect(screen.getByTestId("memory-auto-save-row")).toContainElement(
+      screen.getByRole("switch", { name: "Turn automatic memory saving off" }),
+    );
   });
 
   it("loads metadata and the private memory preference before decrypting a category", async () => {

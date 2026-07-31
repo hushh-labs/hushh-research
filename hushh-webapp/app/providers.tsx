@@ -198,7 +198,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // context-sensitive tail. Tabs stay fully solid through their
         // underline, but the dissolve must finish before the first bounded
         // route surface so its text remains readable.
-        "--top-fade-active": topShellMetrics.hasTabs ? "12px" : "14px",
+        "--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px",
         "--top-ambient-tab-tail-midpoint": "8px",
         "--top-content-pad":
           "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",

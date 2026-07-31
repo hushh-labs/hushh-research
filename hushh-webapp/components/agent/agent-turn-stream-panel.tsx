@@ -163,6 +163,7 @@ export function AgentTurnStreamPanel({
       evidenceTitle="Sources consulted"
       responseText={responseText}
       response={response}
+      responsePendingLabel="One is preparing your response."
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}

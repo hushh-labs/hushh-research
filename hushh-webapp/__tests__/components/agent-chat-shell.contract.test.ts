@@ -25,9 +25,18 @@ describe("private-agent chat shell contract", () => {
     const history = read("components/agent/agent-history-sidebar.tsx");
 
     expect(workspace).toContain("ShellActionSurface");
-    expect(workspace).toContain('"motion-step-enter flex w-full gap-3"');
+    expect(workspace).toContain('"motion-step-enter flex w-full"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain("rounded-[var(--app-radius-pill)]");
     expect(history).toContain("bg-foreground/[0.025]");
+  });
+
+  it("rotates curated welcome prompts only when a new chat starts", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("getWelcomePromptSetIndex");
+    expect(workspace).toContain("getWelcomePrompts");
+    expect(workspace).toContain("setWelcomePromptSetIndex((current)");
+    expect(workspace).toContain("prompts={welcomePrompts}");
   });
 });

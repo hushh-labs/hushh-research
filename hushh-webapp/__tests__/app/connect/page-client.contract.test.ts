@@ -17,7 +17,8 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain("icon={Users}\n          accent");
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
-    expect(source).toContain("icon={Sparkles}");
+    expect(source).not.toContain("Private configuration");
+    expect(source).not.toContain("icon={Sparkles}");
     expect(source).toContain("icon={UserRound}");
     expect(source).toContain("separatorInset");
   });

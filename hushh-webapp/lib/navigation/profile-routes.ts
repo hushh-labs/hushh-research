@@ -17,6 +17,7 @@ export type ProfileDetail =
   | `connection:${string}`
   | "phone"
   | "kai-preferences"
+  | "gemini"
   | "device"
   | "vault"
   | "session"
@@ -93,7 +94,7 @@ export function normalizeProfileDetail(
   }
   if (
     panel === "preferences" &&
-    (detail === "kai-preferences" || detail === "device")
+    (detail === "kai-preferences" || detail === "gemini" || detail === "device")
   ) {
     return detail;
   }
@@ -196,6 +197,9 @@ export function buildProfileRoute(params?: {
   if (panel === "preferences") {
     if (detail === "kai-preferences") {
       return appendQuery(ROUTES.PROFILE_PREFERENCES_KAI, {}, params?.searchParams);
+    }
+    if (detail === "gemini") {
+      return appendQuery(ROUTES.PROFILE_PREFERENCES_GEMINI, {}, params?.searchParams);
     }
     if (detail === "device") {
       return appendQuery(ROUTES.PROFILE_PREFERENCES_DEVICE, {}, params?.searchParams);
@@ -301,6 +305,9 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_KAI) {
     return { panel: "preferences", detail: "kai-preferences" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_GEMINI) {
+    return { panel: "preferences", detail: "gemini" };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_DEVICE) {
     return { panel: "preferences", detail: "device" };

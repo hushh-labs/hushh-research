@@ -78,6 +78,9 @@ describe("navigation routes", () => {
     expect(
       buildProfileRoute({ panel: "preferences", detail: "kai-preferences" }),
     ).toBe("/one/profile/preferences/kai");
+    expect(buildProfileRoute({ panel: "preferences", detail: "gemini" })).toBe(
+      "/one/profile/preferences/gemini",
+    );
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );

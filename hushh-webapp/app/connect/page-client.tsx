@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search as SearchIcon, Sparkles, UserRound, Users } from "lucide-react";
+import { Search as SearchIcon, UserRound, Users } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -27,7 +27,6 @@ import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ConnectionsService,
@@ -380,17 +379,6 @@ export default function ConnectPageClient() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup title="Private configuration" separatorInset>
-              <SettingsRow
-                icon={Sparkles}
-                iconTone="purple"
-                title="Gemini"
-                description="Choose Hussh managed Gemini or your own Google AI Studio key."
-                density="compact"
-                chevron
-                onClick={() => router.push(ROUTES.CONNECT_SETTINGS)}
-              />
-            </SettingsGroup>
             <SettingsGroup
               title={`My connections (${connections.length})`}
               separatorInset
