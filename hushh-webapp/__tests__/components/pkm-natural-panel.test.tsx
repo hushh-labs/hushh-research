@@ -74,6 +74,13 @@ vi.mock("@/components/profile/pkm-section-preview", () => ({
   PkmSectionPreview: () => <div>Exact category preview</div>,
 }));
 
+async function openIndividualFieldReview() {
+  const label = await screen.findByText("Review individual fields");
+  const summary = label.closest("summary");
+  if (!summary) throw new Error("Expected individual field review disclosure");
+  fireEvent.click(summary);
+}
+
 describe("PkmNaturalPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -208,7 +215,9 @@ describe("PkmNaturalPanel", () => {
     await screen.findByRole("button", { name: "Open Financial" });
 
     expect(screen.getByTestId("memory-auto-save-group")).toBeTruthy();
-    expect(screen.getByTestId("memory-auto-save-row")).toBeTruthy();
+    const row = screen.getByTestId("memory-auto-save-row");
+    expect(row).toBeTruthy();
+    expect(row.firstElementChild).toHaveClass("grid-cols-1");
     expect(
       screen.getByRole("switch", { name: "Turn automatic memory saving on" }),
     ).toBeTruthy();
@@ -244,6 +253,36 @@ describe("PkmNaturalPanel", () => {
         }),
       ),
     );
+  });
+
+  it("keeps a failed automatic-memory update retryable without falsely telling the user to unlock", async () => {
+    vi.spyOn(AgentPkmAutoSavePolicy, "saveAgentPkmAutoSavePolicy").mockRejectedValueOnce(
+      new Error("Failed to store domain data: 422 - invalid request"),
+    );
+
+    render(<PkmNaturalPanel />);
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Turn automatic memory saving on",
+    });
+    fireEvent.click(toggle);
+
+    expect(
+      await screen.findByText("Automatic memory saving couldn’t be updated. Try again."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/unlock your vault again/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect(AgentPkmAutoSavePolicy.saveAgentPkmAutoSavePolicy).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      await screen.findByRole("switch", {
+        name: "Turn automatic memory saving off",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   it("renders saved categories without waiting for the slower sharing request", async () => {
@@ -321,6 +360,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Correct saved detail" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Corrected detail value" }), {
       target: { value: "growth" },
@@ -367,6 +407,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Remove saved detail" }));
     await screen.findByText("Remove this saved detail?");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -392,6 +433,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Correct saved detail" }));
     fireEvent.click(screen.getByRole("button", { name: "Save corrected detail" }));
 
@@ -427,6 +469,7 @@ describe("PkmNaturalPanel", () => {
     expect(
       await screen.findByText("This update is shared with Planner Pro.")
     ).toBeTruthy();
+    await openIndividualFieldReview();
     fireEvent.click(screen.getByRole("button", { name: "Correct saved detail" }));
     expect(screen.queryByText(/encrypted export revision/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save corrected detail" }));
@@ -447,6 +490,7 @@ describe("PkmNaturalPanel", () => {
         "Current sharing couldn’t be verified. Refresh before changing details."
       )
     ).toBeTruthy();
+    await openIndividualFieldReview();
     expect(screen.getByRole("button", { name: "Correct saved detail" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Remove saved detail" })).toBeDisabled();
   });

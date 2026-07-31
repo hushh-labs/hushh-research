@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, PenLine, Trash2 } from "lucide-react";
+import { ChevronDown, Loader2, PenLine, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -94,13 +94,23 @@ function PreviewEntityRow({
     onDeleteEntity(entity);
   }
 
+  const quickFacts = (entity.sections || []).filter(
+    (section) => section.display === "chips",
+  );
+  const detailSections = (entity.sections || []).filter(
+    (section) => section.display !== "chips",
+  );
+  const hasDetails = entity.fields.length > 0 || detailSections.length > 0;
+
   return (
-    <div className="space-y-3 px-4 py-4">
+    <article className="space-y-3 px-4 py-3.5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold tracking-tight text-foreground">{entity.title}</p>
+        <div className="min-w-0 space-y-1">
+          <p className="break-words text-[15px] font-semibold leading-5 tracking-tight text-foreground">
+            {entity.title}
+          </p>
           {entity.subtitle ? (
-            <span className="text-xs text-muted-foreground">{entity.subtitle}</span>
+            <p className="text-xs font-medium text-muted-foreground">{entity.subtitle}</p>
           ) : null}
         </div>
         {canEdit || canDelete ? (
@@ -134,20 +144,40 @@ function PreviewEntityRow({
           </div>
         ) : null}
       </div>
-      {entity.fields.length > 0 ? <PreviewFieldList fields={entity.fields} /> : null}
-      {entity.sections?.length ? (
-        <div className="space-y-3">
-          {entity.sections.map((section) => (
-            <div key={`${entity.key}:${section.label}`} className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {section.label}
-              </p>
-              <PreviewSectionItems section={section} />
-            </div>
-          ))}
+      {quickFacts.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {quickFacts.flatMap((section) =>
+            section.items.map((item) => (
+              <Badge key={`${entity.key}:${section.label}:${item}`} variant="secondary">
+                {item}
+              </Badge>
+            )),
+          )}
         </div>
       ) : null}
-    </div>
+      {hasDetails ? (
+        <details className="group border-t border-[color:var(--app-card-border-standard)] pt-2">
+          <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronDown
+              className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+              aria-hidden
+            />
+            View details
+          </summary>
+          <div className="space-y-3 pb-1 pt-2">
+            {entity.fields.length > 0 ? <PreviewFieldList fields={entity.fields} /> : null}
+            {detailSections.map((section) => (
+              <div key={`${entity.key}:${section.label}`} className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  {section.label}
+                </p>
+                <PreviewSectionItems section={section} />
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </article>
   );
 }
 

@@ -820,29 +820,33 @@ textarea {
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  /* Lift the composer above the on-screen keyboard when it is up (--kb-height),
-   * otherwise use the resting safe-area gap. max() avoids double-counting the
-   * home-indicator inset (the keyboard already covers that zone). Inert on
-   * desktop where --kb-height is 0. */
+  /* Mobile browsers already shrink this full-screen workspace through `dvh`.
+   * Capacitor keeps its WebView frame stable, so it opts into the additional
+   * keyboard inset below. */
+  --agent-chat-keyboard-inset: 0px;
   --agent-chat-composer-bottom: max(
     calc(0.75rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
     calc(1.25rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
+}
+
+html.native-keyboard-inset .agent-chat-workspace {
+  --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
 
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
     calc(1rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
     calc(1.75rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
 

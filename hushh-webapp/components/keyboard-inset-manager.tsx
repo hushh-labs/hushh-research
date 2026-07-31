@@ -55,6 +55,11 @@ export function KeyboardInsetManager() {
     // Firewall: desktop / laptop binds nothing and stays inert.
     if (!isNative && !mobileWeb) return;
 
+    // Full-screen mobile-web surfaces already shrink with `dvh` when the
+    // keyboard opens. Mark only Capacitor runtimes as needing a composer lift,
+    // so those surfaces do not reserve the visual-viewport overlap twice.
+    document.documentElement.classList.toggle("native-keyboard-inset", isNative);
+
     let disposed = false;
     let rafId = 0;
     const cleanups: Array<() => void> = [];
@@ -147,7 +152,10 @@ export function KeyboardInsetManager() {
     }
 
     // Always reset the inset on unmount.
-    cleanups.push(() => setKeyboardHeight(0));
+    cleanups.push(() => {
+      setKeyboardHeight(0);
+      document.documentElement.classList.remove("native-keyboard-inset");
+    });
 
     return () => {
       disposed = true;
