@@ -80,6 +80,26 @@ describe("ConnectionsService", () => {
     expect(catalog.offerableItems[0].handle).toBe("scp-u1");
   });
 
+  it("searches a connected person's discoverable information scopes", async () => {
+    mockApiFetch.mockResolvedValue(
+      jsonResponse({
+        counterpartUserId: "u2",
+        items: [{ scope: "attr.financial.holdings", label: "Holdings", domain: "financial", path: "holdings", wildcard: false, match_reason: "substring_match" }],
+      }),
+    );
+
+    const catalog = await ConnectionsService.searchInformationScopes({
+      idToken: "tok",
+      counterpartUserId: "u2",
+      query: "holding",
+    });
+
+    expect(mockApiFetch.mock.calls[0][0]).toBe(
+      "/api/one/connections/u2/information-scopes?query=holding",
+    );
+    expect(catalog.items[0].scope).toBe("attr.financial.holdings");
+  });
+
   it("sends both explicit scope selections when accepting a scoped request", async () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "accepted" } }));
 

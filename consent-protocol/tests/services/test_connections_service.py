@@ -92,6 +92,45 @@ def test_scope_catalog_is_directory_bounded_and_separates_offerable_scopes():
     assert exc.value.code == "CONNECTION_SCOPE_TARGET_FORBIDDEN"
 
 
+def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
+    svc = ConnectionsService(
+        scope_entries_lookup=lambda _owner: [
+            {
+                "scope": "attr.financial.holdings",
+                "label": "Holdings",
+                "domain": "financial",
+                "path": "holdings",
+                "wildcard": False,
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "consent_required",
+            },
+            {
+                "scope": "attr.financial.tax_id",
+                "label": "Tax ID",
+                "domain": "financial",
+                "path": "tax_id",
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "private",
+            },
+        ]
+    )
+    svc._execute_one = lambda _sql, _params=None: {"id": "connection-1"}
+
+    result = svc.get_information_scope_catalog("user-a", "user-b", query="hold")
+
+    assert [entry["scope"] for entry in result["items"]] == ["attr.financial.holdings"]
+    assert result["items"][0]["match_reason"] == "substring_match"
+
+    svc._execute_one = lambda _sql, _params=None: None
+    with pytest.raises(ConnectionsError) as exc:
+        svc.get_information_scope_catalog("user-a", "user-b")
+    assert exc.value.code == "CONNECTION_INFORMATION_SCOPE_FORBIDDEN"
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 

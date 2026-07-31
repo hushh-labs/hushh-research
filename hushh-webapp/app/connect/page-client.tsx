@@ -30,6 +30,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ConnectionsService,
+  type ConnectionInformationScopeCatalog,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
   type DirectoryPerson,
@@ -53,6 +54,11 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const [informationScopeDraft, setInformationScopeDraft] = useState<{
+    connection: ConnectionSummaryEntry;
+    catalog: ConnectionInformationScopeCatalog;
+  } | null>(null);
+  const [informationScopeQuery, setInformationScopeQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -310,6 +316,39 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  const viewInformationScopes = useCallback(
+    async (connection: ConnectionSummaryEntry) => {
+      if (!user) return;
+      try {
+        setBusyId(connection.connectionId);
+        const idToken = await user.getIdToken();
+        const catalog = await ConnectionsService.searchInformationScopes({
+          idToken,
+          counterpartUserId: connection.userId,
+          limit: 50,
+        });
+        setInformationScopeQuery("");
+        setInformationScopeDraft({ connection, catalog });
+      } catch (scopeError) {
+        toast.error(
+          scopeError instanceof Error
+            ? scopeError.message
+            : "Could not load available scopes",
+        );
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [user],
+  );
+
+  const visibleInformationScopes = informationScopeDraft?.catalog.items.filter(
+    (item) => {
+      const query = informationScopeQuery.trim().toLowerCase();
+      return !query || `${item.label ?? ""} ${item.scope}`.toLowerCase().includes(query);
+    },
+  );
+
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
       if (!user) return;
@@ -399,46 +438,58 @@ export default function ConnectPageClient() {
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
-                      pendingRemoveId === connection.connectionId ? (
-                        <span className="flex shrink-0 items-center gap-1">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            effect="fill"
-                            size="sm"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => void handleRemove(connection)}
-                          >
-                            {busyId === connection.connectionId
-                              ? "Removing…"
-                              : "Confirm"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => setPendingRemoveId(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </span>
-                      ) : (
+                      <span className="flex shrink-0 items-center gap-1">
                         <Button
                           type="button"
                           variant="none"
                           effect="fade"
                           size="sm"
-                          onClick={() =>
-                            setPendingRemoveId(connection.connectionId)
-                          }
-                          aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                          className="text-muted-foreground hover:text-destructive"
+                          disabled={busyId === connection.connectionId}
+                          onClick={() => void viewInformationScopes(connection)}
                         >
-                          Remove
+                          {busyId === connection.connectionId ? "Loading…" : "Scopes"}
                         </Button>
-                      )
+                        {pendingRemoveId === connection.connectionId ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              effect="fill"
+                              size="sm"
+                              disabled={busyId === connection.connectionId}
+                              onClick={() => void handleRemove(connection)}
+                            >
+                              {busyId === connection.connectionId
+                                ? "Removing…"
+                                : "Confirm"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fade"
+                              size="sm"
+                              disabled={busyId === connection.connectionId}
+                              onClick={() => setPendingRemoveId(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="none"
+                            effect="fade"
+                            size="sm"
+                            onClick={() =>
+                              setPendingRemoveId(connection.connectionId)
+                            }
+                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </span>
                     }
                   />
                 ))
@@ -674,6 +725,65 @@ export default function ConnectPageClient() {
               {scopeDraft && busyId === scopeDraft.person.userId
                 ? "Sending…"
                 : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={informationScopeDraft !== null}
+        onOpenChange={(open) => {
+          if (!open) setInformationScopeDraft(null);
+        }}
+      >
+        <DialogContent className="gap-5">
+          <DialogHeader className="text-left">
+            <DialogTitle>Available information scopes</DialogTitle>
+            <DialogDescription>
+              {informationScopeDraft?.connection.displayName || "This person"} controls which
+              scopes appear here. This is metadata only; requesting a scope still requires their
+              explicit consent before an encrypted export can be created.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="search"
+            value={informationScopeQuery}
+            onChange={(event) => setInformationScopeQuery(event.target.value)}
+            placeholder="Search available scopes"
+            aria-label="Search available scopes"
+          />
+          <div className="max-h-[45vh] overflow-y-auto">
+            {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
+              <SettingsGroup title="Discoverable scopes" separatorInset>
+                {visibleInformationScopes.map((item) => (
+                  <SettingsRow
+                    key={item.scope}
+                    title={item.label || item.scope}
+                    description={item.scope}
+                    density="compact"
+                    disabled
+                  />
+                ))}
+              </SettingsGroup>
+            ) : (
+              <SettingsGroup title="No matching scopes" separatorInset>
+                <SettingsRow
+                  title="Nothing is available for this search"
+                  description="Private, internal, and empty scopes are never listed."
+                  density="compact"
+                  disabled
+                />
+              </SettingsGroup>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              onClick={() => setInformationScopeDraft(null)}
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

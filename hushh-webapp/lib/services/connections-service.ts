@@ -66,6 +66,20 @@ export interface ConnectionScopeProposalHistory extends ConnectionScopeProposal 
   }>;
 }
 
+export interface ConnectionInformationScope {
+  scope: string;
+  label: string | null;
+  domain: string | null;
+  path: string | null;
+  wildcard: boolean;
+  match_reason: "listed" | "exact_domain_match" | "substring_match" | "fuzzy_match";
+}
+
+export interface ConnectionInformationScopeCatalog {
+  counterpartUserId: string;
+  items: ConnectionInformationScope[];
+}
+
 function authHeaders(idToken: string): HeadersInit {
   return {
     "Content-Type": "application/json",
@@ -146,6 +160,25 @@ export class ConnectionsService {
       items: payload.items ?? [],
       offerableItems: payload.offerableItems ?? [],
     };
+  }
+
+  static async searchInformationScopes(opts: {
+    idToken: string;
+    counterpartUserId: string;
+    query?: string;
+    domain?: string;
+    limit?: number;
+  }): Promise<ConnectionInformationScopeCatalog> {
+    const params = new URLSearchParams();
+    if (opts.query) params.set("query", opts.query);
+    if (opts.domain) params.set("domain", opts.domain);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const response = await ApiService.apiFetch(
+      `/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/information-scopes?${params.toString()}`,
+      { method: "GET", headers: authHeaders(opts.idToken) },
+    );
+    const payload = await jsonOrThrow<ConnectionInformationScopeCatalog>(response);
+    return { counterpartUserId: payload.counterpartUserId, items: payload.items ?? [] };
   }
 
   static async sendRequest(opts: {
