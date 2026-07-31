@@ -964,6 +964,72 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("does not claim Location is paused when Nearby checkout fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: true,
+        consentVersion: "one-location-nearby-presence-v1",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+    mockCheckoutNearby.mockRejectedValue(new Error("checkout unavailable"));
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const pauseSwitch = await screen.findByRole("switch", {
+      name: "Pause my location",
+    });
+    fireEvent.click(pauseSwitch);
+
+    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
+    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    );
+    await waitFor(() => expect(screen.getByText("Location paused")).toBeTruthy());
+
+    mockCaptureCurrentPosition.mockClear();
+    mockCaptureCurrentPosition.mockRejectedValue(
+      new Error("fresh location unavailable"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const pauseSwitch = await screen.findByRole("switch", {
+      name: "Pause my location",
+    });
+    fireEvent.click(pauseSwitch);
+
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    expect(pauseSwitch).toHaveAttribute("aria-checked", "true");
+  });
+
   it("shows a limited status when the captured point is too approximate for Nearby", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
