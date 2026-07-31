@@ -73,6 +73,11 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // Mobile web keeps its layout viewport stable while the on-screen keyboard
+  // resizes the visual viewport. KeyboardInsetManager owns that overlap and
+  // publishes it once as --kb-height; resizes-content would double-reserve
+  // space in chat and the command palette.
+  interactiveWidget: "resizes-visual",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },

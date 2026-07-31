@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
+import * as AgentPkmAutoSavePolicy from "@/lib/agent/agent-pkm-auto-save-policy";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -110,6 +111,48 @@ describe("PkmNaturalPanel", () => {
       affectedGrantIds: [],
       affectedExportIds: [],
     });
+    vi.spyOn(AgentPkmAutoSavePolicy, "loadAgentPkmAutoSavePolicy").mockResolvedValue({
+      enabled: false,
+      version: 1,
+      enabledAt: null,
+    });
+    vi.spyOn(AgentPkmAutoSavePolicy, "saveAgentPkmAutoSavePolicy").mockImplementation(
+      async ({ enabled }) => ({
+        enabled,
+        version: 1,
+        enabledAt: enabled ? "2026-07-30T00:00:00.000Z" : null,
+      }),
+    );
+  });
+
+  it("uses the shared switch with an explicit automatic-saving state", async () => {
+    render(<PkmNaturalPanel />);
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Turn automatic memory saving on",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Off")).toBeTruthy();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(AgentPkmAutoSavePolicy.saveAgentPkmAutoSavePolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          confirmation: expect.objectContaining({
+            confirmedByUser: true,
+            source: "pkm_memory_auto_save_toggle",
+          }),
+        }),
+      ),
+    );
+    expect(
+      await screen.findByRole("switch", {
+        name: "Turn automatic memory saving off",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("On")).toBeTruthy();
   });
 
   it("loads metadata and the private memory preference before decrypting a category", async () => {
@@ -145,7 +188,7 @@ describe("PkmNaturalPanel", () => {
     expect(screen.getByTestId("memory-auto-save-group")).toBeTruthy();
     expect(screen.getByTestId("memory-auto-save-row")).toBeTruthy();
     expect(
-      screen.getByRole("switch", { name: "Automatically save eligible memories" }),
+      screen.getByRole("switch", { name: "Turn automatic memory saving on" }),
     ).toBeTruthy();
   });
 
@@ -328,16 +371,10 @@ describe("PkmNaturalPanel", () => {
     render(<PkmNaturalPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Financial" }));
     expect(
-      await screen.findByText(
-        "This change will enter the next encrypted export revision for Planner Pro."
-      )
+      await screen.findByText("This update is shared with Planner Pro.")
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Correct saved detail" }));
-    expect(
-      screen.getByText(
-        "This change will enter the next encrypted export revision for Planner Pro."
-      )
-    ).toBeTruthy();
+    expect(screen.queryByText(/encrypted export revision/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save corrected detail" }));
 
     await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalled());
