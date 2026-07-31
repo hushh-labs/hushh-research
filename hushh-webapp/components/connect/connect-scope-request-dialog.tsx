@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 
 import {
@@ -58,16 +58,27 @@ export function ConnectScopeRequestDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  // The caller hands us a fresh `getIdToken` closure on every render, so keep a
+  // stable ref to the latest one. Putting `getIdToken` in the effect deps below
+  // would re-run the effect mid-flight and cancel its own catalog fetch.
+  const getIdTokenRef = useRef(getIdToken);
+  getIdTokenRef.current = getIdToken;
+  // Whether a catalog load has already been started for the current open. This
+  // is what lets `setLoading(true)` fire without re-entering (and cancelling)
+  // the in-flight request — the classic cause of a spinner that never resolves.
+  const loadStartedRef = useRef(false);
+
   // Lazy-load the catalog the first time the dialog opens; keep it cached across
   // reopens within the same mount.
   useEffect(() => {
-    if (!open || loaded || loading) return;
+    if (!open || loaded || loadStartedRef.current) return;
+    loadStartedRef.current = true;
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     void (async () => {
       try {
-        setLoading(true);
-        setLoadError(null);
-        const idToken = await getIdToken();
+        const idToken = await getIdTokenRef.current();
         if (!idToken) throw new Error("Not signed in");
         const catalog = await ConnectionsService.listRequestableScopes({ idToken });
         if (cancelled) return;
@@ -86,8 +97,11 @@ export function ConnectScopeRequestDialog({
     })();
     return () => {
       cancelled = true;
+      // Let a later open — or React's dev StrictMode remount — retry if this
+      // attempt was torn down before it settled.
+      loadStartedRef.current = false;
     };
-  }, [open, loaded, loading, getIdToken]);
+  }, [open, loaded]);
 
   // Reset the selection whenever the dialog is dismissed so the next person
   // starts clean.
