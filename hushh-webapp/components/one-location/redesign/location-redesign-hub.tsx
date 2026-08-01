@@ -259,6 +259,7 @@ export type LocationHubViewModel = {
   renderMapPreview: (
     point: PlainLocationPoint,
     showNavigation?: boolean,
+    viewportResetKey?: string | number,
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -911,6 +912,15 @@ function LocationDetailFlow({
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
+  const [grantViewportResetKeys, setGrantViewportResetKeys] = useState<
+    Record<string, number>
+  >({});
+  const recenterGrantViewport = useCallback((grantId: string) => {
+    setGrantViewportResetKeys((current) => ({
+      ...current,
+      [grantId]: (current[grantId] ?? 0) + 1,
+    }));
+  }, []);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -976,6 +986,9 @@ function LocationDetailFlow({
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
+                  onRecenter={
+                    point ? () => recenterGrantViewport(grant.id) : undefined
+                  }
                   viewBusy={vm.busy === "view"}
                   message={
                     point?.checkIn?.message ??
@@ -983,7 +996,13 @@ function LocationDetailFlow({
                     undefined
                   }
                 >
-                  {expanded && point ? vm.renderMapPreview(point, false) : null}
+                  {expanded && point
+                    ? vm.renderMapPreview(
+                        point,
+                        false,
+                        `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
+                      )
+                    : null}
                 </SharedWithMeCard>
               );
             })}
