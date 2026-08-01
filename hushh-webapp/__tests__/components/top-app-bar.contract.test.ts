@@ -240,6 +240,13 @@ describe("Top app bar responsive contract", () => {
 
   it("keeps onboarding chrome canonical and shell-sized", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
+    const signOutItemStart = source.indexOf(
+      "onClick={() => void handleSignOut()}",
+    );
+    const signOutItemSource = source.slice(
+      signOutItemStart,
+      source.indexOf("</DropdownMenuItem>", signOutItemStart),
+    );
     const deleteItemStart = source.indexOf('variant="destructive"');
     const deleteItemSource = source.slice(
       deleteItemStart,
@@ -254,14 +261,31 @@ describe("Top app bar responsive contract", () => {
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
     expect(source).toContain('variant="destructive"');
+    expect(source).toContain(
+      'className="overflow-hidden rounded-[14px] p-1"',
+    );
+    expect(signOutItemSource).toContain("cursor-pointer");
+    expect(signOutItemSource).toContain("rounded-[10px]");
+    expect(signOutItemSource).toContain(
+      "hover:!bg-[color:var(--app-accent)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:!text-[color:var(--app-accent-fg)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-accent-fg)]",
+    );
     expect(deleteItemSource).toContain("cursor-pointer");
+    expect(deleteItemSource).toContain("rounded-[10px]");
     expect(deleteItemSource).toContain("hover:!bg-red-600");
     expect(deleteItemSource).toContain("hover:!text-white");
+    expect(deleteItemSource).toContain("hover:[&_svg]:!stroke-white");
     expect(deleteItemSource).toContain("hover:[&_svg]:!text-white");
     expect(deleteItemSource).not.toContain(
       "data-[variant=destructive]:focus:bg-popover",
     );
-    expect(source).toContain("focus-visible:ring-accent/70");
+    expect(signOutItemSource).toContain("focus-visible:ring-inset");
+    expect(deleteItemSource).toContain("focus-visible:ring-inset");
     expect(source).not.toContain(
       'className="text-red-600 focus:text-red-600"',
     );

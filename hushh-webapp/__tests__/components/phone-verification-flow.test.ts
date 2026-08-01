@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   derivePhoneFields,
+  getPhoneNumberValidationError,
+  maskPhoneNumberForOtp,
   resolvePhoneInputChange,
 } from "@/components/auth/phone-verification-flow";
 
@@ -27,7 +29,20 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
-      it("preserves empty phone input normalization stability", () => {
+
+  it("rejects an Indian trunk prefix before the provider request", () => {
+    expect(getPhoneNumberValidationError("+9108004482372")).toBe(
+      "Enter a valid 10-digit Indian mobile number without the leading 0.",
+    );
+    expect(getPhoneNumberValidationError("+918004482372")).toBeNull();
+  });
+
+  it("masks the OTP destination without exposing the country code", () => {
+    expect(maskPhoneNumberForOtp("+918004482372")).toBe("•••••• 2372");
+    expect(maskPhoneNumberForOtp("+16505550101")).toBe("•••••• 0101");
+  });
+
+  it("preserves empty phone input normalization stability", () => {
     expect(resolvePhoneInputChange("")).toEqual({
       localPhoneNumber: "",
     });

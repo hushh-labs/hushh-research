@@ -177,6 +177,42 @@ describe("PhoneVerificationFlow country selector", () => {
     });
   });
 
+  it("blocks an Indian number with an extra leading zero before Firebase", async () => {
+    const { startVerification } = renderPhoneVerificationFlow();
+
+    await selectIndiaOnce();
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
+      target: { value: "08004482372" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+
+    await waitFor(() => expect(startVerification).not.toHaveBeenCalled());
+    expect(
+      screen.getByRole("textbox", { name: "Phone number" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("textbox", { name: "One-time code" }),
+    ).toBeNull();
+  });
+
+  it("shows only the masked national number on the OTP screen", async () => {
+    renderPhoneVerificationFlow();
+
+    await selectIndiaOnce();
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
+      target: { value: "8004482372" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+
+    expect(await screen.findByText("•••••• 2372")).toBeTruthy();
+    expect(screen.queryByText(/\+91/)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "One-time code" })).toBeTruthy();
+  });
+
   it("submits both the phone number and six-digit code through their semantic forms", async () => {
     const { startVerification, confirmVerification, onCompleted } =
       renderPhoneVerificationFlow();

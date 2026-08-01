@@ -49,6 +49,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
+const INDIA_MOBILE_PATTERN = /^[6-9]\d{9}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -171,6 +172,35 @@ export function derivePhoneFields(phoneNumber?: string | null): {
       normalizedPhone.replace(/^\+\d{1,4}/, ""),
     ),
   };
+}
+
+export function getPhoneNumberValidationError(
+  phoneNumber?: string | null,
+): string | null {
+  const normalizedPhone = String(phoneNumber ?? "").trim();
+  if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
+    return "Enter a valid country code and phone number.";
+  }
+
+  const fields = derivePhoneFields(normalizedPhone);
+  if (
+    fields.countryValue === "IN" &&
+    !INDIA_MOBILE_PATTERN.test(fields.localPhoneNumber)
+  ) {
+    return "Enter a valid 10-digit Indian mobile number without the leading 0.";
+  }
+
+  return null;
+}
+
+export function maskPhoneNumberForOtp(
+  phoneNumber?: string | null,
+): string {
+  const localPhoneNumber = derivePhoneFields(phoneNumber).localPhoneNumber;
+  if (!localPhoneNumber) return "";
+  if (localPhoneNumber.length <= 4) return localPhoneNumber;
+
+  return `${"•".repeat(localPhoneNumber.length - 4)} ${localPhoneNumber.slice(-4)}`;
 }
 
 export function resolvePhoneInputChange(value: string): {
@@ -429,8 +459,9 @@ export function PhoneVerificationFlow({
       const normalizedPhone = (
         phoneNumberOverride ?? normalizedPhoneInput
       ).trim();
-      if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
-        morphyToast.error("Enter a valid country code and phone number.");
+      const validationError = getPhoneNumberValidationError(normalizedPhone);
+      if (validationError) {
+        morphyToast.error(validationError);
         return "invalid";
       }
 
@@ -876,7 +907,7 @@ export function PhoneVerificationFlow({
           <p className="text-center text-sm leading-6 text-muted-foreground">
             Enter the code sent to{" "}
             <span className="font-semibold text-foreground">
-              {maskPhoneNumber(submittedPhoneNumber)}
+              {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
             .
           </p>
