@@ -375,6 +375,31 @@ async def test_transient_backend_failures_use_stable_allowlisted_errors(
 
 
 @pytest.mark.asyncio
+async def test_revoked_grant_is_not_misreported_as_developer_auth_failure(monkeypatch) -> None:
+    calls: list[dict] = []
+    _install_client(
+        monkeypatch,
+        {"detail": {"error_code": "INVALID_CONSENT_TOKEN", "message": "private reason"}},
+        calls,
+        status_code=401,
+    )
+
+    result = _payload(
+        await tools.handle_get_encrypted_scoped_export(
+            {
+                "grant_ref": "req_0123456789abcdef0123456789ab",
+                "expected_scope": "attr.financial.portfolio.*",
+            }
+        )
+    )
+
+    assert result["error_code"] == "INVALID_CONSENT_TOKEN"
+    assert result["recoverable"] is False
+    assert "new consent approval" in result["next_action"]
+    assert "private reason" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_hosted_export_rejects_missing_inline_ciphertext(monkeypatch) -> None:
     calls: list[dict] = []
     _install_client(

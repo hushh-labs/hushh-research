@@ -91,7 +91,7 @@ def _http_error(response: httpx.Response, *, operation: str) -> ToolResult:
             code = str(candidate)
     except Exception:
         pass
-    if response.status_code == 401:
+    if response.status_code == 401 and code == "UPSTREAM_REJECTED":
         code = "AUTHENTICATION_REQUIRED"
     elif response.status_code == 403:
         code = "ACCESS_DENIED"
@@ -102,6 +102,14 @@ def _http_error(response: httpx.Response, *, operation: str) -> ToolResult:
     elif response.status_code == 504:
         code = "REQUEST_TIMEOUT"
     recoverable = response.status_code in {408, 429, 502, 503, 504}
+    if code == "INVALID_CONSENT_TOKEN":
+        return _error(
+            code,
+            "The approved grant is no longer active, so Hussh cannot release its encrypted export.",
+            recoverable=False,
+            next_action="Request a new consent approval before attempting retrieval again.",
+        )
+
     return _error(
         code,
         f"Hussh could not complete {operation}.",

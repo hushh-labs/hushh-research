@@ -780,6 +780,12 @@ async def _resolve_strict_covering_active_token(
         token_id = str(token_row.get("token_id") or "").strip()
         if not token_id:
             continue
+        # The active-token index is event based, while revocation is enforced
+        # by the consent-token store. Do not reuse an event-backed grant unless
+        # the token remains valid at the time of the request.
+        token_valid, _token_reason, _token_obj = await validate_token_with_db(token_id)
+        if not token_valid:
+            continue
         export_metadata = await service.get_consent_export_metadata(token_id)
         export_metadata_map = _metadata_object_map(export_metadata)
         if export_metadata_map.get("is_strict_zero_knowledge"):
@@ -1754,6 +1760,17 @@ async def get_mcp_consent_status(
     expires_at = _optional_int(latest.get("expires_at"))
     if lifecycle == "granted" and expires_at is not None and expires_at <= int(time.time() * 1000):
         lifecycle = "expired"
+
+    # A granted event is not sufficient authority to release information. The
+    # consent token can be revoked after that event was recorded, so validate it
+    # before this status endpoint advertises an exportable grant. Otherwise a
+    # connector sees ``granted`` here and immediately receives an invalid-token
+    # failure from the scoped-export endpoint.
+    consent_token = str(latest.get("token_id") or "").strip()
+    if lifecycle == "granted" and consent_token:
+        token_valid, token_reason, _token_obj = await validate_token_with_db(consent_token)
+        if not token_valid:
+            lifecycle = "expired" if "expired" in str(token_reason or "").lower() else "revoked"
 
     return {
         "status": lifecycle,
