@@ -1596,11 +1596,6 @@ class PersonalKnowledgeModelService:
                 .eq("domain", canonical_domain)
                 .limit(1)
             )
-            manifest_result = await self._execute_query(manifest_query)
-            if not manifest_result.data:
-                return None
-
-            manifest_row = manifest_result.data[0]
             path_query = (
                 self.supabase.table("pkm_manifest_paths")
                 .select("*")
@@ -1608,7 +1603,6 @@ class PersonalKnowledgeModelService:
                 .eq("domain", canonical_domain)
                 .order("json_path")
             )
-            path_rows = await self._execute_query(path_query)
             scope_query = (
                 self.supabase.table("pkm_scope_registry")
                 .select("*")
@@ -1616,7 +1610,23 @@ class PersonalKnowledgeModelService:
                 .eq("domain", canonical_domain)
                 .order("scope_handle")
             )
-            scope_rows = await self._execute_query(scope_query)
+            # None of these three depend on each other's results -- only the
+            # final assembly below does. They used to run one after another
+            # (3 sequential round-trips per domain, per /pkm/metadata call),
+            # which dominated that endpoint's latency for a domain with a lot
+            # of paths (e.g. financial, 695+ distinct paths already this
+            # session). Fetching path/scope rows even when the manifest turns
+            # out not to exist is a wasted query in that rare case, but worth
+            # it for the common case where the domain does exist.
+            manifest_result, path_rows, scope_rows = await asyncio.gather(
+                self._execute_query(manifest_query),
+                self._execute_query(path_query),
+                self._execute_query(scope_query),
+            )
+            if not manifest_result.data:
+                return None
+
+            manifest_row = manifest_result.data[0]
             manifest_row["paths"] = path_rows.data or []
             manifest_row["scope_registry"] = self._normalize_scope_registry_rows(
                 domain=canonical_domain,
@@ -3190,6 +3200,65 @@ class PersonalKnowledgeModelService:
         except Exception as e:
             logger.error("pkm.get_domain_data.error: %s", e)
             return None
+
+    async def domain_data_exists(
+        self,
+        user_id: str,
+        domain: str,
+        segment_ids: list[str] | None = None,
+    ) -> bool:
+        """
+        Cheap existence check for the exact same question get_domain_data
+        answers ("does this domain have a written blob"), without paying to
+        transfer the ciphertext. Callers that only needed a bool (like
+        PkmUpgradeService._build_domain_state, which just did
+        `get_domain_data(...) is not None`) were pulling the full encrypted
+        blob for every domain on every /pkm/metadata call -- fine for small
+        domains, but pushed that endpoint to 15-20s+ once a domain (e.g.
+        financial, research) grew large. Mirrors get_domain_data's exact
+        branches so the answer can never disagree with what a real fetch
+        would find.
+        """
+        try:
+            domain = self._canonicalize_domain_key(domain)
+            if not domain:
+                return False
+
+            domain_blob_result = await self._execute_query(
+                self.supabase.table("pkm_blobs")
+                .select("segment_id")
+                .eq("user_id", user_id)
+                .eq("domain", domain)
+                .order("segment_id")
+            )
+            if domain_blob_result.data:
+                rows = domain_blob_result.data
+                normalized_segment_ids = sorted(
+                    {
+                        str(segment_id or "").strip().lower()
+                        for segment_id in (segment_ids or [])
+                        if str(segment_id or "").strip()
+                    }
+                )
+                if normalized_segment_ids:
+                    rows = [
+                        row
+                        for row in rows
+                        if str(row.get("segment_id") or "root").strip().lower()
+                        in normalized_segment_ids
+                    ]
+                    return bool(rows)
+                return True
+
+            # Legacy fallback: domain exists only in the monolithic blob.
+            index = await self.get_index_v2(user_id)
+            if index is None or domain not in index.available_domains:
+                return False
+            legacy_blob = await self.get_encrypted_data(user_id)
+            return legacy_blob is not None
+        except Exception as e:
+            logger.error("pkm.domain_data_exists.error: %s", e)
+            return False
 
     async def delete_user_data(self, user_id: str) -> bool:
         """
