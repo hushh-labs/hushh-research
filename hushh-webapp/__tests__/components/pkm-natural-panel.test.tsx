@@ -209,6 +209,25 @@ describe("PkmNaturalPanel", () => {
     expect(await screen.findByText("Exact category preview")).toBeTruthy();
   });
 
+  it("refreshes the Memory viewport after this owner saves PKM elsewhere", async () => {
+    const getMetadata = vi.spyOn(PersonalKnowledgeModelService, "getMetadata");
+    render(<PkmNaturalPanel />);
+
+    await screen.findByRole("button", { name: "Open Financial" });
+    window.dispatchEvent(
+      new CustomEvent("pkm-domain-changed", {
+        detail: { userId: "reviewer", domain: "financial" },
+      }),
+    );
+
+    await waitFor(() => expect(getMetadata).toHaveBeenCalledTimes(2));
+    expect(getMetadata).toHaveBeenLastCalledWith(
+      "reviewer",
+      true,
+      "memory-only-owner-token",
+    );
+  });
+
   it("uses the canonical settings-row geometry for the automatic-memory control", async () => {
     render(<PkmNaturalPanel />);
 

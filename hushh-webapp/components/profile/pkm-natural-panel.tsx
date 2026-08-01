@@ -73,6 +73,7 @@ import {
   type PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
 import { useVault } from "@/lib/vault/vault-context";
 
 type DomainDetailState = {
@@ -122,6 +123,7 @@ export function PkmNaturalPanel({
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [activeGrants, setActiveGrants] = useState<ConsentCenterEntry[]>([]);
@@ -181,7 +183,8 @@ export function PkmNaturalPanel({
       setBootstrapError(false);
       setSharingResolved(false);
       setSharingError(null);
-      const force = refreshNonce > 0 || refreshToken > 0;
+      const force =
+        refreshNonce > 0 || refreshToken > 0 || pkmChangeRevision > 0;
       const metadataTask = PersonalKnowledgeModelService.getMetadata(
         user.uid,
         force,
@@ -223,7 +226,15 @@ export function PkmNaturalPanel({
     return () => {
       cancelled = true;
     };
-  }, [authLoading, isVaultUnlocked, refreshNonce, refreshToken, user, vaultOwnerToken]);
+  }, [
+    authLoading,
+    isVaultUnlocked,
+    pkmChangeRevision,
+    refreshNonce,
+    refreshToken,
+    user,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -443,7 +454,14 @@ export function PkmNaturalPanel({
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, selectedMetadataDomain, user, vaultKey, vaultOwnerToken]);
+  }, [
+    isVaultUnlocked,
+    pkmChangeRevision,
+    selectedMetadataDomain,
+    user,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -470,7 +488,13 @@ export function PkmNaturalPanel({
     return () => {
       cancelled = true;
     };
-  }, [user, vaultOwnerToken, visibleMetadataDomains, workspaceTab]);
+  }, [
+    pkmChangeRevision,
+    user,
+    vaultOwnerToken,
+    visibleMetadataDomains,
+    workspaceTab,
+  ]);
 
   function resetMemoryActionState() {
     setEditingCardId(null);
