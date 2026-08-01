@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -66,6 +68,25 @@ COORDINATE_METADATA_KEYS = {
 }
 LOCATION_TERMINAL_RETENTION_HOURS = 12
 ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
+LOCATION_ENVELOPE_ALGORITHM = "ECDH-P256-AES256-GCM"
+LOCATION_ENVELOPE_CIPHERTEXT_MAX_CHARS = 131_072
+LOCATION_ENVELOPE_METADATA_MAX_BYTES = 8_192
+LOCATION_ENVELOPE_JWK_MAX_BYTES = 4_096
+LOCATION_ENVELOPE_MAX_BYTES = 160_000
+LOCATION_ENVELOPE_MAX_CAPTURE_AGE_SECONDS = 300
+APPROXIMATE_AREA_MIN_UPDATE_SECONDS = 300
+LOCATION_ENVELOPE_ALLOWED_FIELDS = {
+    "algorithm",
+    "recipientKeyId",
+    "ciphertext",
+    "iv",
+    "senderEphemeralPublicKeyJwk",
+    "capturedAt",
+    "sourcePlatform",
+    "publicationContext",
+    "metadata",
+}
+LOCATION_ENVELOPE_PUBLIC_JWK_ALLOWED_FIELDS = {"kty", "crv", "x", "y", "key_ops", "ext"}
 
 
 def _validated_location_precision(
@@ -81,6 +102,39 @@ def _validated_location_precision(
             status_code=422,
         ) from exc
     return mode, radius
+
+
+def _validated_uuid(value: Any, *, field_name: str) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise OneLocationAgentError(
+            "LOCATION_REQUEST_ID_INVALID",
+            f"{field_name} must be a valid UUID.",
+            status_code=422,
+        ) from exc
+
+
+def _decode_base64url(value: Any, *, field_name: str, max_chars: int) -> bytes:
+    if not isinstance(value, str) or not value or len(value) > max_chars:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            f"{field_name} is invalid or too large.",
+            status_code=422,
+        )
+    try:
+        padding = "=" * (-len(value) % 4)
+        return base64.b64decode(
+            value + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            f"{field_name} must be valid base64url.",
+            status_code=422,
+        ) from exc
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -204,7 +258,38 @@ def _validated_envelope_fields(
 ) -> dict[str, Any]:
     """Validate a client-encrypted location envelope without decrypting it."""
 
-    if _contains_plaintext_location_key(envelope.get("metadata")):
+    if not isinstance(envelope, dict):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "Encrypted envelope must be an object.",
+            status_code=422,
+        )
+    try:
+        serialized_envelope = json.dumps(envelope, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "Encrypted envelope must contain JSON values only.",
+            status_code=422,
+        ) from exc
+    if (
+        len(serialized_envelope.encode("utf-8")) > LOCATION_ENVELOPE_MAX_BYTES
+        or set(envelope) - LOCATION_ENVELOPE_ALLOWED_FIELDS
+    ):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "Encrypted envelope is too large or contains unsupported fields.",
+            status_code=422,
+        )
+    raw_metadata = envelope.get("metadata")
+    metadata = {} if raw_metadata is None else raw_metadata
+    if not isinstance(metadata, dict):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_METADATA_INVALID",
+            "Envelope metadata must be an object.",
+            status_code=422,
+        )
+    if _contains_plaintext_location_key(metadata):
         raise OneLocationAgentError(
             "LOCATION_ENVELOPE_METADATA_INVALID",
             "Envelope metadata must not contain coordinates or map details.",
@@ -223,6 +308,78 @@ def _validated_envelope_fields(
                 f"Encrypted envelope is missing {field}.",
                 status_code=422,
             )
+    algorithm = str(envelope.get("algorithm") or LOCATION_ENVELOPE_ALGORITHM)
+    if algorithm != LOCATION_ENVELOPE_ALGORITHM:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_ALGORITHM_INVALID",
+            "Encrypted envelope algorithm is not supported.",
+            status_code=422,
+        )
+    ciphertext = str(envelope.get("ciphertext") or "")
+    ciphertext_bytes = _decode_base64url(
+        envelope.get("ciphertext"),
+        field_name="ciphertext",
+        max_chars=LOCATION_ENVELOPE_CIPHERTEXT_MAX_CHARS,
+    )
+    if len(ciphertext_bytes) < 16:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "ciphertext is too short.",
+            status_code=422,
+        )
+    iv = str(envelope.get("iv") or "")
+    iv_bytes = _decode_base64url(envelope.get("iv"), field_name="iv", max_chars=64)
+    if len(iv_bytes) != 12:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "iv must contain exactly 12 bytes.",
+            status_code=422,
+        )
+    sender_jwk = envelope.get("senderEphemeralPublicKeyJwk")
+    if not isinstance(sender_jwk, dict):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "senderEphemeralPublicKeyJwk must be a public P-256 key.",
+            status_code=422,
+        )
+    sender_key = json.dumps(sender_jwk, sort_keys=True, separators=(",", ":"))
+    if (
+        len(sender_key.encode("utf-8")) > LOCATION_ENVELOPE_JWK_MAX_BYTES
+        or bool(set(sender_jwk) - LOCATION_ENVELOPE_PUBLIC_JWK_ALLOWED_FIELDS)
+        or sender_jwk.get("kty") != "EC"
+        or sender_jwk.get("crv") != "P-256"
+        or "d" in sender_jwk
+    ):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_INVALID",
+            "senderEphemeralPublicKeyJwk must be a public P-256 key.",
+            status_code=422,
+        )
+    for coordinate in ("x", "y"):
+        coordinate_bytes = _decode_base64url(
+            sender_jwk.get(coordinate),
+            field_name=f"senderEphemeralPublicKeyJwk.{coordinate}",
+            max_chars=64,
+        )
+        if len(coordinate_bytes) != 32:
+            raise OneLocationAgentError(
+                "LOCATION_ENVELOPE_INVALID",
+                f"senderEphemeralPublicKeyJwk.{coordinate} is invalid.",
+                status_code=422,
+            )
+    metadata_json = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+    if len(metadata_json.encode("utf-8")) > LOCATION_ENVELOPE_METADATA_MAX_BYTES:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_METADATA_INVALID",
+            "Envelope metadata is too large.",
+            status_code=422,
+        )
+    if not recipient_key_id or len(recipient_key_id) > 160:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_KEY_MISMATCH",
+            "Envelope recipient key is invalid.",
+            status_code=422,
+        )
     if str(envelope.get("recipientKeyId") or recipient_key_id) != recipient_key_id:
         raise OneLocationAgentError(
             "LOCATION_ENVELOPE_KEY_MISMATCH",
@@ -241,21 +398,17 @@ def _validated_envelope_fields(
             status_code=422,
         )
     return {
-        "algorithm": str(envelope.get("algorithm") or "ECDH-P256-AES256-GCM"),
-        "ciphertext": str(envelope.get("ciphertext") or ""),
-        "iv": str(envelope.get("iv") or ""),
-        "sender_key": json.dumps(
-            envelope.get("senderEphemeralPublicKeyJwk"),
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
+        "algorithm": algorithm,
+        "ciphertext": ciphertext,
+        "iv": iv,
+        "sender_key": sender_key,
         "captured_at": _parse_datetime(
             envelope.get("capturedAt"),
             field_name="capturedAt",
         ),
         "source_platform": normalize_source_platform(envelope.get("sourcePlatform")),
         "publication_context": publication_context,
-        "metadata_json": _json_param(envelope.get("metadata") or {}),
+        "metadata_json": metadata_json,
     }
 
 
@@ -302,28 +455,37 @@ def _private_share_operation_fingerprint(
     approximate_radius_m: int | None,
     confirmed_at: datetime,
     envelope_fields: dict[str, Any],
+    approval_request_id: str | None = None,
+    include_precision: bool = True,
 ) -> str:
     """Bind an idempotency key to the exact consented request and ciphertext."""
 
+    fingerprint_payload = {
+        "recipient_user_id": recipient_user_id,
+        "recipient_key_id": recipient_key_id,
+        "duration_hours": duration_hours,
+        "reason": reason or "",
+        "share_kind": share_kind,
+        "confirmed_at": confirmed_at.isoformat(),
+        "algorithm": envelope_fields["algorithm"],
+        "ciphertext": envelope_fields["ciphertext"],
+        "iv": envelope_fields["iv"],
+        "sender_key": envelope_fields["sender_key"],
+        "captured_at": envelope_fields["captured_at"].isoformat(),
+        "source_platform": envelope_fields["source_platform"],
+        "publication_context": envelope_fields["publication_context"],
+        "metadata_json": envelope_fields["metadata_json"],
+    }
+    if include_precision:
+        fingerprint_payload["location_mode"] = location_mode
+        fingerprint_payload["approximate_radius_m"] = approximate_radius_m
+    # Preserve fingerprints already issued by the generic atomic-share path.
+    # Request approval is a new authority boundary, so only approval operations
+    # bind the request id into their otherwise identical idempotency payload.
+    if approval_request_id:
+        fingerprint_payload["approval_request_id"] = approval_request_id
     canonical = json.dumps(
-        {
-            "recipient_user_id": recipient_user_id,
-            "recipient_key_id": recipient_key_id,
-            "duration_hours": duration_hours,
-            "reason": reason or "",
-            "share_kind": share_kind,
-            "location_mode": location_mode,
-            "approximate_radius_m": approximate_radius_m,
-            "confirmed_at": confirmed_at.isoformat(),
-            "algorithm": envelope_fields["algorithm"],
-            "ciphertext": envelope_fields["ciphertext"],
-            "iv": envelope_fields["iv"],
-            "sender_key": envelope_fields["sender_key"],
-            "captured_at": envelope_fields["captured_at"].isoformat(),
-            "source_platform": envelope_fields["source_platform"],
-            "publication_context": envelope_fields["publication_context"],
-            "metadata_json": envelope_fields["metadata_json"],
-        },
+        fingerprint_payload,
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -1933,6 +2095,11 @@ class OneLocationAgentService:
             "requesterUserId": str(row.get("requester_user_id") or ""),
             "requesterDisplayName": str(row.get("requester_display_name") or "") or None,
             "requesterMaskedPhone": _mask_phone(row.get("requester_phone_number")),
+            "requesterKeyId": str(row.get("requester_key_id") or "") or None,
+            "requesterPublicKeyJwk": _loads_json(row.get("requester_public_key_jwk")),
+            "requesterKeyAlgorithm": str(
+                row.get("requester_key_algorithm") or "ECDH-P256-AES256-GCM"
+            ),
             "referredByUserId": str(row.get("referred_by_user_id") or "") or None,
             "status": str(row.get("status") or "pending"),
             "message": str(row.get("message") or "") or None,
@@ -3579,6 +3746,7 @@ class OneLocationAgentService:
         approximate_radius_m: int | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
+        approval_request_id: str | None = None,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
 
@@ -3596,6 +3764,11 @@ class OneLocationAgentService:
                 "A valid private-share operation id is required.",
                 status_code=422,
             )
+        normalized_approval_request_id = (
+            _validated_uuid(approval_request_id, field_name="approvalRequestId")
+            if approval_request_id
+            else ""
+        )
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
@@ -3658,6 +3831,23 @@ class OneLocationAgentService:
             approximate_radius_m=radius,
             confirmed_at=confirmed_at_value,
             envelope_fields=envelope_fields,
+            approval_request_id=normalized_approval_request_id or None,
+        )
+        legacy_operation_fingerprint = (
+            _private_share_operation_fingerprint(
+                recipient_user_id=recipient_user_id,
+                recipient_key_id=key_id,
+                duration_hours=duration,
+                reason=stored_reason,
+                share_kind=resolved_kind,
+                location_mode=mode,
+                approximate_radius_m=radius,
+                confirmed_at=confirmed_at_value,
+                envelope_fields=envelope_fields,
+                include_precision=False,
+            )
+            if not normalized_approval_request_id and mode == "precise" and radius is None
+            else None
         )
         grant_id, envelope_id = _atomic_private_share_ids(
             owner_user_id=owner_user_id,
@@ -3681,13 +3871,30 @@ class OneLocationAgentService:
                 "confirmed_at": confirmed_at_value.isoformat(),
                 "location_mode": mode,
                 "approximate_radius_m": radius,
+                "approval_request_id": normalized_approval_request_id or None,
             }
         )
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
             mutation_sql="""
-            WITH replayed_grant AS MATERIALIZED (
+            WITH approval_request AS MATERIALIZED (
+              SELECT r.*
+              FROM one_location_access_requests r
+              WHERE r.id = CAST(NULLIF(:approval_request_id, '') AS UUID)
+                AND r.owner_user_id = :owner_user_id
+                AND r.requester_user_id = :recipient_user_id
+                AND (
+                  r.status = 'pending'
+                  OR (
+                    r.status = 'approved'
+                    AND r.approved_grant_id = CAST(:grant_id AS UUID)
+                  )
+                )
+              LIMIT 1
+              FOR UPDATE
+            ),
+            replayed_grant AS MATERIALIZED (
               SELECT g.*
               FROM one_location_share_grants g
               WHERE g.id = CAST(:grant_id AS UUID)
@@ -3712,6 +3919,10 @@ class OneLocationAgentService:
               WHERE a.user_id = :recipient_user_id
                 AND k.key_id = :recipient_key_id
                 AND k.status = 'active'
+                AND (
+                  COALESCE(:approval_request_id, '') = ''
+                  OR EXISTS (SELECT 1 FROM approval_request)
+                )
                 AND (
                   CAST(:require_phone_verified AS BOOLEAN) IS FALSE
                   OR a.phone_verified = TRUE
@@ -3807,6 +4018,26 @@ class OneLocationAgentService:
               WHERE g.id = e.grant_id
               RETURNING g.*
             ),
+            resolved_request AS (
+              UPDATE one_location_access_requests r
+              SET status = 'approved',
+                  resolved_at = NOW(),
+                  approved_grant_id = g.id
+              FROM completed_grant g
+              WHERE r.id = CAST(NULLIF(:approval_request_id, '') AS UUID)
+                AND r.owner_user_id = :owner_user_id
+                AND r.requester_user_id = :recipient_user_id
+                AND r.status = 'pending'
+              RETURNING r.*
+            ),
+            selected_request AS (
+              SELECT r.* FROM resolved_request r
+              UNION ALL
+              SELECT r.*
+              FROM approval_request r
+              WHERE r.status = 'approved'
+                AND r.approved_grant_id = CAST(:grant_id AS UUID)
+            ),
             created_grant_event AS (
               INSERT INTO one_location_events (
                 owner_user_id, actor_user_id, recipient_user_id, grant_id,
@@ -3839,6 +4070,22 @@ class OneLocationAgentService:
               FROM created_envelope e
               RETURNING id
             ),
+            created_approval_event AS (
+              INSERT INTO one_location_events (
+                owner_user_id, actor_user_id, recipient_user_id, grant_id,
+                request_id, event_type, metadata, created_at
+              )
+              SELECT
+                r.owner_user_id, r.owner_user_id, r.requester_user_id,
+                r.approved_grant_id, r.id, 'location_access_approved',
+                jsonb_build_object(
+                  'duration_hours', :duration_hours,
+                  'location_mode', :location_mode
+                ),
+                NOW()
+              FROM resolved_request r
+              RETURNING id
+            ),
             selected_grant AS (
               SELECT g.*, TRUE AS idempotent_replay
               FROM replayed_grant g
@@ -3861,6 +4108,11 @@ class OneLocationAgentService:
                 )
               ) AS grant_row,
               to_jsonb(e.*) AS envelope_row,
+              (
+                SELECT to_jsonb(r.*)
+                FROM selected_request r
+                LIMIT 1
+              ) AS request_row,
               g.idempotent_replay,
               EXISTS (
                 SELECT 1
@@ -3880,6 +4132,7 @@ class OneLocationAgentService:
                 "owner_user_id": owner_user_id,
                 "recipient_user_id": recipient_user_id,
                 "recipient_key_id": key_id,
+                "approval_request_id": normalized_approval_request_id,
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
                 "expires_at": expires_at,
@@ -3925,6 +4178,12 @@ class OneLocationAgentService:
                 recipient_key_id=key_id,
                 require_phone_verified=require_recipient_phone_verified,
             )
+            if normalized_approval_request_id:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
             raise OneLocationAgentError(
                 "LOCATION_ATOMIC_SHARE_FAILED",
                 "Could not save the private location share.",
@@ -3933,10 +4192,17 @@ class OneLocationAgentService:
 
         raw_grant = _loads_json(row.get("grant_row"))
         raw_envelope = _loads_json(row.get("envelope_row"))
+        raw_request = _loads_json(row.get("request_row"))
         if not isinstance(raw_grant, dict) or not isinstance(raw_envelope, dict):
             raise OneLocationAgentError(
                 "LOCATION_ATOMIC_SHARE_FAILED",
                 "Could not read the saved private location share.",
+                status_code=500,
+            )
+        if normalized_approval_request_id and not isinstance(raw_request, dict):
+            raise OneLocationAgentError(
+                "LOCATION_ATOMIC_SHARE_FAILED",
+                "Could not read the approved location request.",
                 status_code=500,
             )
         stored_metadata = _loads_json(raw_grant.get("metadata"))
@@ -3945,7 +4211,10 @@ class OneLocationAgentService:
             if isinstance(stored_metadata, dict)
             else ""
         )
-        if stored_fingerprint != operation_fingerprint:
+        accepted_fingerprints = {operation_fingerprint}
+        if legacy_operation_fingerprint:
+            accepted_fingerprints.add(legacy_operation_fingerprint)
+        if stored_fingerprint not in accepted_fingerprints:
             raise OneLocationAgentError(
                 "LOCATION_OPERATION_CONFLICT",
                 "This private-share operation id was already used for different details.",
@@ -3954,6 +4223,9 @@ class OneLocationAgentService:
 
         grant = self._grant_payload(raw_grant)
         envelope_payload = self._envelope_payload(raw_envelope)
+        request_payload = (
+            self._request_payload(raw_request) if isinstance(raw_request, dict) else None
+        )
         if not grant or not envelope_payload:
             raise OneLocationAgentError(
                 "LOCATION_ATOMIC_SHARE_FAILED",
@@ -3988,19 +4260,46 @@ class OneLocationAgentService:
 
         idempotent_replay = bool(row.get("idempotent_replay"))
         if not idempotent_replay:
-            self._send_location_share_created_notification(
-                grant=grant,
-                owner_user_id=owner_user_id,
-                recipient_user_id=recipient_user_id,
-                duration=duration,
-                reason=stored_reason,
-                resolved_kind=resolved_kind,
-            )
-        return {
+            if normalized_approval_request_id:
+                owner_identity = self._identity_row(owner_user_id)
+                owner_label = _identity_notification_label(owner_identity)
+                self._send_metadata_notification(
+                    user_id=recipient_user_id,
+                    notification_type="location_access_approved",
+                    title="Location request approved",
+                    body=f"{owner_label} approved your location request.",
+                    notification_tag=(f"one-location-approved:{normalized_approval_request_id}"),
+                    request_url=_one_location_url(
+                        requestId=normalized_approval_request_id,
+                        grantId=grant["id"],
+                        locationNotification="opened",
+                        section="shared",
+                    ),
+                    data={
+                        "request_id": normalized_approval_request_id,
+                        "grant_id": grant["id"],
+                        "owner_user_id": owner_user_id,
+                        "owner_display_label": owner_label,
+                        "location_mode": mode,
+                    },
+                )
+            else:
+                self._send_location_share_created_notification(
+                    grant=grant,
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=recipient_user_id,
+                    duration=duration,
+                    reason=stored_reason,
+                    resolved_kind=resolved_kind,
+                )
+        result = {
             "grant": grant,
             "envelope": envelope_payload,
             "idempotentReplay": idempotent_replay,
         }
+        if request_payload:
+            result["request"] = request_payload
+        return result
 
     def store_encrypted_envelope(
         self,
@@ -4063,10 +4362,15 @@ class OneLocationAgentService:
             return envelope_payload
         grant_row = self._execute_one(
             """
-            SELECT *
-            FROM one_location_share_grants
-            WHERE id = CAST(:grant_id AS UUID)
-              AND owner_user_id = :owner_user_id
+            SELECT
+              g.*,
+              latest.captured_at AS latest_captured_at,
+              latest.created_at AS latest_created_at
+            FROM one_location_share_grants g
+            LEFT JOIN one_location_envelopes latest
+              ON latest.id = g.latest_envelope_id
+            WHERE g.id = CAST(:grant_id AS UUID)
+              AND g.owner_user_id = :owner_user_id
             LIMIT 1
             """,
             {"owner_user_id": owner_user_id, "grant_id": grant_id},
@@ -4103,7 +4407,47 @@ class OneLocationAgentService:
         envelope_fields = _validated_envelope_fields(
             envelope,
             recipient_key_id=recipient_key_id,
+            require_captured_at=True,
         )
+        now = _utcnow()
+        if envelope_fields["captured_at"] > now + timedelta(seconds=30):
+            raise OneLocationAgentError(
+                "LOCATION_ENVELOPE_TIMESTAMP_INVALID",
+                "This location update was captured in the future.",
+                status_code=422,
+            )
+        if now - envelope_fields["captured_at"] > timedelta(
+            seconds=LOCATION_ENVELOPE_MAX_CAPTURE_AGE_SECONDS
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_ENVELOPE_STALE",
+                "This location update is too old to publish.",
+                status_code=409,
+            )
+        latest_captured_at = grant_row.get("latest_captured_at")
+        if latest_captured_at is not None:
+            previous_capture = _parse_datetime(
+                latest_captured_at,
+                field_name="latest_captured_at",
+            )
+            if envelope_fields["captured_at"] < previous_capture:
+                raise OneLocationAgentError(
+                    "LOCATION_ENVELOPE_STALE",
+                    "This location update is older than the latest saved update.",
+                    status_code=409,
+                )
+        latest_created_at = grant_row.get("latest_created_at")
+        if mode == "approximate" and latest_created_at is not None:
+            previous_created = _parse_datetime(
+                latest_created_at,
+                field_name="latest_created_at",
+            )
+            if now - previous_created < timedelta(seconds=APPROXIMATE_AREA_MIN_UPDATE_SECONDS):
+                raise OneLocationAgentError(
+                    "LOCATION_AREA_UPDATE_TOO_SOON",
+                    "Area updates are limited to about once every five minutes.",
+                    status_code=429,
+                )
         row = self._execute_one(
             """
             INSERT INTO one_location_envelopes (
@@ -5123,9 +5467,29 @@ class OneLocationAgentService:
             SELECT
               req.*,
               requester.display_name AS requester_display_name,
-              requester.phone_number AS requester_phone_number
+              requester.phone_number AS requester_phone_number,
+              CASE
+                WHEN req.owner_user_id = :user_id AND req.status = 'pending'
+                THEN requester_key.key_id
+              END AS requester_key_id,
+              CASE
+                WHEN req.owner_user_id = :user_id AND req.status = 'pending'
+                THEN requester_key.public_key_jwk
+              END AS requester_public_key_jwk,
+              CASE
+                WHEN req.owner_user_id = :user_id AND req.status = 'pending'
+                THEN requester_key.algorithm
+              END AS requester_key_algorithm
             FROM one_location_access_requests req
             LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk, algorithm
+              FROM one_location_recipient_keys
+              WHERE user_id = req.requester_user_id
+                AND status = 'active'
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) requester_key ON TRUE
             WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
             ORDER BY req.requested_at DESC
             LIMIT 50
@@ -5484,14 +5848,21 @@ class OneLocationAgentService:
         owner_user_id: str,
         request_id: str,
         duration_hours: float,
+        recipient_key_id: str,
+        client_operation_id: str,
+        confirmed_at: datetime | str,
+        envelope: dict[str, Any],
+        location_mode: str,
+        approximate_radius_m: int | None,
     ) -> dict[str, Any]:
+        request_id = _validated_uuid(request_id, field_name="requestId")
         request_row = self._execute_one(
             """
             SELECT *
             FROM one_location_access_requests
             WHERE id = CAST(:request_id AS UUID)
               AND owner_user_id = :owner_user_id
-              AND status = 'pending'
+              AND status IN ('pending', 'approved')
             LIMIT 1
             """,
             {"owner_user_id": owner_user_id, "request_id": request_id},
@@ -5503,58 +5874,72 @@ class OneLocationAgentService:
                 status_code=404,
             )
         requester_user_id = str(request_row.get("requester_user_id") or "")
-        grant = self.create_grant(
+        return self.create_grant_with_initial_envelope(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
-            recipient_key_id=None,
+            recipient_key_id=recipient_key_id,
             duration_hours=duration_hours,
+            client_operation_id=client_operation_id,
+            confirmed_at=confirmed_at,
+            envelope=envelope,
             reason="request_approved",
+            share_kind="share",
+            location_mode=location_mode,
+            approximate_radius_m=approximate_radius_m,
             require_recipient_phone_verified=False,
+            enforce_connection=False,
+            approval_request_id=request_id,
         )
-        resolved = self._execute_one(
+
+    def get_pending_access_request(
+        self,
+        *,
+        owner_user_id: str,
+        request_id: str,
+    ) -> dict[str, Any]:
+        """Resolve one owner-visible pending request without list pagination."""
+        normalized_request_id = _validated_uuid(request_id, field_name="requestId")
+        row = self._execute_one(
             """
-            UPDATE one_location_access_requests
-            SET status = 'approved',
-                resolved_at = NOW(),
-                approved_grant_id = CAST(:grant_id AS UUID)
-            WHERE id = CAST(:request_id AS UUID)
-            RETURNING *
+            SELECT
+              req.*,
+              requester.display_name AS requester_display_name,
+              requester.phone_number AS requester_phone_number,
+              requester_key.key_id AS requester_key_id,
+              requester_key.public_key_jwk AS requester_public_key_jwk,
+              requester_key.algorithm AS requester_key_algorithm
+            FROM one_location_access_requests req
+            LEFT JOIN actor_identity_cache requester
+              ON requester.user_id = req.requester_user_id
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk, algorithm
+              FROM one_location_recipient_keys
+              WHERE user_id = req.requester_user_id
+                AND status = 'active'
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) requester_key ON TRUE
+            WHERE req.id = CAST(:request_id AS UUID)
+              AND req.owner_user_id = :owner_user_id
+              AND req.status = 'pending'
+            LIMIT 1
             """,
-            {"request_id": request_id, "grant_id": grant["id"]},
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            grant_id=grant["id"],
-            request_id=request_id,
-            event_type="location_access_approved",
-            metadata={"duration_hours": normalize_duration_hours(duration_hours)},
-        )
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
-        self._send_metadata_notification(
-            user_id=requester_user_id,
-            notification_type="location_access_approved",
-            title="Location request approved",
-            body=f"{owner_label} approved your location request.",
-            notification_tag=f"one-location-approved:{request_id}",
-            request_url=_one_location_url(
-                requestId=request_id,
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
-            data={
-                "request_id": request_id,
-                "grant_id": grant["id"],
+            {
                 "owner_user_id": owner_user_id,
-                "owner_display_label": owner_label,
+                "request_id": normalized_request_id,
             },
         )
-        return {"request": self._request_payload(resolved), "grant": grant}
+        request = self._request_payload(row)
+        if not request:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND",
+                "Pending location access request was not found.",
+                status_code=404,
+            )
+        return request
 
     def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
+        request_id = _validated_uuid(request_id, field_name="requestId")
         row = self._execute_one(
             """
             UPDATE one_location_access_requests

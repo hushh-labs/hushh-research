@@ -19,6 +19,7 @@ ALTER TABLE one_location_share_grants
     OR
     (
       location_mode = 'approximate'
+      AND approximate_radius_m IS NOT NULL
       AND approximate_radius_m BETWEEN 1000 AND 20000
       AND approximate_radius_m % 250 = 0
     )

@@ -71,7 +71,8 @@ export function TrustedPersonCard({
       className={cn(
         SUBCARD_SURFACE,
         "flex items-center gap-3 p-3.5",
-        selected && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+        selected &&
+          "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
       )}
     >
       <Avatar initials={initialsFrom(name)} />
@@ -249,6 +250,7 @@ export function RequestCard({
 export function SharedWithMeCard({
   name,
   statusLine,
+  statusLabel = "Live",
   onView,
   onDismiss,
   mapHref,
@@ -259,6 +261,7 @@ export function SharedWithMeCard({
 }: {
   name: string;
   statusLine: string;
+  statusLabel?: string;
   onView: () => void;
   onDismiss?: () => void;
   mapHref?: string;
@@ -290,7 +293,7 @@ export function SharedWithMeCard({
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
             <StatusPill tone="live" className="shrink-0">
-              Live
+              {statusLabel}
             </StatusPill>
           </div>
         </div>
@@ -320,9 +323,7 @@ export function SharedWithMeCard({
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
       </div>
-      {message ? (
-        <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
-      ) : null}
+      {message ? <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p> : null}
       <div className="grid grid-cols-1 gap-2">
         {canOpenMap ? (
           <Button
@@ -372,11 +373,15 @@ export function TemporaryLinkCard({
   title: string;
   statusLine: string;
   expiryLabel?: string;
-  onCopy: () => void;
-  onShare: () => void;
-  onRevoke: () => void;
+  onCopy?: () => void;
+  onShare?: () => void;
+  onRevoke?: () => void;
   revokeBusy?: boolean;
 }) {
+  const actionCount =
+    Number(Boolean(onCopy)) +
+    Number(Boolean(onShare)) +
+    Number(Boolean(onRevoke));
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-start gap-3">
@@ -393,36 +398,51 @@ export function TemporaryLinkCard({
             </p>
           ) : null}
         </div>
-        <StatusPill tone="live">Live</StatusPill>
+        <StatusPill tone="neutral">Active</StatusPill>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onCopy}
-          className="h-9 rounded-full text-sm"
-        >
-          <Copy className="mr-1 h-3.5 w-3.5" />
-          Copy
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onShare}
-          className="h-9 rounded-full text-sm"
-        >
-          <Share2 className="mr-1 h-3.5 w-3.5" />
-          Share
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={onRevoke}
-          isLoading={revokeBusy}
-          className="h-9 rounded-full text-sm"
-        >
-          Revoke
-        </Button>
+      <div
+        className={cn(
+          "grid gap-2",
+          actionCount >= 3
+            ? "grid-cols-3"
+            : actionCount === 2
+              ? "grid-cols-2"
+              : "grid-cols-1",
+        )}
+      >
+        {onCopy ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCopy}
+            className="h-9 rounded-full text-sm"
+          >
+            <Copy className="mr-1 h-3.5 w-3.5" />
+            Copy
+          </Button>
+        ) : null}
+        {onShare ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onShare}
+            className="h-9 rounded-full text-sm"
+          >
+            <Share2 className="mr-1 h-3.5 w-3.5" />
+            Share
+          </Button>
+        ) : null}
+        {onRevoke ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={onRevoke}
+            isLoading={revokeBusy}
+            className="h-9 rounded-full text-sm"
+          >
+            Revoke
+          </Button>
+        ) : null}
       </div>
     </div>
   );

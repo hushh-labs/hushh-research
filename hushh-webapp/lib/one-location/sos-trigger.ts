@@ -12,8 +12,19 @@ import {
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { locationCommitStrictlyMatches } from "@/lib/one-location/location-precision";
+import { boundedLocationOperationId } from "@/lib/one-location/location-operation-id";
+import {
+  assertLocationActionNotPaused,
+  assertPreciseLocationActionAllowed,
+} from "@/lib/one-location/location-action-guard";
+import {
+  enableOneLocationAutomaticUpdates,
+  readOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
+import { createRequestId } from "@/lib/observability/request-id";
 import type {
-  OneLocationGrant,
+  OneLocationEncryptedEnvelope,
   OneLocationNetworkConnection,
   OneLocationRecipient,
   PlainLocationPoint,
@@ -127,33 +138,29 @@ export function selectSmsRecipients(
 // ---------------------------------------------------------------------------
 
 export interface RunSosPanicParams {
+  userId: string;
   vaultOwnerToken: string;
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
   /** Optional short message shown in the recipient notification. */
   note?: string | null;
-  /**
-   * Caller-supplied publish function so the core stays decoupled from the
-   * encrypt+store implementation (and is therefore easy to unit-test).
-   */
-  publish: (
-    grant: OneLocationGrant,
+  operationId?: string;
+  /** Prepare recipient ciphertext before the atomic grant commit. */
+  prepareEnvelope: (
     recipient: SosShareReadyRecipient,
     point: PlainLocationPoint,
-  ) => Promise<void>;
+  ) => Promise<OneLocationEncryptedEnvelope>;
 }
 
 /**
- * Creates one 8-hour SOS grant per recipient, publishes an encrypted location
- * envelope, persists the incident to localStorage, and returns it.
- *
- * Grant ids are pushed to the partial list BEFORE the corresponding publish
- * call so that a partial incident (publish failure mid-loop) still contains
- * every grant id that was created and can be revoked by handleStopSos.
+ * Creates one atomic 8-hour SOS grant plus initial encrypted envelope per
+ * recipient, persists the incident to localStorage, and returns it. Ciphertext
+ * preparation happens first, so a failed recipient never receives an empty
+ * permission.
  *
  * On full or partial success the incident is written via `saveSosIncident`.
- * On total failure (first grant creation throws) nothing is persisted and a
+ * On total failure (first atomic commit throws) nothing is persisted and a
  * SosPanicError with partialIncident === null is thrown.
  *
  * @throws {SosPanicError} Always on failure — carries the partial incident
@@ -162,7 +169,8 @@ export interface RunSosPanicParams {
 export async function runSosPanic(
   params: RunSosPanicParams,
 ): Promise<SosIncident> {
-  const { vaultOwnerToken, recipients, point, publish, note } = params;
+  const { userId, vaultOwnerToken, recipients, point, prepareEnvelope, note } =
+    params;
   const normalizedNote = note?.trim() || null;
 
   if (
@@ -175,26 +183,95 @@ export async function runSosPanic(
   if (!recipients.length) {
     throw new SosPanicError("No SMS contacts provided.", null);
   }
+  try {
+    assertLocationActionNotPaused(userId);
+  } catch (error) {
+    throw new SosPanicError(
+      error instanceof Error ? error.message : String(error),
+      null,
+    );
+  }
 
   // Capture a single timestamp used for both the success incident and any
   // partial incident — prevents clock skew between the two code paths.
   const startedAt = new Date().toISOString();
+  const operationId = params.operationId?.trim() || createRequestId();
   const grantIds: string[] = [];
+  const failures: string[] = [];
 
   try {
     for (const recipient of recipients) {
-      const grant = await OneLocationService.createGrant({
-        vaultOwnerToken,
-        recipientUserId: recipient.userId,
-        recipientKeyId: recipient.keyId,
-        durationHours: 8,
-        reason: normalizedNote || "sos_panic",
-        shareKind: "sos",
-      });
-      // Record the grant id BEFORE publish so it is never orphaned even if
-      // publish throws for this or a later recipient.
-      grantIds.push(grant.id);
-      await publish(grant, recipient, point);
+      try {
+        await assertPreciseLocationActionAllowed(userId);
+        const envelope = await prepareEnvelope(recipient, point);
+        await assertPreciseLocationActionAllowed(userId);
+        const response = await OneLocationService.createGrantWithEnvelope({
+          vaultOwnerToken,
+          recipientUserId: recipient.userId,
+          recipientKeyId: recipient.keyId,
+          durationHours: 8,
+          clientOperationId: boundedLocationOperationId(
+            "sos",
+            operationId,
+            recipient.userId,
+          ),
+          confirmedAt: startedAt,
+          envelope,
+          reason: normalizedNote || "sos_panic",
+          shareKind: "sos",
+          locationMode: "precise",
+          approximateRadiusM: null,
+        });
+        if (
+          !locationCommitStrictlyMatches({
+            grant: response.grant,
+            envelope: response.envelope,
+            locationMode: "precise",
+            approximateRadiusM: null,
+          })
+        ) {
+          const grantId = response?.grant?.id;
+          if (grantId) {
+            await OneLocationService.revokeGrant({
+              vaultOwnerToken,
+              grantId,
+            }).catch(() => undefined);
+          }
+          throw new Error(
+            "The server did not atomically preserve this Save My Soul share.",
+          );
+        }
+        grantIds.push(response.grant.id);
+      } catch (error) {
+        failures.push(
+          error instanceof Error ? error.message : "SOS sharing failed.",
+        );
+        if (readOneLocationControlState(userId).paused) break;
+      }
+    }
+
+    if (readOneLocationControlState(userId).paused) {
+      await Promise.allSettled(
+        grantIds.map((grantId) =>
+          OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
+        ),
+      );
+      grantIds.length = 0;
+      throw new Error("Location was paused before SOS sharing completed.");
+    }
+    if (!grantIds.length) {
+      throw new Error(failures[0] ?? "SOS sharing failed.");
+    }
+
+    const updates = enableOneLocationAutomaticUpdates(userId);
+    if (!updates.allowed) {
+      await Promise.allSettled(
+        grantIds.map((grantId) =>
+          OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
+        ),
+      );
+      grantIds.length = 0;
+      throw new Error("Location was paused before SOS updates could start.");
     }
 
     const incident: SosIncident = { grantIds, startedAt };

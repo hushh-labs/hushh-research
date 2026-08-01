@@ -12,8 +12,12 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     chat: vi.fn(),
     captureCurrentPosition: vi.fn(),
+    getPermissionState: vi.fn(),
+    requestLocationPermission: vi.fn(),
     getState: vi.fn(),
     storeEnvelope: vi.fn(),
+    createGrantWithEnvelope: vi.fn(),
+    approveRequest: vi.fn(),
     viewEnvelope: vi.fn(),
     createPublicInvite: vi.fn(),
     revokeGrant: vi.fn(),
@@ -42,8 +46,16 @@ describe("useLocationChat", () => {
   beforeEach(() => {
     mockChat.mockReset();
     vi.mocked(OneLocationService.captureCurrentPosition).mockReset();
+    vi.mocked(OneLocationService.getPermissionState).mockReset();
+    vi.mocked(OneLocationService.getPermissionState).mockResolvedValue({
+      state: "granted",
+      precise: true,
+    } as any);
+    vi.mocked(OneLocationService.requestLocationPermission).mockReset();
     vi.mocked(OneLocationService.getState).mockReset();
     vi.mocked(OneLocationService.storeEnvelope).mockReset();
+    vi.mocked(OneLocationService.createGrantWithEnvelope).mockReset();
+    vi.mocked(OneLocationService.approveRequest).mockReset();
     vi.mocked(OneLocationService.viewEnvelope).mockReset();
     vi.mocked(OneLocationService.createPublicInvite).mockReset();
     vi.mocked(OneLocationService.revokeGrant).mockReset();
@@ -125,7 +137,10 @@ describe("useLocationChat", () => {
     });
 
     // still one user bubble; errored bubble replaced by the reply
-    expect(result.current.messages.map((m) => m.text)).toEqual(["do it", "Fixed."]);
+    expect(result.current.messages.map((m) => m.text)).toEqual([
+      "do it",
+      "Fixed.",
+    ]);
     expect(mockChat).toHaveBeenCalledTimes(2);
     expect(mockChat.mock.calls[1][0].message).toBe("do it");
   });
@@ -157,6 +172,10 @@ describe("useLocationChat — action dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(OneLocationService.createGrant).mockReset();
+    vi.mocked(OneLocationService.getPermissionState).mockResolvedValue({
+      state: "granted",
+      precise: true,
+    } as any);
   });
 
   it("publish_share: confirm captures, encrypts per recipient, uploads, reports completed", async () => {
@@ -203,10 +222,34 @@ describe("useLocationChat — action dispatcher", () => {
         stateChanged: true,
       });
 
-    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(
+      mockPoint,
+    );
     vi.mocked(OneLocationService.getState).mockResolvedValue({
-      recipients: [{ userId: "r1", displayName: "Mom", phoneVerified: true, keyId: "k1", publicKeyJwk: { kid: "k1" } as JsonWebKey, keyAlgorithm: "ECDH-P256", canReceiveLocation: true }],
-      ownerGrants: [],
+      recipients: [
+        {
+          userId: "r1",
+          displayName: "Mom",
+          phoneVerified: true,
+          keyId: "k1",
+          publicKeyJwk: { kid: "k1" } as JsonWebKey,
+          keyAlgorithm: "ECDH-P256",
+          canReceiveLocation: true,
+        },
+      ],
+      ownerGrants: [
+        {
+          id: "g1",
+          ownerUserId: "u1",
+          recipientUserId: "r1",
+          recipientKeyId: "k1",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: [],
+          durationHours: 1,
+          locationMode: "precise",
+        },
+      ],
       receivedGrants: [],
       requests: [],
       referrals: [],
@@ -214,7 +257,9 @@ describe("useLocationChat — action dispatcher", () => {
       publicInviteSubmissions: [],
       capabilityScopes: [],
     });
-    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(mockEnvelope);
+    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(
+      mockEnvelope,
+    );
     vi.mocked(OneLocationService.storeEnvelope).mockResolvedValue(mockEnvelope);
 
     const onStateChanged = vi.fn();
@@ -231,21 +276,33 @@ describe("useLocationChat — action dispatcher", () => {
       await result.current.confirmAction();
     });
 
-    expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(encryption.encryptLocationForRecipient)).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientKeyId: "k1", recipientPublicKeyJwk: { kid: "k1" } }),
+    expect(
+      vi.mocked(OneLocationService.captureCurrentPosition),
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(encryption.encryptLocationForRecipient),
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientKeyId: "k1",
+        recipientPublicKeyJwk: { kid: "k1" },
+      }),
     );
     expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledWith(
       expect.objectContaining({ grantId: "g1" }),
     );
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        actionResult: expect.objectContaining({ type: "publish_share", status: "completed" }),
+        actionResult: expect.objectContaining({
+          type: "publish_share",
+          status: "completed",
+        }),
       }),
     );
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        actionResult: expect.not.objectContaining({ latitude: expect.anything() }),
+        actionResult: expect.not.objectContaining({
+          latitude: expect.anything(),
+        }),
       }),
     );
     await waitFor(() => expect(onStateChanged).toHaveBeenCalled());
@@ -362,6 +419,21 @@ describe("useLocationChat — action dispatcher", () => {
       },
       envelope: mockEnvelope,
     });
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      receivedGrants: [
+        {
+          id: "g2",
+          ownerUserId: "r1",
+          recipientUserId: "u1",
+          recipientKeyId: "k1",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: [],
+          durationHours: 1,
+          locationMode: "precise",
+        },
+      ],
+    } as any);
     vi.mocked(encryption.decryptLocationEnvelope).mockResolvedValue(mockPoint);
 
     const { result } = renderHook(() =>
@@ -383,11 +455,18 @@ describe("useLocationChat — action dispatcher", () => {
     expect(vi.mocked(encryption.decryptLocationEnvelope)).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "u1", envelope: mockEnvelope }),
     );
-    expect(result.current.viewedPoint).toEqual(mockPoint);
+    expect(result.current.viewedPoint).toMatchObject({
+      ...mockPoint,
+      locationMode: "precise",
+      approximateRadiusM: null,
+    });
     expect(result.current.pendingAction).toBeNull();
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        actionResult: expect.objectContaining({ type: "view_envelope", status: "completed" }),
+        actionResult: expect.objectContaining({
+          type: "view_envelope",
+          status: "completed",
+        }),
       }),
     );
   });
@@ -413,8 +492,8 @@ describe("useLocationChat — action dispatcher", () => {
         stateChanged: false,
       });
 
-    const { result } = renderHook(() =>
-      useLocationChat({ vaultOwnerToken: "tok" }), // no userId
+    const { result } = renderHook(
+      () => useLocationChat({ vaultOwnerToken: "tok" }), // no userId
     );
 
     await act(async () => {
@@ -467,7 +546,9 @@ describe("useLocationChat — action dispatcher", () => {
         stateChanged: false,
       });
 
-    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(
+      mockPoint,
+    );
     vi.mocked(OneLocationService.createPublicInvite).mockResolvedValue({
       invite: {
         id: "inv-1",
@@ -492,10 +573,24 @@ describe("useLocationChat — action dispatcher", () => {
       await result.current.confirmAction();
     });
 
-    expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
-      expect.objectContaining({ durationHours: 2, locationSnapshot: mockPoint }),
+    expect(
+      vi.mocked(OneLocationService.captureCurrentPosition),
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(OneLocationService.createPublicInvite),
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        durationHours: 2,
+        locationSnapshot: expect.objectContaining({
+          locationMode: "approximate",
+          approximateRadiusM: expect.any(Number),
+        }),
+      }),
     );
+    const snapshot = vi.mocked(OneLocationService.createPublicInvite).mock
+      .calls[0]?.[0].locationSnapshot;
+    expect(snapshot?.latitude).not.toBe(mockPoint.latitude);
+    expect(snapshot?.longitude).not.toBe(mockPoint.longitude);
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
         actionResult: expect.objectContaining({
@@ -601,7 +696,7 @@ describe("useLocationChat — action dispatcher", () => {
     expect(result.current.viewedPoint).toBeNull();
   });
 
-  it("check_in: confirm selects connected+ready recipients, calls createGrant with durationHours+note, stores envelope per recipient, reports completed", async () => {
+  it("check_in: confirm atomically commits one encrypted grant for each connected ready recipient", async () => {
     const mockPoint = {
       latitude: 37.77,
       longitude: -122.41,
@@ -640,7 +735,9 @@ describe("useLocationChat — action dispatcher", () => {
         stateChanged: true,
       });
 
-    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(
+      mockPoint,
+    );
 
     // userA is a connected, share-ready recipient; userB is not a network connection.
     vi.mocked(OneLocationService.getState).mockResolvedValue({
@@ -650,7 +747,12 @@ describe("useLocationChat — action dispatcher", () => {
           displayName: "User A",
           phoneVerified: true,
           keyId: "key-userA",
-          publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" } as JsonWebKey,
+          publicKeyJwk: {
+            kty: "EC",
+            crv: "P-256",
+            x: "aa",
+            y: "bb",
+          } as JsonWebKey,
           keyAlgorithm: "ECDH-P256",
           canReceiveLocation: true,
         },
@@ -659,14 +761,26 @@ describe("useLocationChat — action dispatcher", () => {
           displayName: "User B",
           phoneVerified: true,
           keyId: "key-userB",
-          publicKeyJwk: { kty: "EC", crv: "P-256", x: "cc", y: "dd" } as JsonWebKey,
+          publicKeyJwk: {
+            kty: "EC",
+            crv: "P-256",
+            x: "cc",
+            y: "dd",
+          } as JsonWebKey,
           keyAlgorithm: "ECDH-P256",
           canReceiveLocation: true,
         },
       ],
       networkConnections: [
         // Only userA is connected to "u1"
-        { id: "conn-1", userAId: "u1", userBId: "userA", status: "active", inviterUserId: "u1", inviteeUserId: "userA" },
+        {
+          id: "conn-1",
+          userAId: "u1",
+          userBId: "userA",
+          status: "active",
+          inviterUserId: "u1",
+          inviteeUserId: "userA",
+        },
       ],
       ownerGrants: [],
       receivedGrants: [],
@@ -677,18 +791,27 @@ describe("useLocationChat — action dispatcher", () => {
       capabilityScopes: [],
     });
 
-    vi.mocked(OneLocationService.createGrant).mockResolvedValue({
-      id: "grant-ci-1",
-      ownerUserId: "u1",
-      recipientUserId: "userA",
-      recipientKeyId: "key-userA",
-      status: "active",
-      consentScope: "location",
-      capabilityScopes: [],
-      durationHours: 4,
+    vi.mocked(OneLocationService.createGrantWithEnvelope).mockResolvedValue({
+      grant: {
+        id: "grant-ci-1",
+        ownerUserId: "u1",
+        recipientUserId: "userA",
+        recipientKeyId: "key-userA",
+        status: "active",
+        consentScope: "location",
+        capabilityScopes: [],
+        durationHours: 4,
+        locationMode: "precise",
+        approximateRadiusM: null,
+        latestEnvelopeId: "envelope-ci-1",
+      },
+      envelope: { ...mockEnvelope, id: "envelope-ci-1" },
+      idempotentReplay: false,
     });
 
-    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(mockEnvelope);
+    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(
+      mockEnvelope,
+    );
     vi.mocked(OneLocationService.storeEnvelope).mockResolvedValue(mockEnvelope);
 
     const onStateChanged = vi.fn();
@@ -705,29 +828,40 @@ describe("useLocationChat — action dispatcher", () => {
       await result.current.confirmAction();
     });
 
-    // createGrant called once for userA (not userB — no connection)
-    expect(vi.mocked(OneLocationService.createGrant)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(OneLocationService.createGrant)).toHaveBeenCalledWith(
+    // One atomic grant+envelope commit for userA (not userB — no connection).
+    expect(
+      vi.mocked(OneLocationService.createGrantWithEnvelope),
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(OneLocationService.createGrantWithEnvelope),
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         vaultOwnerToken: "tok",
         recipientUserId: "userA",
         recipientKeyId: "key-userA",
         durationHours: 4,
         reason: "heading home",
+        shareKind: "check_in",
+        locationMode: "precise",
+        approximateRadiusM: null,
+        clientOperationId: "check-in:act-ci-1:userA",
+        envelope: mockEnvelope,
       }),
     );
 
-    // One encrypt + one store for userA
-    expect(vi.mocked(encryption.encryptLocationForRecipient)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultOwnerToken: "tok", grantId: "grant-ci-1" }),
-    );
+    // One client-side encryption; there is no create-then-store gap.
+    expect(
+      vi.mocked(encryption.encryptLocationForRecipient),
+    ).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(OneLocationService.storeEnvelope)).not.toHaveBeenCalled();
 
     // Report completed action result back to the backend
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        actionResult: expect.objectContaining({ type: "check_in", status: "completed" }),
+        actionResult: expect.objectContaining({
+          type: "check_in",
+          status: "completed",
+        }),
       }),
     );
 
@@ -792,10 +926,15 @@ describe("useLocationChat — action dispatcher", () => {
     });
 
     expect(vi.mocked(OneLocationService.createGrant)).not.toHaveBeenCalled();
-    expect(vi.mocked(encryption.encryptLocationForRecipient)).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(encryption.encryptLocationForRecipient),
+    ).not.toHaveBeenCalled();
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        actionResult: expect.objectContaining({ type: "check_in", status: "cancelled" }),
+        actionResult: expect.objectContaining({
+          type: "check_in",
+          status: "cancelled",
+        }),
       }),
     );
     expect(result.current.pendingAction).toBeNull();
@@ -820,28 +959,60 @@ describe("useLocationChat — pending prompt", () => {
         kind: "select",
         purpose: "select_share",
         question: "Which sharing do you want to stop?",
-        options: [{ label: "Mom", ref: { grantId: "g1" } }, { label: "Stop all", ref: { all: true } }],
+        options: [
+          { label: "Mom", ref: { grantId: "g1" } },
+          { label: "Stop all", ref: { all: true } },
+        ],
       },
     });
-    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
-    await act(async () => { await result.current.send("stop sharing"); });
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("stop sharing");
+    });
     expect(result.current.pendingPrompt?.purpose).toBe("select_share");
   });
 
   it("answerPrompt sends selected refs and clears the prompt", async () => {
     svc.chat
       .mockResolvedValueOnce({
-        conversationId: "c1", response: "?", isComplete: true, stateChanged: false,
-        clientPrompt: { id: "prm-1", kind: "select", purpose: "select_share", question: "?", options: [{ label: "Mom", ref: { grantId: "g1" } }] },
+        conversationId: "c1",
+        response: "?",
+        isComplete: true,
+        stateChanged: false,
+        clientPrompt: {
+          id: "prm-1",
+          kind: "select",
+          purpose: "select_share",
+          question: "?",
+          options: [{ label: "Mom", ref: { grantId: "g1" } }],
+        },
       })
-      .mockResolvedValueOnce({ conversationId: "c1", response: "Stopped.", isComplete: true, stateChanged: true });
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Stopped.",
+        isComplete: true,
+        stateChanged: true,
+      });
     const onStateChanged = vi.fn();
-    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1", onStateChanged }));
-    await act(async () => { await result.current.send("stop sharing"); });
-    await act(async () => { await result.current.answerPrompt([{ grantId: "g1" }]); });
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1", onStateChanged }),
+    );
+    await act(async () => {
+      await result.current.send("stop sharing");
+    });
+    await act(async () => {
+      await result.current.answerPrompt([{ grantId: "g1" }]);
+    });
     expect(svc.chat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        selectionResult: expect.objectContaining({ id: "prm-1", kind: "select", selected: [{ grantId: "g1" }], status: "answered" }),
+        selectionResult: expect.objectContaining({
+          id: "prm-1",
+          kind: "select",
+          selected: [{ grantId: "g1" }],
+          status: "answered",
+        }),
       }),
     );
     expect(result.current.pendingPrompt).toBeNull();
@@ -851,32 +1022,81 @@ describe("useLocationChat — pending prompt", () => {
   it("free text while a prompt is pending sends a freeText selection", async () => {
     svc.chat
       .mockResolvedValueOnce({
-        conversationId: "c1", response: "?", isComplete: true, stateChanged: false,
-        clientPrompt: { id: "prm-1", kind: "select", purpose: "select_recipient", question: "?", options: [] },
+        conversationId: "c1",
+        response: "?",
+        isComplete: true,
+        stateChanged: false,
+        clientPrompt: {
+          id: "prm-1",
+          kind: "select",
+          purpose: "select_recipient",
+          question: "?",
+          options: [],
+        },
       })
-      .mockResolvedValueOnce({ conversationId: "c1", response: "ok", isComplete: true, stateChanged: false });
-    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
-    await act(async () => { await result.current.send("share"); });
-    await act(async () => { await result.current.send("my coworker Alex"); });
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "ok",
+        isComplete: true,
+        stateChanged: false,
+      });
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("share");
+    });
+    await act(async () => {
+      await result.current.send("my coworker Alex");
+    });
     expect(svc.chat).toHaveBeenLastCalledWith(
-      expect.objectContaining({ selectionResult: expect.objectContaining({ freeText: "my coworker Alex", status: "answered" }) }),
+      expect.objectContaining({
+        selectionResult: expect.objectContaining({
+          freeText: "my coworker Alex",
+          status: "answered",
+        }),
+      }),
     );
   });
 
   it("confirmPrompt(true) sends confirmed selectionResult and clears pendingPrompt", async () => {
     svc.chat
       .mockResolvedValueOnce({
-        conversationId: "c1", response: "Stop all?", isComplete: true, stateChanged: false,
-        clientPrompt: { id: "prm-c", kind: "confirm", purpose: "confirm_action", question: "Stop all?" },
+        conversationId: "c1",
+        response: "Stop all?",
+        isComplete: true,
+        stateChanged: false,
+        clientPrompt: {
+          id: "prm-c",
+          kind: "confirm",
+          purpose: "confirm_action",
+          question: "Stop all?",
+        },
       })
-      .mockResolvedValueOnce({ conversationId: "c1", response: "Done.", isComplete: true, stateChanged: false });
-    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
-    await act(async () => { await result.current.send("stop all sharing"); });
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Done.",
+        isComplete: true,
+        stateChanged: false,
+      });
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("stop all sharing");
+    });
     expect(result.current.pendingPrompt?.id).toBe("prm-c");
-    await act(async () => { await result.current.confirmPrompt(true); });
+    await act(async () => {
+      await result.current.confirmPrompt(true);
+    });
     expect(svc.chat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        selectionResult: expect.objectContaining({ id: "prm-c", kind: "confirm", confirmed: true, status: "answered" }),
+        selectionResult: expect.objectContaining({
+          id: "prm-c",
+          kind: "confirm",
+          confirmed: true,
+          status: "answered",
+        }),
       }),
     );
     expect(result.current.pendingPrompt).toBeNull();
@@ -885,17 +1105,40 @@ describe("useLocationChat — pending prompt", () => {
   it("cancelPrompt() sends cancelled selectionResult and clears pendingPrompt", async () => {
     svc.chat
       .mockResolvedValueOnce({
-        conversationId: "c1", response: "Stop all?", isComplete: true, stateChanged: false,
-        clientPrompt: { id: "prm-c", kind: "confirm", purpose: "confirm_action", question: "Stop all?" },
+        conversationId: "c1",
+        response: "Stop all?",
+        isComplete: true,
+        stateChanged: false,
+        clientPrompt: {
+          id: "prm-c",
+          kind: "confirm",
+          purpose: "confirm_action",
+          question: "Stop all?",
+        },
       })
-      .mockResolvedValueOnce({ conversationId: "c1", response: "Cancelled.", isComplete: true, stateChanged: false });
-    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
-    await act(async () => { await result.current.send("stop all sharing"); });
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Cancelled.",
+        isComplete: true,
+        stateChanged: false,
+      });
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("stop all sharing");
+    });
     expect(result.current.pendingPrompt?.id).toBe("prm-c");
-    await act(async () => { await result.current.cancelPrompt(); });
+    await act(async () => {
+      await result.current.cancelPrompt();
+    });
     expect(svc.chat).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        selectionResult: expect.objectContaining({ id: "prm-c", kind: "confirm", status: "cancelled" }),
+        selectionResult: expect.objectContaining({
+          id: "prm-c",
+          kind: "confirm",
+          status: "cancelled",
+        }),
       }),
     );
     expect(result.current.pendingPrompt).toBeNull();

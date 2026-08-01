@@ -32,13 +32,15 @@ final class BackgroundLocationPublisher {
     private var lastApproximatePublishedAt: [String: Date] = [:]
     private let urlSession = URLSession(configuration: .default)
     private let iso = ISO8601DateFormatter()
+    var onBecameInactive: (() -> Void)?
+    var onSessionChanged: (() -> Void)?
 
     private struct QueuedPost {
         let grantId: String
         let envelope: [String: Any]
         let generation: Int
     }
-    private var pending: [QueuedPost] = []
+    private var pending: [String: QueuedPost] = [:]
     private let maxPending = 50
     private(set) var needsReauth = false
 
@@ -71,11 +73,46 @@ final class BackgroundLocationPublisher {
     }
 
     var isActive: Bool { session != nil }
+    var requiresPrecise: Bool {
+        session?.grants.contains(where: { $0.locationMode == "precise" }) ?? false
+    }
 
-    func handle(location: CLLocation) {
+    /// Drop only grants that can no longer satisfy their reviewed precision.
+    /// Approximate grants remain safe under Reduced Accuracy and must keep
+    /// publishing instead of being stopped with the Live grants.
+    @discardableResult
+    func suspendPreciseGrants() -> Bool {
+        guard let current = session else { return false }
+        let remaining = current.grants.filter { $0.locationMode != "precise" }
+        guard remaining.count != current.grants.count else { return false }
+        lastPrecisePublishedAt = nil
+        lastPrecisePoint = nil
+        if remaining.isEmpty {
+            terminate()
+            return true
+        }
+        session = BackgroundShareSessionNative(
+            vaultOwnerToken: current.vaultOwnerToken,
+            backendBaseUrl: current.backendBaseUrl,
+            grants: remaining,
+            minMoveMeters: current.minMoveMeters,
+            minIntervalMs: current.minIntervalMs,
+            approximateIntervalMs: current.approximateIntervalMs
+        )
+        onSessionChanged?()
+        return true
+    }
+
+    func handle(location: CLLocation, allowPrecise: Bool) {
         guard let session, !session.grants.isEmpty else { return }
 
         let now = Date()
+        let captureAge = now.timeIntervalSince(location.timestamp)
+        guard
+            location.horizontalAccuracy >= 0,
+            captureAge >= -30,
+            captureAge <= 120
+        else { return }
         let currentGeneration = generation
         var publishedPrecise = false
 
@@ -95,10 +132,19 @@ final class BackgroundLocationPublisher {
                 continue
             }
 
+            // iOS may downgrade Full Accuracy while a background session is
+            // already active. Never encrypt a reduced-accuracy fix under a
+            // precise grant; approximate grants above may continue safely.
+            guard allowPrecise else { continue }
+
             if let last = lastPrecisePoint {
                 let moved = location.distance(from: last)
                 let sinceMs = now.timeIntervalSince(lastPrecisePublishedAt ?? .distantPast) * 1000
-                guard moved >= session.minMoveMeters, sinceMs >= session.minIntervalMs else {
+                let movementDue = moved >= session.minMoveMeters && sinceMs >= session.minIntervalMs
+                // Keep a stationary Live location fresh without turning every
+                // GPS jitter fix into a network publish.
+                let heartbeatDue = sinceMs >= max(session.minIntervalMs, 45_000)
+                guard movementDue || heartbeatDue else {
                     continue
                 }
             }
@@ -134,7 +180,7 @@ final class BackgroundLocationPublisher {
         grant: BackgroundShareGrantNative
     ) -> [String: Any]? {
         guard let radius = grant.approximateRadiusM else { return nil }
-        let sourceAccuracy = location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : 0
+        let sourceAccuracy = location.horizontalAccuracy
         let required = max(1000, ceil((sourceAccuracy + sqrt(2) * 500) / 250) * 250)
         guard radius >= required, radius <= 20_000 else { return nil }
 
@@ -215,11 +261,11 @@ final class BackgroundLocationPublisher {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        urlSession.dataTask(with: request) { [weak self] _, response, error in
+        urlSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self, self.generation == generation, self.session != nil else { return }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if error != nil || status == 0 {
+                if error != nil || status == 0 || status >= 500 {
                     self.enqueue(QueuedPost(
                         grantId: grantId,
                         envelope: envelope,
@@ -228,29 +274,63 @@ final class BackgroundLocationPublisher {
                     return
                 }
                 if status == 401 {
-                    self.needsReauth = true
+                    self.terminate(needsReauth: true)
+                    return
+                }
+                let errorCode = self.responseErrorCode(data)
+                if status == 404 || status == 410 || [
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "LOCATION_GRANT_NOT_ACTIVE",
+                    "LOCATION_GRANT_EXPIRED"
+                ].contains(errorCode) {
+                    self.removeGrant(grantId, generation: generation)
                     return
                 }
                 if (200...299).contains(status) {
+                    // A newer successful fix supersedes any older offline point
+                    // queued for the same grant.
+                    self.pending.removeValue(forKey: grantId)
                     self.drainPending(session: session, generation: generation)
                 }
             }
         }.resume()
     }
 
+    private func removeGrant(_ grantId: String, generation: Int) {
+        guard self.generation == generation, let current = self.session else { return }
+        let remaining = current.grants.filter { $0.grantId != grantId }
+        self.pending.removeValue(forKey: grantId)
+        self.lastApproximatePublishedAt.removeValue(forKey: grantId)
+        if remaining.isEmpty {
+            terminate()
+            return
+        }
+        self.session = BackgroundShareSessionNative(
+            vaultOwnerToken: current.vaultOwnerToken,
+            backendBaseUrl: current.backendBaseUrl,
+            grants: remaining,
+            minMoveMeters: current.minMoveMeters,
+            minIntervalMs: current.minIntervalMs,
+            approximateIntervalMs: current.approximateIntervalMs
+        )
+        onSessionChanged?()
+    }
+
     private func enqueue(_ item: QueuedPost) {
         guard item.generation == generation else { return }
-        pending.append(item)
+        pending[item.grantId] = item
         if pending.count > maxPending {
             let dropped = pending.count - maxPending
-            pending.removeFirst(dropped)
+            for key in pending.keys.sorted().prefix(dropped) {
+                pending.removeValue(forKey: key)
+            }
             NSLog("[BackgroundLocationPublisher] dropped %d queued fixes (cap %d)", dropped, maxPending)
         }
     }
 
     private func drainPending(session: BackgroundShareSessionNative, generation: Int) {
         guard generation == self.generation, !pending.isEmpty else { return }
-        let items = pending.filter { $0.generation == generation }
+        let items = pending.values.filter { $0.generation == generation }
         pending.removeAll()
         for item in items {
             post(
@@ -260,5 +340,28 @@ final class BackgroundLocationPublisher {
                 generation: generation
             )
         }
+    }
+
+    private func responseErrorCode(_ data: Data?) -> String {
+        guard
+            let data,
+            let decoded = try? JSONSerialization.jsonObject(with: data),
+            let object = decoded as? [String: Any]
+        else { return "" }
+        if let detail = object["detail"] as? [String: Any] {
+            return detail["code"] as? String ?? ""
+        }
+        return object["code"] as? String ?? ""
+    }
+
+    private func terminate(needsReauth: Bool = false) {
+        generation += 1
+        session = nil
+        lastPrecisePublishedAt = nil
+        lastPrecisePoint = nil
+        lastApproximatePublishedAt.removeAll()
+        self.needsReauth = needsReauth
+        pending.removeAll()
+        onBecameInactive?()
     }
 }

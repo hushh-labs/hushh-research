@@ -191,7 +191,7 @@ Native parity for authenticated flows now includes the verified phone mandate af
   remains foreground-only.
 - `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
-- `/one/location` is part of the native route inventory because live location is
+- `/one/location` is part of the native route inventory because private Area updates and precise Live locations are
   a platform permission surface, not a web-only route.
 - Web, iOS, and Android must all produce the same product truth: a signed-in user without
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.

@@ -1,5 +1,7 @@
 import type {
   LocationSharingMode,
+  OneLocationAccessRequest,
+  OneLocationEncryptedEnvelope,
   OneLocationGrant,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
@@ -117,7 +119,9 @@ function requiredApproximateAreaRadiusM(
 function assertApproximateAreaCanRepresent(
   accuracyM: number | null | undefined,
 ): void {
-  if (requiredApproximateAreaRadiusM(accuracyM) > APPROXIMATE_AREA_MAX_RADIUS_M) {
+  if (
+    requiredApproximateAreaRadiusM(accuracyM) > APPROXIMATE_AREA_MAX_RADIUS_M
+  ) {
     throw new Error(
       "Location accuracy is too limited for an approximate-area share.",
     );
@@ -152,6 +156,89 @@ export function grantLocationMode(
   grant: Pick<OneLocationGrant, "locationMode">,
 ): LocationSharingMode {
   return grant.locationMode === "approximate" ? "approximate" : "precise";
+}
+
+/**
+ * Validate a newly-created grant without applying the legacy "missing means
+ * precise" compatibility fallback. A rolling deployment must never let an old
+ * API silently turn an explicitly reviewed approximate share into a precise
+ * background publisher on its next update.
+ */
+export function grantStrictlyMatchesLocationMode(params: {
+  grant: Pick<OneLocationGrant, "locationMode" | "approximateRadiusM">;
+  locationMode: LocationSharingMode;
+  approximateRadiusM?: number | null;
+}): boolean {
+  if (params.grant.locationMode !== params.locationMode) return false;
+  if (params.locationMode === "precise") {
+    return params.grant.approximateRadiusM == null;
+  }
+  return (
+    Number(params.grant.approximateRadiusM) ===
+    Number(params.approximateRadiusM)
+  );
+}
+
+/** Verify that an atomic direct-share response linked its first envelope. */
+export function locationCommitStrictlyMatches(params: {
+  grant:
+    | Pick<
+        OneLocationGrant,
+        "id" | "latestEnvelopeId" | "locationMode" | "approximateRadiusM"
+      >
+    | null
+    | undefined;
+  envelope: Pick<OneLocationEncryptedEnvelope, "id"> | null | undefined;
+  locationMode: LocationSharingMode;
+  approximateRadiusM?: number | null;
+}): boolean {
+  if (!params.grant || !params.envelope) return false;
+  const envelopeId = String(params.envelope.id || "");
+  return (
+    Boolean(envelopeId) &&
+    params.grant.latestEnvelopeId === envelopeId &&
+    grantStrictlyMatchesLocationMode({
+      grant: params.grant,
+      locationMode: params.locationMode,
+      approximateRadiusM: params.approximateRadiusM,
+    })
+  );
+}
+
+/**
+ * Verify the fail-closed approval response before treating a share as active.
+ * A mode match alone is insufficient during a rolling deploy: an older backend
+ * could return a grant without atomically storing the reviewed first point.
+ */
+export function approvedLocationCommitStrictlyMatches(params: {
+  requestId: string;
+  request:
+    | Pick<OneLocationAccessRequest, "id" | "status" | "approvedGrantId">
+    | null
+    | undefined;
+  grant:
+    | Pick<
+        OneLocationGrant,
+        "id" | "latestEnvelopeId" | "locationMode" | "approximateRadiusM"
+      >
+    | null
+    | undefined;
+  envelope: Pick<OneLocationEncryptedEnvelope, "id"> | null | undefined;
+  locationMode: LocationSharingMode;
+  approximateRadiusM?: number | null;
+}): boolean {
+  if (!params.request || !params.grant || !params.envelope) return false;
+  return (
+    params.request.id === params.requestId &&
+    params.request.status === "approved" &&
+    params.request.approvedGrantId === params.grant.id &&
+    locationCommitStrictlyMatches({
+      grant: params.grant,
+      envelope: params.envelope,
+      locationMode: params.locationMode,
+      approximateRadiusM: params.approximateRadiusM,
+    })
+  );
 }
 
 export function prepareLocationPointForGrant(

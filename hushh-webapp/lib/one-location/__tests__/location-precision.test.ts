@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   APPROXIMATE_AREA_MIN_RADIUS_M,
+  approvedLocationCommitStrictlyMatches,
   approximateAreaCenter,
   approximateAreaRadiusM,
   prepareLocationPointForSharing,
@@ -87,5 +88,39 @@ describe("One Location precision contract", () => {
         },
       }),
     ).toThrow(/privacy check/i);
+  });
+
+  it("accepts only an approval response with exact request, grant, and envelope linkage", () => {
+    const response = {
+      requestId: "request-1",
+      request: {
+        id: "request-1",
+        status: "approved",
+        approvedGrantId: "grant-1",
+      },
+      grant: {
+        id: "grant-1",
+        latestEnvelopeId: "envelope-1",
+        locationMode: "approximate" as const,
+        approximateRadiusM: 1_000,
+      },
+      envelope: { id: "envelope-1" },
+      locationMode: "approximate" as const,
+      approximateRadiusM: 1_000,
+    };
+
+    expect(approvedLocationCommitStrictlyMatches(response)).toBe(true);
+    expect(
+      approvedLocationCommitStrictlyMatches({
+        ...response,
+        request: { ...response.request, approvedGrantId: null },
+      }),
+    ).toBe(false);
+    expect(
+      approvedLocationCommitStrictlyMatches({
+        ...response,
+        grant: { ...response.grant, latestEnvelopeId: "other-envelope" },
+      }),
+    ).toBe(false);
   });
 });

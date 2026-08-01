@@ -62,7 +62,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
-| Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
+| Location specialist | `agent_location` | One-time public snapshots, private Area updates, and precise Live locations | Location capability and mode-specific data authority per flow |
 | Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist and the hierarchy parent for dormant Gmail; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |

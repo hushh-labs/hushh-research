@@ -84,19 +84,27 @@ def _service(store, responses, tools):
 
 async def test_create_share_emits_publish_share_client_action():
     store = _FakeStore()
-    grant = {
-        "id": "11111111-1111-1111-1111-111111111111",
+    proposal = {
+        "proposed": "create_location_share",
         "recipientUserId": "rcpt-1",
         "recipientKeyId": "key-1",
         "recipientDisplayName": "Mom",
+        "durationHours": 1.0,
+        "reason": None,
+        "locationMode": "approximate",
     }
-    tools = [_fake_tool("create_location_share", [], result=grant)]
+    tools = [_fake_tool("create_location_share", [], result=proposal)]
     svc = _service(
         store,
         responses=[
             _fc_response(
                 "create_location_share",
-                {"recipient_user_id": "rcpt-1", "recipient_key_id": "key-1", "duration_hours": 1},
+                {
+                    "recipient_user_id": "rcpt-1",
+                    "recipient_key_id": "key-1",
+                    "duration_hours": 1,
+                    "location_mode": "approximate",
+                },
             ),
             _text_response("Ready to share with Mom for 1 hour."),
         ],
@@ -109,14 +117,17 @@ async def test_create_share_emits_publish_share_client_action():
     assert action["type"] == "publish_share"
     assert action["shares"] == [
         {
-            "grantId": "11111111-1111-1111-1111-111111111111",
             "recipientUserId": "rcpt-1",
             "recipientKeyId": "key-1",
+            "approvalRequestId": None,
+            "durationHours": 1.0,
+            "reason": None,
+            "locationMode": "approximate",
             "label": "Mom",
         }
     ]
     assert "id" in action and action["summary"]
-    # grant exists but no envelope yet -> do not refresh on this turn
+    # A proposal does not mutate until the owner confirms it in the browser.
     assert out["stateChanged"] is False
 
 
@@ -215,19 +226,16 @@ async def test_request_choice_tool_emits_client_prompt():
     assert "clientAction" not in out
 
 
-async def test_approve_location_request_wrapped_grant_emits_publish_share():
-    """approve_location_request with a wrapped {grant, request} shape must emit a
-    publish_share clientAction whose shares[0] has grantId/recipientUserId/
-    recipientKeyId/label extracted from the inner grant."""
+async def test_approve_location_request_proposal_emits_publish_share():
+    """Approval remains coordinate-free until the browser confirms the proposal."""
     store = _FakeStore()
     wrapped_result = {
-        "grant": {
-            "id": "22222222-2222-2222-2222-222222222222",
-            "recipientUserId": "rcpt-2",
-            "recipientKeyId": "key-2",
-            "recipientDisplayName": "Dad",
-        },
-        "request": {"id": "req-99", "status": "approved"},
+        "proposed": "approve_location_request",
+        "requestId": "req-99",
+        "requesterUserId": "rcpt-2",
+        "recipientDisplayName": "Dad",
+        "durationHours": 2.0,
+        "locationMode": "precise",
     }
     tools = [_fake_tool("approve_location_request", [], result=wrapped_result)]
     svc = _service(
@@ -235,7 +243,11 @@ async def test_approve_location_request_wrapped_grant_emits_publish_share():
         responses=[
             _fc_response(
                 "approve_location_request",
-                {"request_id": "req-99", "duration_hours": 2},
+                {
+                    "request_id": "req-99",
+                    "duration_hours": 2,
+                    "location_mode": "precise",
+                },
             ),
             _text_response("Approved — sharing your location with Dad for 2 hours."),
         ],
@@ -251,11 +263,13 @@ async def test_approve_location_request_wrapped_grant_emits_publish_share():
     action = out["clientAction"]
     assert action["type"] == "publish_share"
     share = action["shares"][0]
-    assert share["grantId"] == "22222222-2222-2222-2222-222222222222"
     assert share["recipientUserId"] == "rcpt-2"
-    assert share["recipientKeyId"] == "key-2"
+    assert share["recipientKeyId"] == ""
+    assert share["approvalRequestId"] == "req-99"
+    assert share["durationHours"] == 2.0
+    assert share["locationMode"] == "precise"
     assert share["label"] == "Dad"
-    # grant exists server-side but envelope not yet published -> no UI refresh
+    # Approval is only a proposal until the owner confirms it in the browser.
     assert out["stateChanged"] is False
 
 

@@ -58,6 +58,7 @@ async def test_list_active_shares_returns_only_active_grants_with_ids(monkeypatc
                 "recipientUserId": "r1",
                 "recipientDisplayName": "Mom",
                 "expiresAt": "2026-06-28T10:00:00Z",
+                "locationMode": "precise",
             }
         ]
     }
@@ -106,7 +107,11 @@ def test_function_declarations_match_control_plane_tools():
 async def test_propose_public_link_returns_directive_without_mutation():
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
         out = await propose_public_link.__wrapped__(2)
-    assert out == {"proposed": "create_public_link", "durationHours": 2.0}
+    assert out == {
+        "proposed": "create_public_link",
+        "durationHours": 2.0,
+        "locationMode": "approximate",
+    }
 
 
 async def test_propose_public_link_rejects_out_of_range_duration():

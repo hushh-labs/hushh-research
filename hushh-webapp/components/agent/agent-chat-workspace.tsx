@@ -1114,6 +1114,23 @@ function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): bo
   );
 }
 
+function locationDirectiveConfirmLabel(
+  payload: Record<string, unknown>,
+): string {
+  const type = String(payload.type ?? "");
+  if (type === "sos_panic") return "Send SMS";
+  if (type === "request_device_location_permission") return "Allow location";
+  if (type === "create_public_link") return "Create one-time link";
+  if (type === "publish_share") {
+    const shares = Array.isArray(payload.shares) ? payload.shares : [];
+    const first = shares[0] as Record<string, unknown> | undefined;
+    return first?.locationMode === "precise"
+      ? "Start live location"
+      : "Start area updates";
+  }
+  return "Continue";
+}
+
 export function AgentChatWorkspace({
   variant = "page",
   className,
@@ -4327,15 +4344,12 @@ export function AgentChatWorkspace({
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .summary ?? pendingSpecialistDirective.message,
                     )}
-                    confirmLabel={
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .type === "sos_panic"
-                        ? "Send SMS"
-                        : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                              .type === "request_device_location_permission"
-                          ? "Allow location"
-                          : "Share"
-                    }
+                    confirmLabel={locationDirectiveConfirmLabel(
+                      pendingSpecialistDirective.directive.payload as Record<
+                        string,
+                        unknown
+                      >,
+                    )}
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
@@ -4343,12 +4357,9 @@ export function AgentChatWorkspace({
                       const directivePayloadType = String(
                         (directive.directive.payload as Record<string, unknown>).type ?? "",
                       );
-                      const confirmText =
-                        directivePayloadType === "sos_panic"
-                          ? "Send SMS"
-                          : directivePayloadType === "request_device_location_permission"
-                            ? "Allow location"
-                            : "Share";
+                      const confirmText = locationDirectiveConfirmLabel(
+                        directive.directive.payload as Record<string, unknown>,
+                      );
                       try {
                         // Source the vault owner token from the same place every
                         // other authed call uses (never hardcoded/invented).

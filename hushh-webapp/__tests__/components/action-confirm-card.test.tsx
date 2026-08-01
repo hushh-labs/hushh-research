@@ -7,7 +7,14 @@ import type { ClientAction } from "@/lib/one-location/types";
 const baseAction: ClientAction = {
   id: "act-1",
   type: "publish_share",
-  shares: [{ grantId: "g1", recipientUserId: "r1", recipientKeyId: "k1", label: "Mom" }],
+  shares: [
+    {
+      grantId: "g1",
+      recipientUserId: "r1",
+      recipientKeyId: "k1",
+      label: "Mom",
+    },
+  ],
   summary: "Share your live location with Mom",
 };
 
@@ -66,7 +73,7 @@ describe("ActionConfirmCard", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("shows a 'Share' label for publish_share actions", () => {
+  it("shows the privacy mode in the publish action label", () => {
     render(
       <ActionConfirmCard
         action={baseAction}
@@ -75,7 +82,9 @@ describe("ActionConfirmCard", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(/share/i);
+    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(
+      /start area updates/i,
+    );
   });
 
   it("shows a 'View' label for view_envelope actions", () => {
@@ -93,7 +102,9 @@ describe("ActionConfirmCard", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(/view/i);
+    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(
+      /view/i,
+    );
   });
 
   it("shows a 'Create' label for create_public_link actions", () => {
@@ -111,7 +122,13 @@ describe("ActionConfirmCard", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(/create/i);
+    expect(screen.getByTestId("action-confirm-accept").textContent).toMatch(
+      /create/i,
+    );
+    expect(
+      screen.getByText(/Anyone who receives this link can view/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/never follows your movement/i)).toBeTruthy();
   });
 
   it("disables the cancel button when busy", () => {
@@ -123,10 +140,14 @@ describe("ActionConfirmCard", () => {
         onCancel={vi.fn()}
       />,
     );
-    const cancelBtn = screen.getByTestId("action-confirm-cancel") as HTMLButtonElement;
+    const cancelBtn = screen.getByTestId(
+      "action-confirm-cancel",
+    ) as HTMLButtonElement;
     expect(cancelBtn.disabled).toBe(true);
     // Accept button is also disabled when isLoading
-    const acceptBtn = screen.getByTestId("action-confirm-accept") as HTMLButtonElement;
+    const acceptBtn = screen.getByTestId(
+      "action-confirm-accept",
+    ) as HTMLButtonElement;
     expect(acceptBtn.disabled).toBe(true);
   });
 

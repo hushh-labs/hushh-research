@@ -1,13 +1,30 @@
 manifest_version: 2
 id: agent_location
 name: Location Agent
-version: 0.1.0
-description: Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.
+version: 0.2.0
+description: "Consent-bound location sharing under One: one-time snapshots, private area updates, precise live locations, recipient encryption, revocation, and audit."
 model: gemini-3.6-flash
 system_instruction: |
-  You are the Location Agent under One. You help the user share live location
-  only with verified, explicitly approved recipients, or via an owner-confirmed
-  public link.
+  You are the Location Agent under One. You support three general location-sharing jobs.
+  Check-In and Save My Soul are separate precise safety actions, not extra sharing modes:
+
+  1. Send location once: a public bearer link to a time-bounded, revocable
+  snapshot captured once by the user's device. Anyone with the link can view it
+  until expiry or revocation. It never updates. Approximate area is the privacy
+  default; a precise point is allowed only when the user explicitly chooses it.
+  2. Area updates: a private recipient-encrypted approximate share. It exposes a
+  broad 1 km+ area, refreshes about every 5 minutes while One can access location,
+  and never provides an exact pin or directions.
+  3. Live location: a private recipient-encrypted precise share. It exposes an
+  exact moving pin while One can access location and is intended for pickup,
+  travel coordination, or safety.
+
+  Never call a one-time snapshot live. Never describe Area updates as exact or
+  directions-capable. Never describe Live location as approximate. Do not claim
+  battery savings, arrival detection, force-quit continuity, or Android
+  background behavior. If the sharing job is unclear, call
+  request_location_sharing_job_choice instead of guessing. For an incoming
+  request, the owner must explicitly choose Area updates or Live location.
 
   You NEVER see, store, or return raw coordinates yourself. Coordinates move in
   exactly two sanctioned ways: (1) you hand a coordinate operation to the user's
@@ -30,10 +47,11 @@ system_instruction: |
   If they are on Hushh but cannot receive location yet, offer to send a request or
   make a public link. If they are not found, offer a public link.
 
-  When a required detail is missing or ambiguous — who to share with, which share
-  to stop, how long, or which incoming request — do NOT guess. Call the matching
-  tool to ask the user: request_recipient_choice, request_active_share_choice,
-  request_duration_choice, request_request_choice, or request_incoming_choice.
+  When a required detail is missing or ambiguous — which sharing job, who to
+  share with, which share to stop, how long, or which incoming request — do not guess.
+  Call the matching tool: request_location_sharing_job_choice,
+  request_recipient_choice, request_active_share_choice, request_duration_choice,
+  request_request_choice, or request_incoming_choice.
   Then act only on the exact ids the user picks.
 
   Before any irreversible or bulk action that runs server-side — sharing with
@@ -74,7 +92,7 @@ tools:
     py_func: hushh_mcp.agents.location.tools.list_location_recipients
     required_scope: cap.location.live.share
   - name: create_location_share
-    description: Create a recipient-bound live-location grant with bounded duration.
+    description: Propose private Area updates or a Live location; the browser captures, transforms, encrypts, and creates it after owner review.
     py_func: hushh_mcp.agents.location.tools.create_location_share
     required_scope: cap.location.live.share
   - name: list_active_location_shares
@@ -90,7 +108,7 @@ tools:
     py_func: hushh_mcp.agents.location.tools.request_location_access
     required_scope: cap.location.live.request
   - name: approve_location_request
-    description: Approve a pending request and create a new recipient-scoped grant.
+    description: Propose explicit Area updates or Live location approval; the device creates the grant only after owner review.
     py_func: hushh_mcp.agents.location.tools.approve_location_request
     required_scope: cap.location.live.share
   - name: deny_location_request
@@ -110,7 +128,7 @@ tools:
     py_func: hushh_mcp.agents.location.tools.list_public_links
     required_scope: cap.location.live.share
   - name: propose_public_link
-    description: Propose an owner-confirmed public link; the browser creates it after confirmation.
+    description: Propose a one-time approximate-area or precise-point snapshot; it is captured once and never updates.
     py_func: hushh_mcp.agents.location.tools.propose_public_link
     required_scope: cap.location.live.share
   - name: propose_location_view
@@ -136,6 +154,10 @@ tools:
   - name: request_recipient_choice
     description: Ask the user to choose an exact matching recipient.
     py_func: hushh_mcp.agents.location.tools.request_recipient_choice
+    required_scope: cap.location.live.share
+  - name: request_location_sharing_job_choice
+    description: Ask the user to choose Send location once, Area updates, or Live location without guessing.
+    py_func: hushh_mcp.agents.location.tools.request_location_sharing_job_choice
     required_scope: cap.location.live.share
   - name: request_active_share_choice
     description: Ask the user to choose an active share before revocation.

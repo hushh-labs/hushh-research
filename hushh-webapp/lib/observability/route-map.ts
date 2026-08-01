@@ -347,6 +347,12 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/one/location/requests",
   },
   {
+    regex:
+      /^\/api\/one\/location\/requests\/[^/?]+\/approve-with-envelope(?:\?.*)?$/i,
+    template:
+      "/api/one/location/requests/{request_id}/approve-with-envelope",
+  },
+  {
     regex: /^\/api\/one\/location\/requests\/[^/?]+\/approve(?:\?.*)?$/i,
     template: "/api/one/location/requests/{request_id}/approve",
   },

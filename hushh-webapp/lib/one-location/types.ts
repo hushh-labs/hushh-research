@@ -170,6 +170,10 @@ export type OneLocationAccessRequest = {
   requesterUserId: string;
   requesterDisplayName?: string | null;
   requesterMaskedPhone?: string | null;
+  /** Active encryption key disclosed only inside this request's owner-scoped state. */
+  requesterKeyId?: string | null;
+  requesterPublicKeyJwk?: JsonWebKey | null;
+  requesterKeyAlgorithm?: string | null;
   referredByUserId?: string | null;
   status: "pending" | "approved" | "denied" | "cancelled" | string;
   message?: string | null;
@@ -470,19 +474,47 @@ export type OneLocationMapState = {
   markers: OneLocationMapMarker[];
 };
 
-export interface ShareTarget {
-  grantId: string;
+interface ShareTargetBase {
   recipientUserId: string;
-  recipientKeyId: string;
   label: string;
 }
+
+export type ShareTarget =
+  | (ShareTargetBase & {
+      /** Rolling-deploy compatibility: publish into an already-created grant. */
+      grantId: string;
+      recipientKeyId: string;
+      approvalRequestId?: never;
+      durationHours?: number;
+      reason?: string | null;
+      locationMode?: LocationSharingMode;
+    })
+  | (ShareTargetBase & {
+      grantId?: never;
+      /** Owner-confirmed approval proposal; no grant exists before confirmation. */
+      approvalRequestId: string;
+      recipientKeyId?: string;
+      durationHours: number;
+      reason?: string | null;
+      locationMode: LocationSharingMode;
+    })
+  | (ShareTargetBase & {
+      grantId?: never;
+      approvalRequestId?: null;
+      /** Owner-confirmed new private share proposal. */
+      recipientKeyId: string;
+      durationHours: number;
+      reason?: string | null;
+      locationMode: LocationSharingMode;
+    });
 
 export type ClientActionType =
   | "publish_share"
   | "view_envelope"
   | "create_public_link"
   | "sos_panic"
-  | "check_in";
+  | "check_in"
+  | "request_device_location_permission";
 
 export interface ClientAction {
   id: string;
@@ -490,6 +522,7 @@ export interface ClientAction {
   shares?: ShareTarget[];
   grantId?: string;
   durationHours?: number;
+  locationMode?: LocationSharingMode;
   note?: string | null;
   summary: string;
 }
@@ -500,6 +533,8 @@ export interface ActionResult {
   status: "completed" | "cancelled" | "failed";
   publicUrl?: string;
   detail?: string;
+  durationHours?: number;
+  locationMode?: LocationSharingMode;
 }
 
 export interface PromptOption {

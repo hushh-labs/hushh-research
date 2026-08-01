@@ -23,6 +23,7 @@ def test_precision_mode_migration_is_release_registered() -> None:
     assert manifest["groups"]["iam"][-1] == MIGRATION_NAME
     assert "location_mode" in sql
     assert "approximate_radius_m" in sql
+    assert "approximate_radius_m IS NOT NULL" in sql
     assert "retained across application rollback" in rollback
 
     for contract_name in (
@@ -32,6 +33,9 @@ def test_precision_mode_migration_is_release_registered() -> None:
     ):
         contract = json.loads((ROOT / "db" / "contracts" / contract_name).read_text("utf-8"))
         assert contract["expected_migration_version"] == 132
+        grant_columns = contract["required_tables"]["one_location_share_grants"]
+        assert "location_mode" in grant_columns
+        assert "approximate_radius_m" in grant_columns
 
 
 def test_precision_helpers_are_deterministic_and_bounded() -> None:

@@ -681,6 +681,24 @@
       "revoked_at",
       "metadata"
     ],
+    "one_location_share_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "recipient_key_id",
+      "status",
+      "consent_scope",
+      "capability_scopes",
+      "duration_hours",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata",
+      "latest_envelope_id",
+      "location_mode",
+      "approximate_radius_m"
+    ],
     "connected_system_intents": [
       "intent_id",
       "user_id",

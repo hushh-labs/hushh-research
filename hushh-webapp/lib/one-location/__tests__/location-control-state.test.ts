@@ -28,6 +28,7 @@ describe("One Location control state", () => {
 
     expect(readOneLocationControlState(userId)).toEqual({
       autoShareEnabled: true,
+      backgroundShareEnabled: false,
       paused: true,
       selfPreviewEnabled: false,
       nearbyPresenceActive: false,
@@ -35,21 +36,43 @@ describe("One Location control state", () => {
     });
   });
 
-  it("keeps both settings preferences across route remounts", () => {
+  it("keeps settings preferences across route remounts", () => {
     updateOneLocationControlState(userId, (current) => ({
       ...current,
-      autoShareEnabled: false,
-      paused: true,
+      backgroundShareEnabled: true,
     }));
 
     clearOneLocationControlRuntime(userId);
 
     expect(readOneLocationControlState(userId)).toEqual(
       expect.objectContaining({
-        autoShareEnabled: false,
-        paused: true,
+        autoShareEnabled: true,
+        backgroundShareEnabled: true,
+        paused: false,
       }),
     );
+  });
+
+  it("pause and automatic-update off both disable background sharing", () => {
+    const enabled = updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      backgroundShareEnabled: true,
+    }));
+    expect(enabled.backgroundShareEnabled).toBe(true);
+
+    const paused = updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      paused: true,
+    }));
+    expect(paused.backgroundShareEnabled).toBe(false);
+
+    const automaticOff = updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      paused: false,
+      autoShareEnabled: false,
+      backgroundShareEnabled: true,
+    }));
+    expect(automaticOff.backgroundShareEnabled).toBe(false);
   });
 
   it("notifies every mounted surface from one update", () => {

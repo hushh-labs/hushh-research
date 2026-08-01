@@ -177,20 +177,21 @@ Capability scopes:
 
 ## Unified Location Control Contract
 
-The Location Agent header switch and Settings `Pause my location` control one
-user-scoped device preference. The header is on when at least one location
-channel is active: the owner's live preview, an active private grant publisher,
-or an active Nearby presence. Pausing stops new foreground/background private
+The Location Agent header switch and Settings `Pause location on this device`
+are exact inverse views of one user-scoped device preference; activity must not
+make them disagree. Pausing stops new coordinate captures and foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
-`Auto-share my location` is a durable user-scoped preference, independent from
+`Automatic location updates` is a durable user-scoped preference, independent from
 Pause. It controls continuous foreground/background updates only for private
 grants the owner already approved; it never creates a grant or auto-approves a
-request. Turning Auto-share off leaves consent and expiry intact and makes new
-shares publish only the location the owner explicitly confirms. Pause
-temporarily suppresses Auto-share without erasing that preference, so both
-settings remain stable across tab changes and route remounts.
+request. Explicitly confirming a new Area update or Live location turns this
+preference on and every mounted Location surface reflects that change. Turning
+it off later leaves consent and expiry intact but freezes active shares at their
+last encrypted point. Pause temporarily suppresses automatic updates without
+erasing that preference, so both
+settings remain stable across tab changes, browser-tab storage events, and route remounts.
 
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming
@@ -278,11 +279,12 @@ or spoof resistance may be claimed.
 
 ## Agent And Tool Contract
 
-`hushh_mcp.agents.location` is the One Location Agent surface. The manifest
-declares callable ADK tools for recipient listing, grant creation, encrypted
-envelope publishing, ciphertext viewing, revocation, access requests, request
-resolution, and referrals. Tools validate their capability scope per invocation
-and delegate persistence to `OneLocationAgentService`.
+`hushh_mcp.agents.location` is the One Location Agent surface. It distinguishes
+one-time snapshots, private 1 km+ Area updates, and precise Live locations. Its
+create/approval tools return coordinate-free proposals; only the confirmed
+owner device may capture, transform, encrypt, and atomically create a grant with
+its first envelope. Tools validate their capability scope per invocation and
+delegate persistence to `OneLocationAgentService`.
 
 The agent refuses referrals or public submissions that grant private access
 without owner approval. Public bearer links may reveal only the explicit
@@ -311,8 +313,10 @@ request-only links.
    pending access request for owner approval.
 7. If the phone does not have usable Hussh identity/key material, the submission
    stays pending identity/key setup.
-8. Owner approval still creates a fresh recipient-scoped grant and the owner
-   device still encrypts the coordinate envelope for that recipient.
+8. Owner approval requires an explicit Area updates or Live location choice plus
+   duration. The pending owner-visible request supplies the requester's active
+   public key; the device encrypts the reviewed point, and request resolution,
+   fresh recipient grant, first envelope, and audit events commit atomically.
 
 Public invite tables store token hashes, status, expiry, visitor display name,
 phone hash/last4, matched user id when available, request linkage, and an

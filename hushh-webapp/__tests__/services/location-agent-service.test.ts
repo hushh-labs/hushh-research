@@ -146,6 +146,8 @@ describe("OneLocationService", () => {
           envelope,
           reason: "Made it safely",
           shareKind: "check_in",
+          locationMode: "precise",
+          approximateRadiusM: null,
         }),
       }),
     );
@@ -199,6 +201,56 @@ describe("OneLocationService", () => {
         message: "Can you share?",
       }),
     });
+  });
+
+  it("uses the versioned fail-closed route for atomic request approval", async () => {
+    const envelope = {
+      algorithm: "ECDH-P256-AES256-GCM" as const,
+      recipientKeyId: "key_b",
+      ciphertext: "ciphertext",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: { kty: "EC" },
+      capturedAt: "2026-08-01T10:00:00.000Z",
+      sourcePlatform: "web" as const,
+    };
+    mockApiJson.mockResolvedValueOnce({
+      request: {
+        id: "request_1",
+        status: "approved",
+        approvedGrantId: "grant_1",
+      },
+      grant: { id: "grant_1", latestEnvelopeId: "envelope_1" },
+      envelope: { ...envelope, id: "envelope_1" },
+      idempotentReplay: false,
+    });
+
+    await OneLocationService.approveRequest({
+      vaultOwnerToken: "vault-token",
+      requestId: "request_1",
+      durationHours: 4,
+      recipientKeyId: "key_b",
+      clientOperationId: "approval:request_1",
+      confirmedAt: "2026-08-01T10:00:01.000Z",
+      envelope,
+      locationMode: "approximate",
+      approximateRadiusM: 1_000,
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/requests/request_1/approve-with-envelope",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          durationHours: 4,
+          recipientKeyId: "key_b",
+          clientOperationId: "approval:request_1",
+          confirmedAt: "2026-08-01T10:00:01.000Z",
+          envelope,
+          locationMode: "approximate",
+          approximateRadiusM: 1_000,
+        }),
+      }),
+    );
   });
 
   it("creates public location links with an owner-captured snapshot", async () => {

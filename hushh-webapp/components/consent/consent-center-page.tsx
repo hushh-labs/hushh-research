@@ -84,6 +84,9 @@ import {
 } from "@/lib/consent/consent-sheet-route";
 import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
 import { ConnectionsService } from "@/lib/services/connections-service";
+import type { LocationSharingMode } from "@/lib/one-location/types";
+import { OneLocationService } from "@/lib/one-location/service";
+import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -876,6 +879,9 @@ function ConsentEntryDetail({
   activeAction,
   isRequestBusy,
   isScopeBusy,
+  locationPaused,
+  autoShareEnabled,
+  preciseLocationAvailable,
 }: {
   actor: ConsentCenterActor;
   entry: ConsentCenterEntry | null;
@@ -886,6 +892,7 @@ function ConsentEntryDetail({
       requestedScopeHandles: string[];
       offeredScopeHandles: string[];
     },
+    locationMode?: LocationSharingMode,
   ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
@@ -893,6 +900,9 @@ function ConsentEntryDetail({
   activeAction: ConsentActionState | null;
   isRequestBusy: (requestId?: string | null) => boolean;
   isScopeBusy: (scope?: string | null) => boolean;
+  locationPaused: boolean;
+  autoShareEnabled: boolean;
+  preciseLocationAvailable: boolean;
 }) {
   const requestedDurationHours =
     typeof entry?.metadata?.expiry_hours === "number" ||
@@ -906,12 +916,29 @@ function ConsentEntryDetail({
     requestedDurationHours === null ? null : String(requestedDurationHours),
   );
   const defaultDuration = String(
-    parsedRequestedDuration || (isLocationEntry ? 1 : ""),
+    parsedRequestedDuration || (isLocationEntry ? 4 : ""),
   );
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
+  const [locationDurationTouched, setLocationDurationTouched] = useState(false);
+  const [selectedLocationMode, setSelectedLocationMode] =
+    useState<LocationSharingMode>("approximate");
   useEffect(() => {
     setSelectedDuration(defaultDuration);
+    setSelectedLocationMode("approximate");
+    setLocationDurationTouched(false);
   }, [defaultDuration, entry?.id]);
+  useEffect(() => {
+    if (preciseLocationAvailable || selectedLocationMode !== "precise") return;
+    setSelectedLocationMode("approximate");
+    if (!locationDurationTouched && !parsedRequestedDuration) {
+      setSelectedDuration("4");
+    }
+  }, [
+    locationDurationTouched,
+    parsedRequestedDuration,
+    preciseLocationAvailable,
+    selectedLocationMode,
+  ]);
   const proposals = connectionScopeProposals(entry);
   const requestedProposals = proposals.filter(
     (proposal) =>
@@ -1219,11 +1246,47 @@ function ConsentEntryDetail({
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
           aria-label="Consent decision"
         >
+          {isLocationEntry ? (
+            <div className="min-w-[190px]">
+              <Select
+                value={selectedLocationMode}
+                onValueChange={(value) => {
+                  const next = value as LocationSharingMode;
+                  setSelectedLocationMode(next);
+                  if (!locationDurationTouched && !parsedRequestedDuration) {
+                    setSelectedDuration(next === "approximate" ? "4" : "1");
+                  }
+                }}
+                disabled={requestBusy}
+              >
+                <SelectTrigger
+                  className="w-[190px]"
+                  aria-label="Location sharing mode"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="approximate">
+                    Area updates · Recommended
+                  </SelectItem>
+                  <SelectItem
+                    value="precise"
+                    disabled={!preciseLocationAvailable}
+                  >
+                    Live location
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
           {showDurationChoice ? (
             <div className="min-w-[150px]">
               <Select
                 value={selectedDuration}
-                onValueChange={setSelectedDuration}
+                onValueChange={(value) => {
+                  setLocationDurationTouched(true);
+                  setSelectedDuration(value);
+                }}
                 disabled={requestBusy}
               >
                 <SelectTrigger
@@ -1242,12 +1305,21 @@ function ConsentEntryDetail({
               </Select>
             </div>
           ) : null}
+          {isLocationEntry && locationPaused ? (
+            <p className="w-full text-right text-xs text-destructive">
+              Resume Location on this device before approving.
+            </p>
+          ) : isLocationEntry && !autoShareEnabled ? (
+            <p className="w-full text-right text-xs text-muted-foreground">
+              Approval turns on automatic updates for this timed share.
+            </p>
+          ) : null}
           <Button
             variant="blue-gradient"
             effect="fill"
             size="sm"
             className="min-h-11"
-            disabled={requestBusy}
+            disabled={requestBusy || (isLocationEntry && locationPaused)}
             onClick={() =>
               onApprove(
                 entry,
@@ -1260,6 +1332,7 @@ function ConsentEntryDetail({
                       offeredScopeHandles: selectedOfferedScopes,
                     }
                   : undefined,
+                isLocationEntry ? selectedLocationMode : undefined,
               )
             }
             data-voice-control-id="consent_approve"
@@ -1499,6 +1572,20 @@ export function ConsentCenterPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
+  const locationControl = useOneLocationControlState(user?.uid);
+  const [preciseLocationAvailable, setPreciseLocationAvailable] =
+    useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void OneLocationService.getPermissionState()
+      .then((permission) => {
+        if (!cancelled) setPreciseLocationAvailable(permission.precise !== false);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
   const { getVaultOwnerToken, isVaultUnlocked, vaultKey } = useVault();
   const {
     activeControlId: activeVoiceControlId,
@@ -1768,6 +1855,7 @@ export function ConsentCenterPage() {
         requestedScopeHandles: string[];
         offeredScopeHandles: string[];
       },
+      locationMode?: LocationSharingMode,
     ) => {
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
@@ -1795,7 +1883,11 @@ export function ConsentCenterPage() {
         return;
       }
       if (isLocationEntry(entry)) {
-        void handleLocationApprove(entry, durationHours);
+        void handleLocationApprove(
+          entry,
+          durationHours,
+          locationMode ?? "approximate",
+        );
         return;
       }
       if (isMarketplaceEntry(entry)) {
@@ -2997,11 +3089,18 @@ export function ConsentCenterPage() {
           <ConsentEntryDetail
             actor={actor}
             entry={selectedEntry}
-            onApprove={(entry, durationHours, scopeSelection) => {
-              // Dismiss the panel immediately; the list already optimistically
-              // removes the row and any failure surfaces via toast.
-              closeDetailPanel();
-              approveEntry(entry, durationHours, scopeSelection);
+            onApprove={(
+              entry,
+              durationHours,
+              scopeSelection,
+              locationMode,
+            ) => {
+              approveEntry(
+                entry,
+                durationHours,
+                scopeSelection,
+                locationMode,
+              );
             }}
             onDeny={(entry) => {
               closeDetailPanel();
@@ -3015,6 +3114,9 @@ export function ConsentCenterPage() {
             activeAction={activeAction}
             isRequestBusy={isRequestBusy}
             isScopeBusy={isScopeBusy}
+            locationPaused={locationControl.paused}
+            autoShareEnabled={locationControl.autoShareEnabled}
+            preciseLocationAvailable={preciseLocationAvailable}
           />
         )}
       </SettingsDetailPanel>

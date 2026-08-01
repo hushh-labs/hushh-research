@@ -8,6 +8,7 @@
  */
 export type OneLocationControlState = {
   autoShareEnabled: boolean;
+  backgroundShareEnabled: boolean;
   paused: boolean;
   selfPreviewEnabled: boolean;
   nearbyPresenceActive: boolean;
@@ -16,8 +17,10 @@ export type OneLocationControlState = {
 
 const PAUSED_PREFERENCE_PREFIX = "one_location_updates_paused_v1:";
 const AUTO_SHARE_PREFERENCE_PREFIX = "one_location_auto_share_v1:";
+const BACKGROUND_SHARE_PREFERENCE_PREFIX = "one_location_background_share_v1:";
 const EMPTY_STATE: OneLocationControlState = {
   autoShareEnabled: true,
+  backgroundShareEnabled: false,
   paused: false,
   selfPreviewEnabled: false,
   nearbyPresenceActive: false,
@@ -40,6 +43,10 @@ function pausedPreferenceKey(userId: string): string {
 
 function autoSharePreferenceKey(userId: string): string {
   return `${AUTO_SHARE_PREFERENCE_PREFIX}${userId}`;
+}
+
+function backgroundSharePreferenceKey(userId: string): string {
+  return `${BACKGROUND_SHARE_PREFERENCE_PREFIX}${userId}`;
 }
 
 function readPausedPreference(userId: string): boolean {
@@ -87,6 +94,33 @@ function writeAutoSharePreference(userId: string, enabled: boolean): void {
   }
 }
 
+function readBackgroundSharePreference(userId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      window.localStorage.getItem(backgroundSharePreferenceKey(userId)) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeBackgroundSharePreference(
+  userId: string,
+  enabled: boolean,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (enabled) {
+      window.localStorage.setItem(backgroundSharePreferenceKey(userId), "1");
+    } else {
+      window.localStorage.removeItem(backgroundSharePreferenceKey(userId));
+    }
+  } catch {
+    // The current in-memory preference remains authoritative for this session.
+  }
+}
+
 export function readOneLocationControlState(
   userId: string | null | undefined,
 ): OneLocationControlState {
@@ -96,6 +130,7 @@ export function readOneLocationControlState(
   return {
     ...EMPTY_STATE,
     autoShareEnabled: readAutoSharePreference(userId),
+    backgroundShareEnabled: readBackgroundSharePreference(userId),
     paused: readPausedPreference(userId),
   };
 }
@@ -109,8 +144,11 @@ export function updateOneLocationControlState(
   const updated = updater(current);
   const paused = Boolean(updated.paused);
   const nearbyPresenceActive = !paused && Boolean(updated.nearbyPresenceActive);
+  const autoShareEnabled = Boolean(updated.autoShareEnabled);
   const next: OneLocationControlState = {
-    autoShareEnabled: Boolean(updated.autoShareEnabled),
+    autoShareEnabled,
+    backgroundShareEnabled:
+      !paused && autoShareEnabled && Boolean(updated.backgroundShareEnabled),
     paused,
     selfPreviewEnabled: !paused && Boolean(updated.selfPreviewEnabled),
     nearbyPresenceActive,
@@ -118,11 +156,37 @@ export function updateOneLocationControlState(
   };
   runtimeByUser.set(userId, next);
   writeAutoSharePreference(userId, next.autoShareEnabled);
+  writeBackgroundSharePreference(userId, next.backgroundShareEnabled);
   writePausedPreference(userId, next.paused);
   for (const listener of listenersByUser.get(userId) ?? []) {
     listener(cloneState(next));
   }
   return cloneState(next);
+}
+
+/**
+ * A timed Area update or Live location is an explicit opt-in to automatic
+ * private updates. Keep that decision in the same user-scoped control state as
+ * Settings so every Location surface reflects it immediately.
+ *
+ * Pause remains the stronger authority: callers must not use this helper to
+ * resume a paused device. The user must resume Location explicitly first.
+ */
+export function enableOneLocationAutomaticUpdates(
+  userId: string | null | undefined,
+): { allowed: boolean; enabledNow: boolean } {
+  const current = readOneLocationControlState(userId);
+  if (!userId || current.paused) {
+    return { allowed: false, enabledNow: false };
+  }
+  if (current.autoShareEnabled) {
+    return { allowed: true, enabledNow: false };
+  }
+  updateOneLocationControlState(userId, (state) => ({
+    ...state,
+    autoShareEnabled: true,
+  }));
+  return { allowed: true, enabledNow: true };
 }
 
 export function subscribeOneLocationControlState(
@@ -138,6 +202,34 @@ export function subscribeOneLocationControlState(
     listeners.delete(listener);
     if (listeners.size === 0) listenersByUser.delete(userId);
   };
+}
+
+/** Reconcile a mounted tab after another tab changes persisted controls. */
+export function refreshOneLocationControlStateFromPreferences(
+  userId: string | null | undefined,
+): OneLocationControlState {
+  if (!userId) return cloneState(EMPTY_STATE);
+  const current = runtimeByUser.get(userId) ?? EMPTY_STATE;
+  const paused = readPausedPreference(userId);
+  const autoShareEnabled = readAutoSharePreference(userId);
+  const next: OneLocationControlState = {
+    ...current,
+    autoShareEnabled,
+    backgroundShareEnabled:
+      !paused && autoShareEnabled && readBackgroundSharePreference(userId),
+    paused,
+    selfPreviewEnabled: !paused && current.selfPreviewEnabled,
+    nearbyPresenceActive: !paused && current.nearbyPresenceActive,
+    nearbyCheckedInAt:
+      !paused && current.nearbyPresenceActive
+        ? current.nearbyCheckedInAt
+        : null,
+  };
+  runtimeByUser.set(userId, next);
+  for (const listener of listenersByUser.get(userId) ?? []) {
+    listener(cloneState(next));
+  }
+  return cloneState(next);
 }
 
 /** Clear volatile activity mirrors while retaining user preferences. */
@@ -172,6 +264,7 @@ export function forgetOneLocationControlPreference(
     try {
       window.localStorage.removeItem(pausedPreferenceKey(userId));
       window.localStorage.removeItem(autoSharePreferenceKey(userId));
+      window.localStorage.removeItem(backgroundSharePreferenceKey(userId));
     } catch {
       // Best-effort account-deletion cleanup for restricted browser storage.
     }

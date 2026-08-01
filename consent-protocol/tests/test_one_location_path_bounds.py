@@ -73,3 +73,12 @@ class TestPathParamBounds:
         response = client.delete(f"/api/one/location/grants/{boundary_grant_id}")
 
         assert response.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    @pytest.mark.parametrize("action", ("approve", "approve-with-envelope", "deny"))
+    def test_location_request_id_must_be_uuid(self, client, action):
+        response = client.post(
+            f"/api/one/location/requests/not-a-uuid/{action}",
+            json={} if action == "approve" else None,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

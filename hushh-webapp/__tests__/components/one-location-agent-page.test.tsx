@@ -20,6 +20,9 @@ const {
   mockRequestLocationPermission,
   mockOpenLocationSettings,
   mockOpenAppSettings,
+  mockRequestAlwaysAuthorization,
+  mockStartBackgroundShare,
+  mockStopBackgroundShare,
   mockCaptureCurrentPosition,
   mockReverseGeocode,
   mockPlacesAutocomplete,
@@ -27,11 +30,13 @@ const {
   mockAddSavedLocation,
   mockLoadSavedLocations,
   mockCreateGrant,
+  mockCreateGrantWithEnvelope,
   mockStoreEnvelope,
   mockViewEnvelope,
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
+  mockRevokePublicInvite,
   mockCreateCircleInvite,
   mockGetActivity,
   mockGetState,
@@ -49,6 +54,8 @@ const {
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
+  mockIsIOS,
+  mockIsWeb,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
@@ -60,6 +67,9 @@ const {
   mockRequestLocationPermission: vi.fn(),
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
+  mockRequestAlwaysAuthorization: vi.fn(),
+  mockStartBackgroundShare: vi.fn(),
+  mockStopBackgroundShare: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
   mockReverseGeocode: vi.fn(),
   mockPlacesAutocomplete: vi.fn(),
@@ -67,11 +77,13 @@ const {
   mockAddSavedLocation: vi.fn(),
   mockLoadSavedLocations: vi.fn(),
   mockCreateGrant: vi.fn(),
+  mockCreateGrantWithEnvelope: vi.fn(),
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockRevokePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
@@ -92,6 +104,8 @@ const {
     toString: () => "",
   },
   mockCopyToClipboard: vi.fn(),
+  mockIsIOS: vi.fn(),
+  mockIsWeb: vi.fn(),
 }));
 
 mockSearchParams.get = mockSearchParamsGet;
@@ -194,6 +208,18 @@ vi.mock("@/lib/one-location/encryption", () => ({
   decryptLocationEnvelope: mockDecryptLocationEnvelope,
 }));
 
+vi.mock("@/lib/capacitor", () => ({
+  HushhLocation: {
+    startBackgroundShare: mockStartBackgroundShare,
+    stopBackgroundShare: mockStopBackgroundShare,
+  },
+}));
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isIOS: mockIsIOS,
+  isWeb: mockIsWeb,
+}));
+
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     registerRecipientKey: mockRegisterKey,
@@ -206,6 +232,7 @@ vi.mock("@/lib/one-location/service", () => ({
     getNearbyPresence: mockGetNearbyPresence,
     checkoutNearby: mockCheckoutNearby,
     createGrant: mockCreateGrant,
+    createGrantWithEnvelope: mockCreateGrantWithEnvelope,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
     reverseGeocode: mockReverseGeocode,
@@ -214,11 +241,9 @@ vi.mock("@/lib/one-location/service", () => ({
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
     clearLocationWatch: vi.fn().mockResolvedValue(undefined),
-    startBackgroundShare: vi.fn().mockResolvedValue({ started: false }),
-    stopBackgroundShare: vi.fn().mockResolvedValue(undefined),
-    requestAlwaysAuthorization: vi
-      .fn()
-      .mockResolvedValue({ background: "unavailable" }),
+    startBackgroundShare: mockStartBackgroundShare,
+    stopBackgroundShare: mockStopBackgroundShare,
+    requestAlwaysAuthorization: mockRequestAlwaysAuthorization,
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     requestAccess: mockRequestAccess,
@@ -227,7 +252,7 @@ vi.mock("@/lib/one-location/service", () => ({
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
     createCircleInvite: mockCreateCircleInvite,
-    revokePublicInvite: vi.fn(),
+    revokePublicInvite: mockRevokePublicInvite,
     revokeCircleInvite: vi.fn(),
   },
 }));
@@ -590,7 +615,7 @@ async function openTemporaryLinkFlow() {
     await screen.findByRole("button", { name: /Create a new link/i }),
   );
   expect(
-    await screen.findByRole("heading", { name: "Share outside your Circle" }),
+    await screen.findByRole("heading", { name: "Send a one-time location" }),
   ).toBeTruthy();
 }
 
@@ -643,6 +668,8 @@ describe("OneLocationAgentPage", () => {
     });
     mockRegisterKey.mockResolvedValue({});
     mockGetPermissionState.mockReset();
+    mockIsIOS.mockReturnValue(false);
+    mockIsWeb.mockReturnValue(true);
     mockGetPermissionState.mockResolvedValue({
       state: "granted",
       precise: true,
@@ -657,6 +684,14 @@ describe("OneLocationAgentPage", () => {
       opened: true,
       sourcePlatform: "android",
     });
+    mockRequestAlwaysAuthorization.mockResolvedValue({
+      state: "granted",
+      precise: true,
+      background: "foreground-only",
+      locationServicesEnabled: true,
+    });
+    mockStartBackgroundShare.mockResolvedValue({ started: true });
+    mockStopBackgroundShare.mockResolvedValue(undefined);
     mockRequestLocationPermission.mockResolvedValue({
       state: "granted",
       precise: true,
@@ -721,6 +756,39 @@ describe("OneLocationAgentPage", () => {
       durationHours: 1,
       expiresAt: "2026-05-20T08:30:00.000Z",
     });
+    mockCreateGrantWithEnvelope.mockReset();
+    mockCreateGrantWithEnvelope.mockImplementation(
+      async (payload: {
+        recipientUserId: string;
+        recipientKeyId: string;
+        durationHours: number;
+        locationMode: "approximate" | "precise";
+        approximateRadiusM: number | null;
+        envelope: Record<string, unknown>;
+      }) => ({
+        grant: {
+          id: `grant_${payload.recipientUserId}`,
+          ownerUserId: "user_a",
+          recipientUserId: payload.recipientUserId,
+          recipientDisplayName:
+            payload.recipientUserId === "user_d" ? "Investor D" : "Trusted B",
+          recipientKeyId: payload.recipientKeyId,
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: payload.durationHours,
+          expiresAt: "2026-05-20T08:30:00.000Z",
+          latestEnvelopeId: `envelope_${payload.recipientUserId}`,
+          locationMode: payload.locationMode,
+          approximateRadiusM: payload.approximateRadiusM,
+        },
+        envelope: {
+          id: `envelope_${payload.recipientUserId}`,
+          ...payload.envelope,
+        },
+        idempotentReplay: false,
+      }),
+    );
     mockEncryptLocationForRecipient.mockResolvedValue({
       recipientKeyId: "key_b",
       algorithm: "ECDH-P256-AES256-GCM",
@@ -761,6 +829,7 @@ describe("OneLocationAgentPage", () => {
     mockCreatePublicInvite.mockResolvedValue({
       publicUrl: "/one/location/request/invite_1",
     });
+    mockRevokePublicInvite.mockResolvedValue({});
     mockGetState.mockResolvedValue(locationState());
     mockGetNearbyPresence.mockResolvedValue({
       presence: null,
@@ -888,24 +957,16 @@ describe("OneLocationAgentPage", () => {
     );
     expect(
       headerRow?.contains(
-        screen.getByRole("switch", { name: "Turn location on" }),
+        screen.getByRole("switch", { name: "Turn location off" }),
       ),
     ).toBe(true);
-    expect(screen.getByText("Location off").className).toContain("sm:inline");
+    expect(screen.getByText("Location on").className).toContain("sm:inline");
 
     mockCaptureCurrentPosition.mockClear();
-    const locationOffSwitch = screen.getByRole("switch", {
-      name: "Turn location on",
-    });
-    expect(locationOffSwitch).toHaveAttribute("aria-checked", "false");
-
-    fireEvent.click(locationOffSwitch);
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
     const locationOnSwitch = screen.getByRole("switch", {
       name: "Turn location off",
     });
     expect(locationOnSwitch).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("Location on")).toBeTruthy();
 
     fireEvent.click(locationOnSwitch);
     await waitFor(() =>
@@ -915,6 +976,13 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.getByText("Location paused")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Location on")).toBeTruthy();
   });
 
   it("keeps the header, Pause setting, and active Nearby presence synchronized", async () => {
@@ -947,10 +1015,10 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
+      name: "Pause location on this device",
     });
     const autoShareSwitch = screen.getByRole("switch", {
-      name: "Auto-share my location",
+      name: "Automatic location updates",
     });
     expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
     expect(autoShareSwitch).toHaveAttribute("aria-checked", "true");
@@ -972,6 +1040,64 @@ describe("OneLocationAgentPage", () => {
       expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
     );
     expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("keeps the iPhone background-update opt-in enabled across Location tabs", async () => {
+    mockIsIOS.mockReturnValue(true);
+    mockIsWeb.mockReturnValue(false);
+    mockRequestAlwaysAuthorization.mockResolvedValue({
+      state: "granted",
+      precise: true,
+      background: "available",
+      locationServicesEnabled: true,
+    });
+
+    const firstRender = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const backgroundSwitch = await screen.findByRole("switch", {
+      name: "Keep active shares updating in background",
+    });
+    expect(backgroundSwitch).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(backgroundSwitch);
+    await waitFor(() =>
+      expect(mockRequestAlwaysAuthorization).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(backgroundSwitch).toHaveAttribute("aria-checked", "true"),
+    );
+    await waitFor(() => expect(mockStartBackgroundShare).toHaveBeenCalled());
+    expect(
+      window.localStorage.getItem("one_location_background_share_v1:user_a"),
+    ).toBe("1");
+
+    mockGetPermissionState.mockResolvedValue({
+      state: "granted",
+      precise: true,
+      background: "available",
+      locationServicesEnabled: true,
+    });
+    firstRender.unmount();
+    expect(
+      window.localStorage.getItem("one_location_background_share_v1:user_a"),
+    ).toBe("1");
+    render(<OneLocationAgentPage />);
+    expect(
+      await screen.findByRole("heading", { name: "Location Agent" }),
+    ).toBeTruthy();
+    expect(
+      window.localStorage.getItem("one_location_background_share_v1:user_a"),
+    ).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+
+    expect(
+      await screen.findByRole("switch", {
+        name: "Keep active shares updating in background",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("does not claim Location is paused when Nearby checkout fails", async () => {
@@ -1004,7 +1130,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
+      name: "Pause location on this device",
     });
     fireEvent.click(pauseSwitch);
 
@@ -1021,10 +1147,10 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Turn location off" }),
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await waitFor(() =>
+      expect(screen.getByText("Location paused")).toBeTruthy(),
     );
-    await waitFor(() => expect(screen.getByText("Location paused")).toBeTruthy());
 
     mockCaptureCurrentPosition.mockClear();
     mockCaptureCurrentPosition.mockRejectedValue(
@@ -1032,7 +1158,7 @@ describe("OneLocationAgentPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
+      name: "Pause location on this device",
     });
     fireEvent.click(pauseSwitch);
 
@@ -1056,6 +1182,12 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location on" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
     await waitFor(() =>
       expect(screen.getByText("Location limited")).toBeTruthy(),
@@ -1065,7 +1197,7 @@ describe("OneLocationAgentPage", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
-  it("renders a focused, validated share flow with a 15-minute default", async () => {
+  it("renders differentiated Area and Live modes with the Area default", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -1086,15 +1218,17 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "What are you sharing?" }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Better for privacy and battery life"),
+      screen.getByText(/Privacy-first: a broad 1 km\+ area about every 5 min/i),
     ).toBeTruthy();
     expect(
-      screen.getByText("Updates while you move for your loved ones"),
+      screen.getByText(
+        /Coordination-first: an exact moving pin with directions/i,
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("Private by design")).toBeNull();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("15 min");
+    expect(duration.textContent).toContain("4 hours");
     fireEvent.click(duration);
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
@@ -1139,13 +1273,17 @@ describe("OneLocationAgentPage", () => {
     });
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
-    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
-    expect(mockCreateGrant).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByRole("button", { name: "Start area updates" }));
+    await waitFor(() =>
+      expect(mockCreateGrantWithEnvelope).toHaveBeenCalledTimes(1),
+    );
+    expect(mockCreateGrantWithEnvelope).toHaveBeenCalledWith(
       expect.objectContaining({
         durationHours: 4,
         reason: "On my way",
         shareKind: "share",
+        locationMode: "approximate",
+        approximateRadiusM: 1_000,
       }),
     );
   });
@@ -1162,9 +1300,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Manage sharing" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage sharing" })).toBeNull();
     expect(mockRouterPush).toHaveBeenCalledWith(
       "/one/location?action=settings",
       { scroll: false },
@@ -1428,9 +1564,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(
-      screen.getByRole("button", { name: "Add my people" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add my people" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -1646,25 +1780,31 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
     mockLoadSavedLocations.mockResolvedValue([]);
-    mockGetPermissionState
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
-      })
-      .mockResolvedValueOnce({
+    let permissionGranted = false;
+    mockGetPermissionState.mockImplementation(async () =>
+      permissionGranted
+        ? {
+            state: "granted",
+            precise: true,
+            background: "foreground-only",
+            locationServicesEnabled: true,
+          }
+        : {
+            state: "prompt",
+            precise: null,
+            background: "foreground-only",
+            locationServicesEnabled: true,
+          },
+    );
+    mockRequestLocationPermission.mockImplementation(async () => {
+      permissionGranted = true;
+      return {
         state: "granted",
         precise: true,
         background: "foreground-only",
         locationServicesEnabled: true,
-      });
+      };
+    });
 
     render(<OneLocationAgentPage />);
 
@@ -1926,9 +2066,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     expect(
-      await screen.findByText(
-        "Hushh Office, Bengaluru, Karnataka, India",
-      ),
+      await screen.findByText("Hushh Office, Bengaluru, Karnataka, India"),
     ).toBeTruthy();
     expect(screen.queryByText(/12\.9716|77\.5946/)).toBeNull();
 
@@ -2235,7 +2373,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
     fireEvent.click(
-      screen.getByRole("button", { name: /Review public location link/i }),
+      screen.getByRole("button", { name: /Create one-time location link/i }),
     );
 
     await waitFor(() =>
@@ -2246,10 +2384,13 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       durationHours: 1,
       locationSnapshot: expect.objectContaining({
-        latitude: 28.6139,
-        longitude: 77.209,
+        locationMode: "approximate",
+        approximateRadiusM: 1_000,
       }),
     });
+    const snapshot = mockCreatePublicInvite.mock.calls[0]?.[0].locationSnapshot;
+    expect(snapshot.latitude).not.toBe(28.6139);
+    expect(snapshot.longitude).not.toBe(77.209);
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_public_link_created",
       expect.objectContaining({
@@ -2263,12 +2404,104 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(longPublicUrl)).toBeNull();
     expect(
       await screen.findByRole("heading", {
-        name: "Public location link active",
+        name: "One-time location link active",
       }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
+    expect(
+      screen.getByText("Expiry and revoke controls are syncing"),
     ).toBeTruthy();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
+  });
+
+  it("revokes a one-time link when Location is paused while creation is in flight", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockCreatePublicInvite.mockImplementationOnce(async () => {
+      const { updateOneLocationControlState } = await import(
+        "@/lib/one-location/location-control-state"
+      );
+      updateOneLocationControlState("user_a", (current) => ({
+        ...current,
+        paused: true,
+      }));
+      return {
+        invite: {
+          id: "invite_paused_in_flight",
+          ownerUserId: "user_a",
+          status: "active",
+          durationHours: 1,
+          expiresAt: "2099-08-01T12:00:00.000Z",
+          createdAt: "2099-08-01T11:00:00.000Z",
+        },
+        publicToken: "token_paused_in_flight",
+        publicUrl: "/one/location/request/token_paused_in_flight",
+      };
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openTemporaryLinkFlow();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create one-time location link/i }),
+    );
+
+    await waitFor(() =>
+      expect(mockRevokePublicInvite).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        inviteId: "invite_paused_in_flight",
+      }),
+    );
+    expect(mockCopyToClipboard).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", { name: "One-time location link active" }),
+    ).toBeNull();
+  });
+
+  it("does not render dead Copy or Share controls for a reloaded public link", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [
+        {
+          id: "public-invite-reloaded",
+          ownerUserId: "user_a",
+          status: "active",
+          durationHours: 1,
+          expiresAt: "2099-08-01T12:00:00.000Z",
+          createdAt: "2099-08-01T11:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(
+      await screen.findByText(/link address not kept after reload/i),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Create a new link/i }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "One-time location link active",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/link address is not kept after reload/i),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
   });
 
   it("creates one encrypted share without exposing phone-derived labels", async () => {
@@ -2282,35 +2515,42 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openShareReviewStep();
-    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Start area updates/i }),
+    );
 
-    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
-    expect(mockCreateGrant).toHaveBeenCalledWith({
-      vaultOwnerToken: "vault-token",
-      recipientUserId: "user_b",
-      recipientKeyId: "key_b",
-      durationHours: 0.25,
-      reason: undefined,
-      shareKind: "share",
-    });
+    await waitFor(() =>
+      expect(mockCreateGrantWithEnvelope).toHaveBeenCalledTimes(1),
+    );
+    expect(mockCreateGrantWithEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vaultOwnerToken: "vault-token",
+        recipientUserId: "user_b",
+        recipientKeyId: "key_b",
+        durationHours: 4,
+        clientOperationId: expect.any(String),
+        confirmedAt: expect.any(String),
+        reason: undefined,
+        shareKind: "share",
+        locationMode: "approximate",
+        approximateRadiusM: 1_000,
+        envelope: expect.objectContaining({
+          ciphertext: "ciphertext",
+          recipientKeyId: "key_b",
+        }),
+      }),
+    );
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
     expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(
       expect.objectContaining({
         point: expect.objectContaining({
-          latitude: 28.6139,
-          longitude: 77.209,
+          locationMode: "approximate",
+          approximateRadiusM: 1_000,
         }),
         recipientKeyId: "key_b",
       }),
     );
-    expect(mockStoreEnvelope).toHaveBeenCalledWith({
-      vaultOwnerToken: "vault-token",
-      grantId: "grant_new",
-      envelope: expect.objectContaining({
-        ciphertext: "ciphertext",
-        recipientKeyId: "key_b",
-      }),
-    });
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_share_review_opened",
@@ -2318,7 +2558,7 @@ describe("OneLocationAgentPage", () => {
         route_id: "one_location",
         result: "success",
         selected_count: 1,
-        duration_bucket: "15m",
+        duration_bucket: "4h",
       }),
       expect.any(Object),
     );
@@ -2347,10 +2587,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("retries transient foreground publish failures and tracks backoff metadata", async () => {
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
+    mockGetState.mockResolvedValue(locationState());
     mockStoreEnvelope
       .mockRejectedValueOnce(
         Object.assign(new Error("One API unavailable"), { status: 503 }),
@@ -2361,16 +2598,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareReviewStep();
-    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
-
     await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalledTimes(2));
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_foreground_retry",
       expect.objectContaining({
         route_id: "one_location",
         operation: "publish",
-        trigger: "manual",
+        trigger: "foreground_interval",
         result: "expected_error",
         attempt_count: 1,
         retry_count: 1,
@@ -2391,29 +2625,6 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       ownerGrants: [],
     });
-    mockCreateGrant.mockImplementation(
-      async ({
-        recipientUserId,
-        recipientKeyId,
-        durationHours,
-      }: {
-        recipientUserId: string;
-        recipientKeyId: string;
-        durationHours: number;
-      }) => ({
-        id: `grant_${recipientUserId}`,
-        ownerUserId: "user_a",
-        recipientUserId,
-        recipientDisplayName:
-          recipientUserId === "user_d" ? "Investor D" : "Trusted B",
-        recipientKeyId,
-        status: "active",
-        consentScope: "cap.location.live.view",
-        capabilityScopes: ["cap.location.live.view"],
-        durationHours,
-        expiresAt: "2026-05-20T08:30:00.000Z",
-      }),
-    );
     mockEncryptLocationForRecipient.mockImplementation(
       async ({ point, recipientKeyId }) => ({
         recipientKeyId,
@@ -2474,16 +2685,24 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByText("Access ends automatically after expiry"),
     ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Start area updates/i }),
+    );
 
-    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mockCreateGrantWithEnvelope).toHaveBeenCalledTimes(2),
+    );
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
     expect(
-      mockCreateGrant.mock.calls.map(([payload]) => payload.recipientUserId),
+      mockCreateGrantWithEnvelope.mock.calls.map(
+        ([payload]) => payload.recipientUserId,
+      ),
     ).toEqual(["user_b", "user_d"]);
     expect(
-      mockCreateGrant.mock.calls.map(([payload]) => payload.durationHours),
-    ).toEqual([0.25, 0.25]);
+      mockCreateGrantWithEnvelope.mock.calls.map(
+        ([payload]) => payload.durationHours,
+      ),
+    ).toEqual([4, 4]);
     expect(
       mockEncryptLocationForRecipient.mock.calls.map(
         ([payload]) => payload.recipientKeyId,
@@ -2492,7 +2711,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockEncryptLocationForRecipient.mock.calls[0][0].point).toBe(
       mockEncryptLocationForRecipient.mock.calls[1][0].point,
     );
-    expect(mockStoreEnvelope).toHaveBeenCalledTimes(2);
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_recommendation_selected",
       expect.objectContaining({
@@ -2531,7 +2750,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
-    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockCreateGrantWithEnvelope).not.toHaveBeenCalled();
   });
 
   it("sends an approval-first location request without sharing coordinates", async () => {
@@ -2565,7 +2784,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
-      message: "Need pickup coordination",
+      message: "Safety check-in: Need pickup coordination",
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -2737,6 +2956,14 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("button", { name: /Share to contacts/i }),
     );
 
+    expect(
+      await screen.findByRole("heading", { name: "Send a one-time location" }),
+    ).toBeTruthy();
+    expect(mockCreatePublicInvite).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create one-time location link/i }),
+    );
+
     await waitFor(() =>
       expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1),
     );
@@ -2744,8 +2971,8 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       durationHours: 1,
       locationSnapshot: expect.objectContaining({
-        latitude: 28.6139,
-        longitude: 77.209,
+        locationMode: "approximate",
+        approximateRadiusM: 1_000,
       }),
     });
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
@@ -2788,7 +3015,39 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(mockCaptureCurrentPosition).not.toHaveBeenCalled(),
     );
-    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockCreateGrantWithEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Precise Location is downgraded after Live location review", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await openShareDetailsStep();
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Live location/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Review share/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Before you start" }),
+    ).toBeTruthy();
+
+    mockGetPermissionState.mockResolvedValue({
+      state: "granted",
+      precise: false,
+      background: "foreground-only",
+      locationServicesEnabled: true,
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Start live location/i }),
+    );
+
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    await waitFor(() => expect(mockGetPermissionState).toHaveBeenCalled());
+    expect(mockCreateGrantWithEnvelope).not.toHaveBeenCalled();
   });
 
   it("blocks sharing and opens settings when phone location services are off", async () => {
@@ -2811,7 +3070,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByText(/adjust permissions later in Location Settings/i),
     ).toBeTruthy();
-    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockCreateGrantWithEnvelope).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
@@ -2846,9 +3105,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     mockRouterPush.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add Connections/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Add Connections/i }));
     expect(mockRouterPush).toHaveBeenCalledWith("/one/connect");
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));

@@ -1,7 +1,16 @@
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
-import { prepareLocationPointForGrant } from "@/lib/one-location/location-precision";
+import {
+  prepareLocationPointForSharing,
+} from "@/lib/one-location/location-precision";
+import { executePrivateLocationAction } from "@/lib/one-location/client-action-executor";
+import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import type {
+  ClientAction,
+  LocationSharingMode,
+  ShareTarget,
+} from "@/lib/one-location/types";
 import {
   isSosShareReadyRecipient,
   runSosPanic,
@@ -31,18 +40,13 @@ export type DelegateResult = {
   status: "completed" | "cancelled" | "failed" | "answered";
   publicUrl?: string;
   detail?: string;
+  durationHours?: number;
+  locationMode?: LocationSharingMode;
   selected?: Record<string, unknown>[];
   confirmed?: boolean;
   freeText?: string;
   // Human-readable label for the chat chip (e.g. "Abdul Zalil · 8 hours").
   display?: string;
-};
-
-type Share = {
-  grantId: string;
-  recipientKeyId: string;
-  recipientUserId?: string;
-  label: string;
 };
 
 /**
@@ -80,58 +84,17 @@ export async function runLocationDirective(
 
   try {
     if (type === "publish_share") {
-      const shares = (payload.shares ?? []) as Share[];
-      // Capture ONCE, encrypt PER recipient, store per recipient.
-      // Mirrors use-location-chat confirmAction lines ~211-231: capture the
-      // position, load server state once, and for each share look up the
-      // recipient's public key from server state (never from the directive).
-      const position = await OneLocationService.captureCurrentPosition();
-      const state = await OneLocationService.getState(vaultOwnerToken);
-      for (const share of shares) {
-        const grant = (state.ownerGrants ?? []).find(
-          (candidate) =>
-            candidate.id === share.grantId && candidate.status === "active",
-        );
-        if (!grant) {
-          throw new Error(
-            `${share.label}'s location permission is no longer active`,
-          );
-        }
-        const recipient = (state.recipients ?? []).find(
-          (r) => r.keyId === share.recipientKeyId,
-        );
-        if (!recipient?.publicKeyJwk) {
-          throw new Error(`${share.label} hasn't set up location sharing yet`);
-        }
-        const sharePoint = prepareLocationPointForGrant(position, grant);
-        const envelope = await encryptLocationForRecipient({
-          point: sharePoint,
-          recipientPublicKeyJwk: recipient.publicKeyJwk,
-          recipientKeyId: share.recipientKeyId,
-        });
-        await OneLocationService.storeEnvelope({
-          vaultOwnerToken,
-          grantId: share.grantId,
-          envelope,
-        });
-      }
-      return {
-        delegate_agent_id: "agent_location",
-        kind: "action",
+      const shares = (payload.shares ?? []) as ShareTarget[];
+      const action: ClientAction = {
         id,
-        type,
-        status: "completed",
+        type: "publish_share",
+        shares,
+        summary: String(payload.summary ?? "Review location sharing"),
       };
-    }
-
-    if (type === "create_public_link") {
-      // Real field is `locationSnapshot` (not `publicLocation` as brief guessed)
-      const locationSnapshot =
-        await OneLocationService.captureCurrentPosition();
-      const { publicUrl } = await OneLocationService.createPublicInvite({
+      const outcome = await executePrivateLocationAction({
+        action,
         vaultOwnerToken,
-        durationHours: Number(payload.durationHours ?? 1),
-        locationSnapshot,
+        userId: currentUserId,
       });
       return {
         delegate_agent_id: "agent_location",
@@ -139,7 +102,62 @@ export async function runLocationDirective(
         id,
         type,
         status: "completed",
-        publicUrl: publicInviteUrlLabel(publicUrl),
+        detail:
+          outcome.successfulCount < outcome.totalCount
+            ? `${outcome.successfulCount} of ${outcome.totalCount} private shares started. ${outcome.failureDetails?.join(" ") ?? ""}`.trim()
+            : undefined,
+        durationHours: shares[0]?.durationHours,
+        locationMode: shares[0]?.locationMode,
+      };
+    }
+
+    if (type === "create_public_link") {
+      if (readOneLocationControlState(currentUserId).paused) {
+        throw new Error(
+          "Location is paused on this device. Resume it before capturing a snapshot.",
+        );
+      }
+      const locationMode: LocationSharingMode =
+        payload.locationMode === "precise" ? "precise" : "approximate";
+      const point = await OneLocationService.captureCurrentPosition();
+      const permission = await OneLocationService.getPermissionState();
+      if (readOneLocationControlState(currentUserId).paused) {
+        throw new Error(
+          "Location was paused before the snapshot could be created.",
+        );
+      }
+      if (locationMode === "precise" && permission.precise === false) {
+        throw new Error(
+          "Turn on Precise Location in device settings to capture a precise point.",
+        );
+      }
+      const locationSnapshot = prepareLocationPointForSharing(
+        point,
+        locationMode,
+      );
+      const response = await OneLocationService.createPublicInvite({
+        vaultOwnerToken,
+        durationHours: Number(payload.durationHours ?? 1),
+        locationSnapshot,
+      });
+      if (readOneLocationControlState(currentUserId).paused) {
+        await OneLocationService.revokePublicInvite({
+          vaultOwnerToken,
+          inviteId: response.invite.id,
+        }).catch(() => undefined);
+        throw new Error(
+          "Location was paused before the one-time link completed.",
+        );
+      }
+      return {
+        delegate_agent_id: "agent_location",
+        kind: "action",
+        id,
+        type,
+        status: "completed",
+        publicUrl: publicInviteUrlLabel(response.publicUrl),
+        durationHours: Number(payload.durationHours ?? 1),
+        locationMode,
       };
     }
 
@@ -160,6 +178,9 @@ export async function runLocationDirective(
     }
 
     if (type === "sos_panic") {
+      if (!currentUserId) {
+        throw new Error("Sign in again before sharing location.");
+      }
       const state = await OneLocationService.getState(vaultOwnerToken);
       const connected = selectSosConnectedRecipients(
         state.recipients ?? [],
@@ -180,23 +201,18 @@ export async function runLocationDirective(
         };
       }
       const point = await OneLocationService.captureCurrentPosition();
-      await runSosPanic({
+      const incident = await runSosPanic({
+        userId: currentUserId,
         vaultOwnerToken,
         recipients: ready,
         point,
-        publish: async (grant, recipient, pt) => {
-          const sharePoint = prepareLocationPointForGrant(pt, grant);
-          const envelope = await encryptLocationForRecipient({
-            point: sharePoint,
+        operationId: id,
+        prepareEnvelope: async (recipient, capturedPoint) =>
+          encryptLocationForRecipient({
+            point: prepareLocationPointForSharing(capturedPoint, "precise"),
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: recipient.keyId,
-          });
-          await OneLocationService.storeEnvelope({
-            vaultOwnerToken,
-            grantId: grant.id,
-            envelope,
-          });
-        },
+          }),
       });
       return {
         delegate_agent_id: "agent_location",
@@ -204,6 +220,10 @@ export async function runLocationDirective(
         id,
         type,
         status: "completed",
+        detail:
+          incident.grantIds.length < ready.length
+            ? `SOS location reached ${incident.grantIds.length} of ${ready.length} contacts.`
+            : undefined,
       };
     }
 
@@ -224,6 +244,9 @@ export async function runLocationDirective(
     }
 
     if (type === "check_in") {
+      if (!currentUserId) {
+        throw new Error("Sign in again before sharing location.");
+      }
       const state = await OneLocationService.getState(vaultOwnerToken);
       const connected = selectSosConnectedRecipients(
         state.recipients ?? [],
@@ -241,25 +264,20 @@ export async function runLocationDirective(
         };
       }
       const point = await OneLocationService.captureCurrentPosition();
-      await runCheckIn({
+      const grantIds = await runCheckIn({
+        userId: currentUserId,
         vaultOwnerToken,
         recipients: ready,
         point,
         durationHours: Number(payload.durationHours) || 1,
         note: payload.note ?? null,
-        publish: async (grant, recipient, pt) => {
-          const sharePoint = prepareLocationPointForGrant(pt, grant);
-          const envelope = await encryptLocationForRecipient({
-            point: sharePoint,
+        operationId: id,
+        prepareEnvelope: async (recipient, capturedPoint) =>
+          encryptLocationForRecipient({
+            point: prepareLocationPointForSharing(capturedPoint, "precise"),
             recipientPublicKeyJwk: recipient.publicKeyJwk,
             recipientKeyId: recipient.keyId,
-          });
-          await OneLocationService.storeEnvelope({
-            vaultOwnerToken,
-            grantId: grant.id,
-            envelope,
-          });
-        },
+          }),
       });
       return {
         delegate_agent_id: "agent_location",
@@ -267,6 +285,10 @@ export async function runLocationDirective(
         id,
         type,
         status: "completed",
+        detail:
+          grantIds.length < ready.length
+            ? `Checked in with ${grantIds.length} of ${ready.length} contacts.`
+            : undefined,
       };
     }
 

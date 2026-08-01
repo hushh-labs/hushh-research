@@ -270,7 +270,10 @@ export class OneLocationService {
     publicToken: string;
     publicUrl: string;
   }> {
-    return apiJsonWithRetry(
+    // This POST mints an unrecoverable bearer token and has no server-side
+    // idempotency key. Never auto-retry an ambiguous response: doing so could
+    // create a second active link that the owner never received.
+    return apiJson(
       "/api/one/location/public-invites",
       {
         method: "POST",
@@ -280,7 +283,6 @@ export class OneLocationService {
           locationSnapshot: params.locationSnapshot,
         }),
       },
-      1,
     );
   }
 
@@ -778,14 +780,34 @@ export class OneLocationService {
     vaultOwnerToken: string;
     requestId: string;
     durationHours: number;
-  }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
-    return apiJson(
-      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
+    recipientKeyId: string;
+    clientOperationId: string;
+    confirmedAt: string;
+    envelope: OneLocationEncryptedEnvelope;
+    locationMode: LocationSharingMode;
+    approximateRadiusM?: number | null;
+  }): Promise<{
+    request: OneLocationAccessRequest;
+    grant: OneLocationGrant;
+    envelope: OneLocationEncryptedEnvelope;
+    idempotentReplay: boolean;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve-with-envelope`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          recipientKeyId: params.recipientKeyId,
+          clientOperationId: params.clientOperationId,
+          confirmedAt: params.confirmedAt,
+          envelope: params.envelope,
+          locationMode: params.locationMode,
+          approximateRadiusM: params.approximateRadiusM ?? null,
+        }),
       },
+      1,
     );
   }
 

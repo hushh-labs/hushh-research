@@ -46,6 +46,10 @@ class DelegateResultModel(BaseModel):
     status: Optional[str] = Field(default=None, max_length=24)
     public_url: Optional[str] = Field(default=None, alias="publicUrl", max_length=2048)
     detail: Optional[str] = Field(default=None, max_length=500)
+    duration_hours: Optional[float] = Field(default=None, alias="durationHours", gt=0, le=24)
+    location_mode: Optional[str] = Field(
+        default=None, alias="locationMode", pattern="^(approximate|precise)$"
+    )
     selected: Optional[list[dict]] = Field(default=None)
     confirmed: Optional[bool] = Field(default=None)
     free_text: Optional[str] = Field(default=None, alias="freeText", max_length=4000)
