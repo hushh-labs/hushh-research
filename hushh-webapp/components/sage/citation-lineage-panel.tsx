@@ -34,7 +34,6 @@ import {
   listResearchThreads,
 } from "@/lib/sage/research-thread-entity";
 import { PersonalKnowledgeModelService, type DomainSummary } from "@/lib/services/personal-knowledge-model-service";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
