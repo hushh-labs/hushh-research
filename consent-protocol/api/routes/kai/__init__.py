@@ -32,8 +32,10 @@ from .gmail import router as gmail_router
 from .health import router as health_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
+from .pkm_highlight import router as pkm_highlight_router
 from .plaid import router as plaid_router
 from .portfolio import router as portfolio_router
+from .sage_citations import router as sage_citations_router
 from .stream import router as stream_router
 from .support import router as support_router
 from .voice import router as voice_router
@@ -118,6 +120,15 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
+    "/pkm/highlight-summary",
+    "/pkm/sage-briefing",
+    "/pkm/sage-recap",
+    "/pkm/sage-research",
+    "/pkm/sage-review",
+    "/pkm/sage-thread-synthesis",
+    "/sage/paper-search",
+    "/sage/paper-lineage",
+    "/sage/paper-insight",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -127,6 +138,8 @@ kai_router.include_router(agent_realtime_router)
 kai_router.include_router(agent_voice_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
+kai_router.include_router(pkm_highlight_router)
+kai_router.include_router(sage_citations_router)
 kai_router.include_router(plaid_router)
 kai_router.include_router(gmail_router)
 kai_router.include_router(consent_router)

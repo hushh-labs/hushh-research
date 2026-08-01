@@ -24,6 +24,12 @@ export const ROUTE_ID_VALUES = [
   "one_kyc",
   "one_location",
   "one_location_public_request",
+  "sage_home",
+  "sage_ask",
+  "sage_notes",
+  "sage_citations",
+  "sage_review",
+  "sage_threads",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -92,6 +98,12 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
+  if (pathname === ROUTES.SAGE) return "sage_home";
+  if (pathname === ROUTES.SAGE_ASK) return "sage_ask";
+  if (pathname === ROUTES.SAGE_NOTES) return "sage_notes";
+  if (pathname === ROUTES.SAGE_CITATIONS) return "sage_citations";
+  if (pathname === ROUTES.SAGE_REVIEW) return "sage_review";
+  if (pathname === ROUTES.SAGE_THREADS) return "sage_threads";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";

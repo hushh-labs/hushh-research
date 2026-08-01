@@ -59,6 +59,12 @@ export const ROUTES = {
   KAI_DASHBOARD: "/one/kai/portfolio",
   KAI_ANALYSIS: "/one/kai/analysis",
   KAI_OPTIMIZE: "/one/kai/optimize",
+  SAGE: "/one/sage",
+  SAGE_ASK: "/one/sage/ask",
+  SAGE_NOTES: "/one/sage/notes",
+  SAGE_CITATIONS: "/one/sage/citations",
+  SAGE_THREADS: "/one/sage/threads",
+  SAGE_REVIEW: "/one/sage/review",
 } as const;
 
 function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {
@@ -77,6 +83,34 @@ function withQuery(pathname: string, entries: Record<string, string | null | und
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
+}
+
+/**
+ * Deep-links Citation Lineage back into a Research Thread. With just
+ * `threadId`, it's a blank search that offers "Add to research thread".
+ * With `paper` too (a paper already traced in that thread), it re-opens
+ * that exact paper's lineage on load instead of showing the search box.
+ */
+export function buildSageCitationsRoute(
+  threadId?: string | null,
+  paper?: { workId?: string | null; title?: string | null } | null,
+) {
+  return withQuery(ROUTES.SAGE_CITATIONS, {
+    threadId,
+    workId: paper?.workId,
+    title: paper?.title,
+  });
+}
+
+/**
+ * Pre-fills the Ask Sage query box. `autoAsk` additionally triggers the
+ * question automatically on load -- for the home page's own quick-ask box,
+ * where the user already typed a real question and hit Ask, vs. a
+ * suggested-prompt chip, which only pre-fills and lets the user confirm
+ * (see AskSagePanel's initialQuery/autoAsk props).
+ */
+export function buildSageAskRoute(query?: string | null, autoAsk?: boolean) {
+  return withQuery(ROUTES.SAGE_ASK, { q: query, auto: autoAsk ? "1" : null });
 }
 
 export function buildPhoneMandateRoute(redirect?: string | null) {

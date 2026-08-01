@@ -2219,6 +2219,22 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
   animation: stage-pulse 1.5s ease-in-out infinite;
 }
 
+/* Indeterminate progress sweep -- for long-running single-call research
+   requests (Sage deep-mode / exhaustive length can legitimately run past a
+   minute) where no real step-by-step progress exists to report. */
+@keyframes sage-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.animate-sage-progress-sweep {
+  animation: sage-progress-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* Ensure spinner utilities always rotate in runtime (vault/auth/load states). */
 @keyframes hushh-spin-fallback {
   to {

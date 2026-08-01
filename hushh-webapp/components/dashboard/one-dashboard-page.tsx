@@ -23,6 +23,7 @@ import {
 import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
+import { TodaySection } from "@/components/dashboard/today-section";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -285,10 +286,14 @@ export function OneDashboardPage({
   displayName,
   pendingConsents = 0,
   oneSetupResolved = null,
+  userId = null,
+  vaultOwnerToken = null,
 }: {
   displayName?: string | null;
   pendingConsents?: number;
   oneSetupResolved?: boolean | null;
+  userId?: string | null;
+  vaultOwnerToken?: string | null;
 }) {
   const firstName =
     String(displayName || "")
@@ -331,6 +336,7 @@ export function OneDashboardPage({
 
       <AppPageContentRegion>
         <SurfaceStack compact className="gap-4">
+          <TodaySection userId={userId} vaultOwnerToken={vaultOwnerToken} />
           <ModeSection
             title="Workflows"
             description="Finance, email, location, and connected systems."
