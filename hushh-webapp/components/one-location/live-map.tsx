@@ -52,7 +52,9 @@ export function LiveMap({ point, className, viewportResetKey }: LiveMapProps) {
   const frameRef = useRef<number | null>(null);
   const resetPointRef = useRef(point);
   const lastViewportResetKeyRef = useRef(viewportResetKey);
-  resetPointRef.current = point;
+  useEffect(() => {
+    resetPointRef.current = point;
+  }, [point]);
 
   const target: LatLngLiteral = locationLatLng(point);
 
@@ -155,6 +157,10 @@ export function LiveMap({ point, className, viewportResetKey }: LiveMapProps) {
 
     lastViewportResetKeyRef.current = viewportResetKey;
     const resetTarget = locationLatLng(resetPointRef.current);
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
     marker.setPosition(resetTarget);
     map.setZoom(DEFAULT_PREVIEW_ZOOM);
     map.panTo(resetTarget);

@@ -2203,7 +2203,14 @@ describe("OneLocationAgentPage", () => {
     const collapseButton = screen.getByRole("button", {
       name: "Collapse shared location from Trusted A",
     });
+    const recenterButton = screen.getByRole("button", {
+      name: "Recenter map on Trusted A's location",
+    });
+    fireEvent.click(recenterButton);
+    expect(screen.getByTitle("Live location map preview")).not.toBe(mapPreview);
+    expect(mockViewEnvelope).toHaveBeenCalledTimes(viewCallsBeforeCollapse);
     expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
+
     fireEvent.click(collapseButton);
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();

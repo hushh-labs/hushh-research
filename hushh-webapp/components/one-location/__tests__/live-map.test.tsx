@@ -26,6 +26,7 @@ afterEach(() => {
   // @ts-expect-error test cleanup
   delete globalThis.google;
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("LiveMap", () => {
@@ -104,6 +105,12 @@ describe("LiveMap", () => {
     const markerSetPosition = vi.fn();
     const mapPanTo = vi.fn();
     const mapSetZoom = vi.fn();
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 42),
+    );
+    vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrame);
     const Marker = vi.fn(function () {
       return {
         getPosition: () => ({
@@ -126,9 +133,11 @@ describe("LiveMap", () => {
     markerSetPosition.mockClear();
     mapPanTo.mockClear();
     mapSetZoom.mockClear();
+    cancelAnimationFrame.mockClear();
 
     rerender(<LiveMap point={point} viewportResetKey={1} />);
 
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
     expect(markerSetPosition).toHaveBeenCalledWith({
       lat: point.latitude,
       lng: point.longitude,

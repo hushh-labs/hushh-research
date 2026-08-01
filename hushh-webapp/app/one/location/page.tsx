@@ -6251,11 +6251,11 @@ export function OneLocationAgentPageContent({
     expiresLabel: (value) =>
       value ? `Live until ${formatDateTime(value)}` : "Live now",
     expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
-    renderMapPreview: (point, showNavigation) => (
+    renderMapPreview: (point, showNavigation, viewportResetKey) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
-        viewportResetKey={mapViewportResetKey}
+        viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
