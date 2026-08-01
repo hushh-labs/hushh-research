@@ -668,9 +668,40 @@ def test_postgres_candidates_bind_viewer_version_and_bounded_stable_ranking(
     )
 
     normalized_sql = " ".join(captured["sql"].split()).lower()
+    assert "select p.owner_user_id, p.participant_alias, p.consent_version," in normalized_sql
     assert "p.version = :viewer_version" in normalized_sql
     assert "p.consent_version = :consent_version" in normalized_sql
     assert "p.anchor_cell_token = any(:cell_tokens)" in normalized_sql
     assert "order by random()" not in normalized_sql
     assert "hmac(" in normalized_sql
     assert captured["params"]["limit"] == 240
+
+
+def test_postgres_connection_pair_projects_consent_version(monkeypatch):
+    store = PostgresNearbyPresenceStore()
+    captured = {}
+
+    monkeypatch.setattr(store, "_expire_due", lambda: 0)
+
+    def execute(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params
+        return []
+
+    monkeypatch.setattr(store, "_execute_many", execute)
+    assert (
+        store.read_connection_pair(
+            viewer_user_id="viewer",
+            participant_alias="00000000-0000-0000-0000-000000000001",
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
+        )
+        == []
+    )
+
+    normalized_sql = " ".join(captured["sql"].split()).lower()
+    assert "select p.owner_user_id, p.participant_alias, p.consent_version," in normalized_sql
+    assert captured["params"] == {
+        "viewer_user_id": "viewer",
+        "participant_alias": "00000000-0000-0000-0000-000000000001",
+        "consent_version": NEARBY_PRESENCE_CONSENT_VERSION,
+    }
