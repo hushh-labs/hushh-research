@@ -1223,9 +1223,9 @@ export function LocationImmersiveMap() {
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Private shares open only on this device. Maps uses the minimum
-            location needed to show them. Nearby Check-In is separate and starts
-            only when you choose it.
+            Private shares open only on this device. Google Maps uses the
+            minimum location needed to show them. Nearby Check-In is separate
+            and starts only when you choose it.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}

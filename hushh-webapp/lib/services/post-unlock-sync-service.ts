@@ -18,15 +18,21 @@ export class PostUnlockSyncService {
   }): Promise<{ onboardingSynced: boolean; kycIdentitySynced: boolean }> {
     const [syncResult, kycIdentitySynced] = await Promise.all([
       KaiProfileSyncService.syncPendingToVault({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
       }).catch((error) => {
-        console.warn("[PostUnlockSyncService] Pending onboarding sync failed:", error);
+        console.warn(
+          "[PostUnlockSyncService] Pending onboarding sync failed:",
+          error,
+        );
         return { synced: false };
       }),
       KycIdentityProfileDraftService.flushToVault(params).catch((error) => {
-        console.warn("[PostUnlockSyncService] Pending KYC identity sync failed:", error);
+        console.warn(
+          "[PostUnlockSyncService] Pending KYC identity sync failed:",
+          error,
+        );
         return false;
       }),
     ]);
