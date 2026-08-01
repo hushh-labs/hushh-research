@@ -56,9 +56,7 @@ import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
-// E.164 defines a 15-digit maximum but no universal national-number minimum.
-// Country metadata below owns completeness and validity (for example, Tokelau
-// has valid numbers shorter than the historical eight-digit app minimum).
+// Country metadata owns national-number length and validity.
 const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
 const E164_MAX_DIGITS = 15;
 const DEFAULT_COUNTRY_VALUE = "US";
@@ -103,12 +101,7 @@ type StartVerificationOutcome =
 
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
-// Only offer regions for which Google's mobile-number metadata defines an
-// actual numbering plan. Entries such as Antarctica do not own a usable phone
-// plan and must not silently validate as another country that shares a prefix.
-// Normalize NANP entries to the canonical +1 calling code so alternate area
-// codes (for example Jamaica +1 658 and +1 876) remain part of the national
-// number and are never rewritten to the picker's historical area code.
+// Offer metadata-backed plans and keep NANP area codes in the national number.
 const PHONE_COUNTRY_OPTIONS: readonly CountryPhoneOption[] =
   COUNTRY_PHONE_OPTIONS.filter((option) =>
     isSupportedCountry(option.value as CountryCode, mobilePhoneMetadata),
@@ -181,12 +174,6 @@ const mobileNumberLengthCache = new Map<
   { minimum: number; maximum: number }
 >();
 
-/**
- * Returns the supported national mobile-number length range for a country.
- * The metadata is generated from Google's numbering plans by
- * `libphonenumber-js`; the E.164 fallback keeps uncommon/unsupported regions
- * bounded without maintaining a second country table in this app.
- */
 export function getMobileNumberLengthRange(countryValue: string): {
   minimum: number;
   maximum: number;
@@ -205,9 +192,7 @@ export function getMobileNumberLengthRange(countryValue: string): {
   try {
     const metadata = new Metadata(mobilePhoneMetadata);
     metadata.selectNumberingPlan(countryValue as CountryCode);
-    // `type("MOBILE")` is the runtime metadata view used by the package's
-    // own validators. Keeping this access in one helper makes upgrades easy
-    // to verify while preserving every country's variable mobile lengths.
+    // The package exposes this metadata view at runtime but not in its TS API.
     const mobileType = (metadata as MobileAwareMetadata).type("MOBILE");
     const possibleLengths = (mobileType?.possibleLengths() ?? [])
       .filter(
@@ -222,8 +207,7 @@ export function getMobileNumberLengthRange(countryValue: string): {
       };
     }
   } catch {
-    // Defensive fallback for a malformed programmatic country value. Every
-    // visible picker entry has supported metadata.
+    // Invalid programmatic values use the E.164 bound above.
   }
 
   mobileNumberLengthCache.set(cacheKey, range);
@@ -262,11 +246,9 @@ export function derivePhoneFields(phoneNumber?: string | null): {
   if (matchingOption) {
     return {
       countryValue: matchingOption.value,
-      localPhoneNumber:
-        parsedPhone?.nationalNumber ??
-        sanitizeLocalPhoneNumber(
-          normalizedPhone.slice(matchingOption.dialCode.length),
-        ),
+      localPhoneNumber: parsedPhone?.nationalNumber ?? sanitizeLocalPhoneNumber(
+        normalizedPhone.slice(matchingOption.dialCode.length),
+      ),
     };
   }
 
@@ -403,9 +385,7 @@ export function PhoneVerificationFlow({
   );
   const selectedCountryLabel = useMemo(
     () =>
-      getCountryOptionLabel(
-        selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION,
-      ),
+      getCountryOptionLabel(selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION),
     [selectedCountryOption],
   );
   const countryInputValue = countryComboboxOpen
@@ -430,8 +410,7 @@ export function PhoneVerificationFlow({
     });
   }, [countryQuery]);
   const activeDialCode = useMemo(
-    () =>
-      selectedCountryOption?.dialCode ?? DEFAULT_PHONE_COUNTRY_OPTION.dialCode,
+    () => selectedCountryOption?.dialCode ?? DEFAULT_PHONE_COUNTRY_OPTION.dialCode,
     [selectedCountryOption],
   );
   const normalizedPhoneInput = useMemo(
@@ -443,31 +422,28 @@ export function PhoneVerificationFlow({
     [selectedCountry],
   );
 
-  const handleCountrySelection = useCallback(
-    (value: string | null) => {
-      if (!value) {
-        return;
-      }
+  const handleCountrySelection = useCallback((value: string | null) => {
+    if (!value) {
+      return;
+    }
 
-      const nextOption = PHONE_COUNTRY_OPTIONS.find(
-        (option) => option.value === value,
-      );
-      if (!nextOption) {
-        return;
-      }
+    const nextOption = PHONE_COUNTRY_OPTIONS.find(
+      (option) => option.value === value,
+    );
+    if (!nextOption) {
+      return;
+    }
 
-      setSelectedCountry(nextOption.value);
-      const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
-      setPhoneNumberError(
-        localPhoneNumber.length > maximum
-          ? `Enter no more than ${maximum} digits for ${nextOption.label}.`
-          : null,
-      );
-      setCountryQuery("");
-      setCountryComboboxOpen(false);
-    },
-    [localPhoneNumber.length],
-  );
+    setSelectedCountry(nextOption.value);
+    const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
+    setPhoneNumberError(
+      localPhoneNumber.length > maximum
+        ? `Enter no more than ${maximum} digits for ${nextOption.label}.`
+        : null,
+    );
+    setCountryQuery("");
+    setCountryComboboxOpen(false);
+  }, [localPhoneNumber.length]);
 
   useLocalOnboardingActionHandler("phone_mandate.select_country", (slots) => {
     const requested = String(
@@ -581,29 +557,25 @@ export function PhoneVerificationFlow({
     { role: "interaction_layer", routeKey: pathname },
   );
 
-  const handlePhoneNumberChange = useCallback(
-    (value: string) => {
-      const nextInput = resolvePhoneInputChange(value);
-      const nextCountry = nextInput.countryValue ?? selectedCountry;
-      const nextOption = getCountryOption(nextCountry);
-      const maximum = getMobileNumberLengthRange(nextCountry).maximum;
-      if (nextInput.localPhoneNumber.length > maximum) {
-        // Never truncate a pasted phone number into a different valid
-        // recipient. Keep the last visible value and require an explicit edit.
-        setPhoneNumberError(
-          `Enter no more than ${maximum} digits for ${nextOption.label}.`,
-        );
-        return;
-      }
-      if (nextInput.countryValue) {
-        setSelectedCountry(nextOption.value);
-        setCountryQuery("");
-      }
-      setLocalPhoneNumber(nextInput.localPhoneNumber);
-      setPhoneNumberError(null);
-    },
-    [selectedCountry],
-  );
+  const handlePhoneNumberChange = useCallback((value: string) => {
+    const nextInput = resolvePhoneInputChange(value);
+    const nextCountry = nextInput.countryValue ?? selectedCountry;
+    const nextOption = getCountryOption(nextCountry);
+    const maximum = getMobileNumberLengthRange(nextCountry).maximum;
+    if (nextInput.localPhoneNumber.length > maximum) {
+      // Reject instead of truncating into a different recipient.
+      setPhoneNumberError(
+        `Enter no more than ${maximum} digits for ${nextOption.label}.`,
+      );
+      return;
+    }
+    if (nextInput.countryValue) {
+      setSelectedCountry(nextOption.value);
+      setCountryQuery("");
+    }
+    setLocalPhoneNumber(nextInput.localPhoneNumber);
+    setPhoneNumberError(null);
+  }, [selectedCountry]);
 
   const handlePhoneNumberPaste = useCallback(
     (event: React.ClipboardEvent<HTMLInputElement>) => {
@@ -612,9 +584,7 @@ export function PhoneVerificationFlow({
       const selectionEnd =
         event.currentTarget.selectionEnd ?? localPhoneNumber.length;
       const nextValue = `${localPhoneNumber.slice(0, selectionStart)}${pastedValue}${localPhoneNumber.slice(selectionEnd)}`;
-      // Own paste normalization before the browser applies maxLength to raw
-      // characters. This preserves full E.164 and formatted numbers while the
-      // shared change handler rejects any overlength national number.
+      // Intercept before maxLength can clip a complete international paste.
       event.preventDefault();
       handlePhoneNumberChange(nextValue);
     },
