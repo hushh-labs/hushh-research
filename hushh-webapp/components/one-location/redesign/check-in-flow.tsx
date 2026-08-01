@@ -214,6 +214,7 @@ export function CheckInFlow({
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+  const [mapViewportResetKey, setMapViewportResetKey] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const operationIdRef = useRef<string | null>(null);
   const confirmedRecipientKeysRef = useRef<Record<string, string | null> | null>(
@@ -446,8 +447,17 @@ export function CheckInFlow({
           </div>
           <button
             type="button"
-            onClick={vm.onShowMyLocation}
-            disabled={vm.busy === "selfLocation" || Boolean(confirmedPoint)}
+            onClick={
+              confirmedPoint
+                ? () => setMapViewportResetKey((current) => current + 1)
+                : vm.onShowMyLocation
+            }
+            disabled={vm.busy === "selfLocation"}
+            aria-label={
+              confirmedPoint
+                ? "Recenter map on the confirmed check-in location"
+                : undefined
+            }
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
           >
             <RefreshCw
@@ -456,7 +466,7 @@ export function CheckInFlow({
                 vm.busy === "selfLocation" && "animate-spin",
               )}
             />
-            {confirmedPoint ? "Confirmed" : point ? "Refresh" : "Capture"}
+            {confirmedPoint ? "Recenter" : point ? "Refresh" : "Capture"}
           </button>
         </div>
         {point && !pointIsFresh ? (
@@ -478,7 +488,13 @@ export function CheckInFlow({
           </p>
         ) : null}
         {point ? (
-          <div className="px-3 pb-3">{vm.renderMapPreview(point, false)}</div>
+          <div className="px-3 pb-3">
+            {vm.renderMapPreview(
+              point,
+              false,
+              `check-in:${mapViewportResetKey}`,
+            )}
+          </div>
         ) : null}
       </section>
 

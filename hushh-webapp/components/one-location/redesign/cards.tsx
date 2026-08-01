@@ -251,6 +251,7 @@ export function SharedWithMeCard({
   statusLine,
   onView,
   onDismiss,
+  onRecenter,
   mapHref,
   viewBusy,
   previewExpanded,
@@ -261,6 +262,7 @@ export function SharedWithMeCard({
   statusLine: string;
   onView: () => void;
   onDismiss?: () => void;
+  onRecenter?: () => void;
   mapHref?: string;
   viewBusy?: boolean;
   previewExpanded?: boolean;
@@ -294,28 +296,43 @@ export function SharedWithMeCard({
             </StatusPill>
           </div>
         </div>
-        {canTogglePreview ? (
-          <ShellActionSurface
-            variant="icon"
-            aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
-            aria-expanded={isPreviewExpanded}
-            aria-controls={previewRegionId}
-            disabled={viewBusy && !isPreviewExpanded}
-            onClick={togglePreview}
-          >
-            {viewBusy && !isPreviewExpanded ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 transition-transform duration-200",
-                  isPreviewExpanded && "rotate-180",
-                )}
-                aria-hidden="true"
-              />
-            )}
-          </ShellActionSurface>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          {isPreviewExpanded && onRecenter ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-11 w-11 sm:h-9 sm:w-9"
+              aria-label={`Recenter map on ${name}'s location`}
+              aria-controls={previewRegionId}
+              title="Recenter map"
+              onClick={onRecenter}
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
+          {canTogglePreview ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-11 w-11 sm:h-9 sm:w-9"
+              aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
+              aria-expanded={isPreviewExpanded}
+              aria-controls={previewRegionId}
+              disabled={viewBusy && !isPreviewExpanded}
+              onClick={togglePreview}
+            >
+              {viewBusy && !isPreviewExpanded ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200",
+                    isPreviewExpanded && "rotate-180",
+                  )}
+                  aria-hidden="true"
+                />
+              )}
+            </ShellActionSurface>
+          ) : null}
+        </div>
       </div>
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
