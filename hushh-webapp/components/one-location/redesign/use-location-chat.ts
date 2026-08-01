@@ -32,6 +32,12 @@ import {
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  pendingLocationRevocationGrantIds,
+  revokeLocationGrantOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 
 export interface ChatMessage {
   id: string;
@@ -421,12 +427,15 @@ export function useLocationChat(params: {
           locationSnapshot,
         });
         if (readOneLocationControlState(userId).paused) {
-          await OneLocationService.revokePublicInvite({
+          const revoked = await revokePublicInviteOrQueue({
+            userId,
             vaultOwnerToken,
             inviteId: response.invite.id,
-          }).catch(() => undefined);
+          });
           throw new Error(
-            "Location was paused before the one-time link completed.",
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
         await report({
@@ -521,12 +530,17 @@ export function useLocationChat(params: {
               recipientKeyId: recipient.keyId,
             }),
         });
+        const pendingRevocations = pendingLocationRevocationGrantIds(userId);
+        const stopPending = grantIds.some((grantId) =>
+          pendingRevocations.has(grantId),
+        );
         await report({
           id: action.id,
           type: action.type,
           status: "completed",
-          detail:
-            grantIds.length < ready.length
+          detail: stopPending
+            ? LOCATION_REVOCATION_PENDING_MESSAGE
+            : grantIds.length < ready.length
               ? `Checked in with ${grantIds.length} of ${ready.length} contacts.`
               : undefined,
         });
@@ -546,21 +560,29 @@ export function useLocationChat(params: {
     const action = pendingAction;
     if (!action) return;
     setPendingAction(null);
+    let stopPending = false;
     if (action.type === "publish_share") {
       for (const share of action.shares ?? []) {
         if (!share.grantId) continue;
-        try {
-          await OneLocationService.revokeGrant({
-            vaultOwnerToken,
-            grantId: share.grantId,
-          });
-        } catch {
-          // best-effort cleanup; ignore
+        if (!userId) {
+          stopPending = true;
+          continue;
         }
+        const revoked = await revokeLocationGrantOrQueue({
+          userId,
+          vaultOwnerToken,
+          grantId: share.grantId,
+        });
+        stopPending ||= !revoked;
       }
     }
-    await report({ id: action.id, type: action.type, status: "cancelled" });
-  }, [pendingAction, vaultOwnerToken, report]);
+    await report({
+      id: action.id,
+      type: action.type,
+      status: stopPending ? "failed" : "cancelled",
+      detail: stopPending ? LOCATION_REVOCATION_PENDING_MESSAGE : undefined,
+    });
+  }, [pendingAction, report, userId, vaultOwnerToken]);
 
   return {
     messages,

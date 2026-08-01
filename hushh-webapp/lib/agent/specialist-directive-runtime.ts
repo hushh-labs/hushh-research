@@ -18,6 +18,11 @@ import {
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  pendingLocationRevocationGrantIds,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 
 export type SpecialistDirective = {
   kind: "action" | "prompt";
@@ -112,6 +117,9 @@ export async function runLocationDirective(
     }
 
     if (type === "create_public_link") {
+      if (!currentUserId) {
+        throw new Error("Sign in again before sharing location.");
+      }
       if (readOneLocationControlState(currentUserId).paused) {
         throw new Error(
           "Location is paused on this device. Resume it before capturing a snapshot.",
@@ -141,12 +149,15 @@ export async function runLocationDirective(
         locationSnapshot,
       });
       if (readOneLocationControlState(currentUserId).paused) {
-        await OneLocationService.revokePublicInvite({
+        const revoked = await revokePublicInviteOrQueue({
+          userId: currentUserId,
           vaultOwnerToken,
           inviteId: response.invite.id,
-        }).catch(() => undefined);
+        });
         throw new Error(
-          "Location was paused before the one-time link completed.",
+          revoked
+            ? "Location was paused before the one-time link completed."
+            : LOCATION_REVOCATION_PENDING_MESSAGE,
         );
       }
       return {
@@ -279,14 +290,21 @@ export async function runLocationDirective(
             recipientKeyId: recipient.keyId,
           }),
       });
+      const pendingRevocations = pendingLocationRevocationGrantIds(
+        currentUserId,
+      );
+      const stopPending = grantIds.some((grantId) =>
+        pendingRevocations.has(grantId),
+      );
       return {
         delegate_agent_id: "agent_location",
         kind: "action",
         id,
         type,
         status: "completed",
-        detail:
-          grantIds.length < ready.length
+        detail: stopPending
+          ? LOCATION_REVOCATION_PENDING_MESSAGE
+          : grantIds.length < ready.length
             ? `Checked in with ${grantIds.length} of ${ready.length} contacts.`
             : undefined,
       };

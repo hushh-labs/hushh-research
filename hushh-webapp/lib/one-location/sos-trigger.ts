@@ -15,6 +15,11 @@ import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-l
 import { locationCommitStrictlyMatches } from "@/lib/one-location/location-precision";
 import { boundedLocationOperationId } from "@/lib/one-location/location-operation-id";
 import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  revokeLocationGrantOrQueue,
+  revokeLocationGrantsOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
+import {
   assertLocationActionNotPaused,
   assertPreciseLocationActionAllowed,
 } from "@/lib/one-location/location-action-guard";
@@ -232,10 +237,16 @@ export async function runSosPanic(
         ) {
           const grantId = response?.grant?.id;
           if (grantId) {
-            await OneLocationService.revokeGrant({
+            const revoked = await revokeLocationGrantOrQueue({
+              userId,
               vaultOwnerToken,
               grantId,
-            }).catch(() => undefined);
+            });
+            if (!revoked) {
+              grantIds.push(grantId);
+              failures.push(LOCATION_REVOCATION_PENDING_MESSAGE);
+              continue;
+            }
           }
           throw new Error(
             "The server did not atomically preserve this Save My Soul share.",
@@ -251,13 +262,17 @@ export async function runSosPanic(
     }
 
     if (readOneLocationControlState(userId).paused) {
-      await Promise.allSettled(
-        grantIds.map((grantId) =>
-          OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-        ),
+      const rollback = await revokeLocationGrantsOrQueue({
+        userId,
+        vaultOwnerToken,
+        grantIds,
+      });
+      grantIds.splice(0, grantIds.length, ...rollback.pendingGrantIds);
+      throw new Error(
+        grantIds.length
+          ? LOCATION_REVOCATION_PENDING_MESSAGE
+          : "Location was paused before SOS sharing completed.",
       );
-      grantIds.length = 0;
-      throw new Error("Location was paused before SOS sharing completed.");
     }
     if (!grantIds.length) {
       throw new Error(failures[0] ?? "SOS sharing failed.");
@@ -265,13 +280,17 @@ export async function runSosPanic(
 
     const updates = enableOneLocationAutomaticUpdates(userId);
     if (!updates.allowed) {
-      await Promise.allSettled(
-        grantIds.map((grantId) =>
-          OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-        ),
+      const rollback = await revokeLocationGrantsOrQueue({
+        userId,
+        vaultOwnerToken,
+        grantIds,
+      });
+      grantIds.splice(0, grantIds.length, ...rollback.pendingGrantIds);
+      throw new Error(
+        grantIds.length
+          ? LOCATION_REVOCATION_PENDING_MESSAGE
+          : "Location was paused before SOS updates could start.",
       );
-      grantIds.length = 0;
-      throw new Error("Location was paused before SOS updates could start.");
     }
 
     const incident: SosIncident = { grantIds, startedAt };

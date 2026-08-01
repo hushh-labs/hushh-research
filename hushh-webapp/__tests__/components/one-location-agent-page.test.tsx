@@ -299,6 +299,7 @@ vi.mock("sonner", () => {
 
 import OneLocationAgentPage from "@/app/one/location/page";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { pendingLocationRevocationStorageKey } from "@/lib/one-location/location-revocation-queue";
 import { toast } from "sonner";
 
 if (!window.localStorage) {
@@ -642,6 +643,9 @@ describe("OneLocationAgentPage", () => {
     const { forgetOneLocationControlPreference } =
       await import("@/lib/one-location/location-control-state");
     forgetOneLocationControlPreference("user_a");
+    window.localStorage.removeItem(
+      pendingLocationRevocationStorageKey("user_a"),
+    );
     mockSearchParams.toString = () => "";
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
@@ -2618,6 +2622,22 @@ describe("OneLocationAgentPage", () => {
     expect(JSON.stringify(retryCall)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209|ciphertext|grant_new/u,
     );
+  });
+
+  it("never foreground-publishes a server-active grant queued for revocation", async () => {
+    mockGetState.mockResolvedValue(locationState());
+    window.localStorage.setItem(
+      pendingLocationRevocationStorageKey("user_a"),
+      JSON.stringify(["grant_1"]),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await waitFor(() => expect(mockStopBackgroundShare).toHaveBeenCalled());
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
   it("shares one GPS capture through separate encrypted grants for multiple selected recipients", async () => {

@@ -24,9 +24,9 @@ describe("LocationTypeSelector", () => {
     const onChange = vi.fn();
     render(<LocationTypeSelector value="precise" onChange={onChange} />);
 
-    expect(screen.getByText(/1 km\+ general area/i)).toBeTruthy();
+    expect(screen.getByText(/broad 1 km\+ area/i)).toBeTruthy();
     expect(screen.getByText(/exact moving pin/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: /approximate area/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /area updates/i }));
     expect(onChange).toHaveBeenCalledWith("approximate");
   });
 });

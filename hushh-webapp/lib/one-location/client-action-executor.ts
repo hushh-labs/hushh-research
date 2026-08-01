@@ -18,6 +18,12 @@ import type {
   ShareTarget,
 } from "@/lib/one-location/types";
 import { boundedLocationOperationId } from "@/lib/one-location/location-operation-id";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  pendingLocationRevocationGrantIds,
+  revokeLocationGrantOrQueue,
+  revokeLocationGrantsOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 
 const PAUSED_MESSAGE =
   "Location is paused on this device. Resume it before sharing a new point.";
@@ -97,7 +103,9 @@ export async function executePrivateLocationAction({
       const legacyGrant = share.grantId
         ? ((state.ownerGrants ?? []).find(
             (candidate) =>
-              candidate.id === share.grantId && candidate.status === "active",
+              candidate.id === share.grantId &&
+              candidate.status === "active" &&
+              !pendingLocationRevocationGrantIds(userId).has(candidate.id),
           ) ?? null)
         : null;
       if (share.grantId && !legacyGrant) {
@@ -188,6 +196,12 @@ export async function executePrivateLocationAction({
         throw new Error(PAUSED_MESSAGE);
       }
       if (target.legacyGrant) {
+        if (
+          readOneLocationControlState(userId).paused ||
+          pendingLocationRevocationGrantIds(userId).has(target.legacyGrant.id)
+        ) {
+          throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+        }
         await OneLocationService.storeEnvelope({
           vaultOwnerToken,
           grantId: target.legacyGrant.id,
@@ -244,10 +258,19 @@ export async function executePrivateLocationAction({
             approximateRadiusM: target.approximateRadiusM,
           });
       if (!responseMatches) {
-        await OneLocationService.revokeGrant({
+        const revoked = await revokeLocationGrantOrQueue({
+          userId,
           vaultOwnerToken,
           grantId: response.grant.id,
-        }).catch(() => undefined);
+        });
+        if (!revoked) {
+          createdGrantIds.push(response.grant.id);
+          successfulCount += 1;
+          failures.push(
+            `${target.share.label}: ${LOCATION_REVOCATION_PENDING_MESSAGE}`,
+          );
+          continue;
+        }
         throw new Error(
           "The server did not atomically preserve the location approval you reviewed.",
         );
@@ -266,14 +289,20 @@ export async function executePrivateLocationAction({
   if (successfulCount > 0) {
     const updates = enableOneLocationAutomaticUpdates(userId);
     if (!updates.allowed) {
-      await Promise.allSettled(
-        createdGrantIds.map((grantId) =>
-          OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-        ),
+      const rollback = await revokeLocationGrantsOrQueue({
+        userId,
+        vaultOwnerToken,
+        grantIds: createdGrantIds,
+      });
+      successfulCount = Math.max(
+        0,
+        successfulCount - rollback.revokedGrantIds.length,
       );
       throw new PrivateLocationActionError(
-        PAUSED_MESSAGE,
-        Math.max(0, successfulCount - createdGrantIds.length),
+        rollback.pendingGrantIds.length
+          ? LOCATION_REVOCATION_PENDING_MESSAGE
+          : PAUSED_MESSAGE,
+        successfulCount,
         shares.length,
       );
     }

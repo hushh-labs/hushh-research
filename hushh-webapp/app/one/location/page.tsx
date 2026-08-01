@@ -175,6 +175,18 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+  pendingLocationRevocationGrantIds,
+  pendingLocationRevocationStorageKey,
+  pendingPublicInviteRevocationIds,
+  pendingPublicInviteRevocationStorageKey,
+  requestPendingLocationRevocationRetry,
+  revokeLocationGrantOrQueue,
+  revokeLocationGrantsOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import {
   isOneLocationNearbyCheckInAvailable,
@@ -848,6 +860,16 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
   }
   const raw = error instanceof Error ? error.message : "";
   return isSafeUserFacingMessage(raw) ? raw : fallback;
+}
+
+function requireOneLocationUserId(
+  userId: string | null | undefined,
+): string {
+  const normalized = String(userId ?? "").trim();
+  if (!normalized) {
+    throw new Error("Sign in again before changing location sharing.");
+  }
+  return normalized;
 }
 
 function isLocationPointStale(point: PlainLocationPoint): boolean {
@@ -1855,6 +1877,37 @@ export function OneLocationAgentPageContent({
       readLocationWorkspaceMemory(auth.userId),
     );
   const locationControl = useOneLocationControlState(auth.userId);
+  const [pendingRevocationTick, setPendingRevocationTick] = useState(0);
+  useEffect(() => {
+    const userId = auth.userId;
+    if (!userId || typeof window === "undefined") return;
+    const notify = () => setPendingRevocationTick((value) => value + 1);
+    const onPendingChange = (event: Event) => {
+      const changedUserId = (event as CustomEvent<{ userId?: string }>).detail
+        ?.userId;
+      if (!changedUserId || changedUserId === userId) notify();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key?.startsWith(pendingLocationRevocationStorageKey(userId)) ||
+        event.key?.startsWith(pendingPublicInviteRevocationStorageKey(userId))
+      ) {
+        notify();
+      }
+    };
+    window.addEventListener(
+      ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+      onPendingChange,
+    );
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(
+        ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+        onPendingChange,
+      );
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [auth.userId]);
   const automaticPrivatePublishingAllowedRef = useRef(
     !locationControl.paused && locationControl.autoShareEnabled,
   );
@@ -2128,11 +2181,16 @@ export function OneLocationAgentPageContent({
       (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
   }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
-  const activeOwnerGrants = useMemo(
-    () =>
-      (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
-    [state?.ownerGrants],
-  );
+  const activeOwnerGrants = useMemo(() => {
+    void pendingRevocationTick;
+    const pendingRevocations = auth.userId
+      ? pendingLocationRevocationGrantIds(auth.userId)
+      : new Set<string>();
+    return (state?.ownerGrants ?? []).filter(
+      (grant) =>
+        grant.status === "active" && !pendingRevocations.has(grant.id),
+    );
+  }, [auth.userId, pendingRevocationTick, state?.ownerGrants]);
   const activePreciseOwnerGrants = useMemo(
     () =>
       activeOwnerGrants.filter(
@@ -2259,13 +2317,24 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
-  const activePublicInvites = useMemo(
-    () =>
-      (state?.publicInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.publicInvites],
-  );
+  const activePublicInvites = useMemo(() => {
+    void pendingRevocationTick;
+    const pendingRevocations = auth.userId
+      ? pendingPublicInviteRevocationIds(auth.userId)
+      : new Set<string>();
+    return (state?.publicInvites ?? []).filter(
+      (invite) =>
+        invite.status === "active" && !pendingRevocations.has(invite.id),
+    );
+  }, [auth.userId, pendingRevocationTick, state?.publicInvites]);
+  const pendingRevocationCount = useMemo(() => {
+    void pendingRevocationTick;
+    if (!auth.userId) return 0;
+    return (
+      pendingLocationRevocationGrantIds(auth.userId).size +
+      pendingPublicInviteRevocationIds(auth.userId).size
+    );
+  }, [auth.userId, pendingRevocationTick]);
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
       Date.parse(
@@ -2547,6 +2616,14 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
     ],
   );
+
+  useEffect(() => {
+    if (!pendingRevocationTick || !auth.userId || !vaultOwnerToken) return;
+    // The app-level retry worker owns network backoff. Reconcile this page's
+    // memory snapshot whenever a queue item is added or cleared so a stale
+    // server-active grant cannot reappear after a confirmed revoke.
+    void refresh({ background: true }).catch(() => undefined);
+  }, [auth.userId, pendingRevocationTick, refresh, vaultOwnerToken]);
 
   const refreshLocationPermission = useCallback(async () => {
     const nextPermission = await OneLocationService.getPermissionState().catch(
@@ -3046,6 +3123,15 @@ export function OneLocationAgentPageContent({
       pointOverride?: PlainLocationPoint,
     ) => {
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
+      const ownerUserId = requireOneLocationUserId(auth.userId);
+      if (readOneLocationControlState(ownerUserId).paused) {
+        throw new Error("Location is paused on this device.");
+      }
+      if (
+        pendingLocationRevocationGrantIds(ownerUserId).has(grant.id)
+      ) {
+        throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+      }
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
           "They need to open Location once before private sharing can start.",
@@ -3059,6 +3145,16 @@ export function OneLocationAgentPageContent({
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
+      // Re-read immediately before publication: Pause or Stop may have arrived
+      // from Settings, another tab, or the server while capture/encryption ran.
+      if (readOneLocationControlState(ownerUserId).paused) {
+        throw new Error("Location was paused before this update completed.");
+      }
+      if (
+        pendingLocationRevocationGrantIds(ownerUserId).has(grant.id)
+      ) {
+        throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+      }
       await OneLocationService.storeEnvelope({
         vaultOwnerToken,
         grantId: grant.id,
@@ -3068,7 +3164,7 @@ export function OneLocationAgentPageContent({
         lastApproximatePublishAtRef.current.set(grant.id, Date.now());
       }
     },
-    [vaultOwnerToken],
+    [auth.userId, vaultOwnerToken],
   );
 
   const publishEnvelopeWithRetry = useCallback(
@@ -3244,21 +3340,29 @@ export function OneLocationAgentPageContent({
           approximateRadiusM: null,
         })
       ) {
-        await OneLocationService.revokeGrant({
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           grantId: response.grant.id,
-        }).catch(() => undefined);
+        });
         throw new Error(
-          "The server did not preserve the precise mode reviewed.",
+          revoked
+            ? "The server did not preserve the precise mode reviewed."
+            : LOCATION_REVOCATION_PENDING_MESSAGE,
         );
       }
       const updates = enableAutomaticUpdatesForTimedShare();
       if (!updates.allowed) {
-        await OneLocationService.revokeGrant({
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           grantId: response.grant.id,
-        }).catch(() => undefined);
-        throw new Error("Location was paused before updates could start.");
+        });
+        throw new Error(
+          revoked
+            ? "Location was paused before updates could start."
+            : LOCATION_REVOCATION_PENDING_MESSAGE,
+        );
       }
       return response.grant;
     },
@@ -3336,10 +3440,18 @@ export function OneLocationAgentPageContent({
                 approximateRadiusM: preparedPoint.approximateRadiusM,
               })
             ) {
-              await OneLocationService.revokeGrant({
+              const revoked = await revokeLocationGrantOrQueue({
+                userId: requireOneLocationUserId(auth.userId),
                 vaultOwnerToken,
                 grantId: response.grant.id,
-              }).catch(() => undefined);
+              });
+              if (!revoked) {
+                successCount += 1;
+                successfulRecipientIds.push(recipient.userId);
+                successfulGrantIds.push(response.grant.id);
+                failureMessages.push(LOCATION_REVOCATION_PENDING_MESSAGE);
+                continue;
+              }
               throw new Error(
                 "The server did not preserve the location mode you reviewed.",
               );
@@ -3362,16 +3474,31 @@ export function OneLocationAgentPageContent({
         }
         const updates = enableAutomaticUpdatesForTimedShare();
         if (!updates.allowed) {
-          await Promise.allSettled(
-            successfulGrantIds.map((grantId) =>
-              OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-            ),
+          const rollback = await revokeLocationGrantsOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            grantIds: successfulGrantIds,
+          });
+          const pending = new Set(rollback.pendingGrantIds);
+          const unresolvedRecipients = successfulGrantIds.flatMap(
+            (grantId, index) =>
+              pending.has(grantId) ? [successfulRecipientIds[index]!] : [],
           );
-          successCount = 0;
-          successfulRecipientIds.length = 0;
-          successfulGrantIds.length = 0;
+          successfulRecipientIds.splice(
+            0,
+            successfulRecipientIds.length,
+            ...unresolvedRecipients,
+          );
+          successfulGrantIds.splice(
+            0,
+            successfulGrantIds.length,
+            ...rollback.pendingGrantIds,
+          );
+          successCount = rollback.pendingGrantIds.length;
           throw new Error(
-            "Location was paused before automatic updates could start. Resume Location and share again.",
+            rollback.pendingGrantIds.length
+              ? LOCATION_REVOCATION_PENDING_MESSAGE
+              : "Location was paused before automatic updates could start. Resume Location and share again.",
           );
         }
         const failureCount = failureMessages.length;
@@ -3395,7 +3522,9 @@ export function OneLocationAgentPageContent({
           setShareReviewOpen(false);
           await refresh();
           toast.error(
-            `Shared with ${successCount} of ${shareReadySelectedRecipients.length}. The remaining people are still selected so you can retry.`,
+            failureMessages.includes(LOCATION_REVOCATION_PENDING_MESSAGE)
+              ? LOCATION_REVOCATION_PENDING_MESSAGE
+              : `Shared with ${successCount} of ${shareReadySelectedRecipients.length}. The remaining people are still selected so you can retry.`,
           );
           return;
         }
@@ -3445,6 +3574,7 @@ export function OneLocationAgentPageContent({
       }
     },
     [
+      auth.userId,
       ensureForegroundLocationReady,
       enableAutomaticUpdatesForTimedShare,
       permission,
@@ -3560,7 +3690,7 @@ export function OneLocationAgentPageContent({
           return;
         }
         const incident = await runSosPanic({
-          userId: auth.userId,
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           recipients: readyRecipients,
           point,
@@ -4388,8 +4518,16 @@ export function OneLocationAgentPageContent({
       // shows the loading state, not every active share at once.
       setRevokingGrantId(grantId);
       try {
-        await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
-        toast.success("Location access revoked.");
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
+          vaultOwnerToken,
+          grantId,
+        });
+        if (revoked) {
+          toast.success("Location access revoked.");
+        } else {
+          toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+        }
         await refresh();
       } catch (error) {
         toast.error(
@@ -4399,7 +4537,7 @@ export function OneLocationAgentPageContent({
         setRevokingGrantId(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   const handleStopSos = useCallback(async () => {
@@ -4407,33 +4545,33 @@ export function OneLocationAgentPageContent({
     const incident = sosIncident;
     if (!incident?.grantIds.length) return;
     setBusy("sos");
+    let pendingGrantIds: string[] = [];
     try {
-      for (const grantId of incident.grantIds) {
-        await OneLocationService.revokeGrant({
-          vaultOwnerToken,
-          grantId,
-        }).catch((error) => {
-          // A grant may already be expired/revoked — keep tearing the rest down.
-          console.warn(
-            "[OneLocationAgent] SOS stop: grant revoke skipped:",
-            error,
-          );
-        });
-      }
+      const result = await revokeLocationGrantsOrQueue({
+        userId: requireOneLocationUserId(auth.userId),
+        vaultOwnerToken,
+        grantIds: incident.grantIds,
+      });
+      pendingGrantIds = result.pendingGrantIds;
     } finally {
       setBusy(null);
     }
-    // Clear the incident and show success AFTER revokes, outside any try-catch so a
-    // subsequent refresh() failure cannot trigger a misleading "Could not stop" toast.
-    clearSosIncident();
-    setSosIncident(null);
-    toast.success("SMS ended. Live location sharing stopped.");
+    if (pendingGrantIds.length) {
+      const pendingIncident = { ...incident, grantIds: pendingGrantIds };
+      saveSosIncident(pendingIncident);
+      setSosIncident(pendingIncident);
+      toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+    } else {
+      clearSosIncident();
+      setSosIncident(null);
+      toast.success("SMS ended. Live location sharing stopped.");
+    }
     try {
       await refresh();
     } catch {
       /* refresh failure is non-fatal; sharing has already been stopped */
     }
-  }, [refresh, sosIncident, vaultOwnerToken]);
+  }, [auth.userId, refresh, sosIncident, vaultOwnerToken]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4659,12 +4797,15 @@ export function OneLocationAgentPageContent({
           locationSnapshot: preparedPoint,
         });
         if (readOneLocationControlState(auth.userId).paused) {
-          await OneLocationService.revokePublicInvite({
+          const revoked = await revokePublicInviteOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
             vaultOwnerToken,
             inviteId: response.invite.id,
-          }).catch(() => undefined);
+          });
           throw new Error(
-            "Location was paused before the one-time link completed.",
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
         const url = publicInviteUrlLabel(response.publicUrl);
@@ -4768,12 +4909,15 @@ export function OneLocationAgentPageContent({
           locationSnapshot: point,
         });
         if (readOneLocationControlState(auth.userId).paused) {
-          await OneLocationService.revokePublicInvite({
+          const revoked = await revokePublicInviteOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
             vaultOwnerToken,
             inviteId: response.invite.id,
-          }).catch(() => undefined);
+          });
           throw new Error(
-            "Location was paused before the one-time link completed.",
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
         url = publicInviteUrlLabel(response.publicUrl);
@@ -4924,12 +5068,17 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) return;
       setBusy("publicRevoke");
       try {
-        await OneLocationService.revokePublicInvite({
+        const revoked = await revokePublicInviteOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           inviteId: invite.id,
         });
         setPublicInviteUrl("");
-        toast.success("Public location link revoked.");
+        if (revoked) {
+          toast.success("Public location link revoked.");
+        } else {
+          toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+        }
         await refresh();
       } catch (error) {
         toast.error(
@@ -4942,7 +5091,7 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   const handleApprove = useCallback(
@@ -5012,22 +5161,28 @@ export function OneLocationAgentPageContent({
             approximateRadiusM: preparedPoint.approximateRadiusM,
           })
         ) {
-          await OneLocationService.revokeGrant({
+          const revoked = await revokeLocationGrantOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
             vaultOwnerToken,
             grantId: response.grant.id,
-          }).catch(() => undefined);
+          });
           throw new Error(
-            "The server did not atomically preserve the location approval. Nothing was shared.",
+            revoked
+              ? "The server did not atomically preserve the location approval. Nothing was shared."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
         const updates = enableAutomaticUpdatesForTimedShare();
         if (!updates.allowed) {
-          await OneLocationService.revokeGrant({
+          const revoked = await revokeLocationGrantOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
             vaultOwnerToken,
             grantId: response.grant.id,
-          }).catch(() => undefined);
+          });
           throw new Error(
-            "Location was paused before automatic updates could start. Resume Location and approve again.",
+            revoked
+              ? "Location was paused before automatic updates could start. Resume Location and approve again."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
         toast.success(
@@ -5047,6 +5202,7 @@ export function OneLocationAgentPageContent({
     [
       ensureForegroundLocationReady,
       enableAutomaticUpdatesForTimedShare,
+      auth.userId,
       recipients,
       refresh,
       vaultOwnerToken,
@@ -5317,7 +5473,7 @@ export function OneLocationAgentPageContent({
         }
         if (
           (point.locationMode ?? "precise") === "precise" &&
-          readiness.permission?.precise !== true
+          readiness.permission?.precise === false
         ) {
           toast.error(
             "Turn on Precise Location before confirming this exact check-in.",
@@ -5351,8 +5507,16 @@ export function OneLocationAgentPageContent({
             privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
           }
         }
-        const preparedShares = await Promise.all(
-          selected.map(async (recipient) => {
+        const preparedShares: Array<{
+          recipient: ShareReadyRecipient;
+          envelope: OneLocationEncryptedEnvelope;
+          cacheKey: string;
+        }> = [];
+        for (const recipient of selected) {
+          try {
+            if (readOneLocationControlState(auth.userId).paused) {
+              throw new Error("Location was paused before check-in completed.");
+            }
             const cacheKey = `${operationCachePrefix}${recipient.userId}:${
               recipient.keyId!
             }`;
@@ -5372,9 +5536,15 @@ export function OneLocationAgentPageContent({
             if (!cached) {
               privateCheckInEnvelopeCacheRef.current.set(cacheKey, envelope);
             }
-            return { recipient, envelope, cacheKey };
-          }),
-        );
+            preparedShares.push({ recipient, envelope, cacheKey });
+          } catch (error) {
+            failedRecipientIds.push(recipient.userId);
+            console.warn(
+              "[OneLocationAgent] Private check-in encryption failed for one recipient.",
+              error,
+            );
+          }
+        }
         for (const { recipient, envelope, cacheKey } of preparedShares) {
           try {
             if (readOneLocationControlState(auth.userId).paused) {
@@ -5407,10 +5577,18 @@ export function OneLocationAgentPageContent({
             ) {
               const grantId = response?.grant?.id;
               if (grantId) {
-                await OneLocationService.revokeGrant({
+                const revoked = await revokeLocationGrantOrQueue({
+                  userId: requireOneLocationUserId(auth.userId),
                   vaultOwnerToken,
                   grantId,
-                }).catch(() => undefined);
+                });
+                if (!revoked) {
+                  succeededRecipientIds.push(recipient.userId);
+                  succeededGrantIds.push(grantId);
+                  privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
+                  toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+                  continue;
+                }
               }
               throw new Error(
                 "The server did not atomically preserve this private check-in.",
@@ -5432,15 +5610,35 @@ export function OneLocationAgentPageContent({
         if (successCount > 0) {
           const updates = enableAutomaticUpdatesForTimedShare();
           if (!updates.allowed) {
-            await Promise.allSettled(
-              succeededGrantIds.map((grantId) =>
-                OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-              ),
+            const rollback = await revokeLocationGrantsOrQueue({
+              userId: requireOneLocationUserId(auth.userId),
+              vaultOwnerToken,
+              grantIds: succeededGrantIds,
+            });
+            const pending = new Set(rollback.pendingGrantIds);
+            const unresolvedRecipients = succeededGrantIds.flatMap(
+              (grantId, index) =>
+                pending.has(grantId) ? [succeededRecipientIds[index]!] : [],
             );
-            failedRecipientIds.push(...succeededRecipientIds);
-            succeededRecipientIds.length = 0;
+            const stoppedRecipients = succeededGrantIds.flatMap(
+              (grantId, index) =>
+                pending.has(grantId) ? [] : [succeededRecipientIds[index]!],
+            );
+            failedRecipientIds.push(...stoppedRecipients);
+            succeededRecipientIds.splice(
+              0,
+              succeededRecipientIds.length,
+              ...unresolvedRecipients,
+            );
+            succeededGrantIds.splice(
+              0,
+              succeededGrantIds.length,
+              ...rollback.pendingGrantIds,
+            );
             toast.error(
-              "Location was paused before check-in updates could start.",
+              rollback.pendingGrantIds.length
+                ? LOCATION_REVOCATION_PENDING_MESSAGE
+                : "Location was paused before check-in updates could start.",
             );
             return {
               succeededRecipientIds,
@@ -6870,6 +7068,12 @@ export function OneLocationAgentPageContent({
     busy,
     revokingGrantId,
     shareCompletedTick,
+    pendingRevocationCount,
+    onRetryPendingRevocations: () => {
+      if (!auth.userId) return;
+      requestPendingLocationRevocationRetry(auth.userId);
+      toast.message("Retrying pending location stops.");
+    },
     readiness: {
       tone: locationReadiness.tone,
       title: locationReadiness.title,

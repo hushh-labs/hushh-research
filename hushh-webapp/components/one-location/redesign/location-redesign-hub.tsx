@@ -153,6 +153,9 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
+  /** Server revokes awaiting confirmation; excluded from every publisher. */
+  pendingRevocationCount: number;
+  onRetryPendingRevocations: () => void;
 
   /* device + self location */
   readiness: {
@@ -382,6 +385,28 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           )}
         />
       </div>
+    </div>
+  );
+}
+
+function PendingRevocationNotice({ vm }: { vm: LocationHubViewModel }) {
+  if (!vm.pendingRevocationCount) return null;
+  const plural = vm.pendingRevocationCount === 1 ? "request" : "requests";
+  return (
+    <div className="space-y-2">
+      <WarningCard
+        title={`Stopping ${vm.pendingRevocationCount} location ${plural}`}
+        description="One has blocked further updates on this device but is still waiting for server confirmation. It retries while you are signed in."
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={vm.onRetryPendingRevocations}
+        className="rounded-full"
+      >
+        Retry now
+      </Button>
     </div>
   );
 }
@@ -698,6 +723,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
+        <PendingRevocationNotice vm={vm} />
         {flow === "share" ? (
           <ShareFlow
             vm={vm}
@@ -796,6 +822,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
+
+      <PendingRevocationNotice vm={vm} />
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews

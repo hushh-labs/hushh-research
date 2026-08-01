@@ -39,7 +39,11 @@ import {
   prepareLocationPointForGrant,
   validateLocationPointForGrant,
 } from "@/lib/one-location/location-precision";
-import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
+import { pendingLocationRevocationGrantIds } from "@/lib/one-location/location-revocation-queue";
 import {
   DARK_MAP_STYLES,
   getBrowserMapsApiKey,
@@ -517,8 +521,15 @@ export function LocationImmersiveMap() {
     try {
       const state = await OneLocationService.getState(vaultOwnerToken);
       if (!mountedRef.current) return;
+      const paused = readOneLocationControlState(auth.userId).paused;
+      const pending = pendingLocationRevocationGrantIds(auth.userId);
       setActiveShareCount(
-        state.ownerGrants.filter((grant) => grant.status === "active").length,
+        paused
+          ? 0
+          : state.ownerGrants.filter(
+              (grant) =>
+                grant.status === "active" && !pending.has(grant.id),
+            ).length,
       );
     } catch {
       // A status count is non-critical; leave the last-known value in place.
@@ -963,7 +974,12 @@ export function LocationImmersiveMap() {
   }, []);
 
   const locateMe = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    if (!vaultOwnerToken || !auth.userId) return;
+    const userId = auth.userId;
+    if (readOneLocationControlState(userId).paused) {
+      toast.error("Resume Location before sending a foreground update.");
+      return;
+    }
     setBusy("locate");
     try {
       const point = await captureCurrentLocation();
@@ -979,6 +995,7 @@ export function LocationImmersiveMap() {
         return;
       }
       const state = await OneLocationService.getState(vaultOwnerToken);
+      const pending = pendingLocationRevocationGrantIds(userId);
       const recipientsByKey = new Map(
         state.recipients.map((recipient) => [
           `${recipient.userId}:${recipient.keyId}`,
@@ -986,13 +1003,22 @@ export function LocationImmersiveMap() {
         ]),
       );
       const grants = state.ownerGrants.filter(
-        (grant) => grant.status === "active" && !!grant.id,
+        (grant) =>
+          grant.status === "active" && !!grant.id && !pending.has(grant.id),
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
         setActiveShareCount(
-          state.ownerGrants.filter((grant) => grant.status === "active").length,
+          grants.length,
         );
+      }
+      if (!grants.length) {
+        toast.message(
+          pending.size
+            ? "Your location shares are still stopping. No update was sent."
+            : "No active private recipients are waiting for an update.",
+        );
+        return;
       }
       await Promise.all(
         grants.map(async (grant) => {
@@ -1007,6 +1033,12 @@ export function LocationImmersiveMap() {
             recipientKeyId: recipient.keyId,
           });
           envelope.publicationContext = "foreground_map_visible";
+          if (readOneLocationControlState(userId).paused) {
+            throw new Error("Location was paused before this update completed.");
+          }
+          if (pendingLocationRevocationGrantIds(userId).has(grant.id)) {
+            throw new Error("This location share is still stopping.");
+          }
           await OneLocationService.storeEnvelope({
             vaultOwnerToken,
             grantId: grant.id,
@@ -1023,6 +1055,7 @@ export function LocationImmersiveMap() {
       setBusy(null);
     }
   }, [
+    auth.userId,
     captureCurrentLocation,
     demoMode,
     focusSelfPoint,

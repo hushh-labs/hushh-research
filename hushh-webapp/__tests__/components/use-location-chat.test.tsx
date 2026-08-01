@@ -7,6 +7,11 @@ import {
 } from "@/components/one-location/redesign/use-location-chat";
 import { OneLocationService } from "@/lib/one-location/service";
 import * as encryption from "@/lib/one-location/encryption";
+import { pendingLocationRevocationGrantIds } from "@/lib/one-location/location-revocation-queue";
+import {
+  forgetOneLocationControlPreference,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
@@ -21,6 +26,8 @@ vi.mock("@/lib/one-location/service", () => ({
     viewEnvelope: vi.fn(),
     createPublicInvite: vi.fn(),
     revokeGrant: vi.fn(),
+    revokePublicInvite: vi.fn(),
+    stopBackgroundShare: vi.fn(),
     createGrant: vi.fn(),
   },
 }));
@@ -59,6 +66,11 @@ describe("useLocationChat", () => {
     vi.mocked(OneLocationService.viewEnvelope).mockReset();
     vi.mocked(OneLocationService.createPublicInvite).mockReset();
     vi.mocked(OneLocationService.revokeGrant).mockReset();
+    vi.mocked(OneLocationService.revokePublicInvite).mockReset();
+    vi.mocked(OneLocationService.stopBackgroundShare).mockReset();
+    vi.mocked(OneLocationService.stopBackgroundShare).mockResolvedValue(
+      {} as never,
+    );
     vi.mocked(encryption.encryptLocationForRecipient).mockReset();
     vi.mocked(encryption.decryptLocationEnvelope).mockReset();
   });
@@ -171,7 +183,12 @@ describe("useLocationChat", () => {
 describe("useLocationChat — action dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    forgetOneLocationControlPreference("u1");
     vi.mocked(OneLocationService.createGrant).mockReset();
+    vi.mocked(OneLocationService.stopBackgroundShare).mockResolvedValue(
+      {} as never,
+    );
     vi.mocked(OneLocationService.getPermissionState).mockResolvedValue({
       state: "granted",
       precise: true,
@@ -367,6 +384,60 @@ describe("useLocationChat — action dispatcher", () => {
       }),
     );
     expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("reports cancellation as pending when the grant revoke cannot be confirmed", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "cancel-pending",
+        response: "Ready to share with Mom.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "cancel-pending-action",
+          type: "publish_share" as const,
+          shares: [
+            {
+              grantId: "grant-cancel-pending",
+              recipientUserId: "r1",
+              recipientKeyId: "k1",
+              label: "Mom",
+            },
+          ],
+          summary: "Share with Mom",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "cancel-pending",
+        response: "Stopping is still pending.",
+        isComplete: true,
+        stateChanged: false,
+      });
+    vi.mocked(OneLocationService.revokeGrant).mockRejectedValueOnce(
+      new Error("offline"),
+    );
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("share with Mom");
+    });
+    await act(async () => {
+      await result.current.cancelAction();
+    });
+
+    expect(pendingLocationRevocationGrantIds("u1")).toEqual(
+      new Set(["grant-cancel-pending"]),
+    );
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          status: "failed",
+          detail: expect.stringMatching(/could not confirm that it stopped/i),
+        }),
+      }),
+    );
   });
 
   it("view_envelope: confirm decrypts envelope and sets viewedPoint", async () => {
@@ -601,6 +672,79 @@ describe("useLocationChat — action dispatcher", () => {
       }),
     );
     expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("create_public_link: revokes the snapshot when Pause wins the in-flight race", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "public-pause",
+        response: "Creating a one-time link.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "public-pause-action",
+          type: "create_public_link" as const,
+          durationHours: 1,
+          summary: "Create a one-time location link",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "public-pause",
+        response: "Location was paused.",
+        isComplete: true,
+        stateChanged: false,
+      });
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue({
+      latitude: 10,
+      longitude: 20,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    });
+    vi.mocked(OneLocationService.createPublicInvite).mockImplementationOnce(
+      async () => {
+        updateOneLocationControlState("u1", (current) => ({
+          ...current,
+          paused: true,
+        }));
+        return {
+          invite: {
+            id: "invite-paused",
+            ownerUserId: "u1",
+            status: "active",
+            durationHours: 1,
+          },
+          publicToken: "paused-token",
+          publicUrl: "https://hushh.ai/location/paused-token",
+        } as never;
+      },
+    );
+    vi.mocked(OneLocationService.revokePublicInvite).mockResolvedValue(
+      {} as never,
+    );
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("create a one-time link");
+    });
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(OneLocationService.revokePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "tok",
+      inviteId: "invite-paused",
+    });
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          type: "create_public_link",
+          status: "failed",
+          detail: expect.stringMatching(/paused before the one-time link/i),
+        }),
+      }),
+    );
   });
 
   it("confirmAction: reports failed when crypto throws", async () => {

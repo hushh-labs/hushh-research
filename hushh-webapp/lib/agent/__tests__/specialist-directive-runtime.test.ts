@@ -33,6 +33,8 @@ vi.mock("@/lib/one-location/service", () => ({
     createPublicInvite: vi.fn(async () => ({
       publicUrl: "https://one.example/p/abc",
     })),
+    revokePublicInvite: vi.fn(async () => ({})),
+    stopBackgroundShare: vi.fn(async () => ({})),
   },
 }));
 vi.mock("@/lib/one-location/encryption", () => ({
@@ -45,6 +47,10 @@ vi.mock("@/lib/one-location/encryption", () => ({
 import { runLocationDirective } from "@/lib/agent/specialist-directive-runtime";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
+import {
+  forgetOneLocationControlPreference,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 
 describe("runLocationDirective publish_share", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -161,7 +167,11 @@ describe("runLocationDirective publish_share", () => {
 });
 
 describe("runLocationDirective create_public_link", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    forgetOneLocationControlPreference("u1");
+  });
 
   it("captures once, creates a public invite, returns completed with publicUrl", async () => {
     const result = await runLocationDirective({
@@ -197,5 +207,42 @@ describe("runLocationDirective create_public_link", () => {
     });
     // Coordinate-free result
     expect(JSON.stringify(result)).not.toContain("latitude");
+  });
+
+  it("revokes and fails when Pause wins while the public snapshot is being created", async () => {
+    vi.mocked(OneLocationService.createPublicInvite).mockImplementationOnce(
+      async () => {
+        updateOneLocationControlState("u1", (current) => ({
+          ...current,
+          paused: true,
+        }));
+        return {
+          invite: { id: "invite-paused" },
+          publicUrl: "https://one.example/p/paused",
+        } as never;
+      },
+    );
+
+    const result = await runLocationDirective(
+      {
+        kind: "action",
+        payload: {
+          id: "act-public-paused",
+          type: "create_public_link",
+          durationHours: 1,
+        },
+      },
+      "tok",
+      "u1",
+    );
+
+    expect(OneLocationService.revokePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "tok",
+      inviteId: "invite-paused",
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      detail: expect.stringMatching(/paused before the one-time link/i),
+    });
   });
 });

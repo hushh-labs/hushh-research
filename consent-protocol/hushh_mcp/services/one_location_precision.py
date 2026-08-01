@@ -80,4 +80,8 @@ def approximate_area_radius_m(accuracy_m: float | None) -> int:
     stepped = (
         math.ceil(required_radius / APPROXIMATE_AREA_RADIUS_STEP_M) * APPROXIMATE_AREA_RADIUS_STEP_M
     )
-    return min(APPROXIMATE_AREA_MAX_RADIUS_M, max(APPROXIMATE_AREA_MIN_RADIUS_M, stepped))
+    if stepped > APPROXIMATE_AREA_MAX_RADIUS_M:
+        raise ValueError(
+            "Source location uncertainty is too large for a supported approximate area."
+        )
+    return max(APPROXIMATE_AREA_MIN_RADIUS_M, stepped)

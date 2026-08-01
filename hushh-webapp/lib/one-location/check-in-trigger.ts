@@ -2,6 +2,11 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { locationCommitStrictlyMatches } from "@/lib/one-location/location-precision";
 import { boundedLocationOperationId } from "@/lib/one-location/location-operation-id";
 import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  revokeLocationGrantOrQueue,
+  revokeLocationGrantsOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
+import {
   assertLocationActionNotPaused,
   assertPreciseLocationActionAllowed,
 } from "@/lib/one-location/location-action-guard";
@@ -82,10 +87,16 @@ export async function runCheckIn(params: RunCheckInParams): Promise<string[]> {
       ) {
         const grantId = response?.grant?.id;
         if (grantId) {
-          await OneLocationService.revokeGrant({
+          const revoked = await revokeLocationGrantOrQueue({
+            userId,
             vaultOwnerToken,
             grantId,
-          }).catch(() => undefined);
+          });
+          if (!revoked) {
+            grantIds.push(grantId);
+            failures.push(LOCATION_REVOCATION_PENDING_MESSAGE);
+            continue;
+          }
         }
         throw new Error(
           "The server did not atomically preserve this private check-in.",
@@ -100,24 +111,31 @@ export async function runCheckIn(params: RunCheckInParams): Promise<string[]> {
     }
   }
   if (readOneLocationControlState(userId).paused) {
-    await Promise.allSettled(
-      grantIds.map((grantId) =>
-        OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-      ),
-    );
-    throw new Error("Location was paused before check-in completed.");
+    const rollback = await revokeLocationGrantsOrQueue({
+      userId,
+      vaultOwnerToken,
+      grantIds,
+    });
+    grantIds.splice(0, grantIds.length, ...rollback.pendingGrantIds);
+    if (!grantIds.length) {
+      throw new Error("Location was paused before check-in completed.");
+    }
+    return grantIds;
   }
   if (!grantIds.length) {
     throw new Error(failures[0] ?? "Private check-in failed.");
   }
   const updates = enableOneLocationAutomaticUpdates(userId);
   if (!updates.allowed) {
-    await Promise.allSettled(
-      grantIds.map((grantId) =>
-        OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
-      ),
-    );
-    throw new Error("Location was paused before check-in updates could start.");
+    const rollback = await revokeLocationGrantsOrQueue({
+      userId,
+      vaultOwnerToken,
+      grantIds,
+    });
+    grantIds.splice(0, grantIds.length, ...rollback.pendingGrantIds);
+    if (!grantIds.length) {
+      throw new Error("Location was paused before check-in updates could start.");
+    }
   }
   return grantIds;
 }

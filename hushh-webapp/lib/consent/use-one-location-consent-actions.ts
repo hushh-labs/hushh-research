@@ -44,6 +44,11 @@ import {
   enableOneLocationAutomaticUpdates,
   readOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  revokeLocationGrantOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 import type {
   ConsentActionKind,
   ConsentActionState,
@@ -263,22 +268,28 @@ export function useOneLocationConsentActions(
                 approximateRadiusM: sharePoint.approximateRadiusM,
               })
             ) {
-              await OneLocationService.revokeGrant({
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
                 vaultOwnerToken,
                 grantId: response.grant.id,
-              }).catch(() => undefined);
+              });
               throw new Error(
-                "The server did not atomically preserve the location approval. Nothing was shared.",
+                revoked
+                  ? "The server did not atomically preserve the location approval. Nothing was shared."
+                  : LOCATION_REVOCATION_PENDING_MESSAGE,
               );
             }
             const updates = enableOneLocationAutomaticUpdates(userId);
             if (!updates.allowed) {
-              await OneLocationService.revokeGrant({
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
                 vaultOwnerToken,
                 grantId: response.grant.id,
-              }).catch(() => undefined);
+              });
               throw new Error(
-                "Location was paused before automatic updates could start. Resume it and approve again.",
+                revoked
+                  ? "Location was paused before automatic updates could start. Resume it and approve again."
+                  : LOCATION_REVOCATION_PENDING_MESSAGE,
               );
             }
             return locationMode === "approximate"
@@ -367,6 +378,10 @@ export function useOneLocationConsentActions(
       return runWithLock(
         { key: actionKey, kind: "revoke", scope: scope || ref.id || undefined },
         async () => {
+          if (!userId) {
+            toast.error("Sign in again before changing location sharing.");
+            return;
+          }
           const vaultOwnerToken = requireToken();
           if (!vaultOwnerToken) return;
           if (!ref.id) {
@@ -376,17 +391,25 @@ export function useOneLocationConsentActions(
 
           const promise = (async () => {
             if (ref.kind === "share_grant") {
-              await OneLocationService.revokeGrant({
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
                 vaultOwnerToken,
                 grantId: ref.id,
               });
+              if (!revoked) {
+                throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+              }
               return "Location access revoked.";
             }
             if (ref.kind === "public_invite") {
-              await OneLocationService.revokePublicInvite({
+              const revoked = await revokePublicInviteOrQueue({
+                userId,
                 vaultOwnerToken,
                 inviteId: ref.id,
               });
+              if (!revoked) {
+                throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+              }
               return "Public location link revoked.";
             }
             if (ref.kind === "circle_invite") {
@@ -418,7 +441,7 @@ export function useOneLocationConsentActions(
         },
       );
     },
-    [emitComplete, requireToken, runWithLock],
+    [emitComplete, requireToken, runWithLock, userId],
   );
 
   return {

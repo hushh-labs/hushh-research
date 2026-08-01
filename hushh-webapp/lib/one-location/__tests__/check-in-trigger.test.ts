@@ -112,6 +112,41 @@ describe("runCheckIn", () => {
     expect(OneLocationService.createGrantWithEnvelope).toHaveBeenCalledTimes(2);
   });
 
+  it("allows an exact web check-in when the browser cannot expose a precision tier", async () => {
+    vi.mocked(OneLocationService.getPermissionState)
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: null,
+        background: "foreground-only",
+      })
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: null,
+        background: "foreground-only",
+      });
+    vi.mocked(OneLocationService.createGrantWithEnvelope).mockResolvedValueOnce(
+      atomicResponse("g-web"),
+    );
+
+    await expect(
+      runCheckIn({
+        userId: "owner",
+        vaultOwnerToken: "t",
+        recipients: [
+          {
+            userId: "web-recipient",
+            keyId: "web-key",
+            publicKeyJwk: {},
+            canReceiveLocation: true,
+          },
+        ] as any,
+        point: { latitude: 1, longitude: 2, accuracyM: 3 } as any,
+        durationHours: 1,
+        prepareEnvelope: async () => ({ id: "client-web" }) as never,
+      }),
+    ).resolves.toEqual(["g-web"]);
+  });
+
   it("throws when no recipients are provided", async () => {
     await expect(
       runCheckIn({

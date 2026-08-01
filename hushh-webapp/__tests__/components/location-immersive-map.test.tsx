@@ -234,9 +234,13 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import { pendingLocationRevocationStorageKey } from "@/lib/one-location/location-revocation-queue";
 
 beforeEach(() => {
   forgetOneLocationControlPreference("test-user");
+  window.localStorage.removeItem(
+    pendingLocationRevocationStorageKey("test-user"),
+  );
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
   experienceHarness.demoMode = true;
@@ -525,6 +529,53 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByText("Sharing an approximate area privately"),
     ).toBeInTheDocument();
+  });
+
+  it("never publishes a foreground map update to a grant that is still stopping", async () => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "foreground_private" },
+    });
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [
+        {
+          userId: "recipient-1",
+          keyId: "key-1",
+          publicKeyJwk: { kty: "EC" },
+        },
+      ],
+      ownerGrants: [
+        {
+          id: "grant-stopping",
+          status: "active",
+          recipientUserId: "recipient-1",
+          recipientKeyId: "key-1",
+          locationMode: "precise",
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      pendingLocationRevocationStorageKey("test-user"),
+      JSON.stringify(["grant-stopping"]),
+    );
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+
+    await waitFor(() => {
+      expect(serviceHarness.getState).toHaveBeenCalled();
+    });
+    expect(serviceHarness.storeEnvelope).not.toHaveBeenCalled();
   });
 
   it("shows nearby attendees in the map drawer without creating peer markers", async () => {

@@ -16,7 +16,10 @@ export async function assertPreciseLocationActionAllowed(
   assertLocationActionNotPaused(userId);
   const permission = await OneLocationService.getPermissionState();
   assertLocationActionNotPaused(userId);
-  if (permission.state !== "granted" || permission.precise !== true) {
+  // Browsers expose whether geolocation is granted, but not the native
+  // reduced/full-accuracy tier. Fail only on an explicit reduced-accuracy
+  // signal; `null` is the expected web value after a successful capture.
+  if (permission.state !== "granted" || permission.precise === false) {
     throw new Error(
       "Turn on Precise Location in device settings before sharing an exact location.",
     );

@@ -2287,20 +2287,39 @@ class OneLocationAgentService:
                 latitude=latitude,
                 longitude=longitude,
             )
-            if value.get("approximateRadiusM") is not None:
-                try:
+            try:
+                if value.get("approximateRadiusM") is not None:
                     approximate_radius = normalize_approximate_radius_m(
                         mode=location_mode,
                         value=value.get("approximateRadiusM"),
                     )
-                except (TypeError, ValueError) as exc:
-                    raise OneLocationAgentError(
-                        "LOCATION_PUBLIC_LOCATION_INVALID",
-                        str(exc),
-                        status_code=422,
-                    ) from exc
-            else:
-                approximate_radius = approximate_area_radius_m(accuracy_m)
+                    is_canonical_area = (
+                        value.get("schemaVersion") == "one_location_public_point.v2"
+                        and accuracy_m is not None
+                        and math.isclose(
+                            accuracy_m,
+                            float(approximate_radius),
+                            rel_tol=0,
+                            abs_tol=0.01,
+                        )
+                    )
+                    required_radius = (
+                        approximate_radius
+                        if is_canonical_area
+                        else approximate_area_radius_m(accuracy_m)
+                    )
+                    if approximate_radius < required_radius:
+                        raise ValueError(
+                            "Approximate location radius is smaller than the source uncertainty requires."
+                        )
+                else:
+                    approximate_radius = approximate_area_radius_m(accuracy_m)
+            except (TypeError, ValueError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_PUBLIC_LOCATION_INVALID",
+                    str(exc),
+                    status_code=422,
+                ) from exc
             accuracy_m = float(approximate_radius)
         return {
             "schemaVersion": "one_location_public_point.v2",

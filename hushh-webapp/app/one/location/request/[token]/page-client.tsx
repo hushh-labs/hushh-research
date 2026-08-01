@@ -59,6 +59,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           point={point}
           mode={approximate ? "approximate" : "precise"}
           approximateRadiusM={point.approximateRadiusM ?? undefined}
+          title="Public location map"
         />
         <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-lg backdrop-blur-xl">
           <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent)]" />

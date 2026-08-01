@@ -342,6 +342,34 @@ describe("runSosPanic", () => {
     );
   });
 
+  it("allows exact web SOS when the browser cannot expose a precision tier", async () => {
+    vi.mocked(OneLocationService.getPermissionState)
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: null,
+        background: "foreground-only",
+      })
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: null,
+        background: "foreground-only",
+      });
+    createGrantMock.mockResolvedValueOnce(
+      makeAtomicResponse("g-web", "userA"),
+    );
+
+    await expect(
+      runSosPanic({
+        vaultOwnerToken: "tok",
+        recipients: [makeRecipient("userA")],
+        point: makePoint(),
+        prepareEnvelope: vi.fn(
+          async () => ({ id: "client-web" }) as never,
+        ),
+      }),
+    ).resolves.toMatchObject({ grantIds: ["g-web"] });
+  });
+
   it("sends a selected fixed message while preserving the SOS share kind", async () => {
     const selected = makeRecipient("userA");
     createGrantMock.mockResolvedValueOnce(makeAtomicResponse("g1", "userA"));

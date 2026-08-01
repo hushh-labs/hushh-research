@@ -1223,13 +1223,16 @@ class FourUserMemoryService(OneLocationAgentService):
             ][:100]
         if (
             "FROM advisor_investor_relationships rel" in sql
-            and "LEFT JOIN relationship_share_grants share" in sql
+            and "JOIN relationship_share_grants share" in sql
+            and "JOIN connection_scope_proposals proposal" in sql
         ):
             owner = params["owner_user_id"]
             return [
                 row
                 for row in self.professional_relationships
-                if row.get("investor_user_id") == owner or row.get("ria_user_id") == owner
+                if (row.get("investor_user_id") == owner or row.get("ria_user_id") == owner)
+                and row.get("status") == "approved"
+                and row.get("relationship_share_status") == "active"
             ][:100]
         if "FROM advisor_investor_relationships rel" in sql:
             return self.professional_relationships[:500]
@@ -2335,7 +2338,9 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         for reason in by_id[user_c]["recommendationReasons"]
     )
     assert by_id[user_d]["recommendationCategory"] == "professional_network"
-    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    # An unapproved discovery-only marketplace profile must not inherit the
+    # professional relationship label until that relationship is active.
+    assert by_id[user_d]["relationshipType"] == "Marketplace profile"
     assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
     assert by_id[user_f]["recommendationCategory"] == "professional_network"
     assert any(
@@ -2351,8 +2356,10 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         reason["code"] == "organization_membership"
         for reason in by_id[user_g]["recommendationReasons"]
     )
-    assert any(
-        reason["code"] == "mutual_kai_relationship"
+    # A professional relationship between two other users is not an owner
+    # signal and must not leak into this directory.
+    assert all(
+        reason["code"] != "mutual_kai_relationship"
         for reason in by_id[user_g]["recommendationReasons"]
     )
     # user_e has no active connection with user_a, so does not appear in the
@@ -2991,6 +2998,43 @@ def test_public_approximate_snapshot_is_canonicalized_before_storage() -> None:
     assert resolved["publicLocation"]["locationMode"] == "approximate"
     assert resolved["publicLocation"]["approximateRadiusM"] == 1_000
     assert resolved["publicLocation"]["schemaVersion"] == "one_location_public_point.v2"
+
+
+def test_public_approximate_snapshot_rejects_radius_below_source_uncertainty() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_public_invite(
+            owner_user_id="user_a",
+            duration_hours=1,
+            location_snapshot={
+                **PUBLIC_LOCATION_SNAPSHOT,
+                "accuracyM": 10_000,
+                "locationMode": "approximate",
+                "approximateRadiusM": 1_000,
+            },
+        )
+
+    assert exc.value.code == "LOCATION_PUBLIC_LOCATION_INVALID"
+    assert "source uncertainty" in exc.value.message
+
+
+def test_public_approximate_snapshot_rejects_unrepresentable_uncertainty() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_public_invite(
+            owner_user_id="user_a",
+            duration_hours=1,
+            location_snapshot={
+                **PUBLIC_LOCATION_SNAPSHOT,
+                "accuracyM": 20_000,
+                "locationMode": "approximate",
+            },
+        )
+
+    assert exc.value.code == "LOCATION_PUBLIC_LOCATION_INVALID"
+    assert "too large" in exc.value.message
 
 
 def test_public_invite_submission_without_key_never_creates_access() -> None:

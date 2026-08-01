@@ -34,6 +34,7 @@ export interface LiveMapProps {
   point: PlainLocationPoint;
   mode?: "precise" | "approximate";
   approximateRadiusM?: number;
+  title?: string;
   className?: string;
 }
 
@@ -41,6 +42,7 @@ export function LiveMap({
   point,
   mode = point.locationMode === "approximate" ? "approximate" : "precise",
   approximateRadiusM = point.approximateRadiusM ?? 1_000,
+  title,
   className,
 }: LiveMapProps) {
   const { status } = useGoogleMaps();
@@ -173,9 +175,9 @@ export function LiveMap({
       <div className={cn("relative h-full w-full", className)}>
         <iframe
           title={
-            mode === "approximate"
+            title ?? (mode === "approximate"
               ? "Approximate location area map preview"
-              : "Live location map preview"
+              : "Live location map preview")
           }
           src={
             mode === "approximate"

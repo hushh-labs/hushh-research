@@ -25,6 +25,7 @@ import {
   forgetOneLocationControlPreference,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import { pendingLocationRevocationStorageKey } from "@/lib/one-location/location-revocation-queue";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { ClientAction } from "@/lib/one-location/types";
 
@@ -90,6 +91,9 @@ describe("executePrivateLocationAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     forgetOneLocationControlPreference(userId);
+    window.localStorage.removeItem(
+      pendingLocationRevocationStorageKey(userId),
+    );
     vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(
       point,
     );
@@ -364,6 +368,57 @@ describe("executePrivateLocationAction", () => {
     });
   });
 
+  it("isolates one recipient's encryption failure and still commits later recipients", async () => {
+    const recipientTwo = {
+      ...recipient,
+      userId: "recipient-2",
+      displayName: "Dad",
+      keyId: "recipient-key-2",
+    };
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [recipient, recipientTwo],
+      ownerGrants: [],
+      requests: [],
+    } as never);
+    vi.mocked(encryptLocationForRecipient)
+      .mockRejectedValueOnce(new Error("recipient key unavailable"))
+      .mockResolvedValueOnce(envelope);
+    vi.mocked(OneLocationService.createGrantWithEnvelope).mockResolvedValueOnce({
+      grant: {
+        id: "grant-2",
+        status: "active",
+        latestEnvelopeId: envelope.id,
+        locationMode: "approximate",
+        approximateRadiusM: 1_000,
+      },
+      envelope,
+      idempotentReplay: false,
+    } as never);
+    const action = newShareAction();
+    action.shares = [
+      ...action.shares,
+      {
+        recipientUserId: recipientTwo.userId,
+        recipientKeyId: recipientTwo.keyId,
+        label: recipientTwo.displayName,
+        durationHours: 4,
+        locationMode: "approximate",
+      },
+    ];
+
+    await expect(
+      executePrivateLocationAction({ action, vaultOwnerToken, userId }),
+    ).resolves.toMatchObject({
+      successfulCount: 1,
+      totalCount: 2,
+      failureDetails: [expect.stringMatching(/Mom.*key unavailable/i)],
+    });
+    expect(OneLocationService.createGrantWithEnvelope).toHaveBeenCalledTimes(1);
+    expect(OneLocationService.createGrantWithEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientUserId: "recipient-2" }),
+    );
+  });
+
   it("honours a Settings pause before capturing any point", async () => {
     updateOneLocationControlState(userId, (state) => ({
       ...state,
@@ -379,5 +434,35 @@ describe("executePrivateLocationAction", () => {
     ).rejects.toThrow(/paused on this device/i);
     expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
     expect(encryptLocationForRecipient).not.toHaveBeenCalled();
+  });
+
+  it("never republishes an active legacy grant that is queued for revocation", async () => {
+    window.localStorage.setItem(
+      pendingLocationRevocationStorageKey(userId),
+      JSON.stringify(["legacy-grant"]),
+    );
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [recipient],
+      ownerGrants: [
+        {
+          id: "legacy-grant",
+          status: "active",
+          locationMode: "precise",
+          recipientUserId: recipient.userId,
+          recipientKeyId: recipient.keyId,
+        },
+      ],
+      requests: [],
+    } as never);
+    const action = newShareAction("precise");
+    action.shares[0] = {
+      ...action.shares[0],
+      grantId: "legacy-grant",
+    };
+
+    await expect(
+      executePrivateLocationAction({ action, vaultOwnerToken, userId }),
+    ).rejects.toThrow(/no longer active/i);
+    expect(OneLocationService.storeEnvelope).not.toHaveBeenCalled();
   });
 });
