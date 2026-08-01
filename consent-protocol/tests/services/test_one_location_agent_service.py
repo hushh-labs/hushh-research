@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import uuid
 from contextlib import contextmanager
@@ -12,12 +13,16 @@ from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
+    _assert_envelope_precision_metadata,
     _contains_plaintext_location_key,
     _identity_notification_label,
     _json_param,
     _notification_safe_data,
+    _private_share_operation_fingerprint,
     _redact_location_metadata,
+    _validated_envelope_fields,
 )
+from hushh_mcp.services.one_location_precision import approximate_area_center
 
 PUBLIC_LOCATION_SNAPSHOT = {
     "latitude": 28.6139,
@@ -53,6 +58,26 @@ def test_plaintext_coordinate_key_detection_is_recursive() -> None:
     assert _contains_plaintext_location_key({"metadata": {"lat": 1}}) is True
     assert _contains_plaintext_location_key({"metadata": [{"address": "home"}]}) is True
     assert _contains_plaintext_location_key({"payload": "coordinate_envelope"}) is False
+
+
+def test_envelope_precision_metadata_is_bound_to_grant() -> None:
+    _assert_envelope_precision_metadata(
+        {
+            "metadata": {
+                "locationMode": "approximate",
+                "approximateRadiusM": 1_250,
+            }
+        },
+        location_mode="approximate",
+        approximate_radius_m=1_250,
+    )
+    with pytest.raises(OneLocationAgentError) as mismatch:
+        _assert_envelope_precision_metadata(
+            {"metadata": {"locationMode": "precise"}},
+            location_mode="approximate",
+            approximate_radius_m=1_250,
+        )
+    assert mismatch.value.code == "LOCATION_ENVELOPE_PRECISION_MISMATCH"
 
 
 def test_notification_identity_label_never_falls_back_to_phone() -> None:
@@ -407,7 +432,9 @@ def test_atomic_private_share_commits_grant_envelope_and_events_together() -> No
     assert "UPDATE one_location_share_grants" in sql
     assert "INSERT INTO one_location_share_grants" in sql
     assert "INSERT INTO one_location_envelopes" in sql
-    assert sql.count("INSERT INTO one_location_events") == 2
+    assert sql.count("INSERT INTO one_location_events") == 3
+    assert "COALESCE(:approval_request_id, '') = ''" in sql
+    assert "FOR UPDATE" in sql
     assert len(service.notifications) == 1
     assert service.notifications[0]["reason"] == "check_in"
 
@@ -532,6 +559,101 @@ def test_atomic_private_share_reused_operation_with_changed_body_fails_closed() 
 
     assert exc.value.code == "LOCATION_OPERATION_CONFLICT"
     assert service.notifications == []
+
+
+def _legacy_atomic_share_fingerprint(
+    *,
+    confirmed_at: datetime,
+    envelope: dict,
+    location_mode: str = "precise",
+    approximate_radius_m: int | None = None,
+) -> str:
+    fields = _validated_envelope_fields(
+        envelope,
+        recipient_key_id="recipient-key",
+        require_captured_at=True,
+    )
+    return _private_share_operation_fingerprint(
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1.0,
+        reason="check_in",
+        share_kind="check_in",
+        location_mode=location_mode,
+        approximate_radius_m=approximate_radius_m,
+        confirmed_at=confirmed_at,
+        envelope_fields=fields,
+        include_precision=False,
+    )
+
+
+def test_precise_atomic_share_accepts_pre_precision_rollout_replay() -> None:
+    confirmed_at = datetime.now(timezone.utc)
+    envelope = {
+        **encrypted_envelope("recipient-key"),
+        "capturedAt": confirmed_at.isoformat(),
+    }
+    service = AtomicPrivateShareProbe(
+        replay=True,
+        stored_fingerprint=_legacy_atomic_share_fingerprint(
+            confirmed_at=confirmed_at,
+            envelope=envelope,
+        ),
+    )
+
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174088",
+        confirmed_at=confirmed_at,
+        envelope=envelope,
+        share_kind="check_in",
+        location_mode="precise",
+        approximate_radius_m=None,
+        enforce_connection=True,
+    )
+
+    assert result["idempotentReplay"] is True
+
+
+def test_approximate_atomic_share_rejects_legacy_fingerprint_replay() -> None:
+    confirmed_at = datetime.now(timezone.utc)
+    envelope = {
+        **encrypted_envelope("recipient-key"),
+        "capturedAt": confirmed_at.isoformat(),
+        "metadata": {
+            "locationMode": "approximate",
+            "approximateRadiusM": 1_000,
+        },
+    }
+    service = AtomicPrivateShareProbe(
+        replay=True,
+        stored_fingerprint=_legacy_atomic_share_fingerprint(
+            confirmed_at=confirmed_at,
+            envelope=envelope,
+            location_mode="approximate",
+            approximate_radius_m=1_000,
+        ),
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174089",
+            confirmed_at=confirmed_at,
+            envelope=envelope,
+            share_kind="check_in",
+            location_mode="approximate",
+            approximate_radius_m=1_000,
+            enforce_connection=True,
+        )
+
+    assert exc.value.code == "LOCATION_OPERATION_CONFLICT"
 
 
 def test_atomic_private_share_stale_first_attempt_is_rejected() -> None:
@@ -753,6 +875,87 @@ class FourUserMemoryService(OneLocationAgentService):
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
         kwargs["data"] = _notification_safe_data(kwargs.get("data") or {})
         self.notifications.append(kwargs)
+
+    def approve_request(
+        self,
+        *,
+        owner_user_id: str,
+        request_id: str,
+        duration_hours: float,
+        recipient_key_id: str,
+        client_operation_id: str,
+        confirmed_at: datetime | str,
+        envelope: dict,
+        location_mode: str,
+        approximate_radius_m: int | None,
+    ) -> dict:
+        """In-memory equivalent of the production atomic approval transaction."""
+        request = self.requests.get(str(request_id))
+        if (
+            request is None
+            or request.get("owner_user_id") != owner_user_id
+            or request.get("status") != "pending"
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND",
+                "Pending location access request was not found.",
+                status_code=404,
+            )
+        requester_user_id = str(request["requester_user_id"])
+        grant = self.create_grant(
+            owner_user_id=owner_user_id,
+            recipient_user_id=requester_user_id,
+            recipient_key_id=recipient_key_id,
+            duration_hours=duration_hours,
+            reason="request_approved",
+            share_kind="share",
+            location_mode=location_mode,
+            approximate_radius_m=approximate_radius_m,
+            require_recipient_phone_verified=False,
+            enforce_connection=False,
+        )
+        stored_envelope = self.store_encrypted_envelope(
+            owner_user_id=owner_user_id,
+            grant_id=grant["id"],
+            envelope=envelope,
+        )
+        resolved_at = datetime.now(timezone.utc)
+        request.update(
+            {
+                "status": "approved",
+                "resolved_at": resolved_at,
+                "approved_grant_id": grant["id"],
+                "metadata": {
+                    **(request.get("metadata") or {}),
+                    "client_operation_id": client_operation_id,
+                    "confirmed_at": str(confirmed_at),
+                },
+            }
+        )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            recipient_user_id=requester_user_id,
+            grant_id=grant["id"],
+            request_id=str(request_id),
+            event_type="location_access_approved",
+            metadata={"durationHours": float(duration_hours)},
+        )
+        self._send_metadata_notification(
+            user_id=requester_user_id,
+            notification_type="location_access_approved",
+            title="Location request approved",
+            body="Your location request was approved.",
+            notification_tag=f"one-location-approved:{request_id}",
+            request_url="/one/location",
+            data={"grant_id": grant["id"], "request_id": str(request_id)},
+        )
+        return {
+            "request": self._request_payload(request),
+            "grant": {**grant, "latestEnvelopeId": stored_envelope["id"]},
+            "envelope": stored_envelope,
+            "idempotentReplay": False,
+        }
 
     @contextmanager
     def _key_bound_writer_guard(
@@ -1020,13 +1223,16 @@ class FourUserMemoryService(OneLocationAgentService):
             ][:100]
         if (
             "FROM advisor_investor_relationships rel" in sql
-            and "LEFT JOIN relationship_share_grants share" in sql
+            and "JOIN relationship_share_grants share" in sql
+            and "JOIN connection_scope_proposals proposal" in sql
         ):
             owner = params["owner_user_id"]
             return [
                 row
                 for row in self.professional_relationships
-                if row.get("investor_user_id") == owner or row.get("ria_user_id") == owner
+                if (row.get("investor_user_id") == owner or row.get("ria_user_id") == owner)
+                and row.get("status") == "approved"
+                and row.get("relationship_share_status") == "active"
             ][:100]
         if "FROM advisor_investor_relationships rel" in sql:
             return self.professional_relationships[:500]
@@ -1784,17 +1990,199 @@ class FourUserMemoryService(OneLocationAgentService):
         raise AssertionError(f"unexpected execute_one SQL: {sql}")
 
 
+def _test_base64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
 def encrypted_envelope(key_id: str, ciphertext: str = "ciphertext") -> dict:
+    ciphertext_bytes = ciphertext.encode("utf-8")
+    if len(ciphertext_bytes) < 16:
+        ciphertext_bytes = ciphertext_bytes.ljust(16, b".")
+    coordinate = _test_base64url(bytes(range(32)))
     return {
         "algorithm": "ECDH-P256-AES256-GCM",
         "recipientKeyId": key_id,
-        "ciphertext": ciphertext,
-        "iv": "iv",
-        "senderEphemeralPublicKeyJwk": {"kty": "EC"},
+        "ciphertext": _test_base64url(ciphertext_bytes),
+        "iv": _test_base64url(b"0123456789ab"),
+        "senderEphemeralPublicKeyJwk": {
+            "kty": "EC",
+            "crv": "P-256",
+            "x": coordinate,
+            "y": coordinate,
+        },
         "capturedAt": datetime.now(timezone.utc).isoformat(),
         "sourcePlatform": "web",
         "metadata": {"plaintext": False},
     }
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_code"),
+    [
+        (
+            lambda value: value.update({"algorithm": "AES-128-CBC"}),
+            "LOCATION_ENVELOPE_ALGORITHM_INVALID",
+        ),
+        (
+            lambda value: value.update({"iv": _test_base64url(b"too-short")}),
+            "LOCATION_ENVELOPE_INVALID",
+        ),
+        (
+            lambda value: value["senderEphemeralPublicKeyJwk"].update(
+                {"d": _test_base64url(bytes(range(32)))}
+            ),
+            "LOCATION_ENVELOPE_INVALID",
+        ),
+        (
+            lambda value: value["senderEphemeralPublicKeyJwk"].update({"x": "%%%"}),
+            "LOCATION_ENVELOPE_INVALID",
+        ),
+        (
+            lambda value: value.update({"metadata": []}),
+            "LOCATION_ENVELOPE_METADATA_INVALID",
+        ),
+        (
+            lambda value: value.update({"unsupported": "x"}),
+            "LOCATION_ENVELOPE_INVALID",
+        ),
+    ],
+)
+def test_encrypted_envelope_validation_fails_closed(
+    mutate,
+    expected_code: str,
+) -> None:
+    envelope = encrypted_envelope("key-recipient")
+    mutate(envelope)
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        _validated_envelope_fields(
+            envelope,
+            recipient_key_id="key-recipient",
+            require_captured_at=True,
+        )
+
+    assert exc.value.code == expected_code
+
+
+def test_encrypted_envelope_validation_accepts_strict_public_p256_shape() -> None:
+    fields = _validated_envelope_fields(
+        encrypted_envelope("key-recipient"),
+        recipient_key_id="key-recipient",
+        require_captured_at=True,
+    )
+
+    assert fields["algorithm"] == "ECDH-P256-AES256-GCM"
+    assert fields["publication_context"] == "private_foreground"
+
+
+class EnvelopeUpdatePolicyProbe(OneLocationAgentService):
+    def __init__(self, grant_row: dict) -> None:
+        self.grant_row = grant_row
+        self.write_attempted = False
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        if "latest.captured_at AS latest_captured_at" in sql:
+            return self.grant_row
+        self.write_attempted = True
+        raise AssertionError(f"unexpected write after rejected envelope: {sql}")
+
+    def _assert_grant_capability_token(self, _grant_row: dict) -> None:
+        return None
+
+    def _expire_stale_grants(self, _user_id: str | None) -> None:
+        return None
+
+
+def _active_update_grant(*, mode: str, radius: int | None) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "owner_user_id": "owner",
+        "recipient_user_id": "recipient",
+        "recipient_key_id": "key-recipient",
+        "status": "active",
+        "expires_at": now + timedelta(hours=1),
+        "latest_envelope_id": "00000000-0000-0000-0000-000000000002",
+        "latest_captured_at": now - timedelta(minutes=1),
+        "latest_created_at": now - timedelta(seconds=30),
+        "location_mode": mode,
+        "approximate_radius_m": radius,
+        "metadata": {},
+    }
+
+
+def test_approximate_area_updates_are_server_throttled_before_write() -> None:
+    assert one_location_service_module.APPROXIMATE_AREA_MIN_UPDATE_SECONDS == 300
+    service = EnvelopeUpdatePolicyProbe(_active_update_grant(mode="approximate", radius=1_000))
+    envelope = encrypted_envelope("key-recipient")
+    envelope["metadata"] = {
+        "locationMode": "approximate",
+        "approximateRadiusM": 1_000,
+    }
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.store_encrypted_envelope(
+            owner_user_id="owner",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            envelope=envelope,
+            _key_writer_guarded=True,
+        )
+
+    assert exc.value.code == "LOCATION_AREA_UPDATE_TOO_SOON"
+    assert service.write_attempted is False
+
+
+def test_location_updates_reject_older_captures_before_write() -> None:
+    grant = _active_update_grant(mode="precise", radius=None)
+    grant["latest_captured_at"] = datetime.now(timezone.utc)
+    service = EnvelopeUpdatePolicyProbe(grant)
+    envelope = encrypted_envelope("key-recipient")
+    envelope["capturedAt"] = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    envelope["metadata"] = {
+        "locationMode": "precise",
+        "approximateRadiusM": None,
+    }
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.store_encrypted_envelope(
+            owner_user_id="owner",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            envelope=envelope,
+            _key_writer_guarded=True,
+        )
+
+    assert exc.value.code == "LOCATION_ENVELOPE_STALE"
+    assert service.write_attempted is False
+
+
+def test_location_updates_require_an_explicit_fresh_capture_time() -> None:
+    grant = _active_update_grant(mode="precise", radius=None)
+    grant["latest_captured_at"] = datetime.now(timezone.utc) - timedelta(days=2)
+    grant["latest_created_at"] = datetime.now(timezone.utc) - timedelta(days=2)
+    service = EnvelopeUpdatePolicyProbe(grant)
+    missing_timestamp = encrypted_envelope("key-recipient")
+    missing_timestamp.pop("capturedAt")
+
+    with pytest.raises(OneLocationAgentError) as missing:
+        service.store_encrypted_envelope(
+            owner_user_id="owner",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            envelope=missing_timestamp,
+            _key_writer_guarded=True,
+        )
+    assert missing.value.code == "LOCATION_ENVELOPE_INVALID"
+
+    stale = encrypted_envelope("key-recipient")
+    stale["capturedAt"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    with pytest.raises(OneLocationAgentError) as old:
+        service.store_encrypted_envelope(
+            owner_user_id="owner",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            envelope=stale,
+            _key_writer_guarded=True,
+        )
+    assert old.value.code == "LOCATION_ENVELOPE_STALE"
+    assert service.write_attempted is False
 
 
 def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> None:
@@ -1950,7 +2338,9 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         for reason in by_id[user_c]["recommendationReasons"]
     )
     assert by_id[user_d]["recommendationCategory"] == "professional_network"
-    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    # An unapproved discovery-only marketplace profile must not inherit the
+    # professional relationship label until that relationship is active.
+    assert by_id[user_d]["relationshipType"] == "Marketplace profile"
     assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
     assert by_id[user_f]["recommendationCategory"] == "professional_network"
     assert any(
@@ -1966,8 +2356,10 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         reason["code"] == "organization_membership"
         for reason in by_id[user_g]["recommendationReasons"]
     )
-    assert any(
-        reason["code"] == "mutual_kai_relationship"
+    # A professional relationship between two other users is not an owner
+    # signal and must not leak into this directory.
+    assert all(
+        reason["code"] != "mutual_kai_relationship"
         for reason in by_id[user_g]["recommendationReasons"]
     )
     # user_e has no active connection with user_a, so does not appear in the
@@ -2241,7 +2633,10 @@ def test_four_user_location_workflow_contract() -> None:
     )
 
     viewed_b = service.view_latest_envelope(recipient_user_id=user_b, grant_id=grant_b["id"])
-    assert viewed_b["envelope"]["ciphertext"] == "ciphertext-for-b"
+    assert (
+        viewed_b["envelope"]["ciphertext"]
+        == encrypted_envelope(f"key-{user_b}", "ciphertext-for-b")["ciphertext"]
+    )
 
     with pytest.raises(OneLocationAgentError) as denied_c:
         service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_b["id"])
@@ -2269,10 +2664,20 @@ def test_four_user_location_workflow_contract() -> None:
     assert duplicate_request_c["id"] == direct_request_c["id"]
     assert duplicate_request_c["message"] == "Can you share where you are now?"
 
+    approval_captured_at = datetime.now(timezone.utc).isoformat()
     approved_c = service.approve_request(
         owner_user_id=user_a,
         request_id=direct_request_c["id"],
         duration_hours=1,
+        recipient_key_id=f"key-{user_c}",
+        client_operation_id="123e4567-e89b-12d3-a456-426614174011",
+        confirmed_at=approval_captured_at,
+        envelope={
+            **encrypted_envelope(f"key-{user_c}", "ciphertext-for-c"),
+            "capturedAt": approval_captured_at,
+        },
+        location_mode="precise",
+        approximate_radius_m=None,
     )
     grant_c = approved_c["grant"]
     assert grant_c["recipientUserId"] == user_c
@@ -2284,13 +2689,11 @@ def test_four_user_location_workflow_contract() -> None:
     assert [item["notification_type"] for item in grant_c_notifications] == [
         "location_access_approved"
     ]
-    service.store_encrypted_envelope(
-        owner_user_id=user_a,
-        grant_id=grant_c["id"],
-        envelope=encrypted_envelope(f"key-{user_c}", "ciphertext-for-c"),
-    )
     viewed_c = service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_c["id"])
-    assert viewed_c["envelope"]["ciphertext"] == "ciphertext-for-c"
+    assert (
+        viewed_c["envelope"]["ciphertext"]
+        == encrypted_envelope(f"key-{user_c}", "ciphertext-for-c")["ciphertext"]
+    )
 
     referral_response = service.refer_recipient(
         referring_user_id=user_b,
@@ -2303,19 +2706,27 @@ def test_four_user_location_workflow_contract() -> None:
     with pytest.raises(OneLocationAgentError):
         service.view_latest_envelope(recipient_user_id=user_d, grant_id=grant_b["id"])
 
+    approval_d_captured_at = datetime.now(timezone.utc).isoformat()
     approved_d = service.approve_request(
         owner_user_id=user_a,
         request_id=referral_response["request"]["id"],
         duration_hours=1,
+        recipient_key_id=f"key-{user_d}",
+        client_operation_id="123e4567-e89b-12d3-a456-426614174012",
+        confirmed_at=approval_d_captured_at,
+        envelope={
+            **encrypted_envelope(f"key-{user_d}", "ciphertext-for-d"),
+            "capturedAt": approval_d_captured_at,
+        },
+        location_mode="precise",
+        approximate_radius_m=None,
     )
     grant_d = approved_d["grant"]
-    service.store_encrypted_envelope(
-        owner_user_id=user_a,
-        grant_id=grant_d["id"],
-        envelope=encrypted_envelope(f"key-{user_d}", "ciphertext-for-d"),
-    )
     viewed_d = service.view_latest_envelope(recipient_user_id=user_d, grant_id=grant_d["id"])
-    assert viewed_d["envelope"]["ciphertext"] == "ciphertext-for-d"
+    assert (
+        viewed_d["envelope"]["ciphertext"]
+        == encrypted_envelope(f"key-{user_d}", "ciphertext-for-d")["ciphertext"]
+    )
 
     service.revoke_grant(owner_user_id=user_a, grant_id=grant_b["id"])
     with pytest.raises(OneLocationAgentError) as revoked_b:
@@ -2544,6 +2955,8 @@ def test_public_invite_with_snapshot_returns_location_on_resolve_without_private
     assert resolved["invite"]["locationAvailable"] is True
     assert resolved["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
     assert resolved["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
+    assert resolved["publicLocation"]["locationMode"] == "precise"
+    assert resolved["publicLocation"]["approximateRadiusM"] is None
 
     submitted = service.submit_public_invite_request(
         public_token=token,
@@ -2559,6 +2972,69 @@ def test_public_invite_with_snapshot_returns_location_on_resolve_without_private
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
+
+
+def test_public_approximate_snapshot_is_canonicalized_before_storage() -> None:
+    service = FourUserMemoryService()
+    raw = {
+        **PUBLIC_LOCATION_SNAPSHOT,
+        "locationMode": "approximate",
+        "approximateRadiusM": 1_000,
+    }
+
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=raw,
+    )
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    expected_latitude, expected_longitude = approximate_area_center(
+        latitude=raw["latitude"],
+        longitude=raw["longitude"],
+    )
+
+    assert resolved["publicLocation"]["latitude"] == round(expected_latitude, 7)
+    assert resolved["publicLocation"]["longitude"] == round(expected_longitude, 7)
+    assert resolved["publicLocation"]["locationMode"] == "approximate"
+    assert resolved["publicLocation"]["approximateRadiusM"] == 1_000
+    assert resolved["publicLocation"]["schemaVersion"] == "one_location_public_point.v2"
+
+
+def test_public_approximate_snapshot_rejects_radius_below_source_uncertainty() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_public_invite(
+            owner_user_id="user_a",
+            duration_hours=1,
+            location_snapshot={
+                **PUBLIC_LOCATION_SNAPSHOT,
+                "accuracyM": 10_000,
+                "locationMode": "approximate",
+                "approximateRadiusM": 1_000,
+            },
+        )
+
+    assert exc.value.code == "LOCATION_PUBLIC_LOCATION_INVALID"
+    assert "source uncertainty" in exc.value.message
+
+
+def test_public_approximate_snapshot_rejects_unrepresentable_uncertainty() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_public_invite(
+            owner_user_id="user_a",
+            duration_hours=1,
+            location_snapshot={
+                **PUBLIC_LOCATION_SNAPSHOT,
+                "accuracyM": 20_000,
+                "locationMode": "approximate",
+            },
+        )
+
+    assert exc.value.code == "LOCATION_PUBLIC_LOCATION_INVALID"
+    assert "too large" in exc.value.message
 
 
 def test_public_invite_submission_without_key_never_creates_access() -> None:

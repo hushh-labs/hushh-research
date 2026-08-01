@@ -109,7 +109,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
 }
 
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
-import { isWeb } from "@/lib/capacitor/platform";
+import { isIOS, isWeb } from "@/lib/capacitor/platform";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 import {
@@ -140,6 +140,16 @@ import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
+  approvedLocationCommitStrictlyMatches,
+  approximateAreaRadiusM,
+  locationCommitStrictlyMatches,
+  grantLocationMode,
+  prepareLocationPointForGrant,
+  prepareLocationPointForSharing,
+  validateLocationPointForGrant,
+} from "@/lib/one-location/location-precision";
+import {
   syncOneLocationContactSignals,
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
@@ -160,7 +170,23 @@ import {
   writeLocationWorkspaceMemory,
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  enableOneLocationAutomaticUpdates,
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+  pendingLocationRevocationGrantIds,
+  pendingLocationRevocationStorageKey,
+  pendingPublicInviteRevocationIds,
+  pendingPublicInviteRevocationStorageKey,
+  requestPendingLocationRevocationRetry,
+  revokeLocationGrantOrQueue,
+  revokeLocationGrantsOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import {
   isOneLocationNearbyCheckInAvailable,
@@ -189,6 +215,7 @@ import {
 import type {
   DriveDestination,
   DriveSharePayload,
+  LocationSharingMode,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -222,12 +249,12 @@ import {
 } from "@/lib/services/connections-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import { createRequestId } from "@/lib/observability/request-id";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
-import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { liveFreshness } from "@/lib/one-location/freshness";
 import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
 import {
@@ -236,6 +263,7 @@ import {
 } from "@/lib/one-location/eta-recompute";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
+import { boundedLocationOperationId } from "@/lib/one-location/location-operation-id";
 
 const DURATION_OPTIONS = [
   { value: "0.25", label: "15 min" },
@@ -264,7 +292,8 @@ const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
-const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Location circle";
+const ONE_LOCATION_PUBLIC_SHARE_COPY =
+  "Open my one-time location snapshot. It does not update.";
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
@@ -296,6 +325,7 @@ type BusyState =
   | "revoke"
   | "sos"
   | "locationSettings"
+  | "backgroundShare"
   | "selfLocation"
   | "driveTo"
   | "safeArrival"
@@ -832,10 +862,24 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
   return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
 
+function requireOneLocationUserId(
+  userId: string | null | undefined,
+): string {
+  const normalized = String(userId ?? "").trim();
+  if (!normalized) {
+    throw new Error("Sign in again before changing location sharing.");
+  }
+  return normalized;
+}
+
 function isLocationPointStale(point: PlainLocationPoint): boolean {
   const capturedAt = new Date(point.capturedAt).getTime();
   if (!Number.isFinite(capturedAt)) return false;
-  return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
+  const threshold =
+    point.locationMode === "approximate"
+      ? APPROXIMATE_AREA_UPDATE_INTERVAL_MS * 3
+      : LIVE_LOCATION_STALE_THRESHOLD_MS;
+  return Date.now() - capturedAt > threshold;
 }
 
 // Great-circle distance in metres between two points (Haversine). Used to decide
@@ -895,6 +939,12 @@ function locationAccuracyLabel(point: PlainLocationPoint): string | null {
   return `Accuracy +/- ${Math.round(accuracyM)} m`;
 }
 
+function approximateAreaRadiusLabel(radiusM: number): string {
+  if (radiusM < 1_000) return `${Math.round(radiusM)} m radius`;
+  const kilometers = radiusM / 1_000;
+  return `${kilometers >= 10 ? Math.round(kilometers) : kilometers.toFixed(radiusM % 1_000 === 0 ? 0 : 1)} km radius`;
+}
+
 function locationSourceLabel(
   sourcePlatform: PlainLocationPoint["sourcePlatform"],
 ): string {
@@ -924,33 +974,51 @@ function LocalMapPreview({
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
+  const approximate = point.locationMode === "approximate";
+  const approximateRadius =
+    point.approximateRadiusM ??
+    (approximate ? approximateAreaRadiusM(point.accuracyM) : null);
   const freshness = liveFreshness(
     point.capturedAt,
     Date.now(),
-    LIVE_LOCATION_STALE_THRESHOLD_MS,
+    approximate
+      ? APPROXIMATE_AREA_UPDATE_INTERVAL_MS * 3
+      : LIVE_LOCATION_STALE_THRESHOLD_MS,
   );
   const statusLabel =
     freshness.state === "live"
-      ? `Live · ${freshness.agoLabel}`
+      ? approximate
+        ? `Approximate area · ${freshness.agoLabel}`
+        : `Live · ${freshness.agoLabel}`
       : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <LiveMap point={point} />
+        <LiveMap
+          point={point}
+          mode={approximate ? "approximate" : "precise"}
+          approximateRadiusM={approximateRadius ?? undefined}
+        />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
               "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-semibold shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-xl",
               isStale
                 ? "border-amber-400/40 bg-amber-950/70 text-amber-50"
-                : "border-emerald-300/40 bg-emerald-950/70 text-emerald-50",
+                : approximate
+                  ? "border-[color:var(--app-accent-border)] bg-background/90 text-foreground"
+                  : "border-emerald-300/40 bg-emerald-950/70 text-emerald-50",
             )}
           >
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
-                isStale ? "bg-amber-300" : "animate-pulse bg-emerald-300",
+                isStale
+                  ? "bg-amber-300"
+                  : approximate
+                    ? "bg-[color:var(--app-accent)]"
+                    : "animate-pulse bg-emerald-300",
               )}
               aria-hidden="true"
             />
@@ -963,8 +1031,12 @@ function LocalMapPreview({
         <div className="min-w-0">
           <p className="break-words text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">
             Updated {captured}
-            {accuracy ? ` - ${accuracy}` : ""} -{" "}
-            {locationSourceLabel(point.sourcePlatform)}
+            {approximate && approximateRadius
+              ? ` - Approximate ${approximateAreaRadiusLabel(approximateRadius)}`
+              : accuracy
+                ? ` - ${accuracy}`
+                : ""}{" "}
+            - {locationSourceLabel(point.sourcePlatform)}
           </p>
         </div>
 
@@ -980,7 +1052,7 @@ function LocalMapPreview({
           </div>
         ) : null}
 
-        {showNavigation ? (
+        {showNavigation && !approximate ? (
           <div className="grid gap-2">
             <Button
               asChild
@@ -999,6 +1071,12 @@ function LocalMapPreview({
               </a>
             </Button>
           </div>
+        ) : null}
+        {approximate ? (
+          <p className="rounded-xl bg-[color:var(--app-accent-tint)] p-3 text-xs leading-5 text-muted-foreground">
+            Only this general area was shared. The exact position and
+            turn-by-turn directions stay private.
+          </p>
         ) : null}
       </div>
 
@@ -1691,8 +1769,6 @@ export function OneLocationAgentPageContent({
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
-  // Opt-in: keep publishing location while the app is backgrounded (native only).
-  const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -1801,6 +1877,37 @@ export function OneLocationAgentPageContent({
       readLocationWorkspaceMemory(auth.userId),
     );
   const locationControl = useOneLocationControlState(auth.userId);
+  const [pendingRevocationTick, setPendingRevocationTick] = useState(0);
+  useEffect(() => {
+    const userId = auth.userId;
+    if (!userId || typeof window === "undefined") return;
+    const notify = () => setPendingRevocationTick((value) => value + 1);
+    const onPendingChange = (event: Event) => {
+      const changedUserId = (event as CustomEvent<{ userId?: string }>).detail
+        ?.userId;
+      if (!changedUserId || changedUserId === userId) notify();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key?.startsWith(pendingLocationRevocationStorageKey(userId)) ||
+        event.key?.startsWith(pendingPublicInviteRevocationStorageKey(userId))
+      ) {
+        notify();
+      }
+    };
+    window.addEventListener(
+      ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+      onPendingChange,
+    );
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(
+        ONE_LOCATION_PENDING_REVOCATIONS_CHANGED,
+        onPendingChange,
+      );
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [auth.userId]);
   const automaticPrivatePublishingAllowedRef = useRef(
     !locationControl.paused && locationControl.autoShareEnabled,
   );
@@ -1856,7 +1963,7 @@ export function OneLocationAgentPageContent({
     [updateLocationWorkspace],
   );
   const activateMyLocation = useCallback(
-    (point: PlainLocationPoint) => {
+    (point: PlainLocationPoint, resumePaused = false) => {
       automaticPrivatePublishingAllowedRef.current =
         locationControl.autoShareEnabled;
       updateLocationWorkspace((current) => ({
@@ -1865,8 +1972,8 @@ export function OneLocationAgentPageContent({
       }));
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
-        paused: false,
-        selfPreviewEnabled: true,
+        paused: resumePaused ? false : current.paused,
+        selfPreviewEnabled: resumePaused || current.selfPreviewEnabled,
       }));
     },
     [auth.userId, locationControl.autoShareEnabled, updateLocationWorkspace],
@@ -1935,6 +2042,7 @@ export function OneLocationAgentPageContent({
   const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  const lastApproximatePublishAtRef = useRef<Map<string, number>>(new Map());
   // Throttles updates to the owner's OWN live-preview marker so it refreshes at
   // the same cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS),
   // instead of re-rendering/animating on every raw GPS fix (~1s), which needlessly
@@ -2073,16 +2181,27 @@ export function OneLocationAgentPageContent({
       (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
   }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
-  const activeOwnerGrants = useMemo(
+  const activeOwnerGrants = useMemo(() => {
+    void pendingRevocationTick;
+    const pendingRevocations = auth.userId
+      ? pendingLocationRevocationGrantIds(auth.userId)
+      : new Set<string>();
+    return (state?.ownerGrants ?? []).filter(
+      (grant) =>
+        grant.status === "active" && !pendingRevocations.has(grant.id),
+    );
+  }, [auth.userId, pendingRevocationTick, state?.ownerGrants]);
+  const activePreciseOwnerGrants = useMemo(
     () =>
-      (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
-    [state?.ownerGrants],
+      activeOwnerGrants.filter(
+        (grant) => grantLocationMode(grant) === "precise",
+      ),
+    [activeOwnerGrants],
   );
-  const locationEnabled =
-    !locationControl.paused &&
-    (locationControl.selfPreviewEnabled ||
-      locationControl.nearbyPresenceActive ||
-      (locationControl.autoShareEnabled && activeOwnerGrants.length > 0));
+  // The header Location toggle and Settings Pause toggle are two views of the
+  // same master device control. Activity (preview, grant, Nearby) is displayed
+  // separately and must not make these two controls disagree.
+  const locationEnabled = !locationControl.paused;
   const locationAccuracyLimited =
     locationEnabled &&
     (permission?.state !== "granted" ||
@@ -2198,13 +2317,24 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
-  const activePublicInvites = useMemo(
-    () =>
-      (state?.publicInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.publicInvites],
-  );
+  const activePublicInvites = useMemo(() => {
+    void pendingRevocationTick;
+    const pendingRevocations = auth.userId
+      ? pendingPublicInviteRevocationIds(auth.userId)
+      : new Set<string>();
+    return (state?.publicInvites ?? []).filter(
+      (invite) =>
+        invite.status === "active" && !pendingRevocations.has(invite.id),
+    );
+  }, [auth.userId, pendingRevocationTick, state?.publicInvites]);
+  const pendingRevocationCount = useMemo(() => {
+    void pendingRevocationTick;
+    if (!auth.userId) return 0;
+    return (
+      pendingLocationRevocationGrantIds(auth.userId).size +
+      pendingPublicInviteRevocationIds(auth.userId).size
+    );
+  }, [auth.userId, pendingRevocationTick]);
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
       Date.parse(
@@ -2487,6 +2617,14 @@ export function OneLocationAgentPageContent({
     ],
   );
 
+  useEffect(() => {
+    if (!pendingRevocationTick || !auth.userId || !vaultOwnerToken) return;
+    // The app-level retry worker owns network backoff. Reconcile this page's
+    // memory snapshot whenever a queue item is added or cleared so a stale
+    // server-active grant cannot reappear after a confirmed revoke.
+    void refresh({ background: true }).catch(() => undefined);
+  }, [auth.userId, pendingRevocationTick, refresh, vaultOwnerToken]);
+
   const refreshLocationPermission = useCallback(async () => {
     const nextPermission = await OneLocationService.getPermissionState().catch(
       () => ({
@@ -2526,10 +2664,24 @@ export function OneLocationAgentPageContent({
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
       requestNativePrompt?: boolean;
-    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      resumePaused?: boolean;
+    }): Promise<{
+      ready: boolean;
+      point?: PlainLocationPoint;
+      permission?: HushhLocationPermissionState | null;
+    }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
       const shouldRequestNativePrompt = options?.requestNativePrompt === true;
+      const shouldResumePaused = options?.resumePaused === true;
+      if (
+        shouldCapturePoint &&
+        readOneLocationControlState(auth.userId).paused &&
+        !shouldResumePaused
+      ) {
+        toast.error("Resume Location before capturing or sharing a new point.");
+        return { ready: false, permission: null };
+      }
       const currentPermission = await refreshLocationPermission();
 
       if (isLocationServicesDisabled(currentPermission)) {
@@ -2537,7 +2689,7 @@ export function OneLocationAgentPageContent({
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, permission: currentPermission };
       }
 
       if (
@@ -2548,7 +2700,7 @@ export function OneLocationAgentPageContent({
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, permission: currentPermission };
       }
 
       if (currentPermission.state === "unavailable") {
@@ -2558,29 +2710,30 @@ export function OneLocationAgentPageContent({
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, permission: currentPermission };
       }
 
       if (currentPermission.state === "granted" && !shouldCapturePoint) {
-        return { ready: true };
+        return { ready: true, permission: currentPermission };
       }
 
       try {
         const point = await OneLocationService.captureCurrentPosition();
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
-        setPermission(
-          nextPermission ?? {
-            state: "granted",
-            precise: null,
-            background: "foreground-only",
-            locationServicesEnabled: true,
-          },
-        );
+        const resolvedPermission = nextPermission ?? {
+          state: "granted",
+          precise: null,
+          background: "foreground-only",
+          locationServicesEnabled: true,
+        };
+        setPermission(resolvedPermission);
         if (shouldCapturePoint) {
-          activateMyLocation(point);
+          activateMyLocation(point, shouldResumePaused);
         }
-        return shouldCapturePoint ? { ready: true, point } : { ready: true };
+        return shouldCapturePoint
+          ? { ready: true, point, permission: resolvedPermission }
+          : { ready: true, permission: resolvedPermission };
       } catch (error) {
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
@@ -2596,11 +2749,38 @@ export function OneLocationAgentPageContent({
         ) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, permission: nextPermission };
       }
     },
-    [activateMyLocation, refreshLocationPermission],
+    [activateMyLocation, auth.userId, refreshLocationPermission],
   );
+
+  // Permission can change while One is backgrounded (for example Full to
+  // Reduced Accuracy on iOS). Refresh on every return so precise publishers
+  // fail closed before their next envelope instead of trusting render-time
+  // state from a previous tab or app lifecycle.
+  useEffect(() => {
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "hidden") return;
+      void refreshLocationPermission();
+    };
+    window.addEventListener("focus", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(
+      () => {
+        if (
+          appInteractionCoordinator.getLifecycleSnapshot().state === "active"
+        ) {
+          void refreshLocationPermission();
+        }
+      },
+    );
+    return () => {
+      window.removeEventListener("focus", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+      unsubscribeLifecycle();
+    };
+  }, [refreshLocationPermission]);
 
   useEffect(() => {
     if (!auth.loading) {
@@ -2943,6 +3123,15 @@ export function OneLocationAgentPageContent({
       pointOverride?: PlainLocationPoint,
     ) => {
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
+      const ownerUserId = requireOneLocationUserId(auth.userId);
+      if (readOneLocationControlState(ownerUserId).paused) {
+        throw new Error("Location is paused on this device.");
+      }
+      if (
+        pendingLocationRevocationGrantIds(ownerUserId).has(grant.id)
+      ) {
+        throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+      }
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
           "They need to open Location once before private sharing can start.",
@@ -2950,18 +3139,32 @@ export function OneLocationAgentPageContent({
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
+      const sharedPoint = prepareLocationPointForGrant(point, grant);
       const envelope = await encryptLocationForRecipient({
-        point,
+        point: sharedPoint,
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
+      // Re-read immediately before publication: Pause or Stop may have arrived
+      // from Settings, another tab, or the server while capture/encryption ran.
+      if (readOneLocationControlState(ownerUserId).paused) {
+        throw new Error("Location was paused before this update completed.");
+      }
+      if (
+        pendingLocationRevocationGrantIds(ownerUserId).has(grant.id)
+      ) {
+        throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+      }
       await OneLocationService.storeEnvelope({
         vaultOwnerToken,
         grantId: grant.id,
         envelope,
       });
+      if (grantLocationMode(grant) === "approximate") {
+        lastApproximatePublishAtRef.current.set(grant.id, Date.now());
+      }
     },
-    [vaultOwnerToken],
+    [auth.userId, vaultOwnerToken],
   );
 
   const publishEnvelopeWithRetry = useCallback(
@@ -3075,88 +3278,316 @@ export function OneLocationAgentPageContent({
     setRequestMessage("");
   }, []);
 
-  const handleShare = useCallback(async () => {
-    if (
-      !vaultOwnerToken ||
-      !shareReadySelectedRecipients.length ||
-      setupNeededSelectedRecipients.length ||
-      shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
-      locationPermissionBlocksSharing(permission)
-    )
-      return;
-    setBusy("share");
-    let successCount = 0;
-    try {
-      const readiness = await ensureForegroundLocationReady({
-        capturePoint: true,
-        autoOpenSettings: true,
-      });
-      if (!readiness.ready || !readiness.point) {
-        return;
-      }
-      const point = readiness.point;
-      for (const recipient of shareReadySelectedRecipients) {
-        const grant = await OneLocationService.createGrant({
-          vaultOwnerToken,
-          recipientUserId: recipient.userId,
-          recipientKeyId: recipient.keyId,
-          durationHours: Number(shareDurationHours),
-          reason: shareMessage.trim() || undefined,
-          shareKind: "share",
-        });
-        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-        successCount += 1;
-      }
-      trackEvent("one_location_share_confirmed", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, 0),
-        selected_count: shareReadySelectedRecipients.length,
-        success_count: successCount,
-        failure_count: 0,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
-        review_required: shareReviewOpen,
-      });
-      toast.success(
-        `Location shared with ${peopleCountLabel(
-          shareReadySelectedRecipients.length,
-        )}.`,
-      );
-      resetShareComposer();
-      // Signal the redesign hub to close the 3-step share flow and return to
-      // the main One Location screen now that sharing finished.
-      setShareCompletedTick((value) => value + 1);
-      await refresh();
-    } catch (error) {
-      const failureCount =
-        shareReadySelectedRecipients.length - successCount || 1;
-      trackEvent("one_location_share_confirmed", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, failureCount),
-        selected_count: shareReadySelectedRecipients.length,
-        success_count: successCount,
-        failure_count: failureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
-        review_required: shareReviewOpen,
-      });
-      toast.error(
-        error instanceof Error ? error.message : "Could not share location.",
-      );
-    } finally {
-      setBusy(null);
+  const enableAutomaticUpdatesForTimedShare = useCallback(() => {
+    const result = enableOneLocationAutomaticUpdates(auth.userId);
+    if (result.allowed) {
+      automaticPrivatePublishingAllowedRef.current = true;
     }
-  }, [
-    ensureForegroundLocationReady,
-    permission,
-    publishEnvelopeWithRetry,
-    refresh,
-    resetShareComposer,
-    setupNeededSelectedRecipients.length,
-    shareDurationHours,
-    shareMessage,
-    shareReviewOpen,
-    shareReadySelectedRecipients,
-    vaultOwnerToken,
-  ]);
+    return result;
+  }, [auth.userId]);
+
+  const createAtomicPreciseShare = useCallback(
+    async (params: {
+      recipient: OneLocationRecipient;
+      point: PlainLocationPoint;
+      durationHours: number;
+      reason?: string;
+      shareKind?: string;
+      operationPrefix: string;
+    }): Promise<OneLocationGrant> => {
+      if (
+        !vaultOwnerToken ||
+        !params.recipient.keyId ||
+        !params.recipient.publicKeyJwk
+      ) {
+        throw new Error(
+          "This recipient is not ready for secure location sharing.",
+        );
+      }
+      if (readOneLocationControlState(auth.userId).paused) {
+        throw new Error("Resume Location before sharing a new point.");
+      }
+      const sharePoint = prepareLocationPointForSharing(
+        params.point,
+        "precise",
+      );
+      const envelope = await encryptLocationForRecipient({
+        point: sharePoint,
+        recipientPublicKeyJwk: params.recipient.publicKeyJwk,
+        recipientKeyId: params.recipient.keyId,
+      });
+      if (readOneLocationControlState(auth.userId).paused) {
+        throw new Error("Location was paused before sharing completed.");
+      }
+      const response = await OneLocationService.createGrantWithEnvelope({
+        vaultOwnerToken,
+        recipientUserId: params.recipient.userId,
+        recipientKeyId: params.recipient.keyId,
+        durationHours: params.durationHours,
+        clientOperationId: `${params.operationPrefix}:${createRequestId()}`,
+        confirmedAt: new Date().toISOString(),
+        envelope,
+        reason: params.reason,
+        shareKind: params.shareKind,
+        locationMode: "precise",
+        approximateRadiusM: null,
+      });
+      if (
+        !locationCommitStrictlyMatches({
+          grant: response.grant,
+          envelope: response.envelope,
+          locationMode: "precise",
+          approximateRadiusM: null,
+        })
+      ) {
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
+          vaultOwnerToken,
+          grantId: response.grant.id,
+        });
+        throw new Error(
+          revoked
+            ? "The server did not preserve the precise mode reviewed."
+            : LOCATION_REVOCATION_PENDING_MESSAGE,
+        );
+      }
+      const updates = enableAutomaticUpdatesForTimedShare();
+      if (!updates.allowed) {
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
+          vaultOwnerToken,
+          grantId: response.grant.id,
+        });
+        throw new Error(
+          revoked
+            ? "Location was paused before updates could start."
+            : LOCATION_REVOCATION_PENDING_MESSAGE,
+        );
+      }
+      return response.grant;
+    },
+    [auth.userId, enableAutomaticUpdatesForTimedShare, vaultOwnerToken],
+  );
+
+  const handleShare = useCallback(
+    async (locationMode: LocationSharingMode = "approximate") => {
+      if (
+        !vaultOwnerToken ||
+        !shareReadySelectedRecipients.length ||
+        setupNeededSelectedRecipients.length ||
+        shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
+        locationPermissionBlocksSharing(permission)
+      )
+        return;
+      setBusy("share");
+      let successCount = 0;
+      const successfulRecipientIds: string[] = [];
+      const successfulGrantIds: string[] = [];
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          return;
+        }
+        if (
+          locationMode === "precise" &&
+          readiness.permission?.precise === false
+        ) {
+          toast.error(
+            "Turn on Precise Location in your device settings to share a precise live location.",
+          );
+          return;
+        }
+        const point = readiness.point;
+        const preparedPoint = prepareLocationPointForSharing(
+          point,
+          locationMode,
+        );
+        const confirmedAt = new Date().toISOString();
+        const clientActionId = createRequestId();
+        const failureMessages: string[] = [];
+        for (const recipient of shareReadySelectedRecipients) {
+          try {
+            const envelope = await encryptLocationForRecipient({
+              point: preparedPoint,
+              recipientPublicKeyJwk: recipient.publicKeyJwk!,
+              recipientKeyId: recipient.keyId!,
+            });
+            const response = await OneLocationService.createGrantWithEnvelope({
+              vaultOwnerToken,
+              recipientUserId: recipient.userId,
+              recipientKeyId: recipient.keyId!,
+              durationHours: Number(shareDurationHours),
+              clientOperationId: boundedLocationOperationId(
+                "share",
+                clientActionId,
+                recipient.userId,
+              ),
+              confirmedAt,
+              envelope,
+              reason: shareMessage.trim() || undefined,
+              shareKind: "share",
+              locationMode,
+              approximateRadiusM: preparedPoint.approximateRadiusM ?? null,
+            });
+            if (
+              !locationCommitStrictlyMatches({
+                grant: response.grant,
+                envelope: response.envelope,
+                locationMode,
+                approximateRadiusM: preparedPoint.approximateRadiusM,
+              })
+            ) {
+              const revoked = await revokeLocationGrantOrQueue({
+                userId: requireOneLocationUserId(auth.userId),
+                vaultOwnerToken,
+                grantId: response.grant.id,
+              });
+              if (!revoked) {
+                successCount += 1;
+                successfulRecipientIds.push(recipient.userId);
+                successfulGrantIds.push(response.grant.id);
+                failureMessages.push(LOCATION_REVOCATION_PENDING_MESSAGE);
+                continue;
+              }
+              throw new Error(
+                "The server did not preserve the location mode you reviewed.",
+              );
+            }
+            successCount += 1;
+            successfulRecipientIds.push(recipient.userId);
+            successfulGrantIds.push(response.grant.id);
+          } catch (error) {
+            failureMessages.push(
+              error instanceof Error
+                ? error.message
+                : "Could not start this location share.",
+            );
+          }
+        }
+        if (successCount === 0) {
+          throw new Error(
+            failureMessages[0] ?? "Could not share location with anyone.",
+          );
+        }
+        const updates = enableAutomaticUpdatesForTimedShare();
+        if (!updates.allowed) {
+          const rollback = await revokeLocationGrantsOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            grantIds: successfulGrantIds,
+          });
+          const pending = new Set(rollback.pendingGrantIds);
+          const unresolvedRecipients = successfulGrantIds.flatMap(
+            (grantId, index) =>
+              pending.has(grantId) ? [successfulRecipientIds[index]!] : [],
+          );
+          successfulRecipientIds.splice(
+            0,
+            successfulRecipientIds.length,
+            ...unresolvedRecipients,
+          );
+          successfulGrantIds.splice(
+            0,
+            successfulGrantIds.length,
+            ...rollback.pendingGrantIds,
+          );
+          successCount = rollback.pendingGrantIds.length;
+          throw new Error(
+            rollback.pendingGrantIds.length
+              ? LOCATION_REVOCATION_PENDING_MESSAGE
+              : "Location was paused before automatic updates could start. Resume Location and share again.",
+          );
+        }
+        const failureCount = failureMessages.length;
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: shareReadySelectedRecipients.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          duration_bucket: oneLocationDurationBucket(shareDurationHours),
+          review_required: shareReviewOpen,
+        });
+        if (failureCount > 0) {
+          const succeeded = new Set(successfulRecipientIds);
+          setSelectedRecipientIds((current) =>
+            current.filter((recipientId) => !succeeded.has(recipientId)),
+          );
+          setSelectedRecipientId((current) =>
+            succeeded.has(current) ? "" : current,
+          );
+          setShareReviewOpen(false);
+          await refresh();
+          toast.error(
+            failureMessages.includes(LOCATION_REVOCATION_PENDING_MESSAGE)
+              ? LOCATION_REVOCATION_PENDING_MESSAGE
+              : `Shared with ${successCount} of ${shareReadySelectedRecipients.length}. The remaining people are still selected so you can retry.`,
+          );
+          return;
+        }
+        toast.success(
+          `Location shared with ${peopleCountLabel(
+            shareReadySelectedRecipients.length,
+          )}.`,
+        );
+        resetShareComposer();
+        // Signal the redesign hub to close the 3-step share flow and return to
+        // the main One Location screen now that sharing finished.
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        if (successCount > 0) {
+          enableAutomaticUpdatesForTimedShare();
+          const succeeded = new Set(successfulRecipientIds);
+          setSelectedRecipientIds((current) =>
+            current.filter((recipientId) => !succeeded.has(recipientId)),
+          );
+          setSelectedRecipientId((current) =>
+            succeeded.has(current) ? "" : current,
+          );
+          setShareReviewOpen(false);
+          await refresh().catch(() => undefined);
+        }
+        const failureCount =
+          shareReadySelectedRecipients.length - successCount || 1;
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: shareReadySelectedRecipients.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          duration_bucket: oneLocationDurationBucket(shareDurationHours),
+          review_required: shareReviewOpen,
+        });
+        toast.error(
+          successCount > 0
+            ? `Shared with ${successCount} of ${shareReadySelectedRecipients.length}. The remaining people are still selected so you can retry.`
+            : error instanceof Error
+              ? error.message
+              : "Could not share location.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      auth.userId,
+      ensureForegroundLocationReady,
+      enableAutomaticUpdatesForTimedShare,
+      permission,
+      refresh,
+      resetShareComposer,
+      setupNeededSelectedRecipients.length,
+      shareDurationHours,
+      shareMessage,
+      shareReviewOpen,
+      shareReadySelectedRecipients,
+      vaultOwnerToken,
+    ],
+  );
 
   const resolveSosLocation = useCallback(() => {
     const inFlight = sosLocationResolutionRef.current;
@@ -3231,7 +3662,11 @@ export function OneLocationAgentPageContent({
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
       if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
-      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
+      if (
+        !auth.userId ||
+        !vaultOwnerToken ||
+        locationPermissionBlocksSharing(permission)
+      )
         return;
       const readyRecipients = smsActionRecipients.filter(
         isSosShareReadyRecipient,
@@ -3255,19 +3690,25 @@ export function OneLocationAgentPageContent({
           return;
         }
         const incident = await runSosPanic({
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           recipients: readyRecipients,
           point,
           note,
-          publish: (grant, recipient, pt) =>
-            publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+          prepareEnvelope: async (recipient, capturedPoint) =>
+            encryptLocationForRecipient({
+              point: prepareLocationPointForSharing(capturedPoint, "precise"),
+              recipientPublicKeyJwk: recipient.publicKeyJwk,
+              recipientKeyId: recipient.keyId,
+            }),
         });
         setSosIncident(incident);
-        const skipped = totalSelected - readyRecipients.length;
+        const sharedCount = incident.grantIds.length;
+        const skipped = totalSelected - sharedCount;
         toast.success(
           skipped > 0
-            ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-            : `SMS sent to ${readyRecipients.length} contact(s).`,
+            ? `SOS location shared with ${sharedCount} of ${totalSelected} contacts (${skipped} could not receive it).`
+            : `SOS location shared with ${sharedCount} contact(s).`,
         );
         await refresh();
       } catch (error) {
@@ -3284,8 +3725,8 @@ export function OneLocationAgentPageContent({
       }
     },
     [
+      auth.userId,
       permission,
-      publishEnvelopeWithRetry,
       resolveSosLocation,
       smsActionRecipients,
       refresh,
@@ -3419,9 +3860,13 @@ export function OneLocationAgentPageContent({
               grantId: grant.id,
             });
             try {
-              return await decryptLocationEnvelope({
+              const decrypted = await decryptLocationEnvelope({
                 userId: activeUserId,
                 envelope: response.envelope,
+              });
+              return validateLocationPointForGrant({
+                point: decrypted,
+                grant,
               });
             } catch (decryptError) {
               // Brand-new device (or not-yet-synced): pull the vault-synced key
@@ -3437,9 +3882,13 @@ export function OneLocationAgentPageContent({
                   vaultKey,
                   remoteBackup: state.myRecipientKey,
                 }).catch(() => {});
-                return await decryptLocationEnvelope({
+                const decrypted = await decryptLocationEnvelope({
                   userId: activeUserId,
                   envelope: response.envelope,
+                });
+                return validateLocationPointForGrant({
+                  point: decrypted,
+                  grant,
                 });
               }
               throw decryptError;
@@ -3628,17 +4077,48 @@ export function OneLocationAgentPageContent({
       livePublishInFlightRef.current = true;
       try {
         const point = await OneLocationService.captureCurrentPosition();
+        const currentPermission =
+          await OneLocationService.getPermissionState().catch(() => null);
+        if (currentPermission) setPermission(currentPermission);
+        if (currentPermission && currentPermission.state !== "granted") return;
         if (!automaticPrivatePublishingAllowedRef.current) return;
         for (const grant of activeOwnerGrants) {
           if (!automaticPrivatePublishingAllowedRef.current) return;
+          if (
+            grantLocationMode(grant) === "precise" &&
+            currentPermission?.precise === false
+          ) {
+            continue;
+          }
+          const persistedPublishAt = grant.latestEnvelopeId
+            ? new Date(grant.updatedAt ?? "").getTime()
+            : Number.NaN;
+          const lastApproximatePublishAt = Math.max(
+            lastApproximatePublishAtRef.current.get(grant.id) ?? 0,
+            Number.isFinite(persistedPublishAt) ? persistedPublishAt : 0,
+          );
+          if (
+            grantLocationMode(grant) === "approximate" &&
+            Date.now() - lastApproximatePublishAt <
+              APPROXIMATE_AREA_UPDATE_INTERVAL_MS
+          ) {
+            continue;
+          }
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            point,
-          );
+          try {
+            await publishEnvelopeWithRetry(
+              grant,
+              recipient,
+              "foreground_interval",
+              point,
+            );
+          } catch (error) {
+            console.warn(
+              `[OneLocationAgent] Update skipped for grant ${grant.id}:`,
+              error,
+            );
+          }
         }
       } catch (error) {
         void refreshLocationPermission();
@@ -3653,12 +4133,15 @@ export function OneLocationAgentPageContent({
 
     const interval = window.setInterval(
       () => void publishActiveGrants(),
-      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+      activePreciseOwnerGrants.length
+        ? LIVE_LOCATION_UPDATE_INTERVAL_MS
+        : APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
     );
     void publishActiveGrants();
     return () => window.clearInterval(interval);
   }, [
     activeOwnerGrants,
+    activePreciseOwnerGrants.length,
     busy,
     locationControl.autoShareEnabled,
     locationControl.paused,
@@ -3667,6 +4150,41 @@ export function OneLocationAgentPageContent({
     recipientForGrant,
     refreshLocationPermission,
     vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (!locationControl.backgroundShareEnabled || !permission) return;
+    const hasApproximateGrant = activeOwnerGrants.some(
+      (grant) => grantLocationMode(grant) === "approximate",
+    );
+    const preciseOnlyPermissionLoss =
+      permission.precise === false &&
+      activeOwnerGrants.length > 0 &&
+      !hasApproximateGrant;
+    const backgroundPermissionLost =
+      permission.background === "restricted" ||
+      permission.background === "unavailable";
+    // `foreground-only` may be an older permission read that started before an
+    // Always upgrade completed. Let the native start result arbitrate it; an
+    // actual downgrade makes start fail closed and clears the preference.
+    if (!backgroundPermissionLost && !preciseOnlyPermissionLoss) {
+      return;
+    }
+    updateOneLocationControlState(auth.userId, (current) => ({
+      ...current,
+      backgroundShareEnabled: false,
+    }));
+    void OneLocationService.stopBackgroundShare();
+    if (preciseOnlyPermissionLoss) {
+      toast.error(
+        "Background Live location stopped because Precise Location is off.",
+      );
+    }
+  }, [
+    activeOwnerGrants,
+    auth.userId,
+    locationControl.backgroundShareEnabled,
+    permission,
   ]);
 
   // True LIVE tracking (owner side): while a share is active and the app is in
@@ -3679,7 +4197,7 @@ export function OneLocationAgentPageContent({
   // watch is foreground-only and cleans up on unmount or when sharing stops.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!vaultOwnerToken || !activeOwnerGrants.length) return;
+    if (!vaultOwnerToken || !activePreciseOwnerGrants.length) return;
     if (locationControl.paused) return;
     if (!locationControl.autoShareEnabled) return;
     if (
@@ -3729,20 +4247,38 @@ export function OneLocationAgentPageContent({
         return;
       }
 
+      const currentPermission =
+        await OneLocationService.getPermissionState().catch(() => null);
+      if (currentPermission) setPermission(currentPermission);
+      if (
+        currentPermission &&
+        (currentPermission.state !== "granted" ||
+          currentPermission.precise === false)
+      ) {
+        return;
+      }
+
       livePublishInFlightRef.current = true;
       try {
-        for (const grant of activeOwnerGrants) {
+        for (const grant of activePreciseOwnerGrants) {
           if (!automaticPrivatePublishingAllowedRef.current) return;
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
           const driven = await drivePointForGrant(grant, point);
           const pointForGrant = pickupPointForGrant(grant, driven);
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            pointForGrant,
-          );
+          try {
+            await publishEnvelopeWithRetry(
+              grant,
+              recipient,
+              "foreground_interval",
+              pointForGrant,
+            );
+          } catch (error) {
+            console.warn(
+              `[OneLocationAgent] Movement update skipped for grant ${grant.id}:`,
+              error,
+            );
+          }
         }
         lastPublishedPointRef.current = point;
         lastWatchPublishAtRef.current = Date.now();
@@ -3780,7 +4316,7 @@ export function OneLocationAgentPageContent({
       }
     };
   }, [
-    activeOwnerGrants,
+    activePreciseOwnerGrants,
     locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
@@ -3911,7 +4447,14 @@ export function OneLocationAgentPageContent({
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.
   useEffect(() => {
-    if (!vaultOwnerToken) return;
+    if (!vaultOwnerToken) {
+      void OneLocationService.stopBackgroundShare();
+      return;
+    }
+    // A route remount begins before the encrypted Location state has hydrated.
+    // Do not interpret that temporary empty grant list as the user's active
+    // background session having ended; reconcile only after state is known.
+    if (!state) return;
     const session = buildBackgroundShareSession({
       activeGrants: activeOwnerGrants,
       recipients,
@@ -3919,23 +4462,52 @@ export function OneLocationAgentPageContent({
       backendBaseUrl: getApiBaseUrl(),
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+      approximateIntervalMs: APPROXIMATE_AREA_UPDATE_INTERVAL_MS,
     });
+    let cancelled = false;
+    const shouldEnableBackground =
+      locationControl.backgroundShareEnabled &&
+      locationControl.autoShareEnabled &&
+      !locationControl.paused;
     void syncBackgroundShare({
-      enabled:
-        backgroundShareEnabled &&
-        locationControl.autoShareEnabled &&
-        !locationControl.paused,
+      enabled: shouldEnableBackground,
       session,
-    });
+    })
+      .then((result) => {
+        if (!cancelled && shouldEnableBackground && !result.started) {
+          updateOneLocationControlState(auth.userId, (current) => ({
+            ...current,
+            backgroundShareEnabled: false,
+          }));
+          toast.error(
+            "Background updates could not start on this device. Foreground sharing is still available.",
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled && shouldEnableBackground) {
+          updateOneLocationControlState(auth.userId, (current) => ({
+            ...current,
+            backgroundShareEnabled: false,
+          }));
+          toast.error(
+            "Background updates could not start. Foreground sharing is still available.",
+          );
+        }
+      });
     return () => {
-      void OneLocationService.stopBackgroundShare();
+      cancelled = true;
     };
   }, [
-    backgroundShareEnabled,
+    auth.userId,
     activeOwnerGrants,
     locationControl.autoShareEnabled,
+    locationControl.backgroundShareEnabled,
     locationControl.paused,
+    permission?.background,
+    permission?.precise,
     recipients,
+    state,
     vaultOwnerToken,
   ]);
 
@@ -3946,8 +4518,16 @@ export function OneLocationAgentPageContent({
       // shows the loading state, not every active share at once.
       setRevokingGrantId(grantId);
       try {
-        await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
-        toast.success("Location access revoked.");
+        const revoked = await revokeLocationGrantOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
+          vaultOwnerToken,
+          grantId,
+        });
+        if (revoked) {
+          toast.success("Location access revoked.");
+        } else {
+          toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+        }
         await refresh();
       } catch (error) {
         toast.error(
@@ -3957,7 +4537,7 @@ export function OneLocationAgentPageContent({
         setRevokingGrantId(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   const handleStopSos = useCallback(async () => {
@@ -3965,33 +4545,33 @@ export function OneLocationAgentPageContent({
     const incident = sosIncident;
     if (!incident?.grantIds.length) return;
     setBusy("sos");
+    let pendingGrantIds: string[] = [];
     try {
-      for (const grantId of incident.grantIds) {
-        await OneLocationService.revokeGrant({
-          vaultOwnerToken,
-          grantId,
-        }).catch((error) => {
-          // A grant may already be expired/revoked — keep tearing the rest down.
-          console.warn(
-            "[OneLocationAgent] SOS stop: grant revoke skipped:",
-            error,
-          );
-        });
-      }
+      const result = await revokeLocationGrantsOrQueue({
+        userId: requireOneLocationUserId(auth.userId),
+        vaultOwnerToken,
+        grantIds: incident.grantIds,
+      });
+      pendingGrantIds = result.pendingGrantIds;
     } finally {
       setBusy(null);
     }
-    // Clear the incident and show success AFTER revokes, outside any try-catch so a
-    // subsequent refresh() failure cannot trigger a misleading "Could not stop" toast.
-    clearSosIncident();
-    setSosIncident(null);
-    toast.success("SMS ended. Live location sharing stopped.");
+    if (pendingGrantIds.length) {
+      const pendingIncident = { ...incident, grantIds: pendingGrantIds };
+      saveSosIncident(pendingIncident);
+      setSosIncident(pendingIncident);
+      toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+    } else {
+      clearSosIncident();
+      setSosIncident(null);
+      toast.success("SMS ended. Live location sharing stopped.");
+    }
     try {
       await refresh();
     } catch {
       /* refresh failure is non-fatal; sharing has already been stopped */
     }
-  }, [refresh, sosIncident, vaultOwnerToken]);
+  }, [auth.userId, refresh, sosIncident, vaultOwnerToken]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4086,151 +4666,203 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.user, contactSignal]);
 
-  const handleRequestAccess = useCallback(async () => {
-    if (!vaultOwnerToken || !selectedRequestOwners.length) return;
-    if (!auth.user || !auth.userId) {
-      toast.error("Refresh your session before sending a location request.");
-      return;
-    }
-    const activeUser = auth.user;
-    const activeUserId = auth.userId;
-    const activeVaultOwnerToken = vaultOwnerToken;
-    setBusy("request");
-    let successCount = 0;
-    try {
-      await AccountIdentityService.syncCurrentUser(activeUser).catch(
-        (error) => {
-          console.warn(
-            "[OneLocation] Failed to sync account identity before request:",
-            error,
-          );
-        },
-      );
-      await (async () => {
-        try {
-          const key = await ensureLocationRecipientKey(activeUserId);
-          await OneLocationService.registerRecipientKey({
+  const handleRequestAccess = useCallback(
+    async (requestReason?: string | null) => {
+      if (!vaultOwnerToken || !selectedRequestOwners.length) return;
+      if (!auth.user || !auth.userId) {
+        toast.error("Refresh your session before sending a location request.");
+        return;
+      }
+      const activeUser = auth.user;
+      const activeUserId = auth.userId;
+      const activeVaultOwnerToken = vaultOwnerToken;
+      const normalizedReason = String(requestReason || "").trim();
+      const normalizedMessage = requestMessage.trim();
+      const requestContext = [normalizedReason, normalizedMessage]
+        .filter(Boolean)
+        .join(": ")
+        .slice(0, 500);
+      setBusy("request");
+      let successCount = 0;
+      try {
+        await AccountIdentityService.syncCurrentUser(activeUser).catch(
+          (error) => {
+            console.warn(
+              "[OneLocation] Failed to sync account identity before request:",
+              error,
+            );
+          },
+        );
+        await (async () => {
+          try {
+            const key = await ensureLocationRecipientKey(activeUserId);
+            await OneLocationService.registerRecipientKey({
+              vaultOwnerToken: activeVaultOwnerToken,
+              keyId: key.keyId,
+              publicKeyJwk: key.publicKeyJwk,
+              algorithm: key.algorithm,
+            });
+          } catch (error) {
+            console.warn(
+              "[OneLocation] Continuing request after key sync failed:",
+              error,
+            );
+          }
+        })();
+        for (const owner of selectedRequestOwners) {
+          await OneLocationService.requestAccess({
             vaultOwnerToken: activeVaultOwnerToken,
-            keyId: key.keyId,
-            publicKeyJwk: key.publicKeyJwk,
-            algorithm: key.algorithm,
+            ownerUserId: owner.userId,
+            message: requestContext || undefined,
           });
-        } catch (error) {
-          console.warn(
-            "[OneLocation] Continuing request after key sync failed:",
-            error,
+          successCount += 1;
+        }
+        trackEvent("one_location_request_sent", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, 0),
+          selected_count: selectedRequestOwners.length,
+          success_count: successCount,
+          failure_count: 0,
+          has_note: Boolean(requestContext),
+        });
+        resetRequestComposer();
+        playOneLocationNotificationSound();
+        toast.success(
+          selectedRequestOwners.length === 1
+            ? "Request sent. We'll notify you here when they respond."
+            : `Requests sent to ${peopleCountLabel(
+                selectedRequestOwners.length,
+              )}. We'll notify you here when they respond.`,
+        );
+        await refresh();
+      } catch (error) {
+        const failureCount = selectedRequestOwners.length - successCount || 1;
+        trackEvent("one_location_request_sent", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selectedRequestOwners.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          has_note: Boolean(requestContext),
+        });
+        toast.error(oneLocationErrorMessage(error, "Could not send request."));
+        if (isTransientOneApiError(error)) {
+          await refresh().catch(() => null);
+        }
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      auth.user,
+      auth.userId,
+      refresh,
+      requestMessage,
+      resetRequestComposer,
+      selectedRequestOwners,
+      vaultOwnerToken,
+    ],
+  );
+
+  const handleCreatePublicInvite = useCallback(
+    async (locationMode: LocationSharingMode = "approximate") => {
+      if (!vaultOwnerToken) return;
+      setBusy("publicInvite");
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) return;
+        if (readOneLocationControlState(auth.userId).paused) {
+          toast.error("Resume Location before creating a new location link.");
+          return;
+        }
+        if (
+          locationMode === "precise" &&
+          readiness.permission?.precise === false
+        ) {
+          toast.error(
+            "Turn on Precise Location in your device settings to create a precise location link.",
+          );
+          return;
+        }
+        const preparedPoint = prepareLocationPointForSharing(
+          readiness.point,
+          locationMode,
+        );
+        const response = await OneLocationService.createPublicInvite({
+          vaultOwnerToken,
+          durationHours: Number(durationHours),
+          locationSnapshot: preparedPoint,
+        });
+        if (readOneLocationControlState(auth.userId).paused) {
+          const revoked = await revokePublicInviteOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            inviteId: response.invite.id,
+          });
+          throw new Error(
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
           );
         }
-      })();
-      for (const owner of selectedRequestOwners) {
-        await OneLocationService.requestAccess({
-          vaultOwnerToken: activeVaultOwnerToken,
-          ownerUserId: owner.userId,
-          message: requestMessage.trim() || undefined,
+        const url = publicInviteUrlLabel(response.publicUrl);
+        setPublicInviteUrl(url);
+        const copiedToClipboard = url ? await copyToClipboard(url) : false;
+        trackEvent("one_location_public_link_created", {
+          route_id: "one_location",
+          result: "success",
+          duration_bucket: oneLocationDurationBucket(durationHours),
+          copied_to_clipboard: copiedToClipboard,
+          active_invite_count: activePublicInvites.length + 1,
         });
-        successCount += 1;
+        toast.success(
+          copiedToClipboard
+            ? "One-time link copied. Anyone it is forwarded to can view the snapshot until expiry."
+            : "One-time link created. Anyone it is forwarded to can view the snapshot until expiry.",
+        );
+        await refresh();
+      } catch (error) {
+        trackEvent("one_location_public_link_created", {
+          route_id: "one_location",
+          result: "error",
+          duration_bucket: oneLocationDurationBucket(durationHours),
+          copied_to_clipboard: false,
+          active_invite_count: activePublicInvites.length,
+        });
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not create one-time location link.",
+          ),
+        );
+      } finally {
+        setBusy(null);
       }
-      trackEvent("one_location_request_sent", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, 0),
-        selected_count: selectedRequestOwners.length,
-        success_count: successCount,
-        failure_count: 0,
-        has_note: Boolean(requestMessage.trim()),
-      });
-      resetRequestComposer();
-      playOneLocationNotificationSound();
-      toast.success(
-        selectedRequestOwners.length === 1
-          ? "Request sent. We'll notify you here when they respond."
-          : `Requests sent to ${peopleCountLabel(
-              selectedRequestOwners.length,
-            )}. We'll notify you here when they respond.`,
-      );
-      await refresh();
-    } catch (error) {
-      const failureCount = selectedRequestOwners.length - successCount || 1;
-      trackEvent("one_location_request_sent", {
-        route_id: "one_location",
-        result: oneLocationEventResult(successCount, failureCount),
-        selected_count: selectedRequestOwners.length,
-        success_count: successCount,
-        failure_count: failureCount,
-        has_note: Boolean(requestMessage.trim()),
-      });
-      toast.error(oneLocationErrorMessage(error, "Could not send request."));
-      if (isTransientOneApiError(error)) {
-        await refresh().catch(() => null);
-      }
-    } finally {
-      setBusy(null);
-    }
-  }, [
-    auth.user,
-    auth.userId,
-    refresh,
-    requestMessage,
-    resetRequestComposer,
-    selectedRequestOwners,
-    vaultOwnerToken,
-  ]);
-
-  const handleCreatePublicInvite = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy("publicInvite");
-    try {
-      const point = await OneLocationService.captureCurrentPosition();
-      const response = await OneLocationService.createPublicInvite({
-        vaultOwnerToken,
-        durationHours: Number(durationHours),
-        locationSnapshot: point,
-      });
-      const url = publicInviteUrlLabel(response.publicUrl);
-      setPublicInviteUrl(url);
-      const copiedToClipboard = url ? await copyToClipboard(url) : false;
-      trackEvent("one_location_public_link_created", {
-        route_id: "one_location",
-        result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: copiedToClipboard,
-        active_invite_count: activePublicInvites.length + 1,
-      });
-      toast.success(
-        copiedToClipboard
-          ? "Public location link created and copied."
-          : "Public location link created.",
-      );
-      await refresh();
-    } catch (error) {
-      trackEvent("one_location_public_link_created", {
-        route_id: "one_location",
-        result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: false,
-        active_invite_count: activePublicInvites.length,
-      });
-      toast.error(
-        oneLocationErrorMessage(
-          error,
-          "Could not create public location link.",
-        ),
-      );
-    } finally {
-      setBusy(null);
-    }
-  }, [activePublicInvites.length, durationHours, refresh, vaultOwnerToken]);
+    },
+    [
+      activePublicInvites.length,
+      auth.userId,
+      durationHours,
+      ensureForegroundLocationReady,
+      refresh,
+      vaultOwnerToken,
+    ],
+  );
 
   const handleCopyPublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
     try {
       const copiedToClipboard = await copyToClipboard(publicInviteUrl);
       if (copiedToClipboard) {
-        toast.success("Public location link copied.");
+        toast.success("One-time location link copied.");
       } else {
-        toast.error("Could not copy the public location link.");
+        toast.error("Could not copy the one-time location link.");
       }
     } catch {
-      toast.error("Could not copy the public location link.");
+      toast.error("Could not copy the one-time location link.");
     }
   }, [publicInviteUrl]);
 
@@ -4258,12 +4890,36 @@ export function OneLocationAgentPageContent({
     try {
       let url = publicInviteUrl;
       if (!url) {
-        const point = await OneLocationService.captureCurrentPosition();
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) return;
+        if (readOneLocationControlState(auth.userId).paused) {
+          toast.error("Resume Location before creating a new location link.");
+          return;
+        }
+        const point = prepareLocationPointForSharing(
+          readiness.point,
+          "approximate",
+        );
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
           durationHours: Number(durationHours),
           locationSnapshot: point,
         });
+        if (readOneLocationControlState(auth.userId).paused) {
+          const revoked = await revokePublicInviteOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            inviteId: response.invite.id,
+          });
+          throw new Error(
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
+          );
+        }
         url = publicInviteUrlLabel(response.publicUrl);
         setPublicInviteUrl(url);
         trackEvent("one_location_public_link_created", {
@@ -4300,7 +4956,9 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
+    auth.userId,
     durationHours,
+    ensureForegroundLocationReady,
     publicInviteUrl,
     refresh,
     vaultOwnerToken,
@@ -4410,12 +5068,17 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) return;
       setBusy("publicRevoke");
       try {
-        await OneLocationService.revokePublicInvite({
+        const revoked = await revokePublicInviteOrQueue({
+          userId: requireOneLocationUserId(auth.userId),
           vaultOwnerToken,
           inviteId: invite.id,
         });
         setPublicInviteUrl("");
-        toast.success("Public location link revoked.");
+        if (revoked) {
+          toast.success("Public location link revoked.");
+        } else {
+          toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+        }
         await refresh();
       } catch (error) {
         toast.error(
@@ -4428,16 +5091,24 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
+    async (
+      request: OneLocationAccessRequest,
+      locationMode: LocationSharingMode,
+      approvalDurationHours: number,
+    ) => {
       if (!vaultOwnerToken) return;
-      const requester = recipients.find(
+      const connectedRequester = recipients.find(
         (recipient) => recipient.userId === request.requesterUserId,
       );
-      if (!requester?.keyId || !requester.publicKeyJwk) {
+      const requesterKeyId =
+        request.requesterKeyId ?? connectedRequester?.keyId;
+      const requesterPublicKeyJwk =
+        request.requesterPublicKeyJwk ?? connectedRequester?.publicKeyJwk;
+      if (!requesterKeyId || !requesterPublicKeyJwk) {
         toast.error(
           "They need to open Location once before approval can finish.",
         );
@@ -4445,13 +5116,80 @@ export function OneLocationAgentPageContent({
       }
       setBusy("approve");
       try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) return;
+        if (
+          locationMode === "precise" &&
+          readiness.permission?.precise === false
+        ) {
+          toast.error(
+            "Turn on Precise Location in your device settings to approve a live location.",
+          );
+          return;
+        }
+        const preparedPoint = prepareLocationPointForSharing(
+          readiness.point,
+          locationMode,
+        );
+        const envelope = await encryptLocationForRecipient({
+          point: preparedPoint,
+          recipientPublicKeyJwk: requesterPublicKeyJwk,
+          recipientKeyId: requesterKeyId,
+        });
+        const confirmedAt = new Date().toISOString();
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
-          durationHours: Number(durationHours),
+          durationHours: approvalDurationHours,
+          recipientKeyId: requesterKeyId,
+          clientOperationId: `approval:${request.id}:${confirmedAt}`,
+          confirmedAt,
+          envelope,
+          locationMode,
+          approximateRadiusM: preparedPoint.approximateRadiusM ?? null,
         });
-        await publishEnvelopeWithRetry(response.grant, requester, "manual");
-        toast.success("Request approved and encrypted update published.");
+        if (
+          !approvedLocationCommitStrictlyMatches({
+            requestId: request.id,
+            request: response.request,
+            grant: response.grant,
+            envelope: response.envelope,
+            locationMode,
+            approximateRadiusM: preparedPoint.approximateRadiusM,
+          })
+        ) {
+          const revoked = await revokeLocationGrantOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            grantId: response.grant.id,
+          });
+          throw new Error(
+            revoked
+              ? "The server did not atomically preserve the location approval. Nothing was shared."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
+          );
+        }
+        const updates = enableAutomaticUpdatesForTimedShare();
+        if (!updates.allowed) {
+          const revoked = await revokeLocationGrantOrQueue({
+            userId: requireOneLocationUserId(auth.userId),
+            vaultOwnerToken,
+            grantId: response.grant.id,
+          });
+          throw new Error(
+            revoked
+              ? "Location was paused before automatic updates could start. Resume Location and approve again."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
+          );
+        }
+        toast.success(
+          locationMode === "approximate"
+            ? "Request approved with area updates."
+            : "Request approved with a live location.",
+        );
         await refresh();
       } catch (error) {
         toast.error(
@@ -4462,8 +5200,9 @@ export function OneLocationAgentPageContent({
       }
     },
     [
-      durationHours,
-      publishEnvelopeWithRetry,
+      ensureForegroundLocationReady,
+      enableAutomaticUpdatesForTimedShare,
+      auth.userId,
       recipients,
       refresh,
       vaultOwnerToken,
@@ -4719,6 +5458,7 @@ export function OneLocationAgentPageContent({
         (messageValue || "").trim().slice(0, 160) || undefined;
       setBusy("share");
       const succeededRecipientIds: string[] = [];
+      const succeededGrantIds: string[] = [];
       const failedRecipientIds: string[] = [];
       try {
         const readiness = await ensureForegroundLocationReady({
@@ -4729,6 +5469,19 @@ export function OneLocationAgentPageContent({
         // operation may encrypt; permission is rechecked without recapturing.
         if (!readiness.ready) {
           toast.error("Location permission is required to check in.");
+          return failedSelection;
+        }
+        if (
+          (point.locationMode ?? "precise") === "precise" &&
+          readiness.permission?.precise === false
+        ) {
+          toast.error(
+            "Turn on Precise Location before confirming this exact check-in.",
+          );
+          return failedSelection;
+        }
+        if (readOneLocationControlState(auth.userId).paused) {
+          toast.error("Resume Location before checking in.");
           return failedSelection;
         }
         const capturedAtMs = Date.parse(point.capturedAt);
@@ -4754,8 +5507,16 @@ export function OneLocationAgentPageContent({
             privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
           }
         }
-        const preparedShares = await Promise.all(
-          selected.map(async (recipient) => {
+        const preparedShares: Array<{
+          recipient: ShareReadyRecipient;
+          envelope: OneLocationEncryptedEnvelope;
+          cacheKey: string;
+        }> = [];
+        for (const recipient of selected) {
+          try {
+            if (readOneLocationControlState(auth.userId).paused) {
+              throw new Error("Location was paused before check-in completed.");
+            }
             const cacheKey = `${operationCachePrefix}${recipient.userId}:${
               recipient.keyId!
             }`;
@@ -4775,23 +5536,66 @@ export function OneLocationAgentPageContent({
             if (!cached) {
               privateCheckInEnvelopeCacheRef.current.set(cacheKey, envelope);
             }
-            return { recipient, envelope, cacheKey };
-          }),
-        );
+            preparedShares.push({ recipient, envelope, cacheKey });
+          } catch (error) {
+            failedRecipientIds.push(recipient.userId);
+            console.warn(
+              "[OneLocationAgent] Private check-in encryption failed for one recipient.",
+              error,
+            );
+          }
+        }
         for (const { recipient, envelope, cacheKey } of preparedShares) {
           try {
-            await OneLocationService.createGrantWithEnvelope({
+            if (readOneLocationControlState(auth.userId).paused) {
+              throw new Error("Location was paused before check-in completed.");
+            }
+            const response = await OneLocationService.createGrantWithEnvelope({
               vaultOwnerToken,
               recipientUserId: recipient.userId,
               recipientKeyId: recipient.keyId!,
               durationHours: durationHoursNum,
-              clientOperationId,
+              clientOperationId: boundedLocationOperationId(
+                "check-in",
+                clientOperationId,
+                recipient.userId,
+              ),
               confirmedAt,
               envelope,
               reason: "check_in",
               shareKind: "check_in",
+              locationMode: point.locationMode ?? "precise",
+              approximateRadiusM: point.approximateRadiusM ?? null,
             });
+            if (
+              !locationCommitStrictlyMatches({
+                grant: response.grant,
+                envelope: response.envelope,
+                locationMode: point.locationMode ?? "precise",
+                approximateRadiusM: point.approximateRadiusM ?? null,
+              })
+            ) {
+              const grantId = response?.grant?.id;
+              if (grantId) {
+                const revoked = await revokeLocationGrantOrQueue({
+                  userId: requireOneLocationUserId(auth.userId),
+                  vaultOwnerToken,
+                  grantId,
+                });
+                if (!revoked) {
+                  succeededRecipientIds.push(recipient.userId);
+                  succeededGrantIds.push(grantId);
+                  privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
+                  toast.error(LOCATION_REVOCATION_PENDING_MESSAGE);
+                  continue;
+                }
+              }
+              throw new Error(
+                "The server did not atomically preserve this private check-in.",
+              );
+            }
             succeededRecipientIds.push(recipient.userId);
+            succeededGrantIds.push(response.grant.id);
             privateCheckInEnvelopeCacheRef.current.delete(cacheKey);
           } catch (error) {
             failedRecipientIds.push(recipient.userId);
@@ -4803,6 +5607,45 @@ export function OneLocationAgentPageContent({
         }
         const successCount = succeededRecipientIds.length;
         const failureCount = failedRecipientIds.length;
+        if (successCount > 0) {
+          const updates = enableAutomaticUpdatesForTimedShare();
+          if (!updates.allowed) {
+            const rollback = await revokeLocationGrantsOrQueue({
+              userId: requireOneLocationUserId(auth.userId),
+              vaultOwnerToken,
+              grantIds: succeededGrantIds,
+            });
+            const pending = new Set(rollback.pendingGrantIds);
+            const unresolvedRecipients = succeededGrantIds.flatMap(
+              (grantId, index) =>
+                pending.has(grantId) ? [succeededRecipientIds[index]!] : [],
+            );
+            const stoppedRecipients = succeededGrantIds.flatMap(
+              (grantId, index) =>
+                pending.has(grantId) ? [] : [succeededRecipientIds[index]!],
+            );
+            failedRecipientIds.push(...stoppedRecipients);
+            succeededRecipientIds.splice(
+              0,
+              succeededRecipientIds.length,
+              ...unresolvedRecipients,
+            );
+            succeededGrantIds.splice(
+              0,
+              succeededGrantIds.length,
+              ...rollback.pendingGrantIds,
+            );
+            toast.error(
+              rollback.pendingGrantIds.length
+                ? LOCATION_REVOCATION_PENDING_MESSAGE
+                : "Location was paused before check-in updates could start.",
+            );
+            return {
+              succeededRecipientIds,
+              failedRecipientIds,
+            };
+          }
+        }
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
@@ -4869,6 +5712,7 @@ export function OneLocationAgentPageContent({
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
+      enableAutomaticUpdatesForTimedShare,
       refresh,
     ],
   );
@@ -4934,20 +5778,14 @@ export function OneLocationAgentPageContent({
         const grantIds = new Set<string>();
 
         for (const recipient of selected) {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
+          const grant = await createAtomicPreciseShare({
+            recipient,
+            point: drivePoint,
             durationHours: durationHoursNum,
             reason: "drive_to",
-            ...(shareKind ? { shareKind } : {}),
+            shareKind,
+            operationPrefix: "drive-to",
           });
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "manual",
-            drivePoint,
-          );
           grantIds.add(grant.id);
         }
 
@@ -4997,7 +5835,7 @@ export function OneLocationAgentPageContent({
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
-      publishEnvelopeWithRetry,
+      createAtomicPreciseShare,
       refresh,
       auth.userId,
     ],
@@ -5089,13 +5927,13 @@ export function OneLocationAgentPageContent({
         }
         const durationHoursNum = Number(durationHoursValue) || 1;
         for (const recipient of selected) {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
+          const grant = await createAtomicPreciseShare({
+            recipient,
+            point,
             durationHours: durationHoursNum,
             reason: pickupMessage,
             shareKind: "pick_me_up",
+            operationPrefix: "pick-me-up",
           });
           // Anchor the grant to the fixed-pickup session BEFORE publishing so a
           // mid-publish failure can't leave a created grant drifting to live GPS
@@ -5103,7 +5941,6 @@ export function OneLocationAgentPageContent({
           if (pickupPoint) {
             pickupSessionRef.current.set(grant.id, point);
           }
-          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
         trackEvent("one_location_share_confirmed", {
@@ -5145,12 +5982,12 @@ export function OneLocationAgentPageContent({
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
-      publishEnvelopeWithRetry,
+      createAtomicPreciseShare,
       refresh,
     ],
   );
 
-  // Safe Arrival quick action (OUTBOUND peace-of-mind): share your live journey
+  // Safe Arrival quick action (OUTBOUND peace-of-mind): share your live location
   // + live ETA to a destination until you arrive, so trusted people can watch
   // you get there safely. Mirrors handleDriveTo exactly (destination + ETA ride
   // INSIDE the encrypted envelope, and the drive session drives live ETA
@@ -5221,19 +6058,14 @@ export function OneLocationAgentPageContent({
         const grantIds = new Set<string>();
 
         for (const recipient of selected) {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
+          const grant = await createAtomicPreciseShare({
+            recipient,
+            point: drivePoint,
             durationHours: durationHoursNum,
             reason: arrivalMessage ?? "safe_arrival",
+            shareKind: "safe_arrival",
+            operationPrefix: "safe-arrival",
           });
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "manual",
-            drivePoint,
-          );
           grantIds.add(grant.id);
         }
 
@@ -5283,7 +6115,7 @@ export function OneLocationAgentPageContent({
       permission,
       sosActionRecipients,
       ensureForegroundLocationReady,
-      publishEnvelopeWithRetry,
+      createAtomicPreciseShare,
       refresh,
       auth.userId,
     ],
@@ -5373,6 +6205,7 @@ export function OneLocationAgentPageContent({
       const result = await ensureForegroundLocationReady({
         capturePoint: true,
         autoOpenSettings: true,
+        resumePaused: true,
       });
       if (!result.ready || !result.point) {
         const message =
@@ -5403,6 +6236,11 @@ export function OneLocationAgentPageContent({
 
     setBusy("selfLocation");
     automaticPrivatePublishingAllowedRef.current = false;
+    updateOneLocationControlState(auth.userId, (current) => ({
+      ...current,
+      backgroundShareEnabled: false,
+    }));
+    await OneLocationService.stopBackgroundShare().catch(() => undefined);
     try {
       if (nearbyCheckInAvailable && vaultOwnerToken) {
         const nearby = await OneLocationService.getNearbyPresence({
@@ -5420,7 +6258,6 @@ export function OneLocationAgentPageContent({
         nearbyCheckedInAt: null,
       }));
       clearMyLocationPreview();
-      setBackgroundShareEnabled(false);
       setMyLocationError(null);
       toast.success("Location updates are paused on this device.");
     } catch {
@@ -5451,15 +6288,83 @@ export function OneLocationAgentPageContent({
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
         autoShareEnabled: enabled,
+        backgroundShareEnabled:
+          enabled && !locationControl.paused
+            ? current.backgroundShareEnabled
+            : false,
       }));
-      if (!enabled) setBackgroundShareEnabled(false);
+      if (!enabled) {
+        void OneLocationService.stopBackgroundShare();
+      }
       toast.success(
         enabled
-          ? "Approved shares will receive live updates."
+          ? "Active Area updates and Live locations will update automatically."
           : "Approved shares will update only when you explicitly share.",
       );
     },
     [auth.userId, locationControl.paused],
+  );
+
+  const handleBackgroundShareChange = useCallback(
+    async (enabled: boolean) => {
+      if (!auth.userId) return;
+      if (!enabled) {
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          backgroundShareEnabled: false,
+        }));
+        await OneLocationService.stopBackgroundShare().catch(() => undefined);
+        toast.success("Background location updates are off.");
+        return;
+      }
+      if (
+        locationControl.paused ||
+        !locationControl.autoShareEnabled ||
+        !activeOwnerGrants.length
+      ) {
+        toast.error(
+          "Start an Area update or Live location and resume automatic updates first.",
+        );
+        return;
+      }
+      setBusy("backgroundShare");
+      try {
+        const nextPermission =
+          await OneLocationService.requestAlwaysAuthorization();
+        setPermission(nextPermission);
+        if (nextPermission.background !== "available") {
+          updateOneLocationControlState(auth.userId, (current) => ({
+            ...current,
+            backgroundShareEnabled: false,
+          }));
+          toast.error(
+            'Choose "Always" location access in iPhone Settings to keep active shares updating in the background.',
+          );
+          return;
+        }
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          backgroundShareEnabled: true,
+        }));
+        toast.success(
+          "Active location shares can now update in the background.",
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not enable background location updates.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      activeOwnerGrants.length,
+      auth.userId,
+      locationControl.autoShareEnabled,
+      locationControl.paused,
+    ],
   );
 
   const markLocationOnboardingSeen = useCallback(() => {
@@ -6163,6 +7068,12 @@ export function OneLocationAgentPageContent({
     busy,
     revokingGrantId,
     shareCompletedTick,
+    pendingRevocationCount,
+    onRetryPendingRevocations: () => {
+      if (!auth.userId) return;
+      requestPendingLocationRevocationRetry(auth.userId);
+      toast.message("Retrying pending location stops.");
+    },
     readiness: {
       tone: locationReadiness.tone,
       title: locationReadiness.title,
@@ -6172,8 +7083,15 @@ export function OneLocationAgentPageContent({
     permissionIsPrompt: permission?.state === "prompt",
     locationEnabled,
     autoShareEnabled: locationControl.autoShareEnabled,
+    backgroundShareSupported:
+      isIOS() &&
+      activeOwnerGrants.length > 0 &&
+      (permission?.background === "foreground-only" ||
+        permission?.background === "available"),
+    backgroundShareEnabled: locationControl.backgroundShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
+    preciseLocationAvailable: permission?.precise !== false,
     myLocationPoint,
     myLocationError,
     recipients: rankedRecipients,
@@ -6213,18 +7131,22 @@ export function OneLocationAgentPageContent({
     onHideMyLocation: () => void handleHideMyLiveLocation(),
     onResumeMyLocation: handleResumeMyLocation,
     onAutoShareChange: handleAutoShareChange,
+    onBackgroundShareChange: (enabled) =>
+      void handleBackgroundShareChange(enabled),
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
-    onConfirmShare: () => void handleShare(),
-    onSendRequest: () => void handleRequestAccess(),
-    onApprove: (request) => void handleApprove(request),
+    onConfirmShare: (locationMode) => void handleShare(locationMode),
+    onSendRequest: (reason) => void handleRequestAccess(reason),
+    onApprove: (request, locationMode, approvalDurationHours) =>
+      void handleApprove(request, locationMode, approvalDurationHours),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
-    onCreatePublicInvite: () => void handleCreatePublicInvite(),
+    onCreatePublicInvite: (locationMode) =>
+      void handleCreatePublicInvite(locationMode),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
     onRevokePublicInvite: (invite) => void handleRevokePublicInvite(invite),
@@ -6241,7 +7163,7 @@ export function OneLocationAgentPageContent({
     grantOwnerLabel: receivedGrantOwnerLabel,
     formatDateTime,
     expiresLabel: (value) =>
-      value ? `Live until ${formatDateTime(value)}` : "Live now",
+      value ? `Expires ${formatDateTime(value)}` : "Active now",
     expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
     renderMapPreview: (point, showNavigation) => (
       <LocalMapPreview point={point} showNavigation={showNavigation} />
@@ -7007,17 +7929,6 @@ export function OneLocationAgentPageContent({
                   )}
                 >
                   {sectionLabel("People who can see me")}
-                  {activeOwnerGrants.length > 0 ? (
-                    <div className="px-1 pb-1">
-                      <BackgroundShareToggle
-                        enabled={backgroundShareEnabled}
-                        onEnabledChange={setBackgroundShareEnabled}
-                        requestAlwaysAuthorization={
-                          OneLocationService.requestAlwaysAuthorization
-                        }
-                      />
-                    </div>
-                  ) : null}
                   <div className={oneScrollablePanelClassName}>
                     {(state?.ownerGrants ?? []).length ? (
                       state?.ownerGrants.map((grant, index) => (
@@ -7129,10 +8040,12 @@ export function OneLocationAgentPageContent({
                             <ActionButton
                               busy={busy}
                               busyKey="approve"
-                              onClick={() => void handleApprove(request)}
+                              onClick={() =>
+                                void handleApprove(request, "approximate", 4)
+                              }
                               className="h-9 flex-1 rounded-[12px] bg-[color:var(--app-accent)] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_2px_8px_var(--app-accent-ring)] hover:bg-[color:var(--app-accent-hover)]"
                             >
-                              Approve
+                              Approve area updates
                             </ActionButton>
                           </div>
                         </div>

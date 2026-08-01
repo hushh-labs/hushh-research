@@ -48,10 +48,7 @@ export function DurationSelector({
   return (
     <div className="space-y-2">
       {label ? (
-        <p
-          id={labelId}
-          className="text-sm font-semibold text-foreground"
-        >
+        <p id={labelId} className="text-sm font-semibold text-foreground">
           {label}
         </p>
       ) : null}
@@ -105,31 +102,57 @@ export function DurationSelector({
 
 export type LocationTypeValue = "approximate" | "precise";
 
+export type LocationTypeSelectorVariant = "updates" | "snapshot";
+
 export function LocationTypeSelector({
   value,
   onChange,
   label = "Location type",
+  variant = "updates",
+  preciseDisabled = false,
+  preciseDisabledReason = "Turn on Precise Location in device settings to use this option.",
 }: {
   value: LocationTypeValue;
   onChange: (next: LocationTypeValue) => void;
   label?: string;
+  variant?: LocationTypeSelectorVariant;
+  preciseDisabled?: boolean;
+  preciseDisabledReason?: string;
 }) {
   const options: {
     value: LocationTypeValue;
     title: string;
     description: string;
-  }[] = [
-    {
-      value: "approximate",
-      title: "Approximate area",
-      description: "Better for privacy and battery life",
-    },
-    {
-      value: "precise",
-      title: "Precise live location",
-      description: "Updates while you move for your loved ones",
-    },
-  ];
+  }[] =
+    variant === "snapshot"
+      ? [
+          {
+            value: "approximate",
+            title: "Approximate area snapshot · Recommended",
+            description:
+              "Privacy-first meeting area: a broad 1 km+ area captured once, with no exact pin or movement trail.",
+          },
+          {
+            value: "precise",
+            title: "Precise point snapshot",
+            description:
+              "A fixed exact meeting pin with directions. It never follows your movement.",
+          },
+        ]
+      : [
+          {
+            value: "approximate",
+            title: "Area updates · Recommended",
+            description:
+              "Privacy-first: a broad 1 km+ area about every 5 min—enough to know you are nearby or moving without your exact pin or route.",
+          },
+          {
+            value: "precise",
+            title: "Live location",
+            description:
+              "Coordination-first: an exact moving pin with directions while active. Best for pickup, travel, or safety.",
+          },
+        ];
   return (
     <div className="space-y-2">
       {label ? (
@@ -142,17 +165,22 @@ export function LocationTypeSelector({
       >
         {options.map((option) => {
           const active = option.value === value;
+          const disabled = option.value === "precise" && preciseDisabled;
           return (
             <button
               key={option.value}
               type="button"
               role="radio"
               aria-checked={active}
+              aria-disabled={disabled}
+              disabled={disabled}
               onClick={() => onChange(option.value)}
               className={cn(
                 SUBCARD_SURFACE,
                 "flex items-center justify-between p-3.5 text-left transition-colors",
-                active && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+                active &&
+                  "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+                disabled && "cursor-not-allowed opacity-55",
               )}
             >
               <span>
@@ -162,6 +190,11 @@ export function LocationTypeSelector({
                 <span className={cn(MUTED_TEXT, "block")}>
                   {option.description}
                 </span>
+                {disabled ? (
+                  <span className="mt-1 block text-xs font-medium text-amber-700 dark:text-amber-400">
+                    {preciseDisabledReason}
+                  </span>
+                ) : null}
               </span>
               <span
                 className={cn(
@@ -184,10 +217,7 @@ export function LocationTypeSelector({
 }
 
 export type ReasonValue =
-  | "Safety check-in"
-  | "Meeting nearby"
-  | "Pick-up"
-  | "Other";
+  "Safety check-in" | "Meeting nearby" | "Pick-up" | "Other";
 
 export const REASON_CHIPS: ReasonValue[] = [
   "Safety check-in",

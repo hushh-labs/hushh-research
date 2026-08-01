@@ -8,10 +8,13 @@ import { HushhLocation, type BackgroundShareSession } from "@/lib/capacitor";
 export async function syncBackgroundShare(params: {
   enabled: boolean;
   session: BackgroundShareSession | null;
-}): Promise<void> {
+}): Promise<{ started: boolean; reason?: string }> {
   if (!params.enabled || !params.session || params.session.grants.length === 0) {
     await HushhLocation.stopBackgroundShare();
-    return;
+    return {
+      started: false,
+      reason: !params.enabled ? "disabled" : "no-active-grants",
+    };
   }
-  await HushhLocation.startBackgroundShare(params.session);
+  return HushhLocation.startBackgroundShare(params.session);
 }

@@ -112,7 +112,7 @@ Private data is always consent-gated and scoped.
 2. `pkm_blobs` stores encrypted user-owned private content only.
 3. `pkm_index` stores sanitized metadata only.
 4. RIA verification/compliance and relationship workflow do not belong in the PKM.
-5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
+5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. Each grant stores only its precision authority (`precise`, or `approximate` plus radius). Approximate coordinates are quantized before encryption and validated against that authority after decryption. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
 6. Nearby presence is an explicit, short-lived workflow. A fresh point is used
    to resolve suggestions, and a new point is captured at final confirmation.
    The confirmed check-in point is persisted only as an authenticated encryption
@@ -135,6 +135,11 @@ Private data is always consent-gated and scoped.
 ### Device-to-Device Capability Tokens
 
 Cross-device sharing rides the consent protocol as a standard. A live-location grant mints a signed HCT consent token scoped `cap.location.live.view`, bound to a `device:<recipient_user_id>` agent identity, expiring with the grant. The recipient device exercises this token as its capability; the backend validates signature, expiry, and scope before accepting any ciphertext envelope. This makes the grant's authority a verifiable cryptographic capability rather than a descriptive column.
+
+Precision is an attenuation inside that capability, not another scope. The
+grant's immutable mode/radius constrain each owner publish and each recipient
+decrypt. A mode mismatch, off-grid approximate point, insufficient radius, or
+unknown native mode fails closed.
 
 ### First-Party Hermes Trusted Devices
 

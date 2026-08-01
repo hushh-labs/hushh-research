@@ -236,6 +236,16 @@ ciphertext, movement trails, raw owner identity, or reverse-geocoded enrichment.
 The maintained architecture reference is
 [One Location Agent](./one-location-agent.md).
 
+Grant creation accepts `locationMode` (`precise` by default for compatibility,
+or `approximate`) plus `approximateRadiusM` for approximate grants. The mode and
+radius are immutable authority metadata returned with the grant and included in
+the idempotency fingerprint. Approximate coordinates are quantized on the owner
+device before encryption; the recipient validates decrypted mode, radius, and
+grid alignment against the grant. Public snapshots use
+`one_location_public_point.v2`; the backend canonicalizes approximate snapshots
+again before storage. These fields attenuate the existing
+`cap.location.live.view` capability and do not mint a broader scope.
+
 Save My Soul grants preserve the ordinary `location_share_created` notification
 contract and add emergency presentation metadata when `share_kind=sos`:
 `notification_profile=one_location_sms_emergency` and
@@ -265,7 +275,7 @@ not the product owner for live location.
 | GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose independently confirmed points are at most 500 m apart; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
 | DELETE | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Idempotently check the caller out, clear encrypted anchor/index material immediately, and remove them from discovery; available even when discovery is disabled |
 | POST | `/api/one/location/nearby-presence/connection-request` | VAULT_OWNER Bearer | Non-production simulation only: resolve a rotating alias supplied in the JSON body, revalidate both active presence versions and exact radius, then create only the canonical pending Connect request if the target still opts in |
-| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request/snapshot link; precise snapshots preserve the captured point, approximate snapshots are server-canonicalized to a 1 km+ area, the raw token is returned once, and only its hash is stored |
 | GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
@@ -273,13 +283,14 @@ not the product owner for live location.
 | GET | `/api/one/location/circle-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and optional owner message for an Invite to One link |
 | POST | `/api/one/location/circle-invites/{public_token}/claim` | VAULT_OWNER Bearer | Claim an Invite to One link after sign-in, phone verification, and vault unlock; creates a one-way trusted edge in `trusted_connections` (claimer→inviter) so SOS and check-in have recipients |
 | DELETE | `/api/one/location/circle-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active Invite to One link |
-| POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
-| POST | `/api/one/location/grants/with-envelope` | VAULT_OWNER Bearer | Idempotently create/replace one owner-approved grant and persist its first recipient-encrypted envelope in one locked database transaction; serializes against recipient-key rotation, requires the reviewed-point confirmation timestamp, stores only the fixed `check_in` reason code for Check-In shares, and emits the metadata-only share notification only after durable success |
-| POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
+| POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key with an explicit precise or approximate location mode |
+| POST | `/api/one/location/grants/with-envelope` | VAULT_OWNER Bearer | Idempotently create/replace one owner-approved grant, bind its precise/approximate mode and radius into the operation fingerprint, and persist its first recipient-encrypted envelope in one locked database transaction; serializes against recipient-key rotation, requires the reviewed-point confirmation timestamp, stores only the fixed `check_in` reason code for Check-In shares, and emits the metadata-only share notification only after durable success |
+| POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; exact algorithm/JWK/IV/size and grant precision are validated, stale captures are rejected, and approximate grants are server-throttled to about five minutes |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
 | DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
 | POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval |
-| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant |
+| POST | `/api/one/location/requests/{request_id}/approve-with-envelope` | VAULT_OWNER Bearer | Canonical fail-closed atomic approval requiring explicit mode, radius, duration, request-scoped recipient key, operation id, confirmation time, and encrypted envelope; the versioned path prevents a new client from mutating an older duration-only backend during rolling deploys. Request resolution, fresh grant, first envelope, and audit events commit together, and requester key material is exposed only in authenticated owner-visible pending request state |
+| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Compatibility alias for the same strict atomic body. Duration-only callers fail validation and create no grant; new clients use `approve-with-envelope` |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |

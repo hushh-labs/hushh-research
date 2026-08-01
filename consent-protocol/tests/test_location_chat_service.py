@@ -253,12 +253,10 @@ def _scripted_model_call_with_failures(responses: list, captured: list):
     return _call
 
 
-async def test_mutation_survives_followup_model_failure():
-    # Regression (ll1/ll2): the grant is created, then the follow-up summarization
-    # model call fails (timeout / transient error). The turn must NOT report
-    # "temporarily unavailable" — the mutation already committed, so it must report
-    # success, keep stateChanged=True, and still surface the clientAction so the
-    # browser publishes the encrypted envelope.
+async def test_private_share_proposal_survives_followup_model_failure():
+    # A coordinate-free proposal is ready, then follow-up summarization fails.
+    # Preserve the review action so the browser can ask for confirmation and
+    # atomically create the grant with its first encrypted point.
     store = _FakeStore()
     calls: list[dict] = []
     tools = [
@@ -266,10 +264,12 @@ async def test_mutation_survives_followup_model_failure():
             "create_location_share",
             calls,
             result={
-                "id": "grant-1",
+                "proposed": "create_location_share",
                 "recipientUserId": "u-neel-1",
                 "recipientKeyId": "k2",
                 "recipientDisplayName": "Neelesh Meena",
+                "durationHours": 2.5,
+                "locationMode": "approximate",
             },
         )
     ]
@@ -284,6 +284,7 @@ async def test_mutation_survives_followup_model_failure():
                         "recipient_user_id": "u-neel-1",
                         "recipient_key_id": "k2",
                         "duration_hours": 2.5,
+                        "location_mode": "approximate",
                     },
                 ),
                 TimeoutError("gemini summarization timed out"),
@@ -302,19 +303,19 @@ async def test_mutation_survives_followup_model_failure():
         consent_token="t",  # noqa: S106
     )
 
-    # the grant WAS created
+    # The proposal tool ran, but no grant exists before browser confirmation.
     assert len(calls) == 1
     assert calls[0]["args"]["duration_hours"] == 2.5
-    # ...so the turn must not claim it failed
+    assert calls[0]["args"]["location_mode"] == "approximate"
+    # The follow-up timeout must not discard the already-built review action.
     assert "unavailable" not in out["response"].lower()
     assert out["isComplete"] is True
     assert store.added[-1]["status"] == "complete"
-    # and the browser still gets the publish directive, which drives the encrypted
-    # publish + the follow-up action_result that reports "Done" and refreshes the
-    # list — exactly like a normal successful share (hence stateChanged is False
-    # here, deferred to the round-trip, not the false-failure it used to be).
+    # The browser owns capture, encryption, atomic creation, and action_result.
     assert out["clientAction"]["type"] == "publish_share"
-    assert out["clientAction"]["shares"][0]["grantId"] == "grant-1"
+    assert "grantId" not in out["clientAction"]["shares"][0]
+    assert out["clientAction"]["shares"][0]["recipientUserId"] == "u-neel-1"
+    assert out["clientAction"]["shares"][0]["locationMode"] == "approximate"
     assert out["stateChanged"] is False
 
 

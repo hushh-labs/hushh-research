@@ -15,7 +15,15 @@ from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnR
 DELEGATED_MODEL = "one+location"
 
 # Keys the location action_result contract accepts (see ActionResultModel).
-_ACTION_RESULT_KEYS = ("id", "type", "status", "publicUrl", "detail")
+_ACTION_RESULT_KEYS = (
+    "id",
+    "type",
+    "status",
+    "publicUrl",
+    "detail",
+    "durationHours",
+    "locationMode",
+)
 # Keys the location selection_result contract accepts (see SelectionResultModel).
 # NOTE: "kind" is intentionally absent here — the A2A discriminator ("selection")
 # must never be forwarded as the location prompt kind ("select"|"confirm").

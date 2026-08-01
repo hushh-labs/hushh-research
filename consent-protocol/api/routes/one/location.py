@@ -11,6 +11,7 @@ import hmac
 import os
 from datetime import datetime
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
 _GrantId = Annotated[str, Path(min_length=1, max_length=128)]
+_RequestId = Annotated[UUID, Path()]
 _RecipientUserId = Annotated[str, Path(min_length=1, max_length=160)]
 
 
@@ -69,6 +71,13 @@ class CreateGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
+    location_mode: str = Field(default="precise", alias="locationMode", max_length=20)
+    approximate_radius_m: int | None = Field(
+        default=None,
+        alias="approximateRadiusM",
+        ge=1_000,
+        le=20_000,
+    )
 
 
 class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
@@ -110,7 +119,29 @@ class CreateAccessRequest(_CamelModel):
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    recipient_key_id: str = Field(
+        alias="recipientKeyId",
+        min_length=1,
+        max_length=160,
+    )
+    client_operation_id: str = Field(
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
+    confirmed_at: datetime = Field(alias="confirmedAt")
+    envelope: dict[str, Any]
+    location_mode: str = Field(alias="locationMode", max_length=20)
+    approximate_radius_m: int | None = Field(
+        default=None,
+        alias="approximateRadiusM",
+        ge=1_000,
+        le=20_000,
+    )
 
 
 class ReferralRequest(_CamelModel):
@@ -763,6 +794,8 @@ def create_location_grant(
                 duration_hours=payload.duration_hours,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
+                location_mode=payload.location_mode,
+                approximate_radius_m=payload.approximate_radius_m,
                 enforce_connection=True,
             )
         }
@@ -788,6 +821,8 @@ def create_location_grant_with_envelope(
             envelope=payload.envelope,
             reason=payload.reason,
             share_kind=payload.share_kind,
+            location_mode=payload.location_mode,
+            approximate_radius_m=payload.approximate_radius_m,
             enforce_connection=True,
         )
     except Exception as exc:
@@ -860,16 +895,23 @@ def request_location_access(
 
 
 @router.post("/location/requests/{request_id}/approve")
+@router.post("/location/requests/{request_id}/approve-with-envelope")
 def approve_location_access_request(
-    request_id: str,
+    request_id: _RequestId,
     payload: ResolveAccessRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
-            request_id=request_id,
+            request_id=str(request_id),
             duration_hours=payload.duration_hours,
+            recipient_key_id=payload.recipient_key_id,
+            client_operation_id=payload.client_operation_id,
+            confirmed_at=payload.confirmed_at,
+            envelope=payload.envelope,
+            location_mode=payload.location_mode,
+            approximate_radius_m=payload.approximate_radius_m,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -877,14 +919,14 @@ def approve_location_access_request(
 
 @router.post("/location/requests/{request_id}/deny")
 def deny_location_access_request(
-    request_id: str,
+    request_id: _RequestId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return {
             "request": _service().deny_request(
                 owner_user_id=_user_id(token_data),
-                request_id=request_id,
+                request_id=str(request_id),
             )
         }
     except Exception as exc:

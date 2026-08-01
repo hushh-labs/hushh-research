@@ -70,6 +70,10 @@ _QUERY_TOOL_NAMES = {
     "propose_location_view",
     "propose_sos_panic",
     "propose_check_in",
+    "create_location_share",
+    "approve_location_request",
+    "request_device_location_permission",
+    "request_location_sharing_job_choice",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -83,6 +87,7 @@ _DIRECTIVE_GRANT_TOOLS = {"create_location_share", "approve_location_request"}
 
 # Prompt-builder tools: their result yields a clientPrompt, and they mutate nothing.
 _PROMPT_TOOL_NAMES = {
+    "request_location_sharing_job_choice",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -92,10 +97,10 @@ _PROMPT_TOOL_NAMES = {
 }
 
 _ACTION_RESULT_TEMPLATES = {
-    ("publish_share", "completed"): "Done — your live location is now shared. ✓",
+    ("publish_share", "completed"): "Done — your reviewed location sharing is active. ✓",
     ("publish_share", "cancelled"): "No problem — I didn't share your location.",
     ("view_envelope", "completed"): "Here's the latest location I could open.",
-    ("create_public_link", "completed"): "Your public location link is ready.",
+    ("create_public_link", "completed"): "Your one-time location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
     ("sos_panic", "completed"): "SMS sent — your selected contacts are being notified.",
     ("sos_panic", "cancelled"): "Okay — I didn't send SMS.",
@@ -136,8 +141,8 @@ def _function_declarations(types: Any) -> list:
         types.FunctionDeclaration(
             name="list_location_recipients",
             description=(
-                "List the people who can currently see the user's live location and "
-                "the verified people eligible to receive it. Read-only."
+                "List the people who can currently see the user's private location "
+                "updates and the verified people eligible to receive them. Read-only."
             ),
             parameters=schema(
                 type=kind.OBJECT,
@@ -150,7 +155,7 @@ def _function_declarations(types: Any) -> list:
         types.FunctionDeclaration(
             name="list_active_location_shares",
             description=(
-                "List the user's active outgoing live-location shares with their grant "
+                "List the user's active outgoing private location shares with their grant "
                 "ids and recipient names. Call this FIRST to get a real grant_id before "
                 "revoking or referring — never guess an id. Read-only."
             ),
@@ -159,7 +164,7 @@ def _function_declarations(types: Any) -> list:
         types.FunctionDeclaration(
             name="revoke_location_share",
             description=(
-                "Stop sharing the user's live location for one active share. "
+                "Stop one active private location share. "
                 "grant_id MUST come from list_active_location_shares — never invent it."
             ),
             parameters=schema(
@@ -173,7 +178,7 @@ def _function_declarations(types: Any) -> list:
         types.FunctionDeclaration(
             name="request_location_access",
             description=(
-                "Ask another user to share their live location with the current user. "
+                "Ask another user to share private location updates with the current user. "
                 "This only sends a request; it never grants access."
             ),
             parameters=schema(
@@ -222,10 +227,10 @@ def _function_declarations_v2(types: Any) -> list:
             types.FunctionDeclaration(
                 name="create_location_share",
                 description=(
-                    "Create a recipient-bound live-location grant (no coordinates). "
+                    "Propose private Area updates or a Live location (no coordinates). "
                     "recipient_user_id and recipient_key_id MUST come from "
-                    "list_location_recipients. After this, the browser captures and "
-                    "encrypts the location."
+                    "list_location_recipients. The browser captures, transforms, "
+                    "encrypts, and creates the grant only after owner review."
                 ),
                 parameters=schema(
                     type=kind.OBJECT,
@@ -234,23 +239,42 @@ def _function_declarations_v2(types: Any) -> list:
                         "recipient_key_id": schema(type=kind.STRING),
                         "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
                         "reason": schema(type=kind.STRING, description="Optional note"),
+                        "location_mode": schema(
+                            type=kind.STRING,
+                            enum=["approximate", "precise"],
+                            description=(
+                                "approximate = 1 km+ Area updates; precise = exact Live location"
+                            ),
+                        ),
                     },
-                    required=["recipient_user_id", "recipient_key_id", "duration_hours"],
+                    required=[
+                        "recipient_user_id",
+                        "recipient_key_id",
+                        "duration_hours",
+                        "location_mode",
+                    ],
                 ),
             ),
             types.FunctionDeclaration(
                 name="approve_location_request",
                 description=(
-                    "Approve a pending incoming request and create a recipient-scoped "
-                    "grant. request_id MUST come from looking up pending requests."
+                    "Propose an explicit Area updates or Live location approval. "
+                    "The device creates nothing until the owner reviews and confirms it."
                 ),
                 parameters=schema(
                     type=kind.OBJECT,
                     properties={
                         "request_id": schema(type=kind.STRING),
                         "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "location_mode": schema(
+                            type=kind.STRING,
+                            enum=["approximate", "precise"],
+                            description=(
+                                "approximate = 1 km+ Area updates; precise = exact Live location"
+                            ),
+                        ),
                     },
-                    required=["request_id", "duration_hours"],
+                    required=["request_id", "duration_hours", "location_mode"],
                 ),
             ),
             types.FunctionDeclaration(
@@ -272,15 +296,23 @@ def _function_declarations_v2(types: Any) -> list:
             types.FunctionDeclaration(
                 name="propose_public_link",
                 description=(
-                    "Propose an owner-confirmed public link valid for duration_hours. "
-                    "The browser creates it after explicit confirmation."
+                    "Propose a public bearer link to a one-time location snapshot. "
+                    "Anyone with the link can view it until expiry or revocation. The "
+                    "browser captures it once after explicit confirmation; it never updates."
                 ),
                 parameters=schema(
                     type=kind.OBJECT,
                     properties={
-                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24")
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "location_mode": schema(
+                            type=kind.STRING,
+                            enum=["approximate", "precise"],
+                            description=(
+                                "approximate = broad area snapshot; precise = exact point snapshot"
+                            ),
+                        ),
                     },
-                    required=["duration_hours"],
+                    required=["duration_hours", "location_mode"],
                 ),
             ),
             types.FunctionDeclaration(
@@ -316,6 +348,23 @@ def _function_declarations_v2(types: Any) -> list:
                     type=kind.OBJECT,
                     properties={"invite_id": schema(type=kind.STRING)},
                     required=["invite_id"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="request_location_sharing_job_choice",
+                description=(
+                    "Ask the user to choose Send location once, Area updates, or "
+                    "Live location when the intended general sharing job is unclear."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "context": schema(
+                            type=kind.STRING,
+                            enum=["share", "approval"],
+                        )
+                    },
+                    required=[],
                 ),
             ),
             types.FunctionDeclaration(
@@ -707,20 +756,33 @@ class LocationChatService:
         if isinstance(result, dict) and result.get("error"):
             return None
         if name in _DIRECTIVE_GRANT_TOOLS:
-            grant = result.get("grant") if "grant" in result else result
-            if not isinstance(grant, dict) or not grant.get("id"):
+            expected_proposal = (
+                "create_location_share"
+                if name == "create_location_share"
+                else "approve_location_request"
+            )
+            if result.get("proposed") != expected_proposal:
                 return None
             return {
                 "type": "publish_share",
                 "share": {
-                    "grantId": str(grant.get("id")),
-                    "recipientUserId": str(grant.get("recipientUserId") or ""),
-                    "recipientKeyId": str(grant.get("recipientKeyId") or ""),
-                    "label": grant.get("recipientDisplayName") or "your recipient",
+                    "recipientUserId": str(
+                        result.get("recipientUserId") or result.get("requesterUserId") or ""
+                    ),
+                    "recipientKeyId": str(result.get("recipientKeyId") or ""),
+                    "approvalRequestId": str(result.get("requestId") or "") or None,
+                    "durationHours": result.get("durationHours"),
+                    "reason": result.get("reason"),
+                    "locationMode": result.get("locationMode") or "approximate",
+                    "label": result.get("recipientDisplayName") or "your recipient",
                 },
             }
         if name == "propose_public_link" and result.get("proposed") == "create_public_link":
-            return {"type": "create_public_link", "durationHours": result.get("durationHours")}
+            return {
+                "type": "create_public_link",
+                "durationHours": result.get("durationHours"),
+                "locationMode": result.get("locationMode") or "approximate",
+            }
         if name == "propose_location_view" and result.get("proposed") == "view_envelope":
             return {"type": "view_envelope", "grantId": result.get("grantId")}
         if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
@@ -765,12 +827,21 @@ class LocationChatService:
             d["share"] for d in directives if d.get("type") == "publish_share" and d.get("share")
         ]
         if shares:
-            labels = ", ".join(s["label"] for s in shares)
+            review_parts = []
+            for share in shares:
+                mode_label = (
+                    "Live location" if share.get("locationMode") == "precise" else "Area updates"
+                )
+                hours = share.get("durationHours")
+                duration_label = f" for {hours}h" if hours is not None else ""
+                review_parts.append(
+                    f"{share.get('label') or 'recipient'}: {mode_label}{duration_label}"
+                )
             return {
                 "id": action_id,
                 "type": "publish_share",
                 "shares": shares,
-                "summary": f"Share your live location with {labels}",
+                "summary": "Review " + "; ".join(review_parts),
             }
         view = next((d for d in directives if d.get("type") == "view_envelope"), None)
         if view:
@@ -783,11 +854,14 @@ class LocationChatService:
         link = next((d for d in directives if d.get("type") == "create_public_link"), None)
         if link:
             hours = link.get("durationHours")
+            mode = link.get("locationMode") or "approximate"
+            snapshot_label = "precise point" if mode == "precise" else "approximate area"
             return {
                 "id": action_id,
                 "type": "create_public_link",
                 "durationHours": hours,
-                "summary": f"Create a public link (viewable for {hours}h)",
+                "locationMode": mode,
+                "summary": (f"Create a one-time {snapshot_label} link (viewable for {hours}h)"),
             }
         sos = next((d for d in directives if d.get("type") == "sos_panic"), None)
         if sos:
@@ -835,17 +909,26 @@ class LocationChatService:
         status = str(action_result.get("status") or "")
         detail = action_result.get("detail")
         public_url = action_result.get("publicUrl")
+        location_mode = str(action_result.get("locationMode") or "")
+        duration_hours = action_result.get("durationHours")
 
-        if action_type == "create_public_link" and status == "completed" and public_url:
+        if action_type == "publish_share" and status == "completed":
+            mode_label = "Live location" if location_mode == "precise" else "Area updates"
+            duration_label = f" for {duration_hours}h" if duration_hours is not None else ""
+            reply = f"{mode_label} started{duration_label}. You can stop it anytime."
+        elif action_type == "create_public_link" and status == "completed" and public_url:
             reply = (
-                f"Your public link is ready: {public_url} — anyone with it can view "
-                "this location until it expires, and you can revoke it anytime."
+                f"Your one-time location link is ready: {public_url} — this captured "
+                "location does not update. Anyone who receives or is forwarded the link "
+                "can view it until it expires or you revoke it."
             )
         elif status == "failed":
             suffix = f" ({detail})" if detail else ""
             reply = f"That didn't go through{suffix}. You can try again."
         else:
             reply = _ACTION_RESULT_TEMPLATES.get((action_type, status), "Okay, that's handled.")
+        if status == "completed" and detail:
+            reply = f"{reply} {detail}"
 
         errored = status == "failed"
         state_changed = status == "completed" and action_type in (

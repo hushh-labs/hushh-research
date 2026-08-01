@@ -1,9 +1,5 @@
 import { HushhLocation } from "@/lib/capacitor";
-import {
-  ApiError,
-  apiErrorCode,
-  apiJson,
-} from "@/lib/services/api-client";
+import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -28,6 +24,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
+  LocationSharingMode,
   RouteEta,
 } from "@/lib/one-location/types";
 
@@ -142,7 +139,6 @@ export class OneLocationService {
     return HushhLocation.stopBackgroundShare();
   }
 
-
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
     keyId: string;
@@ -204,7 +200,9 @@ export class OneLocationService {
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
-  static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+  static async getMapState(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapState> {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });
@@ -272,7 +270,10 @@ export class OneLocationService {
     publicToken: string;
     publicUrl: string;
   }> {
-    return apiJsonWithRetry(
+    // This POST mints an unrecoverable bearer token and has no server-side
+    // idempotency key. Never auto-retry an ambiguous response: doing so could
+    // create a second active link that the owner never received.
+    return apiJson(
       "/api/one/location/public-invites",
       {
         method: "POST",
@@ -282,7 +283,6 @@ export class OneLocationService {
           locationSnapshot: params.locationSnapshot,
         }),
       },
-      1,
     );
   }
 
@@ -409,6 +409,8 @@ export class OneLocationService {
     durationHours: number;
     reason?: string;
     shareKind?: string;
+    locationMode?: LocationSharingMode;
+    approximateRadiusM?: number | null;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
@@ -421,6 +423,8 @@ export class OneLocationService {
           durationHours: params.durationHours,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          locationMode: params.locationMode ?? "precise",
+          approximateRadiusM: params.approximateRadiusM ?? null,
         }),
       },
     );
@@ -441,6 +445,8 @@ export class OneLocationService {
     envelope: OneLocationEncryptedEnvelope;
     reason?: string;
     shareKind?: string;
+    locationMode?: LocationSharingMode;
+    approximateRadiusM?: number | null;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
@@ -460,6 +466,8 @@ export class OneLocationService {
           envelope: params.envelope,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          locationMode: params.locationMode ?? "precise",
+          approximateRadiusM: params.approximateRadiusM ?? null,
         }),
       },
       1,
@@ -772,14 +780,34 @@ export class OneLocationService {
     vaultOwnerToken: string;
     requestId: string;
     durationHours: number;
-  }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
-    return apiJson(
-      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
+    recipientKeyId: string;
+    clientOperationId: string;
+    confirmedAt: string;
+    envelope: OneLocationEncryptedEnvelope;
+    locationMode: LocationSharingMode;
+    approximateRadiusM?: number | null;
+  }): Promise<{
+    request: OneLocationAccessRequest;
+    grant: OneLocationGrant;
+    envelope: OneLocationEncryptedEnvelope;
+    idempotentReplay: boolean;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve-with-envelope`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          recipientKeyId: params.recipientKeyId,
+          clientOperationId: params.clientOperationId,
+          confirmedAt: params.confirmedAt,
+          envelope: params.envelope,
+          locationMode: params.locationMode,
+          approximateRadiusM: params.approximateRadiusM ?? null,
+        }),
       },
+      1,
     );
   }
 

@@ -11,6 +11,8 @@ import {
   type LatLngLiteral,
 } from "@/lib/one-location/marker-interpolation";
 import {
+  approximateAreaMapZoom,
+  googleMapsAreaEmbedUrl,
   googleMapsLocationEmbedUrl,
   locationLatLng,
 } from "@/lib/one-location/maps-urls";
@@ -30,10 +32,19 @@ const IFRAME_RECENTER_METERS = 50;
 
 export interface LiveMapProps {
   point: PlainLocationPoint;
+  mode?: "precise" | "approximate";
+  approximateRadiusM?: number;
+  title?: string;
   className?: string;
 }
 
-export function LiveMap({ point, className }: LiveMapProps) {
+export function LiveMap({
+  point,
+  mode = point.locationMode === "approximate" ? "approximate" : "precise",
+  approximateRadiusM = point.approximateRadiusM ?? 1_000,
+  title,
+  className,
+}: LiveMapProps) {
   const { status } = useGoogleMaps();
   const { resolvedTheme } = useTheme();
   // Follow the APP theme (next-themes class), not the OS scheme, so the map
@@ -42,6 +53,7 @@ export function LiveMap({ point, className }: LiveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
+  const circleRef = useRef<google.maps.Circle | null>(null);
   const frameRef = useRef<number | null>(null);
 
   const target: LatLngLiteral = locationLatLng(point);
@@ -66,7 +78,10 @@ export function LiveMap({ point, className }: LiveMapProps) {
     if (status !== "ready" || !containerRef.current || mapRef.current) return;
     const map = new google.maps.Map(containerRef.current, {
       center: target,
-      zoom: 16,
+      zoom:
+        mode === "approximate"
+          ? approximateAreaMapZoom(point, approximateRadiusM)
+          : 16,
       disableDefaultUI: true,
       keyboardShortcuts: false,
       // Google Maps attribution, map-data credits, and Terms are provider-owned
@@ -75,7 +90,25 @@ export function LiveMap({ point, className }: LiveMapProps) {
       colorScheme,
     });
     mapRef.current = map;
-    markerRef.current = new google.maps.Marker({ map, position: target });
+    if (mode === "approximate") {
+      const accentColor =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--app-accent")
+          .trim() || "blue";
+      circleRef.current = new google.maps.Circle({
+        map,
+        center: target,
+        radius: approximateRadiusM,
+        strokeColor: accentColor,
+        strokeOpacity: 0.72,
+        strokeWeight: 2,
+        fillColor: accentColor,
+        fillOpacity: 0.18,
+        clickable: false,
+      });
+    } else {
+      markerRef.current = new google.maps.Marker({ map, position: target });
+    }
     // Created once per scheme; movement handled by the glide effect below.
     return () => {
       if (frameRef.current !== null) {
@@ -84,16 +117,26 @@ export function LiveMap({ point, className }: LiveMapProps) {
       }
       mapRef.current = null;
       markerRef.current = null;
+      circleRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, colorScheme]);
+  }, [status, colorScheme, mode, approximateRadiusM]);
 
   // Glide the marker to each new point.
   useEffect(() => {
     if (status !== "ready") return;
     const marker = markerRef.current;
+    const circle = circleRef.current;
     const map = mapRef.current;
-    if (!marker || !map) return;
+    if (!map) return;
+    if (mode === "approximate") {
+      if (!circle) return;
+      circle.setCenter(target);
+      circle.setRadius(approximateRadiusM);
+      map.panTo(target);
+      return;
+    }
+    if (!marker) return;
 
     const current = marker.getPosition();
     const from: LatLngLiteral = current
@@ -122,31 +165,46 @@ export function LiveMap({ point, className }: LiveMapProps) {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.lat, target.lng, status]);
+  }, [target.lat, target.lng, status, mode, approximateRadiusM]);
 
   // Not ready (loading or error / no key) -> keep today's iframe embed. The
   // keyless embed has no dark mode, so dark theme applies an invert+hue-rotate
   // filter (standard technique) to keep the surface from glowing white.
   if (status !== "ready") {
     return (
-      <iframe
-        title="Live location map preview"
-        src={googleMapsLocationEmbedUrl(iframePoint)}
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-        allowFullScreen
-        className={cn(
-          "h-full w-full border-0",
-          "dark:[filter:invert(0.9)_hue-rotate(180deg)_saturate(0.85)]",
-          className,
-        )}
-      />
+      <div className={cn("relative h-full w-full", className)}>
+        <iframe
+          title={
+            title ?? (mode === "approximate"
+              ? "Approximate location area map preview"
+              : "Live location map preview")
+          }
+          src={
+            mode === "approximate"
+              ? googleMapsAreaEmbedUrl(iframePoint, approximateRadiusM)
+              : googleMapsLocationEmbedUrl(iframePoint)
+          }
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          allowFullScreen
+          className={cn(
+            "h-full w-full border-0",
+            "dark:[filter:invert(0.9)_hue-rotate(180deg)_saturate(0.85)]",
+          )}
+        />
+        {mode === "approximate" ? (
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--app-accent)]/70 bg-[color:var(--app-accent)]/20 ring-[10px] ring-[color:var(--app-accent)]/10"
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
     );
   }
 
   return (
     <div
-      key={colorScheme}
+      key={`${colorScheme}-${mode}`}
       ref={containerRef}
       className={cn("h-full w-full", className)}
     />

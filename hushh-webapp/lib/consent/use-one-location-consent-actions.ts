@@ -35,6 +35,20 @@ import {
 } from "@/lib/consent/location-consent";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  approvedLocationCommitStrictlyMatches,
+  prepareLocationPointForSharing,
+} from "@/lib/one-location/location-precision";
+import type { LocationSharingMode } from "@/lib/one-location/types";
+import {
+  enableOneLocationAutomaticUpdates,
+  readOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  revokeLocationGrantOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 import type {
   ConsentActionKind,
   ConsentActionState,
@@ -108,7 +122,11 @@ export function useOneLocationConsentActions(
   );
 
   const emitComplete = useCallback(
-    (detail: { action: ConsentActionKind; requestId?: string; scope?: string }) => {
+    (detail: {
+      action: ConsentActionKind;
+      requestId?: string;
+      scope?: string;
+    }) => {
       onActionComplete?.();
       // Both the consent center and the One Location page listen for this event,
       // so a CTA in either surface refreshes the other.
@@ -163,7 +181,11 @@ export function useOneLocationConsentActions(
    * publish the envelope. Mirrors `handleApprove` in the One Location page.
    */
   const handleApprove = useCallback(
-    (entry: LocationConsentActionEntry, durationHours?: number): Promise<void> => {
+    (
+      entry: LocationConsentActionEntry,
+      durationHours?: number,
+      locationMode: LocationSharingMode = "approximate",
+    ): Promise<void> => {
       const ref = parseLocationConsentEntry(entry);
       const requestId = ref.requestId;
       if (!requestId) {
@@ -175,6 +197,11 @@ export function useOneLocationConsentActions(
         { key: actionKey, kind: "approve", requestId },
         async () => {
           if (!userId) return;
+          if (readOneLocationControlState(userId).paused) {
+            throw new Error(
+              "Location is paused on this device. Resume it before approving.",
+            );
+          }
           const vaultOwnerToken = requireToken();
           if (!vaultOwnerToken) return;
 
@@ -186,38 +213,96 @@ export function useOneLocationConsentActions(
             if (!request) {
               throw new Error("This location request is no longer available.");
             }
-            const requester = state.recipients.find(
+            const connectedRequester = state.recipients.find(
               (recipient) => recipient.userId === request.requesterUserId,
             );
-            if (!requester?.keyId || !requester.publicKeyJwk) {
+            const requesterKeyId =
+              request.requesterKeyId ?? connectedRequester?.keyId;
+            const requesterPublicKeyJwk =
+              request.requesterPublicKeyJwk ?? connectedRequester?.publicKeyJwk;
+            if (!requesterKeyId || !requesterPublicKeyJwk) {
               throw new Error(
                 "They need to open Location once before approval can finish.",
               );
             }
+            const point = await OneLocationService.captureCurrentPosition();
+            const permission = await OneLocationService.getPermissionState();
+            if (readOneLocationControlState(userId).paused) {
+              throw new Error(
+                "Location was paused before the request could be approved.",
+              );
+            }
+            if (locationMode === "precise" && permission.precise === false) {
+              throw new Error(
+                "Turn on Precise Location in device settings to approve a live location.",
+              );
+            }
+            const sharePoint = prepareLocationPointForSharing(
+              point,
+              locationMode,
+            );
+            const envelope = await encryptLocationForRecipient({
+              point: sharePoint,
+              recipientPublicKeyJwk: requesterPublicKeyJwk,
+              recipientKeyId: requesterKeyId,
+            });
+            const confirmedAt = new Date().toISOString();
             const response = await OneLocationService.approveRequest({
               vaultOwnerToken,
               requestId,
               durationHours: clampApprovalDurationHours(durationHours),
-            });
-            const point = await OneLocationService.captureCurrentPosition();
-            const envelope = await encryptLocationForRecipient({
-              point,
-              recipientPublicKeyJwk: requester.publicKeyJwk,
-              recipientKeyId: requester.keyId,
-            });
-            await OneLocationService.storeEnvelope({
-              vaultOwnerToken,
-              grantId: response.grant.id,
+              recipientKeyId: requesterKeyId,
+              clientOperationId: `approval:${requestId}:${confirmedAt}`,
+              confirmedAt,
               envelope,
+              locationMode,
+              approximateRadiusM: sharePoint.approximateRadiusM ?? null,
             });
-            return "Request approved and encrypted update published.";
+            if (
+              !approvedLocationCommitStrictlyMatches({
+                requestId,
+                request: response.request,
+                grant: response.grant,
+                envelope: response.envelope,
+                locationMode,
+                approximateRadiusM: sharePoint.approximateRadiusM,
+              })
+            ) {
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
+                vaultOwnerToken,
+                grantId: response.grant.id,
+              });
+              throw new Error(
+                revoked
+                  ? "The server did not atomically preserve the location approval. Nothing was shared."
+                  : LOCATION_REVOCATION_PENDING_MESSAGE,
+              );
+            }
+            const updates = enableOneLocationAutomaticUpdates(userId);
+            if (!updates.allowed) {
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
+                vaultOwnerToken,
+                grantId: response.grant.id,
+              });
+              throw new Error(
+                revoked
+                  ? "Location was paused before automatic updates could start. Resume it and approve again."
+                  : LOCATION_REVOCATION_PENDING_MESSAGE,
+              );
+            }
+            return locationMode === "approximate"
+              ? "Request approved with area updates."
+              : "Request approved with a live location.";
           })();
 
           toast.promise(promise, {
             id: actionKey,
             loading: "Approving location request...",
             success: (message) => `✅ ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not approve request.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not approve request.")}`,
             duration: 3000,
           });
 
@@ -251,7 +336,10 @@ export function useOneLocationConsentActions(
           if (!vaultOwnerToken) return;
 
           const promise = (async () => {
-            await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
+            await OneLocationService.denyRequest({
+              vaultOwnerToken,
+              requestId,
+            });
             return "Request denied.";
           })();
 
@@ -259,7 +347,8 @@ export function useOneLocationConsentActions(
             id: actionKey,
             loading: "Denying location request...",
             success: (message) => `❌ ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not deny request.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not deny request.")}`,
             duration: 3000,
           });
 
@@ -289,6 +378,10 @@ export function useOneLocationConsentActions(
       return runWithLock(
         { key: actionKey, kind: "revoke", scope: scope || ref.id || undefined },
         async () => {
+          if (!userId) {
+            toast.error("Sign in again before changing location sharing.");
+            return;
+          }
           const vaultOwnerToken = requireToken();
           if (!vaultOwnerToken) return;
           if (!ref.id) {
@@ -298,17 +391,25 @@ export function useOneLocationConsentActions(
 
           const promise = (async () => {
             if (ref.kind === "share_grant") {
-              await OneLocationService.revokeGrant({
+              const revoked = await revokeLocationGrantOrQueue({
+                userId,
                 vaultOwnerToken,
                 grantId: ref.id,
               });
+              if (!revoked) {
+                throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+              }
               return "Location access revoked.";
             }
             if (ref.kind === "public_invite") {
-              await OneLocationService.revokePublicInvite({
+              const revoked = await revokePublicInviteOrQueue({
+                userId,
                 vaultOwnerToken,
                 inviteId: ref.id,
               });
+              if (!revoked) {
+                throw new Error(LOCATION_REVOCATION_PENDING_MESSAGE);
+              }
               return "Public location link revoked.";
             }
             if (ref.kind === "circle_invite") {
@@ -325,7 +426,8 @@ export function useOneLocationConsentActions(
             id: actionKey,
             loading: "Revoking location access...",
             success: (message) => `🔒 ${message}`,
-            error: (error) => `❌ ${actionError(error, "Could not revoke access.")}`,
+            error: (error) =>
+              `❌ ${actionError(error, "Could not revoke access.")}`,
             duration: 3000,
           });
 
@@ -339,7 +441,7 @@ export function useOneLocationConsentActions(
         },
       );
     },
-    [emitComplete, requireToken, runWithLock],
+    [emitComplete, requireToken, runWithLock, userId],
   );
 
   return {

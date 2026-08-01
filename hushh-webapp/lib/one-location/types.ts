@@ -1,9 +1,5 @@
 export type LocationSourcePlatform =
-  | "web"
-  | "ios"
-  | "android"
-  | "native"
-  | "unknown";
+  "web" | "ios" | "android" | "native" | "unknown";
 
 export type OneLocationRecommendationTier =
   | "needs_action"
@@ -162,6 +158,10 @@ export type OneLocationGrant = {
    * coordinate-free and bounded by the backend; shown verbatim to the recipient.
    */
   shareMessage?: string | null;
+  /** Immutable precision contract for every point published under this grant. */
+  locationMode?: LocationSharingMode;
+  /** Public radius of an approximate grant. Null for precise grants. */
+  approximateRadiusM?: number | null;
 };
 
 export type OneLocationAccessRequest = {
@@ -170,6 +170,10 @@ export type OneLocationAccessRequest = {
   requesterUserId: string;
   requesterDisplayName?: string | null;
   requesterMaskedPhone?: string | null;
+  /** Active encryption key disclosed only inside this request's owner-scoped state. */
+  requesterKeyId?: string | null;
+  requesterPublicKeyJwk?: JsonWebKey | null;
+  requesterKeyAlgorithm?: string | null;
   referredByUserId?: string | null;
   status: "pending" | "approved" | "denied" | "cancelled" | string;
   message?: string | null;
@@ -345,10 +349,7 @@ export type OneLocationNearbyPlaceSuggestion = {
 };
 
 export type OneLocationNearbyRelationship =
-  | "none"
-  | "pending_outgoing"
-  | "pending_incoming"
-  | "connected";
+  "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
 export type OneLocationNearbyAttendee = {
   /** Rotating, presence-scoped alias. A stable user id is never returned. */
@@ -417,6 +418,10 @@ export type PlainLocationPoint = {
   accuracyM?: number | null;
   capturedAt: string;
   sourcePlatform: LocationSourcePlatform;
+  /** Encrypted with private points and explicit on public snapshots. */
+  locationMode?: LocationSharingMode;
+  /** Area radius shown instead of a pin when locationMode is approximate. */
+  approximateRadiusM?: number | null;
   /**
    * Present only for Drive-To shares. Encrypted together with the point, so the
    * backend never sees the destination or ETA.
@@ -427,6 +432,8 @@ export type PlainLocationPoint = {
    */
   checkIn?: CheckInSharePayload | null;
 };
+
+export type LocationSharingMode = "approximate" | "precise";
 
 export type OneLocationEncryptedEnvelope = {
   id?: string;
@@ -445,9 +452,7 @@ export type OneLocationEncryptedEnvelope = {
    * eligible for Your Map; direct/background shares are never promoted.
    */
   publicationContext?:
-    | "private_background"
-    | "private_foreground"
-    | "foreground_map_visible";
+    "private_background" | "private_foreground" | "foreground_map_visible";
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
 };
@@ -469,14 +474,47 @@ export type OneLocationMapState = {
   markers: OneLocationMapMarker[];
 };
 
-export interface ShareTarget {
-  grantId: string;
+interface ShareTargetBase {
   recipientUserId: string;
-  recipientKeyId: string;
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic" | "check_in";
+export type ShareTarget =
+  | (ShareTargetBase & {
+      /** Rolling-deploy compatibility: publish into an already-created grant. */
+      grantId: string;
+      recipientKeyId: string;
+      approvalRequestId?: never;
+      durationHours?: number;
+      reason?: string | null;
+      locationMode?: LocationSharingMode;
+    })
+  | (ShareTargetBase & {
+      grantId?: never;
+      /** Owner-confirmed approval proposal; no grant exists before confirmation. */
+      approvalRequestId: string;
+      recipientKeyId?: string;
+      durationHours: number;
+      reason?: string | null;
+      locationMode: LocationSharingMode;
+    })
+  | (ShareTargetBase & {
+      grantId?: never;
+      approvalRequestId?: null;
+      /** Owner-confirmed new private share proposal. */
+      recipientKeyId: string;
+      durationHours: number;
+      reason?: string | null;
+      locationMode: LocationSharingMode;
+    });
+
+export type ClientActionType =
+  | "publish_share"
+  | "view_envelope"
+  | "create_public_link"
+  | "sos_panic"
+  | "check_in"
+  | "request_device_location_permission";
 
 export interface ClientAction {
   id: string;
@@ -484,6 +522,7 @@ export interface ClientAction {
   shares?: ShareTarget[];
   grantId?: string;
   durationHours?: number;
+  locationMode?: LocationSharingMode;
   note?: string | null;
   summary: string;
 }
@@ -494,6 +533,8 @@ export interface ActionResult {
   status: "completed" | "cancelled" | "failed";
   publicUrl?: string;
   detail?: string;
+  durationHours?: number;
+  locationMode?: LocationSharingMode;
 }
 
 export interface PromptOption {

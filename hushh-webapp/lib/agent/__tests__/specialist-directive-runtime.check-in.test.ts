@@ -18,8 +18,12 @@ vi.mock("@/lib/one-location/service", () => ({
       sourcePlatform: "web",
     })),
     getState: vi.fn(),
-    storeEnvelope: vi.fn(async () => ({ ok: true })),
-    createGrant: vi.fn(),
+    getPermissionState: vi.fn(async () => ({
+      state: "granted",
+      precise: true,
+      background: "foreground-only",
+    })),
+    createGrantWithEnvelope: vi.fn(),
   },
 }));
 
@@ -78,17 +82,29 @@ function makeStateWithRecipients(
   };
 }
 
-function makeGrant(id: string, recipientUserId: string, durationHours = 1) {
+function makeAtomicResponse(
+  id: string,
+  recipientUserId: string,
+  durationHours = 1,
+) {
+  const envelope = { id: `envelope-${id}` };
   return {
-    id,
-    ownerUserId: "me",
-    recipientUserId,
-    recipientKeyId: `key-${recipientUserId}`,
-    status: "active",
-    consentScope: "location",
-    capabilityScopes: [],
-    durationHours,
-  };
+    grant: {
+      id,
+      ownerUserId: "me",
+      recipientUserId,
+      recipientKeyId: `key-${recipientUserId}`,
+      status: "active",
+      consentScope: "location",
+      capabilityScopes: [],
+      durationHours,
+      locationMode: "precise",
+      approximateRadiusM: null,
+      latestEnvelopeId: envelope.id,
+    },
+    envelope,
+    idempotentReplay: false,
+  } as never;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,13 +112,15 @@ function makeGrant(id: string, recipientUserId: string, durationHours = 1) {
 // ---------------------------------------------------------------------------
 
 describe("runLocationDirective check_in", () => {
-  const createGrantMock = vi.mocked(OneLocationService.createGrant);
+  const createGrantMock = vi.mocked(
+    OneLocationService.createGrantWithEnvelope,
+  );
   const getStateMock = vi.mocked(OneLocationService.getState);
-  const storeEnvelopeMock = vi.mocked(OneLocationService.storeEnvelope);
   const encryptMock = vi.mocked(encryptLocationForRecipient);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it("creates grants with the payload durationHours + note as reason, stores one envelope per recipient, returns status:'completed'", async () => {
@@ -123,8 +141,8 @@ describe("runLocationDirective check_in", () => {
     );
 
     createGrantMock
-      .mockResolvedValueOnce(makeGrant("g1", "userA", 3))
-      .mockResolvedValueOnce(makeGrant("g2", "userB", 3));
+      .mockResolvedValueOnce(makeAtomicResponse("g1", "userA", 3))
+      .mockResolvedValueOnce(makeAtomicResponse("g2", "userB", 3));
 
     const result = await runLocationDirective(
       {
@@ -150,6 +168,10 @@ describe("runLocationDirective check_in", () => {
         recipientKeyId: "key-userA",
         durationHours: 3,
         reason: "on my way",
+        shareKind: "check_in",
+        locationMode: "precise",
+        approximateRadiusM: null,
+        envelope: { ciphertext: "x", iv: "y" },
       }),
     );
     expect(createGrantMock).toHaveBeenCalledWith(
@@ -159,18 +181,15 @@ describe("runLocationDirective check_in", () => {
         recipientKeyId: "key-userB",
         durationHours: 3,
         reason: "on my way",
+        shareKind: "check_in",
+        locationMode: "precise",
+        approximateRadiusM: null,
+        envelope: { ciphertext: "x", iv: "y" },
       }),
     );
 
-    // One encrypt + one store per recipient
+    // One encryption + one atomic grant/envelope commit per recipient.
     expect(encryptMock).toHaveBeenCalledTimes(2);
-    expect(storeEnvelopeMock).toHaveBeenCalledTimes(2);
-    expect(storeEnvelopeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultOwnerToken: "vault-token", grantId: "g1" }),
-    );
-    expect(storeEnvelopeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultOwnerToken: "vault-token", grantId: "g2" }),
-    );
 
     expect(result).toMatchObject({
       delegate_agent_id: "agent_location",
@@ -188,7 +207,9 @@ describe("runLocationDirective check_in", () => {
         [{ id: "c1", userAId: "me", userBId: "userA", status: "active", inviterUserId: "me", inviteeUserId: "userA" }],
       ),
     );
-    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA", 1));
+    createGrantMock.mockResolvedValueOnce(
+      makeAtomicResponse("g1", "userA", 1),
+    );
 
     await runLocationDirective(
       {
@@ -211,7 +232,9 @@ describe("runLocationDirective check_in", () => {
         [{ id: "c1", userAId: "me", userBId: "userA", status: "active", inviterUserId: "me", inviteeUserId: "userA" }],
       ),
     );
-    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA", 1));
+    createGrantMock.mockResolvedValueOnce(
+      makeAtomicResponse("g1", "userA", 1),
+    );
 
     await runLocationDirective(
       {
@@ -246,7 +269,6 @@ describe("runLocationDirective check_in", () => {
 
     expect(createGrantMock).not.toHaveBeenCalled();
     expect(encryptMock).not.toHaveBeenCalled();
-    expect(storeEnvelopeMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       delegate_agent_id: "agent_location",
       kind: "action",

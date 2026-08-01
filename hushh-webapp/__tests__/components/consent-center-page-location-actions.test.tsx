@@ -312,7 +312,7 @@ describe("ConsentCenterPage One Location action routing", () => {
     const duration = await screen.findByRole("combobox", {
       name: "Access duration",
     });
-    expect(duration.textContent).toContain("1 hour");
+    expect(duration.textContent).toContain("4 hours");
     const allowButton = (await screen.findByRole("button", {
       name: "Allow",
     })) as HTMLButtonElement;
@@ -322,7 +322,8 @@ describe("ConsentCenterPage One Location action routing", () => {
     });
     expect(mocks.handleLocationApprove).toHaveBeenCalledWith(
       expect.objectContaining({ id: "one_location_request:req-1" }),
-      1,
+      4,
+      "approximate",
     );
     expect(mocks.handleApprove).not.toHaveBeenCalled();
   });

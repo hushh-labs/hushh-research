@@ -11,6 +11,12 @@ import {
   ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import {
+  prepareLocationPointForSharing,
+  validateLocationPointForGrant,
+} from "@/lib/one-location/location-precision";
+import { executePrivateLocationAction } from "@/lib/one-location/client-action-executor";
+import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
 import type {
   ActionResult,
   ClientAction,
@@ -26,6 +32,12 @@ import {
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
+import {
+  LOCATION_REVOCATION_PENDING_MESSAGE,
+  pendingLocationRevocationGrantIds,
+  revokeLocationGrantOrQueue,
+  revokePublicInviteOrQueue,
+} from "@/lib/one-location/location-revocation-queue";
 
 export interface ChatMessage {
   id: string;
@@ -61,12 +73,19 @@ export function useLocationChat(params: {
   vaultKey?: string | null;
   onStateChanged?: () => void;
 }): UseLocationChat {
-  const { vaultOwnerToken, userId = "", vaultKey = null, onStateChanged } = params;
+  const {
+    vaultOwnerToken,
+    userId = "",
+    vaultKey = null,
+    onStateChanged,
+  } = params;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<ClientAction | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<ClientPrompt | null>(null);
-  const [viewedPoint, setViewedPoint] = useState<PlainLocationPoint | null>(null);
+  const [viewedPoint, setViewedPoint] = useState<PlainLocationPoint | null>(
+    null,
+  );
   const conversationIdRef = useRef<string | null>(null);
   const lastSentRef = useRef<string | null>(null);
   const seqRef = useRef(0);
@@ -78,7 +97,12 @@ export function useLocationChat(params: {
       conversationIdRef.current = result.conversationId;
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", text: result.response, stateChanged: result.stateChanged },
+        {
+          id: nextId(),
+          role: "assistant",
+          text: result.response,
+          stateChanged: result.stateChanged,
+        },
       ]);
       setPendingAction(result.clientAction ?? null);
       setPendingPrompt(result.clientPrompt ?? null);
@@ -92,7 +116,9 @@ export function useLocationChat(params: {
       setBusy(true);
       // Retry case: drop a trailing errored assistant bubble before re-asking.
       setMessages((prev) =>
-        prev.length && prev[prev.length - 1]?.errored ? prev.slice(0, -1) : prev,
+        prev.length && prev[prev.length - 1]?.errored
+          ? prev.slice(0, -1)
+          : prev,
       );
       try {
         const result = await OneLocationService.chat({
@@ -145,7 +171,12 @@ export function useLocationChat(params: {
       } catch {
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: LOCATION_CHAT_ERROR_TEXT, errored: true },
+          {
+            id: nextId(),
+            role: "assistant",
+            text: LOCATION_CHAT_ERROR_TEXT,
+            errored: true,
+          },
         ]);
       } finally {
         setBusy(false);
@@ -168,7 +199,12 @@ export function useLocationChat(params: {
       } catch {
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "assistant", text: LOCATION_CHAT_ERROR_TEXT, errored: true },
+          {
+            id: nextId(),
+            role: "assistant",
+            text: LOCATION_CHAT_ERROR_TEXT,
+            errored: true,
+          },
         ]);
       } finally {
         setBusy(false);
@@ -181,10 +217,18 @@ export function useLocationChat(params: {
     async (raw: string) => {
       const message = raw.trim();
       if (!message || busy) return;
-      setMessages((prev) => [...prev, { id: nextId(), role: "user", text: message }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: message },
+      ]);
       const prompt = pendingPrompt;
       if (prompt) {
-        await reportSelection({ id: prompt.id, kind: prompt.kind, freeText: message, status: "answered" });
+        await reportSelection({
+          id: prompt.id,
+          kind: prompt.kind,
+          freeText: message,
+          status: "answered",
+        });
         return;
       }
       lastSentRef.current = message;
@@ -202,7 +246,13 @@ export function useLocationChat(params: {
         ...prev,
         { id: nextId(), role: "user", text: display, kind: "selection" },
       ]);
-      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered", display });
+      await reportSelection({
+        id: prompt.id,
+        kind: prompt.kind,
+        selected: refs,
+        status: "answered",
+        display,
+      });
     },
     [pendingPrompt, busy, reportSelection, nextId],
   );
@@ -216,7 +266,13 @@ export function useLocationChat(params: {
         ...prev,
         { id: nextId(), role: "user", text: display, kind: "selection" },
       ]);
-      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered", display });
+      await reportSelection({
+        id: prompt.id,
+        kind: prompt.kind,
+        confirmed: yes,
+        status: "answered",
+        display,
+      });
     },
     [pendingPrompt, busy, reportSelection, nextId],
   );
@@ -229,7 +285,12 @@ export function useLocationChat(params: {
       ...prev,
       { id: nextId(), role: "user", text: display, kind: "selection" },
     ]);
-    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled", display });
+    await reportSelection({
+      id: prompt.id,
+      kind: prompt.kind,
+      status: "cancelled",
+      display,
+    });
   }, [pendingPrompt, busy, reportSelection, nextId]);
 
   const confirmAction = useCallback(async () => {
@@ -238,30 +299,30 @@ export function useLocationChat(params: {
     setPendingAction(null);
     try {
       if (action.type === "publish_share") {
-        const point = await OneLocationService.captureCurrentPosition();
-        const state = await OneLocationService.getState(vaultOwnerToken);
-        for (const share of action.shares ?? []) {
-          const recipient = (state.recipients ?? []).find(
-            (r) => r.keyId === share.recipientKeyId,
-          );
-          if (!recipient?.publicKeyJwk) {
-            throw new Error(`${share.label} hasn't set up location sharing yet`);
-          }
-          const envelope = await encryptLocationForRecipient({
-            point,
-            recipientPublicKeyJwk: recipient.publicKeyJwk,
-            recipientKeyId: share.recipientKeyId,
-          });
-          await OneLocationService.storeEnvelope({
-            vaultOwnerToken,
-            grantId: share.grantId,
-            envelope,
-          });
-        }
-        await report({ id: action.id, type: action.type, status: "completed" });
+        const outcome = await executePrivateLocationAction({
+          action,
+          vaultOwnerToken,
+          userId,
+        });
+        await report({
+          id: action.id,
+          type: action.type,
+          status: "completed",
+          detail:
+            outcome.successfulCount < outcome.totalCount
+              ? `${outcome.successfulCount} of ${outcome.totalCount} private shares started. ${outcome.failureDetails?.join(" ") ?? ""}`.trim()
+              : undefined,
+          durationHours: action.shares?.[0]?.durationHours,
+          locationMode: action.shares?.[0]?.locationMode,
+        });
       } else if (action.type === "view_envelope") {
         if (!userId) {
-          await report({ id: action.id, type: action.type, status: "failed", detail: "userId not configured" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "failed",
+            detail: "userId not configured",
+          });
           return;
         }
         const grantId = action.grantId;
@@ -270,10 +331,27 @@ export function useLocationChat(params: {
           vaultOwnerToken,
           grantId,
         });
+        const state = await OneLocationService.getState(vaultOwnerToken);
+        const grant = (state.receivedGrants ?? []).find(
+          (candidate) =>
+            candidate.id === grantId && candidate.status === "active",
+        );
+        if (!grant) {
+          throw new Error("This location permission is no longer active");
+        }
+        const decryptAndValidate = async () =>
+          validateLocationPointForGrant({
+            point: await decryptLocationEnvelope({ userId, envelope }),
+            grant,
+          });
         try {
-          const point = await decryptLocationEnvelope({ userId, envelope });
+          const point = await decryptAndValidate();
           setViewedPoint(point);
-          await report({ id: action.id, type: action.type, status: "completed" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "completed",
+          });
         } catch (decryptError) {
           if (
             decryptError instanceof Error &&
@@ -283,16 +361,19 @@ export function useLocationChat(params: {
             // the user's devices and retry once before giving up.
             if (vaultKey) {
               try {
-                const state = await OneLocationService.getState(vaultOwnerToken);
                 if (state.myRecipientKey?.encryptedPrivateKeyJwk) {
                   await ensureVaultSyncedRecipientKey({
                     userId,
                     vaultKey,
                     remoteBackup: state.myRecipientKey,
                   });
-                  const point = await decryptLocationEnvelope({ userId, envelope });
+                  const point = await decryptAndValidate();
                   setViewedPoint(point);
-                  await report({ id: action.id, type: action.type, status: "completed" });
+                  await report({
+                    id: action.id,
+                    type: action.type,
+                    status: "completed",
+                  });
                   return;
                 }
               } catch {
@@ -318,19 +399,63 @@ export function useLocationChat(params: {
           throw decryptError;
         }
       } else if (action.type === "create_public_link") {
-        const locationSnapshot = await OneLocationService.captureCurrentPosition();
-        const { publicUrl } = await OneLocationService.createPublicInvite({
+        if (readOneLocationControlState(userId).paused) {
+          throw new Error(
+            "Location is paused on this device. Resume it before capturing a snapshot.",
+          );
+        }
+        const locationMode = action.locationMode ?? "approximate";
+        const point = await OneLocationService.captureCurrentPosition();
+        const permission = await OneLocationService.getPermissionState();
+        if (readOneLocationControlState(userId).paused) {
+          throw new Error(
+            "Location was paused before the snapshot could be created.",
+          );
+        }
+        if (locationMode === "precise" && permission.precise === false) {
+          throw new Error(
+            "Turn on Precise Location in device settings to capture a precise point.",
+          );
+        }
+        const locationSnapshot = prepareLocationPointForSharing(
+          point,
+          locationMode,
+        );
+        const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
           durationHours: action.durationHours ?? 1,
           locationSnapshot,
         });
+        if (readOneLocationControlState(userId).paused) {
+          const revoked = await revokePublicInviteOrQueue({
+            userId,
+            vaultOwnerToken,
+            inviteId: response.invite.id,
+          });
+          throw new Error(
+            revoked
+              ? "Location was paused before the one-time link completed."
+              : LOCATION_REVOCATION_PENDING_MESSAGE,
+          );
+        }
         await report({
           id: action.id,
           type: action.type,
           status: "completed",
-          publicUrl: publicInviteUrlLabel(publicUrl),
+          publicUrl: publicInviteUrlLabel(response.publicUrl),
+          durationHours: action.durationHours ?? 1,
+          locationMode,
+        });
+      } else if (action.type === "request_device_location_permission") {
+        const permission = await OneLocationService.requestLocationPermission();
+        await report({
+          id: action.id,
+          type: action.type,
+          status: permission.state === "granted" ? "completed" : "cancelled",
+          detail: permission.state,
         });
       } else if (action.type === "sos_panic") {
+        if (!userId) throw new Error("Sign in again before sharing location.");
         const state = await OneLocationService.getState(vaultOwnerToken);
         const connected = selectSosConnectedRecipients(
           state.recipients ?? [],
@@ -342,29 +467,38 @@ export function useLocationChat(params: {
           state.smsContactUserIds,
         ).filter(isSosShareReadyRecipient);
         if (!ready.length) {
-          await report({ id: action.id, type: action.type, status: "cancelled" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "cancelled",
+          });
           return;
         }
         const point = await OneLocationService.captureCurrentPosition();
-        await runSosPanic({
+        const incident = await runSosPanic({
+          userId,
           vaultOwnerToken,
           recipients: ready,
           point,
-          publish: async (grant, recipient, pt) => {
-            const envelope = await encryptLocationForRecipient({
-              point: pt,
+          operationId: action.id,
+          prepareEnvelope: async (recipient, capturedPoint) =>
+            encryptLocationForRecipient({
+              point: prepareLocationPointForSharing(capturedPoint, "precise"),
               recipientPublicKeyJwk: recipient.publicKeyJwk,
               recipientKeyId: recipient.keyId,
-            });
-            await OneLocationService.storeEnvelope({
-              vaultOwnerToken,
-              grantId: grant.id,
-              envelope,
-            });
-          },
+            }),
         });
-        await report({ id: action.id, type: action.type, status: "completed" });
+        await report({
+          id: action.id,
+          type: action.type,
+          status: "completed",
+          detail:
+            incident.grantIds.length < ready.length
+              ? `SOS location reached ${incident.grantIds.length} of ${ready.length} contacts.`
+              : undefined,
+        });
       } else if (action.type === "check_in") {
+        if (!userId) throw new Error("Sign in again before sharing location.");
         const state = await OneLocationService.getState(vaultOwnerToken);
         const connected = selectSosConnectedRecipients(
           state.recipients ?? [],
@@ -373,34 +507,52 @@ export function useLocationChat(params: {
         );
         const ready = connected.filter(isSosShareReadyRecipient);
         if (!ready.length) {
-          await report({ id: action.id, type: action.type, status: "cancelled" });
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "cancelled",
+          });
           return;
         }
         const point = await OneLocationService.captureCurrentPosition();
-        await runCheckIn({
+        const grantIds = await runCheckIn({
+          userId,
           vaultOwnerToken,
           recipients: ready,
           point,
           durationHours: Number(action.durationHours) || 1,
           note: action.note ?? null,
-          publish: async (grant, recipient, pt) => {
-            const envelope = await encryptLocationForRecipient({
-              point: pt,
+          operationId: action.id,
+          prepareEnvelope: async (recipient, capturedPoint) =>
+            encryptLocationForRecipient({
+              point: prepareLocationPointForSharing(capturedPoint, "precise"),
               recipientPublicKeyJwk: recipient.publicKeyJwk,
               recipientKeyId: recipient.keyId,
-            });
-            await OneLocationService.storeEnvelope({
-              vaultOwnerToken,
-              grantId: grant.id,
-              envelope,
-            });
-          },
+            }),
         });
-        await report({ id: action.id, type: action.type, status: "completed" });
+        const pendingRevocations = pendingLocationRevocationGrantIds(userId);
+        const stopPending = grantIds.some((grantId) =>
+          pendingRevocations.has(grantId),
+        );
+        await report({
+          id: action.id,
+          type: action.type,
+          status: "completed",
+          detail: stopPending
+            ? LOCATION_REVOCATION_PENDING_MESSAGE
+            : grantIds.length < ready.length
+              ? `Checked in with ${grantIds.length} of ${ready.length} contacts.`
+              : undefined,
+        });
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : undefined;
-      await report({ id: action.id, type: action.type, status: "failed", detail });
+      await report({
+        id: action.id,
+        type: action.type,
+        status: "failed",
+        detail,
+      });
     }
   }, [pendingAction, busy, vaultOwnerToken, userId, vaultKey, report]);
 
@@ -408,17 +560,29 @@ export function useLocationChat(params: {
     const action = pendingAction;
     if (!action) return;
     setPendingAction(null);
+    let stopPending = false;
     if (action.type === "publish_share") {
       for (const share of action.shares ?? []) {
-        try {
-          await OneLocationService.revokeGrant({ vaultOwnerToken, grantId: share.grantId });
-        } catch {
-          // best-effort cleanup; ignore
+        if (!share.grantId) continue;
+        if (!userId) {
+          stopPending = true;
+          continue;
         }
+        const revoked = await revokeLocationGrantOrQueue({
+          userId,
+          vaultOwnerToken,
+          grantId: share.grantId,
+        });
+        stopPending ||= !revoked;
       }
     }
-    await report({ id: action.id, type: action.type, status: "cancelled" });
-  }, [pendingAction, vaultOwnerToken, report]);
+    await report({
+      id: action.id,
+      type: action.type,
+      status: stopPending ? "failed" : "cancelled",
+      detail: stopPending ? LOCATION_REVOCATION_PENDING_MESSAGE : undefined,
+    });
+  }, [pendingAction, report, userId, vaultOwnerToken]);
 
   return {
     messages,

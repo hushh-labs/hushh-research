@@ -39,6 +39,21 @@ describe("LiveMap", () => {
     expect(iframe.src).toContain(encodeURIComponent("12.971600,77.594600"));
   });
 
+  it("uses a marker-free fallback map for an approximate area", () => {
+    mockStatus.current = "error";
+    render(
+      <LiveMap point={point} mode="approximate" approximateRadiusM={1_000} />,
+    );
+
+    const iframe = screen.getByTitle(
+      "Approximate location area map preview",
+    ) as HTMLIFrameElement;
+    expect(iframe.src).toContain(
+      `ll=${encodeURIComponent("12.971600,77.594600")}`,
+    );
+    expect(iframe.src).not.toContain("?q=");
+  });
+
   it("keeps the iframe centered until the point moves past the recenter threshold", () => {
     mockStatus.current = "error";
     const iframeSrc = () =>
@@ -73,6 +88,35 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
+  });
+
+  it("creates only a radius circle for an approximate area", () => {
+    const Marker = vi.fn(function () {
+      return { getPosition: () => null, setPosition: vi.fn() };
+    });
+    const setCenter = vi.fn();
+    const setRadius = vi.fn();
+    const Circle = vi.fn(function () {
+      return { setCenter, setRadius };
+    });
+    const Map = vi.fn(function () {
+      return { panTo: vi.fn() };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Circle, Map, Marker } };
+    mockStatus.current = "ready";
+
+    render(
+      <LiveMap point={point} mode="approximate" approximateRadiusM={1_250} />,
+    );
+
+    expect(Circle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        center: { lat: point.latitude, lng: point.longitude },
+        radius: 1_250,
+      }),
+    );
+    expect(Marker).not.toHaveBeenCalled();
   });
 
   it("constructs a quiet preview map with the app theme's color scheme", () => {
@@ -116,11 +160,9 @@ describe("LiveMap", () => {
     beforeEach(() => {
       markerInternalPos = null;
       mapPanToSpy = vi.fn();
-      markerSetPositionSpy = vi.fn(
-        (pos: { lat: number; lng: number }) => {
-          markerInternalPos = pos;
-        },
-      );
+      markerSetPositionSpy = vi.fn((pos: { lat: number; lng: number }) => {
+        markerInternalPos = pos;
+      });
 
       // Stateful Marker: stores position from constructor opts and from setPosition().
       // vitest 4.x requires non-arrow function expressions for mocks called with `new`.
@@ -200,7 +242,10 @@ describe("LiveMap", () => {
 
       // panTo(target) is called when the animation step reaches t = 1.
       expect(mapPanToSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ lat: pointB.latitude, lng: pointB.longitude }),
+        expect.objectContaining({
+          lat: pointB.latitude,
+          lng: pointB.longitude,
+        }),
       );
     });
 

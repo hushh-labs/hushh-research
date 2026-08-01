@@ -9,6 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapHarness = vi.hoisted(() => {
   const map = {
+    addCircles: vi.fn(async (circles: unknown[]) =>
+      circles.map((_, index) => `circle-${index}`),
+    ),
     addMarkers: vi.fn(async (markers: unknown[]) =>
       markers.map((_, index) => `marker-${index}`),
     ),
@@ -18,8 +21,10 @@ const mapHarness = vi.hoisted(() => {
     enableTouch: vi.fn(async () => undefined),
     enableClustering: vi.fn(async () => undefined),
     fitBounds: vi.fn(async () => undefined),
+    removeCircles: vi.fn(async () => undefined),
     removeMarkers: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
+    setOnCircleClickListener: vi.fn(async () => undefined),
     setOnMarkerClickListener: vi.fn(async () => undefined),
     setPadding: vi.fn(async () => undefined),
   };
@@ -50,6 +55,18 @@ const navigationHarness = vi.hoisted(() => ({
   ),
   push: vi.fn(),
   replace: vi.fn(),
+}));
+
+const encryptionHarness = vi.hoisted(() => ({
+  point: {
+    latitude: 37.775,
+    longitude: -122.415,
+    accuracyM: 1_000,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "web" as const,
+    locationMode: "approximate" as const,
+    approximateRadiusM: 1_000,
+  },
 }));
 
 const experienceHarness = vi.hoisted(() => ({
@@ -97,6 +114,11 @@ vi.mock("@/lib/one-location/maps-config", () => ({
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: serviceHarness,
+}));
+
+vi.mock("@/lib/one-location/encryption", () => ({
+  decryptLocationEnvelope: vi.fn(async () => encryptionHarness.point),
+  encryptLocationForRecipient: vi.fn(async () => ({ ciphertext: "test" })),
 }));
 
 vi.mock("@/lib/testing/location-map-demo", () => ({
@@ -206,14 +228,19 @@ vi.mock("sonner", () => ({
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
+import { approximateAreaCenter } from "@/lib/one-location/location-precision";
 import {
   forgetOneLocationControlPreference,
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import { pendingLocationRevocationStorageKey } from "@/lib/one-location/location-revocation-queue";
 
 beforeEach(() => {
   forgetOneLocationControlPreference("test-user");
+  window.localStorage.removeItem(
+    pendingLocationRevocationStorageKey("test-user"),
+  );
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
   experienceHarness.demoMode = true;
@@ -442,6 +469,113 @@ describe("LocationImmersiveMap demo experience", () => {
           "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))",
       });
     });
+  });
+
+  it("renders an approximate share as an area without an exact person pin", async () => {
+    experienceHarness.demoMode = false;
+    const center = approximateAreaCenter({
+      latitude: 37.775,
+      longitude: -122.415,
+    });
+    encryptionHarness.point = {
+      ...encryptionHarness.point,
+      ...center,
+    };
+    serviceHarness.getMapState.mockResolvedValue({
+      preferences: { presenceMode: "ghost" },
+      markers: [
+        {
+          grant: {
+            id: "grant-approximate",
+            status: "active",
+            ownerDisplayName: "Maya Chen",
+            locationMode: "approximate",
+            approximateRadiusM: 1_000,
+          },
+          envelope: {
+            id: "envelope-approximate",
+            capturedAt: encryptionHarness.point.capturedAt,
+          },
+        },
+      ],
+    });
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenCalledWith([
+        expect.objectContaining({
+          center: { lat: center.latitude, lng: center.longitude },
+          radius: 1_000,
+          clickable: true,
+        }),
+      ]);
+    });
+    const markerPayloads = mapHarness.map.addMarkers.mock.calls.flatMap(
+      ([markers]) => markers,
+    );
+    expect(markerPayloads).not.toContainEqual(
+      expect.objectContaining({
+        coordinate: { lat: center.latitude, lng: center.longitude },
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Maya Chen on the map" }),
+    );
+    expect(
+      screen.getByText("Sharing an approximate area privately"),
+    ).toBeInTheDocument();
+  });
+
+  it("never publishes a foreground map update to a grant that is still stopping", async () => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "foreground_private" },
+    });
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [
+        {
+          userId: "recipient-1",
+          keyId: "key-1",
+          publicKeyJwk: { kty: "EC" },
+        },
+      ],
+      ownerGrants: [
+        {
+          id: "grant-stopping",
+          status: "active",
+          recipientUserId: "recipient-1",
+          recipientKeyId: "key-1",
+          locationMode: "precise",
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      pendingLocationRevocationStorageKey("test-user"),
+      JSON.stringify(["grant-stopping"]),
+    );
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-locate"));
+
+    await waitFor(() => {
+      expect(serviceHarness.getState).toHaveBeenCalled();
+    });
+    expect(serviceHarness.storeEnvelope).not.toHaveBeenCalled();
   });
 
   it("shows nearby attendees in the map drawer without creating peer markers", async () => {

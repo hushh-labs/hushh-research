@@ -94,13 +94,14 @@ consent.
 | Scope | Intended Use |
 | --- | --- |
 | `cap.location.live.share` | Owner creates a duration-bounded live-location grant |
-| `cap.location.live.view` | Exact approved recipient reads ciphertext for an active grant |
+| `cap.location.live.view` | Exact approved recipient reads ciphertext for an active grant; per-grant precise/approximate mode attenuates coordinate precision |
 | `cap.location.live.request` | Verified user requests access from an owner |
 | `cap.location.live.revoke` | Owner revokes active grant |
 | `cap.location.live.refer_request` | Recipient refers another verified user into a request flow |
 
 Consent and audit metadata for these scopes may include actor ids, request ids,
-grant ids, duration, timestamps, status, and reason codes. It must not include
+grant ids, duration, timestamps, status, reason codes, location mode, and an
+approximate radius. It must not include
 coordinates, addresses, map previews, or movement traces.
 
 ## One Nearby Presence Capability Scopes
@@ -145,6 +146,11 @@ envelopes (`one_location_envelopes`). The legacy plaintext prototype
 (`kai_location_*`, migration 060) was removed in migration
 `069_drop_kai_location_plaintext.sql`; the One Location Agent
 (`one_location_*`) is the only live-location system.
+The grant row is the authority for `location_mode` and
+`approximate_radius_m`. Approximate points are quantized before encryption and
+recipients fail closed when decrypted metadata or grid alignment disagrees with
+the grant. This uses the existing view scope; it does not create a second or
+broader location capability.
 
 ## One Email Disclosure Bundles
 

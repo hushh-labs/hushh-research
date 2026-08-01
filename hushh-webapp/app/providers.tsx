@@ -67,6 +67,7 @@ import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
+import { LocationRevocationRuntime } from "@/components/one-location/location-revocation-runtime";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -435,6 +436,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       <PersonaProvider>
         <RiaSurfaceScopeSync />
         <VaultProvider>
+          <LocationRevocationRuntime />
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <NativeTestRouter />

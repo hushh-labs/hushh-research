@@ -64,6 +64,17 @@ reverse-geocoded enrichment.
 
 The web/native client creates one envelope per grant update:
 
+- `precise` grants contain the exact captured point, use the live foreground
+  heartbeat/movement watch, and may expose exact-pin navigation to the recipient
+- `approximate` grants quantize the point on-device to a deterministic 1 km Web
+  Mercator cell before encryption, display a radius of at least 1 km, update no
+  more often than every five minutes, and never expose an exact pin or directions
+- the radius widens when device uncertainty is greater; an update that cannot
+  fit inside the consented radius fails closed rather than silently becoming
+  more precise or misleading
+- legacy grants with no authored mode remain `precise`; mixed precise and
+  approximate grants are prepared independently from the same device fix
+
 ```json
 {
   "algorithm": "ECDH-P256-AES256-GCM",
@@ -166,20 +177,21 @@ Capability scopes:
 
 ## Unified Location Control Contract
 
-The Location Agent header switch and Settings `Pause my location` control one
-user-scoped device preference. The header is on when at least one location
-channel is active: the owner's live preview, an active private grant publisher,
-or an active Nearby presence. Pausing stops new foreground/background private
+The Location Agent header switch and Settings `Pause location on this device`
+are exact inverse views of one user-scoped device preference; activity must not
+make them disagree. Pausing stops new coordinate captures and foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
-`Auto-share my location` is a durable user-scoped preference, independent from
+`Automatic location updates` is a durable user-scoped preference, independent from
 Pause. It controls continuous foreground/background updates only for private
 grants the owner already approved; it never creates a grant or auto-approves a
-request. Turning Auto-share off leaves consent and expiry intact and makes new
-shares publish only the location the owner explicitly confirms. Pause
-temporarily suppresses Auto-share without erasing that preference, so both
-settings remain stable across tab changes and route remounts.
+request. Explicitly confirming a new Area update or Live location turns this
+preference on and every mounted Location surface reflects that change. Turning
+it off later leaves consent and expiry intact but freezes active shares at their
+last encrypted point. Pause temporarily suppresses automatic updates without
+erasing that preference, so both
+settings remain stable across tab changes, browser-tab storage events, and route remounts.
 
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming
@@ -267,11 +279,12 @@ or spoof resistance may be claimed.
 
 ## Agent And Tool Contract
 
-`hushh_mcp.agents.location` is the One Location Agent surface. The manifest
-declares callable ADK tools for recipient listing, grant creation, encrypted
-envelope publishing, ciphertext viewing, revocation, access requests, request
-resolution, and referrals. Tools validate their capability scope per invocation
-and delegate persistence to `OneLocationAgentService`.
+`hushh_mcp.agents.location` is the One Location Agent surface. It distinguishes
+one-time snapshots, private 1 km+ Area updates, and precise Live locations. Its
+create/approval tools return coordinate-free proposals; only the confirmed
+owner device may capture, transform, encrypt, and atomically create a grant with
+its first envelope. Tools validate their capability scope per invocation and
+delegate persistence to `OneLocationAgentService`.
 
 The agent refuses referrals or public submissions that grant private access
 without owner approval. Public bearer links may reveal only the explicit
@@ -288,7 +301,9 @@ request-only links.
 2. The backend returns the raw token once and stores only its hash.
 3. If the owner attached a `publicLocation` snapshot, the public resolve
    response returns safe owner/link metadata plus that snapshot. The public page
-   displays the map immediately with no name, phone, or message form.
+   displays the map immediately with no name, phone, or message form. The
+   snapshot carries its explicit `precise` or `approximate` mode; approximate
+   snapshots are re-quantized server-side and never offer directions.
 4. If no snapshot is attached, the link is request-only and the public resolve
    response exposes only a safe owner label, status, duration, and expiry. By
    default the safe label is "a trusted person".
@@ -298,8 +313,10 @@ request-only links.
    pending access request for owner approval.
 7. If the phone does not have usable Hussh identity/key material, the submission
    stays pending identity/key setup.
-8. Owner approval still creates a fresh recipient-scoped grant and the owner
-   device still encrypts the coordinate envelope for that recipient.
+8. Owner approval requires an explicit Area updates or Live location choice plus
+   duration. The pending owner-visible request supplies the requester's active
+   public key; the device encrypts the reviewed point, and request resolution,
+   fresh recipient grant, first envelope, and audit events commit atomically.
 
 Public invite tables store token hashes, status, expiry, visitor display name,
 phone hash/last4, matched user id when available, request linkage, and an
@@ -357,13 +374,14 @@ boundary.
 
 ## Native Contract
 
-v1 is foreground-only.
-
-- iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
-  Capacitor plugin.
+- iOS uses the `HushhLocation` Capacitor plugin. Foreground capture requires
+  When In Use; owner-opted background private sharing requires Always access.
 - Android uses fine/coarse location permissions and the `HushhLocation`
   Capacitor plugin.
-- No iOS background location mode is added.
+- iOS background publishing encrypts per grant while JavaScript is suspended.
+  It preserves the selected mode: precise grants use movement cadence and
+  approximate grants are quantized before encryption at the five-minute cadence.
+  Reduced Accuracy cannot be published under a precise grant.
 - No Android background location permission is added.
 - Nearby Check-In reuses the same one-shot foreground capture on web, iOS, and
   Android. It adds no native method, geofence, or background permission.
@@ -372,8 +390,8 @@ v1 is foreground-only.
 - iOS one-shot capture enforces the caller's bounded timeout so a missing
   CoreLocation callback cannot strand the confirmation screen.
 
-Denied, unavailable, approximate, and foreground-only states must be visible in
-the web control surface.
+Denied, unavailable, reduced-accuracy, and foreground-only states must be
+visible in the web control surface.
 
 ## Migration From KAI Prototype
 
@@ -401,7 +419,11 @@ The implementation must prove:
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
   explicit public snapshot, while request-only links never reveal location
-- web, iOS, and Android have foreground permission parity
+- web, iOS, and Android have foreground permission parity; iOS background
+  publishing preserves each grant's precision mode and Android remains
+  foreground-only
+- approximate encrypted updates are grid-aligned, radius-bound, cadence-limited,
+  and rejected by recipients when payload mode does not match grant mode
 - saved places round-trip through encrypted Location PKM without plaintext
   local storage or a plaintext backend table
 - A/B/C/D flow is covered at service, authenticated API route, and browser

@@ -292,6 +292,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         iconTone: "blue",
         title: label,
         description: request.message?.trim() || "Wants to see your location.",
+        href: `/one/location?action=needs-review&requestId=${encodeURIComponent(request.id)}`,
+        chevron: true,
         actions: [
           {
             key: "deny",
@@ -304,22 +306,6 @@ export function useFeedActionables(): UseFeedActionablesResult {
               await OneLocationService.denyRequest({
                 vaultOwnerToken,
                 requestId: request.id,
-              });
-              if (userId) OneLocationStateResource.invalidate(userId);
-              await locationRefresh({ force: true });
-            },
-          },
-          {
-            key: "approve",
-            label: "Approve",
-            tone: "primary",
-            disabled: !vaultOwnerToken,
-            run: async () => {
-              if (!vaultOwnerToken) return;
-              await OneLocationService.approveRequest({
-                vaultOwnerToken,
-                requestId: request.id,
-                durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
               await locationRefresh({ force: true });

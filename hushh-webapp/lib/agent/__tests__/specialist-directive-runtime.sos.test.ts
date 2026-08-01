@@ -19,8 +19,12 @@ vi.mock("@/lib/one-location/service", () => ({
       sourcePlatform: "web",
     })),
     getState: vi.fn(),
-    storeEnvelope: vi.fn(async () => ({ ok: true })),
-    createGrant: vi.fn(),
+    getPermissionState: vi.fn(async () => ({
+      state: "granted",
+      precise: true,
+      background: "foreground-only",
+    })),
+    createGrantWithEnvelope: vi.fn(),
   },
 }));
 
@@ -80,17 +84,25 @@ function makeStateWithRecipients(
   };
 }
 
-function makeGrant(id: string, recipientUserId: string) {
+function makeAtomicResponse(id: string, recipientUserId: string) {
+  const envelope = { id: `envelope-${id}` };
   return {
-    id,
-    ownerUserId: "me",
-    recipientUserId,
-    recipientKeyId: `key-${recipientUserId}`,
-    status: "active",
-    consentScope: "location",
-    capabilityScopes: [],
-    durationHours: 8,
-  };
+    grant: {
+      id,
+      ownerUserId: "me",
+      recipientUserId,
+      recipientKeyId: `key-${recipientUserId}`,
+      status: "active",
+      consentScope: "location",
+      capabilityScopes: [],
+      durationHours: 8,
+      locationMode: "precise",
+      approximateRadiusM: null,
+      latestEnvelopeId: envelope.id,
+    },
+    envelope,
+    idempotentReplay: false,
+  } as never;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,13 +110,15 @@ function makeGrant(id: string, recipientUserId: string) {
 // ---------------------------------------------------------------------------
 
 describe("runLocationDirective sos_panic", () => {
-  const createGrantMock = vi.mocked(OneLocationService.createGrant);
+  const createGrantMock = vi.mocked(
+    OneLocationService.createGrantWithEnvelope,
+  );
   const getStateMock = vi.mocked(OneLocationService.getState);
-  const storeEnvelopeMock = vi.mocked(OneLocationService.storeEnvelope);
   const encryptMock = vi.mocked(encryptLocationForRecipient);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it("creates grants only for selected, connected, ready SMS contacts", async () => {
@@ -126,8 +140,8 @@ describe("runLocationDirective sos_panic", () => {
     );
 
     createGrantMock
-      .mockResolvedValueOnce(makeGrant("g1", "userA"))
-      .mockResolvedValueOnce(makeGrant("g2", "userB"));
+      .mockResolvedValueOnce(makeAtomicResponse("g1", "userA"))
+      .mockResolvedValueOnce(makeAtomicResponse("g2", "userB"));
 
     const result = await runLocationDirective(
       {
@@ -147,6 +161,10 @@ describe("runLocationDirective sos_panic", () => {
         recipientKeyId: "key-userA",
         durationHours: 8,
         reason: "sos_panic",
+        shareKind: "sos",
+        locationMode: "precise",
+        approximateRadiusM: null,
+        envelope: { ciphertext: "x", iv: "y" },
       }),
     );
     expect(createGrantMock).toHaveBeenCalledWith(
@@ -156,18 +174,15 @@ describe("runLocationDirective sos_panic", () => {
         recipientKeyId: "key-userB",
         durationHours: 8,
         reason: "sos_panic",
+        shareKind: "sos",
+        locationMode: "precise",
+        approximateRadiusM: null,
+        envelope: { ciphertext: "x", iv: "y" },
       }),
     );
 
-    // One encryption + one envelope store per recipient
+    // One encryption + one atomic grant/envelope commit per recipient.
     expect(encryptMock).toHaveBeenCalledTimes(2);
-    expect(storeEnvelopeMock).toHaveBeenCalledTimes(2);
-    expect(storeEnvelopeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultOwnerToken: "vault-token", grantId: "g1" }),
-    );
-    expect(storeEnvelopeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultOwnerToken: "vault-token", grantId: "g2" }),
-    );
 
     expect(result).toMatchObject({
       delegate_agent_id: "agent_location",
@@ -200,7 +215,6 @@ describe("runLocationDirective sos_panic", () => {
 
     expect(createGrantMock).not.toHaveBeenCalled();
     expect(encryptMock).not.toHaveBeenCalled();
-    expect(storeEnvelopeMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       delegate_agent_id: "agent_location",
       kind: "action",
@@ -241,26 +255,7 @@ describe("runLocationDirective sos_panic", () => {
     expect(result).toMatchObject({ status: "cancelled" });
   });
 
-  it("works correctly when currentUserId is null (stateless runtime) — adds both sides of every active connection", async () => {
-    // When myUserId is null, membership-by-both-sides ensures userA and userB
-    // (who are connected to each other) are both in the connected set — so
-    // if they appear in recipients they will be alerted.
-    getStateMock.mockResolvedValueOnce(
-      makeStateWithRecipients(
-        [
-          { userId: "userA", keyId: "key-userA", publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" } },
-          { userId: "userB", keyId: "key-userB", publicKeyJwk: { kty: "EC", crv: "P-256", x: "cc", y: "dd" } },
-        ],
-        [
-          { id: "c1", userAId: "userA", userBId: "userB", status: "active", inviterUserId: "userA", inviteeUserId: "userB" },
-        ],
-      ),
-    );
-
-    createGrantMock
-      .mockResolvedValueOnce(makeGrant("g1", "userA"))
-      .mockResolvedValueOnce(makeGrant("g2", "userB"));
-
+  it("fails closed when currentUserId is null", async () => {
     const result = await runLocationDirective(
       {
         kind: "action",
@@ -270,8 +265,11 @@ describe("runLocationDirective sos_panic", () => {
       null, // null currentUserId
     );
 
-    // Both recipients should be included since both sides of the connection are added
-    expect(createGrantMock).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({ status: "completed" });
+    expect(getStateMock).not.toHaveBeenCalled();
+    expect(createGrantMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "failed",
+      detail: "Sign in again before sharing location.",
+    });
   });
 });

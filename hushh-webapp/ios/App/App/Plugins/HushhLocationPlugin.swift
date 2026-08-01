@@ -4,10 +4,9 @@ import CoreLocation
 import UIKit
 
 /**
- * HushhLocationPlugin - foreground-only one-shot location capture.
- *
- * One Location Agent v1 does not request background location. Coordinates are
- * returned only to the local web layer so it can encrypt before persistence.
+ * HushhLocationPlugin - foreground capture plus explicit iOS background share.
+ * Coordinates are encrypted for a consented grant before leaving the device;
+ * approximate grants are coarsened natively while JavaScript is suspended.
  */
 @objc(HushhLocationPlugin)
 public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -43,6 +42,16 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
+        backgroundPublisher.onBecameInactive = { [weak self] in
+            guard let self, self.watchCalls.isEmpty else { return }
+            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        }
+        backgroundPublisher.onSessionChanged = { [weak self] in
+            DispatchQueue.main.async {
+                self?.configureManagerForActiveSources()
+                self?.stopManagerIfIdle()
+            }
+        }
     }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
@@ -203,9 +212,8 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         if let watchCall = watchCalls.removeValue(forKey: id) {
             bridge?.releaseCall(watchCall)
         }
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
-        }
+        configureManagerForActiveSources()
+        stopManagerIfIdle()
         call.resolve()
     }
 
@@ -222,16 +230,57 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             call.resolve(["started": false, "reason": "invalid-session"])
             return
         }
+        let requestedPrecise = rawGrants.contains {
+            ($0["locationMode"] as? String) == "precise"
+        }
+        let preciseAllowed: Bool
+        if #available(iOS 14.0, *) {
+            preciseAllowed = manager.accuracyAuthorization == .fullAccuracy
+        } else {
+            preciseAllowed = true
+        }
+        let skippedPrecise = requestedPrecise && !preciseAllowed
         let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
             guard
                 let grantId = g["grantId"] as? String,
                 let keyId = g["recipientKeyId"] as? String,
-                let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+                let jwk = g["recipientPublicKeyJwk"] as? [String: Any],
+                let locationMode = g["locationMode"] as? String,
+                locationMode == "precise" || locationMode == "approximate"
             else { return nil }
-            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+            if locationMode == "precise", !preciseAllowed {
+                // Reduced Accuracy must never be labelled as a precise grant.
+                return nil
+            }
+            let radius = g["approximateRadiusM"] as? Double
+            if locationMode == "approximate" {
+                guard
+                    let radius,
+                    radius >= 1_000,
+                    radius <= 20_000,
+                    radius.truncatingRemainder(dividingBy: 250) == 0
+                else { return nil }
+            }
+            let lastPublishedAt: Date? = {
+                guard let raw = g["lastPublishedAt"] as? String else { return nil }
+                let fractional = ISO8601DateFormatter()
+                fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                return fractional.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+            }()
+            return BackgroundShareGrantNative(
+                grantId: grantId,
+                recipientKeyId: keyId,
+                recipientPublicKeyJwk: jwk,
+                locationMode: locationMode,
+                approximateRadiusM: locationMode == "approximate" ? radius : nil,
+                lastPublishedAt: lastPublishedAt
+            )
         }
         guard !grants.isEmpty else {
-            call.resolve(["started": false, "reason": "no-grants"])
+            call.resolve([
+                "started": false,
+                "reason": skippedPrecise ? "precise-location-required" : "no-grants"
+            ])
             return
         }
         let session = BackgroundShareSessionNative(
@@ -239,18 +288,25 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             backendBaseUrl: base,
             grants: grants,
             minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
-            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
+            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000,
+            approximateIntervalMs: max(
+                call.getDouble("approximateIntervalMs") ?? 300_000,
+                300_000
+            )
         )
         backgroundPublisher.start(session: session)
+        configureManagerForActiveSources()
         DispatchQueue.main.async { self.manager.startUpdatingLocation() }
-        call.resolve(["started": true])
+        call.resolve([
+            "started": true,
+            "reason": skippedPrecise ? "precise-grants-paused" : "started"
+        ])
     }
 
     @objc func stopBackgroundShare(_ call: CAPPluginCall) {
         backgroundPublisher.stop()
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
-        }
+        configureManagerForActiveSources()
+        stopManagerIfIdle()
         call.resolve()
     }
 
@@ -261,6 +317,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         call.keepAlive = true
         bridge?.saveCall(call)
         watchCalls[call.callbackId] = call
+        configureManagerForActiveSources()
         DispatchQueue.main.async { self.manager.startUpdatingLocation() }
     }
 
@@ -279,7 +336,8 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             bridge?.releaseCall(watchCall)
             watchCalls.removeValue(forKey: id)
         }
-        DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        configureManagerForActiveSources()
+        stopManagerIfIdle()
     }
 
     private func permissionPayload() -> [String: Any] {
@@ -327,6 +385,27 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let backgroundPermissionLost = manager.authorizationStatus != .authorizedAlways
+        let precisePermissionLost: Bool
+        if #available(iOS 14.0, *) {
+            precisePermissionLost =
+                backgroundPublisher.requiresPrecise &&
+                manager.accuracyAuthorization != .fullAccuracy
+        } else {
+            precisePermissionLost = false
+        }
+        if backgroundPermissionLost {
+            backgroundPublisher.stop()
+            configureManagerForActiveSources()
+            stopManagerIfIdle()
+        } else if precisePermissionLost {
+            // Reduced Accuracy invalidates only Live grants. Area grants remain
+            // within their reviewed coarse boundary and continue natively.
+            backgroundPublisher.suspendPreciseGrants()
+            configureManagerForActiveSources()
+            stopManagerIfIdle()
+        }
+
         if let permissionCall = pendingPermissionCall {
             pendingPermissionCall = nil
             permissionCall.resolve(permissionPayload())
@@ -371,19 +450,17 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else {
-            if pendingLocationCall != nil {
-                clearPendingLocationCall()?.reject(
-                    "Precise location unavailable."
-                )
-            }
+        guard let location = locations.reversed().first(where: isUsableLocation) else {
+            // Keep any one-shot request pending: Core Location frequently sends
+            // a cached fix first. Its existing timeout will fail if a fresh,
+            // usable fix never arrives.
             return
         }
 
         let payload: [String: Any] = [
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
-            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
+            "accuracyM": location.horizontalAccuracy,
             "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
             "sourcePlatform": "ios"
         ]
@@ -391,6 +468,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         // One-shot getCurrentPosition resolves and clears its single call.
         if let call = clearPendingLocationCall() {
             call.resolve(payload)
+            configureManagerForActiveSources()
         }
 
         // Continuous watches keep firing on every subsequent fix.
@@ -398,7 +476,10 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
         // Background publisher (if active) encrypts + POSTs each fix natively.
         if backgroundPublisher.isActive {
-            backgroundPublisher.handle(location: location)
+            backgroundPublisher.handle(
+                location: location,
+                allowPrecise: manager.accuracyAuthorization == .fullAccuracy
+            )
         }
     }
 
@@ -408,5 +489,31 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             call.reject(message)
         }
         failWatches(message)
+    }
+
+    private func configureManagerForActiveSources() {
+        if !watchCalls.isEmpty || backgroundPublisher.requiresPrecise {
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            manager.distanceFilter = kCLDistanceFilterNone
+            return
+        }
+        if backgroundPublisher.isActive {
+            manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            manager.distanceFilter = 250
+        }
+    }
+
+    private func isUsableLocation(_ location: CLLocation) -> Bool {
+        guard
+            location.horizontalAccuracy >= 0,
+            CLLocationCoordinate2DIsValid(location.coordinate)
+        else { return false }
+        let age = Date().timeIntervalSince(location.timestamp)
+        return age >= -30 && age <= 120
+    }
+
+    private func stopManagerIfIdle() {
+        guard watchCalls.isEmpty, !backgroundPublisher.isActive else { return }
+        DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
     }
 }

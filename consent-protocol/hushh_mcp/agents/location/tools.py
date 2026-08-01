@@ -13,7 +13,10 @@ from uuid import UUID
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.tools import hushh_tool
-from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.one_location_agent_service import (
+    OneLocationAgentError,
+    OneLocationAgentService,
+)
 
 
 def _ctx() -> HushhContext:
@@ -44,6 +47,30 @@ def _require_uuid(value: str, label: str) -> str:
     return str(value)
 
 
+def _location_mode(value: str) -> str:
+    mode = str(value or "").strip().lower()
+    if mode not in {"approximate", "precise"}:
+        raise ValueError("location_mode must be approximate or precise")
+    return mode
+
+
+def _duration_hours(value: float) -> float:
+    try:
+        hours = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_hours must be a number between 0 and 24") from exc
+    if not (0 < hours <= 24):
+        raise ValueError("duration_hours must be greater than 0 and at most 24")
+    return hours
+
+
+def _optional_reason(value: str | None) -> str | None:
+    reason = " ".join(str(value or "").split())
+    if len(reason) > 300:
+        raise ValueError("reason must be at most 300 characters")
+    return reason or None
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_location_recipients")
 async def list_location_recipients(limit: int = 50) -> dict[str, Any]:
     """List verified recipients eligible for a per-recipient location grant."""
@@ -62,17 +89,37 @@ async def create_location_share(
     recipient_key_id: str | None,
     duration_hours: float,
     reason: str | None = None,
+    location_mode: str = "approximate",
 ) -> dict[str, Any]:
-    """Create a recipient-bound live-location grant without publishing plaintext coordinates."""
+    """Propose a private share for explicit device-side capture and encryption."""
     context = _ctx()
-    return _service().create_grant(
+    mode = _location_mode(location_mode)
+    hours = _duration_hours(duration_hours)
+    clean_reason = _optional_reason(reason)
+    recipients = _service().list_verified_recipients(
         owner_user_id=context.user_id,
-        recipient_user_id=recipient_user_id,
-        recipient_key_id=recipient_key_id,
-        duration_hours=duration_hours,
-        reason=reason,
-        enforce_connection=True,
+        limit=200,
     )
+    recipient = next(
+        (
+            item
+            for item in recipients
+            if str(item.get("userId") or "") == str(recipient_user_id)
+            and str(item.get("keyId") or "") == str(recipient_key_id or "")
+        ),
+        None,
+    )
+    if not recipient:
+        raise ValueError("Choose a connected recipient with an active location key")
+    return {
+        "proposed": "create_location_share",
+        "recipientUserId": str(recipient_user_id),
+        "recipientKeyId": str(recipient_key_id or ""),
+        "recipientDisplayName": recipient.get("displayName") or "your recipient",
+        "durationHours": hours,
+        "reason": clean_reason,
+        "locationMode": mode,
+    }
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="publish_location_envelope")
@@ -116,14 +163,31 @@ async def request_location_access(owner_user_id: str, message: str | None = None
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="approve_location_request")
-async def approve_location_request(request_id: str, duration_hours: float) -> dict[str, Any]:
-    """Approve a pending request and create a separate recipient-scoped grant."""
+async def approve_location_request(
+    request_id: str,
+    duration_hours: float,
+    location_mode: str = "approximate",
+) -> dict[str, Any]:
+    """Propose approval; the device captures and encrypts only after confirmation."""
     context = _ctx()
-    return _service().approve_request(
-        owner_user_id=context.user_id,
-        request_id=request_id,
-        duration_hours=duration_hours,
-    )
+    request_id = _require_uuid(request_id, "request_id")
+    mode = _location_mode(location_mode)
+    hours = _duration_hours(duration_hours)
+    try:
+        request = _service().get_pending_access_request(
+            owner_user_id=context.user_id,
+            request_id=request_id,
+        )
+    except OneLocationAgentError as exc:
+        raise ValueError("Pending location request was not found") from exc
+    return {
+        "proposed": "approve_location_request",
+        "requestId": request_id,
+        "requesterUserId": str(request.get("requesterUserId") or ""),
+        "recipientDisplayName": request.get("requesterDisplayName") or "the requester",
+        "durationHours": hours,
+        "locationMode": mode,
+    }
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="deny_location_request")
@@ -166,6 +230,7 @@ async def list_active_location_shares() -> dict[str, Any]:
             "recipientUserId": grant.get("recipientUserId"),
             "recipientDisplayName": grant.get("recipientDisplayName"),
             "expiresAt": grant.get("expiresAt"),
+            "locationMode": grant.get("locationMode") or "precise",
         }
         for grant in state.get("ownerGrants", [])
         if grant.get("status") == "active"
@@ -185,6 +250,7 @@ async def list_incoming_location_shares() -> dict[str, Any]:
             "ownerUserId": grant.get("ownerUserId"),
             "ownerDisplayName": grant.get("ownerDisplayName"),
             "expiresAt": grant.get("expiresAt"),
+            "locationMode": grant.get("locationMode") or "precise",
         }
         for grant in state.get("receivedGrants", [])
         if grant.get("status") == "active"
@@ -211,18 +277,21 @@ async def list_public_links() -> dict[str, Any]:
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_public_link")
-async def propose_public_link(duration_hours: float) -> dict[str, Any]:
+async def propose_public_link(
+    duration_hours: float,
+    location_mode: str = "approximate",
+) -> dict[str, Any]:
     """Propose creating an owner-confirmed public link. Does NOT create it (the
     browser captures the snapshot and creates it after explicit confirmation).
     Coordinate-free."""
     _ctx()
-    try:
-        hours = float(duration_hours)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("duration_hours must be a number between 0 and 24") from exc
-    if not (0 < hours <= 24):
-        raise ValueError("duration_hours must be greater than 0 and at most 24")
-    return {"proposed": "create_public_link", "durationHours": hours}
+    hours = _duration_hours(duration_hours)
+    mode = _location_mode(location_mode)
+    return {
+        "proposed": "create_public_link",
+        "durationHours": hours,
+        "locationMode": mode,
+    }
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_sos_panic")
@@ -309,6 +378,67 @@ def _expiry_hint(expires_at: Any, *, now: datetime | None = None) -> str | None:
         return f"expires in {total_minutes} minute{'s' if total_minutes != 1 else ''}"
     hours = int(total_minutes / 60 + 0.5)
     return f"expires in {hours} hour{'s' if hours != 1 else ''}"
+
+
+@hushh_tool(
+    scope=ConsentScope.CAP_LOCATION_LIVE_SHARE,
+    name="request_location_sharing_job_choice",
+)
+async def request_location_sharing_job_choice(
+    context: str = "share",
+) -> dict[str, Any]:
+    """Ask which distinct sharing job the user intends instead of guessing."""
+    _ctx()
+    normalized_context = str(context or "share").strip().lower()
+    if normalized_context not in {"share", "approval"}:
+        raise ValueError("context must be share or approval")
+    options = []
+    if normalized_context == "share":
+        options.append(
+            {
+                "label": "Send location once",
+                "ref": {"sharingJob": "public_snapshot"},
+                "hint": (
+                    "Creates a shareable link captured once; anyone it is forwarded "
+                    "to can view it until expiry; it never follows your movement"
+                ),
+            }
+        )
+    options.extend(
+        [
+            {
+                "label": "Area updates",
+                "ref": {
+                    "sharingJob": "private_share",
+                    "locationMode": "approximate",
+                },
+                "hint": "Private 1 km+ area, refreshed about every 5 min",
+            },
+            {
+                "label": "Live location",
+                "ref": {
+                    "sharingJob": "private_share",
+                    "locationMode": "precise",
+                },
+                "hint": "Private exact moving pin for pickup, travel, or safety",
+            },
+        ]
+    )
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_location_sharing_job",
+            "question": (
+                "How do you want to share your location?"
+                if normalized_context == "share"
+                else "What should they be allowed to see?"
+            ),
+            "options": options,
+            "minSelections": 1,
+            "maxSelections": 1,
+            "allowFreeText": False,
+        }
+    }
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_recipient_choice")
@@ -551,6 +681,7 @@ V2_LOCATION_TOOLS = [
     propose_location_view,
     revoke_public_link,
     request_device_location_permission,
+    request_location_sharing_job_choice,
     request_recipient_choice,
     request_active_share_choice,
     request_duration_choice,

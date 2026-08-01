@@ -777,6 +777,9 @@ export type BackgroundShareGrant = {
   grantId: string;
   recipientKeyId: string;
   recipientPublicKeyJwk: JsonWebKey;
+  locationMode: "approximate" | "precise";
+  approximateRadiusM: number | null;
+  lastPublishedAt: string | null;
 };
 
 export type BackgroundShareSession = {
@@ -785,6 +788,7 @@ export type BackgroundShareSession = {
   grants: BackgroundShareGrant[];
   minMoveMeters: number;
   minIntervalMs: number;
+  approximateIntervalMs: number;
 };
 
 export interface HushhLocationPlugin {
@@ -847,10 +851,13 @@ export interface HushhLocationPlugin {
   stopBackgroundShare(): Promise<void>;
 }
 
-
-export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
-  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
-});
+export const HushhLocation = registerPlugin<HushhLocationPlugin>(
+  "HushhLocation",
+  {
+    web: () =>
+      import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+  },
+);
 
 // ==================== HushhContactsPlugin ====================
 // Contact-book permission and read-only contact lookup for Connect matching.
@@ -874,9 +881,13 @@ export interface HushhContactsPlugin {
   }>;
 }
 
-export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
-  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
-});
+export const HushhContacts = registerPlugin<HushhContactsPlugin>(
+  "HushhContacts",
+  {
+    web: () =>
+      import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+  },
+);
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management

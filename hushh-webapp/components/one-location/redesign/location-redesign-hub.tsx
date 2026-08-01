@@ -101,7 +101,15 @@ import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-l
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
-export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+type LocationApprovalDraft = {
+  requestId: string;
+  locationMode: LocationTypeValue;
+  durationHours: string;
+  durationTouched: boolean;
+};
+
+export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "4";
+const ONE_LOCATION_LIVE_JOURNEY_DEFAULT_DURATION_HOURS = "1";
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -145,6 +153,9 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
+  /** Server revokes awaiting confirmation; excluded from every publisher. */
+  pendingRevocationCount: number;
+  onRetryPendingRevocations: () => void;
 
   /* device + self location */
   readiness: {
@@ -156,8 +167,11 @@ export type LocationHubViewModel = {
   permissionIsPrompt: boolean;
   locationEnabled: boolean;
   autoShareEnabled: boolean;
+  backgroundShareSupported: boolean;
+  backgroundShareEnabled: boolean;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
+  preciseLocationAvailable: boolean;
   myLocationPoint: PlainLocationPoint | null;
   myLocationError: string | null;
 
@@ -201,18 +215,23 @@ export type LocationHubViewModel = {
   onHideMyLocation: () => void;
   onResumeMyLocation: () => void;
   onAutoShareChange: (enabled: boolean) => void;
+  onBackgroundShareChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
   onShareToContacts: () => void;
   onOpenShareReview: () => void;
-  onConfirmShare: () => void;
-  onSendRequest: () => void;
-  onApprove: (request: OneLocationAccessRequest) => void;
+  onConfirmShare: (locationMode: LocationTypeValue) => void;
+  onSendRequest: (reason?: ReasonValue | null) => void;
+  onApprove: (
+    request: OneLocationAccessRequest,
+    locationMode: LocationTypeValue,
+    durationHours: number,
+  ) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
-  onCreatePublicInvite: () => void;
+  onCreatePublicInvite: (locationMode: LocationTypeValue) => void;
   onCopyPublicInvite: () => void;
   onSharePublicInvite: () => void;
   onRevokePublicInvite: (invite: OneLocationPublicInvite) => void;
@@ -352,10 +371,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
       data-testid="one-location-header-actions"
     >
       <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
-        <span
-          className="hidden whitespace-nowrap sm:inline"
-          aria-hidden="true"
-        >
+        <span className="hidden whitespace-nowrap sm:inline" aria-hidden="true">
           {statusLabel}
         </span>
         <Switch
@@ -369,6 +385,28 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           )}
         />
       </div>
+    </div>
+  );
+}
+
+function PendingRevocationNotice({ vm }: { vm: LocationHubViewModel }) {
+  if (!vm.pendingRevocationCount) return null;
+  const plural = vm.pendingRevocationCount === 1 ? "request" : "requests";
+  return (
+    <div className="space-y-2">
+      <WarningCard
+        title={`Stopping ${vm.pendingRevocationCount} location ${plural}`}
+        description="One has blocked further updates on this device but is still waiting for server confirmation. It retries while you are signed in."
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={vm.onRetryPendingRevocations}
+        className="rounded-full"
+      >
+        Retry now
+      </Button>
     </div>
   );
 }
@@ -479,9 +517,45 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [locationType, setLocationType] =
-    useState<LocationTypeValue>("precise");
+  const [privateLocationType, setPrivateLocationType] =
+    useState<LocationTypeValue>("approximate");
+  const [snapshotLocationType, setSnapshotLocationType] =
+    useState<LocationTypeValue>("approximate");
+  const [shareDurationTouched, setShareDurationTouched] = useState(false);
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
+  const preciseLocationAvailable = vm.preciseLocationAvailable;
+  const setShareDurationHours = vm.setShareDurationHours;
+
+  useEffect(() => {
+    if (preciseLocationAvailable) return;
+    setPrivateLocationType("approximate");
+    setSnapshotLocationType("approximate");
+    if (!shareDurationTouched) {
+      setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+    }
+  }, [preciseLocationAvailable, setShareDurationHours, shareDurationTouched]);
+
+  const handlePrivateLocationTypeChange = useCallback(
+    (next: LocationTypeValue) => {
+      setPrivateLocationType(next);
+      if (!shareDurationTouched) {
+        vm.setShareDurationHours(
+          next === "approximate"
+            ? ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS
+            : ONE_LOCATION_LIVE_JOURNEY_DEFAULT_DURATION_HOURS,
+        );
+      }
+    },
+    [shareDurationTouched, vm],
+  );
+
+  const handlePrivateDurationChange = useCallback(
+    (next: string) => {
+      setShareDurationTouched(true);
+      vm.setShareDurationHours(next);
+    },
+    [vm],
+  );
 
   // A location action flow is a focused sub-screen of /one/location.
   // The open flow is mirrored into the URL (`?action=…`) so the SINGLE top-left
@@ -494,13 +568,21 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     (next: Exclude<FlowKind, "none">) => {
       setFlow(next);
       pendingFlowRef.current = next;
-      if (next === "share") setShareStep("person");
+      if (next === "share") {
+        setShareStep("person");
+        setPrivateLocationType("approximate");
+        setShareDurationTouched(false);
+        vm.setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+      } else if (next === "temp-link") {
+        setSnapshotLocationType("approximate");
+        vm.setDurationHours("1");
+      }
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_SOURCE_PARAM);
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, vm],
   );
 
   const closeFlow = useCallback(
@@ -508,6 +590,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       setFlow("none");
       pendingFlowRef.current = "none";
       setShareStep("person");
+      setPrivateLocationType("approximate");
+      setSnapshotLocationType("approximate");
+      setShareDurationTouched(false);
       vm.setShareReviewOpen(false);
       if (nextTab) {
         setTabState(nextTab);
@@ -582,6 +667,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     setFlow((current) => (current === desired ? current : desired));
     if (desired === "none") {
       setShareStep("person");
+      setPrivateLocationType("approximate");
+      setSnapshotLocationType("approximate");
+      setShareDurationTouched(false);
       vm.setShareReviewOpen(false);
     }
     // `vm.setShareReviewOpen` is a stable useState setter; depend on searchParams
@@ -601,6 +689,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       setFlow("none");
       pendingFlowRef.current = "none";
       setShareStep("person");
+      setPrivateLocationType("approximate");
+      setShareDurationTouched(false);
       if (nearbyPrivateCheckIn) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
@@ -633,13 +723,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
+        <PendingRevocationNotice vm={vm} />
         {flow === "share" ? (
           <ShareFlow
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={locationType}
-            setLocationType={setLocationType}
+            locationType={privateLocationType}
+            setLocationType={handlePrivateLocationTypeChange}
+            onDurationChange={handlePrivateDurationChange}
             onClose={closeFlow}
           />
         ) : flow === "ask" ? (
@@ -705,8 +797,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : (
           <TemporaryLinkFlow
             vm={vm}
-            locationType={locationType}
-            setLocationType={setLocationType}
+            locationType={snapshotLocationType}
+            setLocationType={setSnapshotLocationType}
             onClose={closeFlow}
           />
         )}
@@ -731,6 +823,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actions={<LocationHeaderActions vm={vm} />}
       />
 
+      <PendingRevocationNotice vm={vm} />
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
@@ -768,6 +861,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onInvite={() => openFlow("invite")}
               onStartShare={() => openFlow("share")}
               onAsk={() => openFlow("ask")}
+              onShareToContacts={() => openFlow("temp-link")}
             />
           </LocationHubPanel>
 
@@ -911,6 +1005,33 @@ function LocationDetailFlow({
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
+  const [approvalDraft, setApprovalDraft] =
+    useState<LocationApprovalDraft | null>(null);
+  useEffect(() => {
+    if (
+      approvalDraft &&
+      !vm.pendingOwnerRequests.some(
+        (request) => request.id === approvalDraft.requestId,
+      )
+    ) {
+      setApprovalDraft(null);
+    }
+  }, [approvalDraft, vm.pendingOwnerRequests]);
+  useEffect(() => {
+    if (vm.preciseLocationAvailable) return;
+    setApprovalDraft((current) =>
+      current?.locationMode === "precise"
+        ? {
+            ...current,
+            locationMode: "approximate",
+            durationHours: current.durationTouched
+              ? current.durationHours
+              : ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+          }
+        : current,
+    );
+  }, [vm.preciseLocationAvailable]);
+
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -918,7 +1039,8 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "Live locations disappear when access ends or is revoked.",
+      description:
+        "Area updates and live locations disappear when access ends or is revoked.",
     },
     "needs-review": {
       title: "Needs my review",
@@ -938,7 +1060,11 @@ function LocationDetailFlow({
                 icon={UsersRound}
                 iconTone="purple"
                 title={vm.grantRecipientLabel(grant)}
-                description={vm.expiresCountdownLabel(grant.expiresAt)}
+                description={`${
+                  grant.locationMode === "approximate"
+                    ? "Area updates"
+                    : "Live location"
+                } · ${vm.expiresCountdownLabel(grant.expiresAt)}`}
                 trailing={
                   <Button
                     variant="ghost"
@@ -971,16 +1097,25 @@ function LocationDetailFlow({
                 <SharedWithMeCard
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
-                  statusLine={vm.expiresLabel(grant.expiresAt)}
+                  statusLine={`${
+                    grant.locationMode === "approximate"
+                      ? "Area updates"
+                      : "Live location"
+                  } · ${vm.expiresLabel(grant.expiresAt)}`}
+                  statusLabel={
+                    grant.locationMode === "approximate" ? "Updating" : "Live"
+                  }
                   previewExpanded={expanded}
-                  mapHref={point ? vm.mapLocationHref(point) : undefined}
+                  mapHref={
+                    point && point.locationMode !== "approximate"
+                      ? vm.mapLocationHref(point)
+                      : undefined
+                  }
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
                   viewBusy={vm.busy === "view"}
                   message={
-                    point?.checkIn?.message ??
-                    grant.shareMessage ??
-                    undefined
+                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
                   }
                 >
                   {expanded && point ? vm.renderMapPreview(point, false) : null}
@@ -991,25 +1126,121 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing shared with you"
-            description="A person's live location appears here only while their grant is active."
+            description="An active area update or live location appears here only while its grant is active."
           />
         )
       ) : null}
       {kind === "needs-review" ? (
         vm.pendingOwnerRequests.length ? (
           <div className="space-y-3">
-            {vm.pendingOwnerRequests.map((request) => (
-              <RequestCard
-                key={request.id}
-                name={vm.requesterLabel(request)}
-                promptLine="Asks to see your location"
-                reason={request.message ?? undefined}
-                onApprove={() => vm.onApprove(request)}
-                onDecline={() => vm.onDeny(request.id)}
-                approveBusy={vm.busy === "approve"}
-                declineBusy={vm.busy === "deny"}
-              />
-            ))}
+            {vm.pendingOwnerRequests.map((request) => {
+              const reviewing = approvalDraft?.requestId === request.id;
+              return (
+                <div key={request.id} className="space-y-3">
+                  <RequestCard
+                    name={vm.requesterLabel(request)}
+                    promptLine="Asks to see your location"
+                    reason={request.message ?? undefined}
+                    approveLabel={reviewing ? "Reviewing" : "Review"}
+                    onApprove={() =>
+                      setApprovalDraft({
+                        requestId: request.id,
+                        locationMode: "approximate",
+                        durationHours:
+                          ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+                        durationTouched: false,
+                      })
+                    }
+                    onDecline={() => vm.onDeny(request.id)}
+                    approveBusy={vm.busy === "approve" && reviewing}
+                    declineBusy={vm.busy === "deny"}
+                  />
+                  {reviewing && approvalDraft ? (
+                    <SectionCard title="Choose what they can see">
+                      <div className="space-y-5">
+                        <LocationTypeSelector
+                          value={approvalDraft.locationMode}
+                          onChange={(next) =>
+                            setApprovalDraft((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    locationMode: next,
+                                    durationHours: current.durationTouched
+                                      ? current.durationHours
+                                      : next === "approximate"
+                                        ? ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS
+                                        : ONE_LOCATION_LIVE_JOURNEY_DEFAULT_DURATION_HOURS,
+                                  }
+                                : current,
+                            )
+                          }
+                          label="Sharing mode"
+                          variant="updates"
+                          preciseDisabled={!vm.preciseLocationAvailable}
+                        />
+                        <DurationSelector
+                          value={approvalDraft.durationHours}
+                          onChange={(next) =>
+                            setApprovalDraft((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    durationHours: next,
+                                    durationTouched: true,
+                                  }
+                                : current,
+                            )
+                          }
+                          presentation="select"
+                        />
+                        <TrustNoteCard
+                          title="Your choice controls this grant"
+                          description="They receive only the mode and duration you approve here. You can stop it anytime."
+                        />
+                        {vm.locationPaused ? (
+                          <WarningCard
+                            title="Location is paused on this device"
+                            description="Resume Location before approving. The request stays pending until you choose."
+                          />
+                        ) : !vm.autoShareEnabled ? (
+                          <TrustNoteCard
+                            title="Approval turns on automatic updates"
+                            description="The Settings switch will turn on so this Area update or Live location keeps its reviewed behavior."
+                          />
+                        ) : null}
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <Button
+                            variant="ghost"
+                            onClick={() => setApprovalDraft(null)}
+                            disabled={vm.busy === "approve"}
+                            className="h-11 rounded-full"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              vm.onApprove(
+                                request,
+                                approvalDraft.locationMode,
+                                Number(approvalDraft.durationHours),
+                              )
+                            }
+                            isLoading={vm.busy === "approve"}
+                            disabled={vm.locationPaused}
+                            className="h-11 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                          >
+                            {approvalDraft.locationMode === "approximate"
+                              ? "Approve area updates"
+                              : "Approve live location"}
+                          </Button>
+                        </div>
+                      </div>
+                    </SectionCard>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <EmptyState
@@ -1090,28 +1321,49 @@ function LocationSettingsFlow({
         <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
           <div className="flex-1">
             <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Auto-share my location
+              Automatic location updates
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — approved shares keep receiving live updates. Off — new shares
-              send only the location you explicitly confirm.
+              Area updates and Live locations turn this on when you start them.
+              Turn it off to freeze active shares at their last encrypted point.
             </p>
           </div>
           <LocationToggle
             checked={vm.autoShareEnabled}
             onChange={vm.onAutoShareChange}
-            label="Auto-share my location"
+            label="Automatic location updates"
             disabled={BUSY(vm, "selfLocation")}
           />
         </div>
+        {vm.backgroundShareSupported ? (
+          <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
+            <div className="flex-1">
+              <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                Keep active shares updating in background
+              </p>
+              <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+                Optional on supported iPhones. Area updates stay low-frequency;
+                Live locations keep moving when you switch tabs or lock the
+                screen. Force-quitting One stops updates.
+              </p>
+            </div>
+            <LocationToggle
+              checked={vm.backgroundShareEnabled}
+              onChange={vm.onBackgroundShareChange}
+              label="Keep active shares updating in background"
+              disabled={BUSY(vm, "backgroundShare")}
+            />
+          </div>
+        ) : null}
         <div className="flex items-center gap-3.5 py-4">
           <div className="flex-1">
             <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Pause my location
+              Pause location on this device
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Stop new private-share updates and check out from Nearby. Existing
-              shares keep their expiry and may retain your last encrypted point.
+              Block new captures, stop private-share updates, and check out from
+              Nearby. Existing shares keep their expiry and last encrypted
+              point.
             </p>
           </div>
           <LocationToggle
@@ -1123,7 +1375,7 @@ function LocationSettingsFlow({
               }
               vm.onResumeMyLocation();
             }}
-            label="Pause my location"
+            label="Pause location on this device"
             disabled={BUSY(vm, "selfLocation")}
           />
         </div>
@@ -1238,12 +1490,14 @@ function PeopleHub({
   onInvite,
   onStartShare,
   onAsk,
+  onShareToContacts,
 }: {
   vm: LocationHubViewModel;
   onAddConnections: () => void;
   onInvite: () => void;
   onStartShare: () => void;
   onAsk: () => void;
+  onShareToContacts: () => void;
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
@@ -1289,7 +1543,7 @@ function PeopleHub({
               </Button>
               <Button
                 variant="outline"
-                onClick={vm.onShareToContacts}
+                onClick={onShareToContacts}
                 isLoading={vm.busy === "contactInvite"}
                 className="h-10 rounded-full text-sm"
               >
@@ -1338,7 +1592,7 @@ function PeopleHub({
           </Button>
           <Button
             variant="outline"
-            onClick={vm.onShareToContacts}
+            onClick={onShareToContacts}
             isLoading={vm.busy === "contactInvite"}
             className="h-10 rounded-full text-sm"
           >
@@ -1459,7 +1713,7 @@ function ActiveLinkRow({
   tileClass: string;
   title: string;
   subtitle: string;
-  onCopy: () => void;
+  onCopy?: () => void;
   first: boolean;
 }) {
   return (
@@ -1485,13 +1739,15 @@ function ActiveLinkRow({
           {subtitle}
         </p>
       </div>
-      <Button
-        variant="outline"
-        onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-sm font-semibold text-[color:var(--app-accent)]"
-      >
-        Copy
-      </Button>
+      {onCopy ? (
+        <Button
+          variant="outline"
+          onClick={onCopy}
+          className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-sm font-semibold text-[color:var(--app-accent)]"
+        >
+          Copy
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -1520,9 +1776,13 @@ function LinksHub({
               first
               tileClass="bg-[#efe9fb] dark:bg-violet-400/15"
               icon={<LinkIcon className="h-5 w-5 text-[#7c5cff]" />}
-              title="Live location link"
-              subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
-              onCopy={vm.onCopyPublicInvite}
+              title="One-time location link"
+              subtitle={
+                vm.publicInviteUrl
+                  ? `${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`
+                  : `${vm.expiresCountdownLabel(temp.expiresAt)} · link address not kept after reload`
+              }
+              onCopy={vm.publicInviteUrl ? vm.onCopyPublicInvite : undefined}
             />
           ) : null}
           {invite ? (
@@ -1593,12 +1853,9 @@ function SosFlow({
       recipientLabel={vm.recipientLabel}
       isRecipientShareReady={vm.isRecipientShareReady}
       emergency={lookupStartedForMount ? vm.sosEmergency : null}
-      emergencyStatus={
-        lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-      }
+      emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
       onResolveEmergencyNumber={onResolveSosLocation}
     />
-
   );
 }
 
@@ -1612,6 +1869,7 @@ function ShareFlow({
   setStep,
   locationType,
   setLocationType,
+  onDurationChange,
   onClose,
 }: {
   vm: LocationHubViewModel;
@@ -1619,6 +1877,7 @@ function ShareFlow({
   setStep: (s: "person" | "details") => void;
   locationType: LocationTypeValue;
   setLocationType: (v: LocationTypeValue) => void;
+  onDurationChange: (v: string) => void;
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
@@ -1627,9 +1886,8 @@ function ShareFlow({
   );
   const selectedReady = vm.selectedRecipientIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter(
-      (recipient): recipient is OneLocationRecipient =>
-        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    .filter((recipient): recipient is OneLocationRecipient =>
+      Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
@@ -1669,27 +1927,47 @@ function ShareFlow({
               }
             />
             <ReviewRow
-              label="Location type"
+              label="Sharing mode"
               value={
-                locationType === "precise"
-                  ? "Precise live location"
-                  : "Approximate area"
+                locationType === "precise" ? "Live location" : "Area updates"
               }
             />
             <ReviewRow
               label="Duration"
               value={durationLabel(vm.shareDurationHours)}
             />
+            <ReviewRow
+              label="Updates"
+              value={
+                vm.autoShareEnabled
+                  ? "Automatic updates are on"
+                  : "Turns on when you start"
+              }
+            />
             <ReviewRow label="Control" value="You can stop anytime" />
           </div>
         </SectionCard>
+        {vm.locationPaused ? (
+          <WarningCard
+            title="Location is paused on this device"
+            description="Resume Location from the header or Settings before starting a new share. Pause never turns itself off silently."
+          />
+        ) : !vm.autoShareEnabled ? (
+          <TrustNoteCard
+            title="Starting this turns on automatic updates"
+            description="Area updates and Live locations need automatic updates while active. The Settings switch will update at the same time."
+          />
+        ) : null}
         <div className="space-y-2.5">
           <Button
-            onClick={vm.onConfirmShare}
+            onClick={() => vm.onConfirmShare(locationType)}
             isLoading={vm.busy === "share"}
+            disabled={vm.locationPaused}
             className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
-            Start sharing
+            {locationType === "precise"
+              ? "Start live location"
+              : "Start area updates"}
           </Button>
           <Button
             variant="ghost"
@@ -1715,10 +1993,13 @@ function ShareFlow({
             <LocationTypeSelector
               value={locationType}
               onChange={setLocationType}
+              label="Sharing mode"
+              variant="updates"
+              preciseDisabled={!vm.preciseLocationAvailable}
             />
             <DurationSelector
               value={vm.shareDurationHours}
-              onChange={vm.setShareDurationHours}
+              onChange={onDurationChange}
               presentation="select"
             />
             <div className="space-y-2">
@@ -1732,9 +2013,7 @@ function ShareFlow({
                 <textarea
                   id="one-location-share-note"
                   value={vm.shareMessage}
-                  onChange={(event) =>
-                    vm.setShareMessage(event.target.value)
-                  }
+                  onChange={(event) => vm.setShareMessage(event.target.value)}
                   rows={2}
                   aria-invalid={shareNoteLimitExceeded}
                   aria-describedby={
@@ -1787,7 +2066,7 @@ function ShareFlow({
       <TaskFlowHeader
         eyebrow="Step 1 of 3 · Choose person"
         title="Who can see you?"
-        description="Only trusted and location-ready people can receive private live location."
+        description="Only trusted and location-ready people can receive private location updates."
       />
       <PersonSearchInput
         value={vm.recipientSearch}
@@ -1802,11 +2081,7 @@ function ShareFlow({
               <TrustedPersonCard
                 key={r.userId}
                 name={vm.recipientLabel(r)}
-                subtitle={
-                  ready
-                    ? undefined
-                    : "Invite first to enable sharing"
-                }
+                subtitle={ready ? undefined : "Invite first to enable sharing"}
                 tone={ready ? "ready" : "pending"}
                 actionLabel={
                   ready ? (selected ? "Selected" : "Select") : undefined
@@ -1845,13 +2120,7 @@ function ShareFlow({
   );
 }
 
-function ReviewRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function ReviewRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
       <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1935,14 +2204,6 @@ function AskFlow({
         )}
       </SectionCard>
 
-      <SectionCard title="Duration requested">
-        <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-        />
-      </SectionCard>
-
       <SectionCard title="Reason">
         <ReasonChips value={reason} onChange={setReason} label="" />
       </SectionCard>
@@ -1964,7 +2225,7 @@ function AskFlow({
 
       <Button
         onClick={() => {
-          vm.onSendRequest();
+          vm.onSendRequest(reason);
           onClose();
         }}
         disabled={!vm.selectedRequestOwnerIds.length}
@@ -2121,23 +2382,30 @@ function TemporaryLinkFlow({
       <div className="space-y-5">
         <TaskFlowHeader
           eyebrow="Copy, share or revoke"
-          title="Public location link active"
+          title="One-time location link active"
+          description="This snapshot stays fixed at the place captured when you created it."
         />
         <WarningCard
-          title="Anyone with this link can view your location until it expires."
-          description="Public access ends automatically at expiry."
+          title="Anyone with this link can view this location snapshot."
+          description="It never follows your movement. Access ends at expiry or when you revoke it."
         />
-        {invite ? (
-          <TemporaryLinkCard
-            title="Public location link active"
-            statusLine="Anyone with this link can view you"
-            expiryLabel={vm.expiresCountdownLabel(invite.expiresAt)}
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            onRevoke={() => vm.onRevokePublicInvite(invite)}
-            revokeBusy={vm.busy === "publicRevoke"}
-          />
-        ) : null}
+        <TemporaryLinkCard
+          title="One-time location link active"
+          statusLine={
+            vm.publicInviteUrl
+              ? "Captured once · does not update"
+              : "Captured once · link address is not kept after reload"
+          }
+          expiryLabel={
+            invite
+              ? vm.expiresCountdownLabel(invite.expiresAt)
+              : "Expiry and revoke controls are syncing"
+          }
+          onCopy={vm.publicInviteUrl ? vm.onCopyPublicInvite : undefined}
+          onShare={vm.publicInviteUrl ? vm.onSharePublicInvite : undefined}
+          onRevoke={invite ? () => vm.onRevokePublicInvite(invite) : undefined}
+          revokeBusy={vm.busy === "publicRevoke"}
+        />
         <Button
           variant="ghost"
           onClick={onClose}
@@ -2152,13 +2420,13 @@ function TemporaryLinkFlow({
   return (
     <div className="space-y-5">
       <TaskFlowHeader
-        eyebrow="Share with anyone outside Circle"
-        title="Share outside your Circle"
-        description="Use only when the person is not in your trusted Circle."
+        eyebrow="Static snapshot link"
+        title="Send a one-time location"
+        description="Useful for a meeting point or a place you want someone to find later."
       />
       <WarningCard
-        title="Important"
-        description="Anyone with this link can view your location until it expires."
+        title="Anyone with the link can open this snapshot"
+        description="It is captured once now and never follows your movement. Revoke it anytime."
       />
       <SectionCard title="Duration">
         <DurationSelector
@@ -2172,23 +2440,28 @@ function TemporaryLinkFlow({
           ]}
         />
       </SectionCard>
-      <SectionCard title="Location type">
+      <SectionCard title="Snapshot type">
         <LocationTypeSelector
           value={locationType}
           onChange={setLocationType}
           label=""
+          variant="snapshot"
+          preciseDisabled={!vm.preciseLocationAvailable}
         />
       </SectionCard>
       <TrustNoteCard
-        title="Expires automatically"
-        description="Public location links are safer when they expire quickly."
+        title="Captured once, then fixed"
+        description="The snapshot stays unchanged until it expires or you revoke the link."
       />
       <Button
-        onClick={vm.onCreatePublicInvite}
+        onClick={() => vm.onCreatePublicInvite(locationType)}
         isLoading={vm.busy === "publicInvite"}
+        disabled={vm.locationPaused}
         className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
-        Review public location link
+        {vm.locationPaused
+          ? "Resume Location to capture"
+          : "Create one-time location link"}
       </Button>
     </div>
   );

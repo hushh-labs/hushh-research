@@ -117,6 +117,8 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
             "clientOperationId": "123e4567-e89b-12d3-a456-426614174000",
             "confirmedAt": captured_at,
             "shareKind": "check_in",
+            "locationMode": "approximate",
+            "approximateRadiusM": 1250,
             "envelope": {
                 **encrypted_envelope("recipient-key"),
                 "capturedAt": captured_at,
@@ -129,6 +131,91 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert service.calls[0]["owner_user_id"] == "owner-from-token"
     assert service.calls[0]["recipient_user_id"] == "recipient"
     assert service.calls[0]["enforce_connection"] is True
+    assert service.calls[0]["location_mode"] == "approximate"
+    assert service.calls[0]["approximate_radius_m"] == 1250
+
+
+def test_atomic_approval_versioned_route_binds_every_reviewed_field(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {
+                    "id": kwargs["request_id"],
+                    "status": "approved",
+                    "approvedGrantId": "grant-1",
+                },
+                "grant": {"id": "grant-1", "latestEnvelopeId": "envelope-1"},
+                "envelope": {"id": "envelope-1"},
+                "idempotentReplay": False,
+            }
+
+    service = ApprovalRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    request_id = str(uuid.uuid4())
+    captured_at = datetime.now(timezone.utc).isoformat()
+    envelope = {
+        **encrypted_envelope("recipient-key"),
+        "capturedAt": captured_at,
+        "metadata": {
+            "locationMode": "approximate",
+            "approximateRadiusM": 1_000,
+        },
+    }
+
+    response = client.post(
+        f"/api/one/location/requests/{request_id}/approve-with-envelope",
+        json={
+            "durationHours": 4,
+            "recipientKeyId": "recipient-key",
+            "clientOperationId": "approval:test-request",
+            "confirmedAt": captured_at,
+            "envelope": envelope,
+            "locationMode": "approximate",
+            "approximateRadiusM": 1_000,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": request_id,
+            "duration_hours": 4.0,
+            "recipient_key_id": "recipient-key",
+            "client_operation_id": "approval:test-request",
+            "confirmed_at": datetime.fromisoformat(captured_at),
+            "envelope": envelope,
+            "location_mode": "approximate",
+            "approximate_radius_m": 1_000,
+        }
+    ]
+
+
+def test_legacy_duration_only_approval_fails_without_calling_service(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.called = False
+
+        def approve_request(self, **_kwargs):
+            self.called = True
+            raise AssertionError("duration-only approval must fail before service mutation")
+
+    service = ApprovalRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        f"/api/one/location/requests/{uuid.uuid4()}/approve",
+        json={"durationHours": 1},
+    )
+
+    assert response.status_code == 422
+    assert service.called is False
 
 
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
@@ -169,7 +256,10 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     current_user["user_id"] = user_b
     view_b = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
     assert view_b.status_code == 200
-    assert view_b.json()["envelope"]["ciphertext"] == "ciphertext-for-b"
+    assert (
+        view_b.json()["envelope"]["ciphertext"]
+        == encrypted_envelope(f"key-{user_b}", "ciphertext-for-b")["ciphertext"]
+    )
 
     current_user["user_id"] = user_c
     view_c = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
@@ -190,22 +280,33 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     assert view_d_before.status_code == 404
 
     current_user["user_id"] = user_a
+    approved_at = datetime.now(timezone.utc).isoformat()
+    approval_envelope = {
+        **encrypted_envelope(f"key-{user_d}", "ciphertext-for-d"),
+        "capturedAt": approved_at,
+    }
     approve_d = client.post(
-        f"/api/one/location/requests/{referral['request']['id']}/approve",
-        json={"durationHours": 1},
+        f"/api/one/location/requests/{referral['request']['id']}/approve-with-envelope",
+        json={
+            "durationHours": 1,
+            "recipientKeyId": f"key-{user_d}",
+            "clientOperationId": "123e4567-e89b-12d3-a456-426614174010",
+            "confirmedAt": approved_at,
+            "envelope": approval_envelope,
+            "locationMode": "precise",
+            "approximateRadiusM": None,
+        },
     )
     assert approve_d.status_code == 200
     grant_d = approve_d.json()["grant"]
-    store_d = client.post(
-        f"/api/one/location/grants/{grant_d['id']}/envelopes",
-        json={"envelope": encrypted_envelope(f"key-{user_d}", "ciphertext-for-d")},
-    )
-    assert store_d.status_code == 200
 
     current_user["user_id"] = user_d
     view_d_after = client.get(f"/api/one/location/grants/{grant_d['id']}/envelope")
     assert view_d_after.status_code == 200
-    assert view_d_after.json()["envelope"]["ciphertext"] == "ciphertext-for-d"
+    assert (
+        view_d_after.json()["envelope"]["ciphertext"]
+        == encrypted_envelope(f"key-{user_d}", "ciphertext-for-d")["ciphertext"]
+    )
 
     current_user["user_id"] = user_a
     revoke_b = client.delete(f"/api/one/location/grants/{grant_b['id']}")
@@ -234,7 +335,6 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
                 view_b.json(),
                 referral_response.json(),
                 approve_d.json(),
-                store_d.json(),
                 view_d_after.json(),
                 revoke_b.json(),
                 activity_payload,

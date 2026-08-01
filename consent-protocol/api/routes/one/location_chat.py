@@ -28,6 +28,10 @@ class ActionResultModel(BaseModel):
     status: str = Field(max_length=24)
     public_url: str | None = Field(default=None, alias="publicUrl", max_length=2048)
     detail: str | None = Field(default=None, max_length=500)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    location_mode: str | None = Field(
+        default=None, alias="locationMode", pattern="^(approximate|precise)$"
+    )
 
 
 class SelectionResultModel(BaseModel):
