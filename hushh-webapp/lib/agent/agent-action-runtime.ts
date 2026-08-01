@@ -13,8 +13,11 @@ type RouterLike = {
   push: (href: string) => void;
 };
 
+export type AgentActionEffectState = "not_started" | "started" | "completed" | "unknown";
+
 export type AgentActionRuntimeResult = {
   status: "succeeded" | "started" | "blocked" | "invalid" | "failed" | "noop";
+  effectState: AgentActionEffectState;
   actionId: string | null;
   label: string | null;
   routeBefore: string | null;
@@ -45,6 +48,7 @@ function readString(value: unknown): string | null {
 function buildResult(input: Partial<AgentActionRuntimeResult>): AgentActionRuntimeResult {
   return {
     status: input.status || "failed",
+    effectState: input.effectState || "unknown",
     actionId: input.actionId ?? null,
     label: input.label ?? null,
     routeBefore: input.routeBefore ?? null,
@@ -67,6 +71,7 @@ function executeConnectedSystemAgentAction(
   if (input.actionId === "connected_system.crm.delete") {
     return buildResult({
       status: "blocked",
+      effectState: "not_started",
       actionId: input.actionId,
       label: "Blocked Salesforce CRM Delete",
       routeBefore: routeBefore.pathname,
@@ -80,6 +85,7 @@ function executeConnectedSystemAgentAction(
   input.router.push(target);
   return buildResult({
     status: "started",
+    effectState: "started",
     actionId: input.actionId,
     label:
       input.actionId === "connected_system.crm.read"
@@ -112,6 +118,7 @@ export async function executeAgentGatewayAction(
   if (!action) {
     return buildResult({
       status: "invalid",
+      effectState: "not_started",
       actionId: input.actionId,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
@@ -128,6 +135,7 @@ export async function executeAgentGatewayAction(
   if (availability.status !== "available") {
     return buildResult({
       status: "blocked",
+      effectState: "not_started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
@@ -143,6 +151,7 @@ export async function executeAgentGatewayAction(
   if (action.execution_target.status !== "wired") {
     return buildResult({
       status: "invalid",
+      effectState: "not_started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
@@ -156,6 +165,7 @@ export async function executeAgentGatewayAction(
     input.router.push(action.execution_target.target);
     return buildResult({
       status: "started",
+      effectState: "started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
@@ -169,6 +179,7 @@ export async function executeAgentGatewayAction(
   if (action.execution_target.path !== "kai_command") {
     return buildResult({
       status: "blocked",
+      effectState: "not_started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
@@ -202,6 +213,13 @@ export async function executeAgentGatewayAction(
 
   return buildResult({
     status: commandResult.actionResult.status,
+    effectState:
+      commandResult.actionResult.status === "succeeded" ||
+      commandResult.actionResult.status === "noop"
+        ? "completed"
+        : commandResult.actionResult.status === "started"
+          ? "started"
+          : "unknown",
     actionId: commandResult.actionResult.actionId || action.action_id,
     label: action.label,
     routeBefore: commandResult.actionResult.routeBefore,
