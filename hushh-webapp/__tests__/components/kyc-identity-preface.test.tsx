@@ -1,11 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
-import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import {
+  KycIdentityProfileDraftService,
+  KycIdentityProfilePkmService,
+} from "@/lib/services/kyc-identity-profile-pkm-service";
 
 const mocks = vi.hoisted(() => ({
   saveProfile: vi.fn(),
+  stageProfile: vi.fn(),
   toastError: vi.fn(),
 }));
 
@@ -34,6 +38,9 @@ vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   KycIdentityProfilePkmService: {
     saveProfile: mocks.saveProfile,
   },
+  KycIdentityProfileDraftService: {
+    stage: mocks.stageProfile,
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -50,15 +57,8 @@ describe("KycIdentityPreface", () => {
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
-  it("continues immediately while saving the three identity fields in the background", async () => {
+  it("stages four identity answers in memory without opening the vault", async () => {
     const onComplete = vi.fn();
-    let resolveSave: ((value: { success: boolean }) => void) | undefined;
-    mocks.saveProfile.mockImplementation(
-      () =>
-        new Promise<{ success: boolean }>((resolve) => {
-          resolveSave = resolve;
-        }),
-    );
     render(<KycIdentityPreface onComplete={onComplete} />);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -73,28 +73,30 @@ describe("KycIdentityPreface", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    fireEvent.change(screen.getByLabelText("Primary residence"), {
+    fireEvent.change(screen.getByLabelText("Country of citizenship"), {
       target: { value: "IN" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    fireEvent.change(screen.getByLabelText("Employment status"), {
+      target: { value: "employed" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
 
-    await waitFor(() => {
-      expect(KycIdentityProfilePkmService.saveProfile).toHaveBeenCalledWith({
-        userId: "user_1",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-        profile: {
-          legalName: "Avery Example",
-          dateOfBirth: "1994-04-15",
-          countryCode: "IN",
-          countryName: "India",
-        },
-      });
-    });
-
-    resolveSave?.({ success: true });
+    expect(KycIdentityProfileDraftService.stage).toHaveBeenCalledWith(
+      "user_1",
+      {
+        legalName: "Avery Example",
+        dateOfBirth: "1994-04-15",
+        citizenshipCountryCode: "IN",
+        citizenshipCountryName: "India",
+        employmentStatus: "employed",
+      },
+    );
+    expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("lets a user skip questions without writing a partial identity profile", () => {
@@ -106,11 +108,15 @@ describe("KycIdentityPreface", () => {
     expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
-    expect(screen.getByLabelText("Primary residence")).toBeInTheDocument();
+    expect(screen.getByLabelText("Country of citizenship")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
+    expect(screen.getByLabelText("Employment status")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip KYC setup" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
+    expect(KycIdentityProfileDraftService.stage).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 
 import {
   KYC_IDENTITY_PKM_DOMAIN,
+  KycIdentityProfileDraftService,
   KycIdentityProfilePkmService,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -43,8 +44,9 @@ describe("KycIdentityProfilePkmService", () => {
       profile: {
         legalName: "Avery Example",
         dateOfBirth: "1994-04-15",
-        countryCode: "IN",
-        countryName: "India",
+        citizenshipCountryCode: "IN",
+        citizenshipCountryName: "India",
+        employmentStatus: "employed",
       },
     });
 
@@ -68,11 +70,62 @@ describe("KycIdentityProfilePkmService", () => {
         full_name: "Avery Example",
         legal_name: "Avery Example",
         date_of_birth: "1994-04-15",
-        country_code: "IN",
-        country_of_residence: "India",
-        schema_version: 1,
+        citizenship_country_code: "IN",
+        country_of_citizenship: "India",
+        employment_status: "employed",
+        schema_version: 2,
       },
     });
     expect(writtenSummary).toEqual({ identity_profile_updated: true });
+  });
+
+  it("keeps a pre-vault identity draft only in process memory until its encrypted save settles", async () => {
+    KycIdentityProfileDraftService.stage("user_draft", {
+      legalName: "Avery Example",
+      dateOfBirth: "1994-04-15",
+      citizenshipCountryCode: "IN",
+      citizenshipCountryName: "India",
+      employmentStatus: "employed",
+    });
+
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
+      saveState: "saved",
+      success: true,
+      fullBlob: {},
+    });
+
+    await expect(
+      KycIdentityProfileDraftService.flushToVault({
+        userId: "user_draft",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "owner-token",
+      }),
+    ).resolves.toBe(true);
+    expect(KycIdentityProfileDraftService.hasPending("user_draft")).toBe(false);
+  });
+
+  it("retains an in-memory draft when its encrypted save fails", async () => {
+    KycIdentityProfileDraftService.stage("user_retry", {
+      legalName: "Avery Example",
+      dateOfBirth: "1994-04-15",
+      citizenshipCountryCode: "IN",
+      citizenshipCountryName: "India",
+      employmentStatus: "employed",
+    });
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
+      saveState: "failed",
+      success: false,
+      message: "retry",
+    });
+
+    await expect(
+      KycIdentityProfileDraftService.flushToVault({
+        userId: "user_retry",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "owner-token",
+      }),
+    ).rejects.toThrow("retry");
+    expect(KycIdentityProfileDraftService.hasPending("user_retry")).toBe(true);
+    KycIdentityProfileDraftService.clear("user_retry");
   });
 });

@@ -1823,11 +1823,11 @@ export function OneLocationAgentPageContent({
     previousWorkspaceUserId.current = auth.userId ?? null;
   }, [auth.userId]);
   useEffect(() => {
-    if (!vaultOwnerToken) {
+    if (!vaultOwnerToken && mode !== "setup") {
       clearLocationWorkspaceMemory(auth.userId);
       setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
     }
-  }, [auth.userId, vaultOwnerToken]);
+  }, [auth.userId, mode, vaultOwnerToken]);
   const updateLocationWorkspace = useCallback(
     (
       updater: (current: LocationWorkspaceMemory) => LocationWorkspaceMemory,
@@ -6089,7 +6089,7 @@ export function OneLocationAgentPageContent({
   const showLocationOnboarding =
     locationOnboardingGate === "show" &&
     (mode === "setup" || !loadError) &&
-    Boolean(auth.userId && vaultOwnerToken);
+    Boolean(auth.userId && (mode === "setup" || vaultOwnerToken));
 
   if (showLocationOnboarding) {
     // Render the full-screen onboarding takeover through a portal to
@@ -6128,7 +6128,11 @@ export function OneLocationAgentPageContent({
             handleSendLocationOnboardingConnectionRequests
           }
           onRequestLocation={handleLocationOnboardingPermission}
-          onLocationReady={promptSaveLocationDuringOnboarding}
+          onLocationReady={
+            mode === "setup"
+              ? async () => true
+              : promptSaveLocationDuringOnboarding
+          }
           onRequestNotifications={handleLocationOnboardingNotifications}
           onBack={() => router.back()}
           onComplete={dismissLocationOnboarding}

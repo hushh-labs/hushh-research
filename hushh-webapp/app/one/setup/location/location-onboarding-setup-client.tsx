@@ -8,7 +8,6 @@ import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
-import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 export function LocationOnboardingSetupClient() {
@@ -26,12 +25,7 @@ export function LocationOnboardingSetupClient() {
 
   return (
     <CapabilityCinematicIntroGate capabilityId="location">
-      <CapabilityVaultPrerequisite
-        capabilityLabel="Location"
-        routeKey="/one/setup/location"
-        allowVaultCreation={false}
-      >
-        <OneLocationAgentPage
+      <OneLocationAgentPage
           mode="setup"
           onSetupReadinessChange={setReady}
           onSetupComplete={async () => {
@@ -71,8 +65,7 @@ export function LocationOnboardingSetupClient() {
               )
               .unwrap();
           }}
-        />
-      </CapabilityVaultPrerequisite>
+      />
     </CapabilityCinematicIntroGate>
   );
 }
