@@ -14,14 +14,24 @@ export function SageMarkdown({ text }: { text: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: ({ children }) => <h4 className="mt-2 text-sm font-semibold">{children}</h4>,
-          h2: ({ children }) => <h4 className="mt-2 text-sm font-semibold">{children}</h4>,
-          h3: ({ children }) => <h5 className="mt-2 text-sm font-semibold">{children}</h5>,
-          h4: ({ children }) => <h6 className="mt-2 text-sm font-semibold">{children}</h6>,
+          h1: ({ children }) => <h2 className="mt-2 text-sm font-semibold">{children}</h2>,
+          h2: ({ children }) => <h3 className="mt-2 text-sm font-semibold">{children}</h3>,
+          h3: ({ children }) => <h4 className="mt-2 text-sm font-semibold">{children}</h4>,
+          h4: ({ children }) => <h5 className="mt-2 text-sm font-semibold">{children}</h5>,
           p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
           ul: ({ children }) => <ul className="my-1.5 ml-5 list-disc space-y-1">{children}</ul>,
           ol: ({ children }) => <ol className="my-1.5 ml-5 list-decimal space-y-1">{children}</ol>,
           li: ({ children }) => <li className="pl-1">{children}</li>,
+          a: ({ children, href }) => (
+            <a
+              href={href || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {children}
+            </a>
+          ),
           table: ({ children }) => (
             <div className="my-2 overflow-x-auto rounded-md border border-border/70">
               <table className="min-w-full border-collapse text-left text-xs">{children}</table>

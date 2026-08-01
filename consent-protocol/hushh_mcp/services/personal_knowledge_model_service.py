@@ -3224,30 +3224,33 @@ class PersonalKnowledgeModelService:
             if not domain:
                 return False
 
-            domain_blob_result = await self._execute_query(
+            normalized_segment_ids = {
+                str(segment_id or "").strip().lower()
+                for segment_id in (segment_ids or [])
+                if str(segment_id or "").strip()
+            }
+
+            query = (
                 self.supabase.table("pkm_blobs")
                 .select("segment_id")
                 .eq("user_id", user_id)
                 .eq("domain", domain)
-                .order("segment_id")
             )
+            if normalized_segment_ids:
+                query = query.order("segment_id")
+            else:
+                # Common case: no segment filter, so any single row proves
+                # existence -- no need to pull every segment for the domain.
+                query = query.limit(1)
+
+            domain_blob_result = await self._execute_query(query)
             if domain_blob_result.data:
-                rows = domain_blob_result.data
-                normalized_segment_ids = sorted(
-                    {
-                        str(segment_id or "").strip().lower()
-                        for segment_id in (segment_ids or [])
-                        if str(segment_id or "").strip()
-                    }
-                )
                 if normalized_segment_ids:
-                    rows = [
-                        row
-                        for row in rows
-                        if str(row.get("segment_id") or "root").strip().lower()
+                    return any(
+                        str(row.get("segment_id") or "root").strip().lower()
                         in normalized_segment_ids
-                    ]
-                    return bool(rows)
+                        for row in domain_blob_result.data
+                    )
                 return True
 
             # Legacy fallback: domain exists only in the monolithic blob.

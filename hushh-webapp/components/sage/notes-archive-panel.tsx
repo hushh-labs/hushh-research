@@ -136,6 +136,9 @@ export function NotesArchivePanel() {
         vaultOwnerToken,
         build: (context) => {
           const archived = archiveMatchingNoteEntity(context.currentDomainData, note.text, "Removed by user");
+          if (!archived.matched) {
+            throw new Error("Couldn't find that note to remove.");
+          }
           return {
             domainData: archived.domainData,
             summary: {
