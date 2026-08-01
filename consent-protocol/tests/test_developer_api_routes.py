@@ -2112,6 +2112,34 @@ def test_mcp_status_marks_db_revoked_grant_revoked(monkeypatch):
     assert response.json()["grant_ref"] is None
 
 
+def test_mcp_status_keeps_db_validation_outage_retryable(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status_for_agent(self, _request_ref: str, *, agent_id: str):
+            assert agent_id == "developer:app_demo_123"
+            return {
+                "action": "CONSENT_GRANTED",
+                "expires_at": 9999999999999,
+                "token_id": "HCT:db-unavailable",
+            }
+
+    async def _db_unavailable(_token: str):
+        return False, "Token revocation status could not be confirmed (DB unavailable)", None
+
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _db_unavailable)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/mcp/consent-status/req_0123456789abcdef0123456789ab",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_code"] == "CONSENT_STATUS_UNAVAILABLE"
+
+
 def test_mcp_request_sanitizes_raw_consent_response(monkeypatch):
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()

@@ -1770,7 +1770,20 @@ async def get_mcp_consent_status(
     if lifecycle == "granted" and consent_token:
         token_valid, token_reason, _token_obj = await validate_token_with_db(consent_token)
         if not token_valid:
-            lifecycle = "expired" if "expired" in str(token_reason or "").lower() else "revoked"
+            normalized_reason = str(token_reason or "").lower()
+            # A database outage must not be projected as a permanent revocation.
+            # Validation correctly fails closed for exports, but MCP polling needs
+            # a retryable status so a connector does not create a duplicate consent
+            # request while that revocation check is temporarily unavailable.
+            if "db unavailable" in normalized_reason:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error_code": "CONSENT_STATUS_UNAVAILABLE",
+                        "message": "Consent status is temporarily unavailable. Retry the request.",
+                    },
+                )
+            lifecycle = "expired" if "expired" in normalized_reason else "revoked"
 
     return {
         "status": lifecycle,

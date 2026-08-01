@@ -400,6 +400,25 @@ async def test_revoked_grant_is_not_misreported_as_developer_auth_failure(monkey
 
 
 @pytest.mark.asyncio
+async def test_consent_status_outage_remains_retryable(monkeypatch) -> None:
+    calls: list[dict] = []
+    _install_client(
+        monkeypatch,
+        {"detail": {"error_code": "CONSENT_STATUS_UNAVAILABLE", "message": "private reason"}},
+        calls,
+        status_code=503,
+    )
+
+    result = _payload(
+        await tools.handle_check_consent_status({"request_ref": "req_0123456789abcdef0123456789ab"})
+    )
+
+    assert result["error_code"] == "CONSENT_STATUS_UNAVAILABLE"
+    assert result["recoverable"] is True
+    assert "private reason" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_hosted_export_rejects_missing_inline_ciphertext(monkeypatch) -> None:
     calls: list[dict] = []
     _install_client(
