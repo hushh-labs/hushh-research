@@ -150,8 +150,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(emailSetup).toContain("pending={saving || enablePending}");
-    expect(emailSetup).toContain("settlementBlocked: saving || enablePending");
+    expect(emailSetup).toContain("pending={saving}");
+    expect(emailSetup).toContain("settlementBlocked: saving");
     expect(coordinator).toContain("if (pending) return");
     expect(coordinator).toContain("disabled={pending}");
     expect(coordinator).toContain("enabled: enabled && !settlementBlocked");
@@ -200,15 +200,23 @@ describe("One setup hub terminal action contract", () => {
   });
 
   it("does not allow a setup route to create a first vault before Finish setup", () => {
-    const setupVaultSurfaces = [
+    const vaultFreeSetupSurfaces = [
       "app/one/setup/email/email-onboarding-setup-client.tsx",
-      "app/one/setup/kai/page.tsx",
-      "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
       "components/onboarding/setup/kyc-identity-preface.tsx",
       "app/one/setup/location/location-onboarding-setup-client.tsx",
     ];
 
-    for (const relativePath of setupVaultSurfaces) {
+    for (const relativePath of vaultFreeSetupSurfaces) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).not.toContain("VaultUnlockDialog");
+      expect(source).not.toContain("CapabilityVaultPrerequisite");
+    }
+
+    const existingVaultOnlySurfaces = [
+      "app/one/setup/kai/page.tsx",
+      "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
+    ];
+    for (const relativePath of existingVaultOnlySurfaces) {
       const source = readFileSync(join(process.cwd(), relativePath), "utf8");
       expect(source).toContain("allowVaultCreation={false}");
     }

@@ -2732,7 +2732,10 @@ export function OneLocationAgentPageContent({
       setLocationOnboardingGate("hidden");
       return;
     }
-    if (!vaultOwnerToken) {
+    // Setup is the deliberate pre-vault journey. It may collect device
+    // readiness but must not enter the encrypted Location workspace or ask
+    // the person to create/unlock a vault before master Finish setup.
+    if (!vaultOwnerToken && mode !== "setup") {
       setLocationOnboardingGate("checking");
       return;
     }

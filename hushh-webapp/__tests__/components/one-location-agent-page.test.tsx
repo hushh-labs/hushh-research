@@ -1486,6 +1486,25 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
   });
 
+  it("starts Location setup without vault authority or a saved-place prompt", async () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultKey: null,
+      vaultOwnerToken: null,
+    });
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    expect(
+      await screen.findByTestId("one-location-onboarding-welcome"),
+    ).toBeTruthy();
+    expect(mockRegisterKey).not.toHaveBeenCalled();
+    expect(mockGetState).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Save this place" }),
+    ).toBeNull();
+  });
+
   it("keeps contact prefetch alive across steps and renders the first available source", async () => {
     type DirectoryResult = {
       items: Array<{
