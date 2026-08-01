@@ -228,7 +228,7 @@ import { LiveMap } from "@/components/one-location/live-map";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
-import { liveFreshness } from "@/lib/one-location/freshness";
+import { locationPreviewFreshness } from "@/lib/one-location/freshness";
 import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
 import {
   DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS,
@@ -832,12 +832,6 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
   return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
 
-function isLocationPointStale(point: PlainLocationPoint): boolean {
-  const capturedAt = new Date(point.capturedAt).getTime();
-  if (!Number.isFinite(capturedAt)) return false;
-  return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
-}
-
 // Great-circle distance in metres between two points (Haversine). Used to decide
 // whether the owner has actually MOVED enough to warrant publishing a fresh
 // encrypted live-location update, so the watch stream doesn't flood the network
@@ -915,29 +909,33 @@ function locationSourceLabel(
 function LocalMapPreview({
   point,
   showNavigation = true,
+  viewportResetKey,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
+  viewportResetKey?: string | number;
 }) {
   const captured = formatDateTime(point.capturedAt);
-  const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
-  const freshness = liveFreshness(
-    point.capturedAt,
-    Date.now(),
-    LIVE_LOCATION_STALE_THRESHOLD_MS,
-  );
-  const statusLabel =
-    freshness.state === "live"
+  const freshness = locationPreviewFreshness({
+    capturedAtISO: point.capturedAt,
+    nowMs: Date.now(),
+    staleThresholdMs: LIVE_LOCATION_STALE_THRESHOLD_MS,
+    fixedCheckIn: Boolean(point.checkIn),
+  });
+  const isStale = freshness.state === "paused";
+  const statusLabel = freshness.state === "check_in"
+    ? `Checked in · ${freshness.agoLabel}`
+    : freshness.state === "live"
       ? `Live · ${freshness.agoLabel}`
       : `Paused · last seen ${freshness.agoLabel}`;
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <LiveMap point={point} />
+        <LiveMap point={point} viewportResetKey={viewportResetKey} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -950,7 +948,11 @@ function LocalMapPreview({
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
-                isStale ? "bg-amber-300" : "animate-pulse bg-emerald-300",
+                isStale
+                  ? "bg-amber-300"
+                  : freshness.state === "check_in"
+                    ? "bg-emerald-300"
+                    : "animate-pulse bg-emerald-300",
               )}
               aria-hidden="true"
             />
@@ -1878,6 +1880,7 @@ export function OneLocationAgentPageContent({
     }));
   }, [updateLocationWorkspace]);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
+  const [mapViewportResetKey, setMapViewportResetKey] = useState(0);
   // True once the owner taps "Show my location" — keeps their own preview
   // streaming live (foreground) even before any share exists.
   const decryptedPoints = locationWorkspace.decryptedPoints;
@@ -5380,6 +5383,7 @@ export function OneLocationAgentPageContent({
         setMyLocationError(message);
         return;
       }
+      setMapViewportResetKey((current) => current + 1);
       toast.success("Your live location preview is ready.");
     } catch (error) {
       const message = locationServicesErrorMessage(error);
@@ -6244,7 +6248,11 @@ export function OneLocationAgentPageContent({
       value ? `Live until ${formatDateTime(value)}` : "Live now",
     expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
     renderMapPreview: (point, showNavigation) => (
-      <LocalMapPreview point={point} showNavigation={showNavigation} />
+      <LocalMapPreview
+        point={point}
+        showNavigation={showNavigation}
+        viewportResetKey={mapViewportResetKey}
+      />
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
@@ -6529,6 +6537,7 @@ export function OneLocationAgentPageContent({
                       <LocalMapPreview
                         point={myLocationPoint}
                         showNavigation={false}
+                        viewportResetKey={mapViewportResetKey}
                       />
                     </div>
                   ) : null}

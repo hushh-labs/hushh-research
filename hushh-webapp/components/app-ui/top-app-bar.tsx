@@ -1310,15 +1310,21 @@ function OnboardingRouteActions() {
             <MoreHorizontal className="h-5 w-5 text-current" />
           </ShellActionSurface>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => void handleSignOut()}>
+        <DropdownMenuContent
+          align="end"
+          className="overflow-hidden rounded-[14px] p-1"
+        >
+          <DropdownMenuItem
+            onClick={() => void handleSignOut()}
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+          >
             <LogOut className="h-4 w-4 text-current" />
             Sign out
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer hover:!bg-red-600 hover:!text-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-red-600 hover:!text-white hover:[&_svg]:!stroke-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!stroke-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account

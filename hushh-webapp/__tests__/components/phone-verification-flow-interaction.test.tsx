@@ -177,6 +177,96 @@ describe("PhoneVerificationFlow country selector", () => {
     });
   });
 
+  it("blocks an Indian number with an extra leading zero before Firebase", async () => {
+    const { startVerification } = renderPhoneVerificationFlow();
+
+    await selectIndiaOnce();
+    const phoneInput = screen.getByRole("textbox", {
+      name: "Phone number",
+    }) as HTMLInputElement;
+    expect(phoneInput.maxLength).toBe(10);
+
+    fireEvent.change(phoneInput, { target: { value: "0800448237" } });
+    expect(phoneInput.value).toBe("0800448237");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+
+    await waitFor(() => expect(startVerification).not.toHaveBeenCalled());
+    expect(phoneInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Enter the mobile number without a local leading prefix after +91.",
+    );
+    expect(screen.queryByRole("textbox", { name: "One-time code" })).toBeNull();
+  });
+
+  it("rejects an overlength paste without changing or sending the recipient", async () => {
+    const { startVerification } = renderPhoneVerificationFlow();
+
+    await selectIndiaOnce();
+    const phoneInput = screen.getByRole("textbox", {
+      name: "Phone number",
+    }) as HTMLInputElement;
+    fireEvent.change(phoneInput, { target: { value: "8004482372" } });
+    phoneInput.setSelectionRange(0, phoneInput.value.length);
+    fireEvent.paste(phoneInput, {
+      clipboardData: { getData: () => "800448237299" },
+    });
+
+    expect(phoneInput.value).toBe("8004482372");
+    expect(phoneInput.maxLength).toBe(10);
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Enter no more than 10 digits for India.",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+    await waitFor(() => expect(startVerification).not.toHaveBeenCalled());
+  });
+
+  it("preserves a complete E.164 paste before native maxLength clipping", async () => {
+    const { startVerification } = renderPhoneVerificationFlow();
+    const phoneInput = screen.getByRole("textbox", {
+      name: "Phone number",
+    }) as HTMLInputElement;
+
+    fireEvent.paste(phoneInput, {
+      clipboardData: { getData: () => "+16582101234" },
+    });
+
+    await waitFor(() => expect(phoneInput.value).toBe("6582101234"));
+    const countryInput = screen.getByRole("combobox", {
+      name: "Country code",
+    }) as HTMLInputElement;
+    expect(countryInput.value).toBe("Jamaica (+1)");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+    await waitFor(() => {
+      expect(startVerification).toHaveBeenCalledWith("+16582101234", {
+        resendCode: false,
+      });
+    });
+  });
+
+  it("shows only the masked national number on the OTP screen", async () => {
+    renderPhoneVerificationFlow();
+
+    await selectIndiaOnce();
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
+      target: { value: "8004482372" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
+
+    expect(await screen.findByText("•••••• 2372")).toBeTruthy();
+    expect(screen.queryByText(/\+91/)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "One-time code" })).toBeTruthy();
+  });
+
   it("submits both the phone number and six-digit code through their semantic forms", async () => {
     const { startVerification, confirmVerification, onCompleted } =
       renderPhoneVerificationFlow();
