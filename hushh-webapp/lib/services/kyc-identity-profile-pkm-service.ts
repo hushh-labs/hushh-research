@@ -8,9 +8,17 @@ export const KYC_IDENTITY_PKM_DOMAIN = "identity" as const;
 export type KycIdentityProfile = {
   legalName: string;
   dateOfBirth: string;
-  countryCode: string;
-  countryName: string;
+  citizenshipCountryCode: string;
+  citizenshipCountryName: string;
+  employmentStatus: KycEmploymentStatus;
 };
+
+export type KycEmploymentStatus =
+  | "employed"
+  | "self_employed"
+  | "student"
+  | "retired"
+  | "not_currently_employed";
 
 type KycIdentityProfilePkmWriteParams = {
   userId: string;
@@ -50,10 +58,11 @@ export class KycIdentityProfilePkmService {
             full_name: params.profile.legalName,
             legal_name: params.profile.legalName,
             date_of_birth: params.profile.dateOfBirth,
-            country_code: params.profile.countryCode,
-            country_of_residence: params.profile.countryName,
+            citizenship_country_code: params.profile.citizenshipCountryCode,
+            country_of_citizenship: params.profile.citizenshipCountryName,
+            employment_status: params.profile.employmentStatus,
             updated_at: savedAt,
-            schema_version: 1,
+            schema_version: 2,
           },
         },
         // Keep sensitive identity values out of the readable PKM projection.
@@ -62,5 +71,46 @@ export class KycIdentityProfilePkmService {
         },
       }),
     });
+  }
+}
+
+/**
+ * Holds a completed KYC preface only in this JavaScript process until the
+ * person chooses the master setup action and unlocks their vault. It never
+ * writes sensitive identity information to browser or server pre-vault state.
+ * A refresh before vault setup deliberately asks for the details again.
+ */
+const pendingProfiles = new Map<string, KycIdentityProfile>();
+
+export class KycIdentityProfileDraftService {
+  static stage(userId: string, profile: KycIdentityProfile): void {
+    pendingProfiles.set(userId, profile);
+  }
+
+  static clear(userId: string): void {
+    pendingProfiles.delete(userId);
+  }
+
+  static hasPending(userId: string): boolean {
+    return pendingProfiles.has(userId);
+  }
+
+  static async flushToVault(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): Promise<boolean> {
+    const profile = pendingProfiles.get(params.userId);
+    if (!profile) return false;
+
+    const result = await KycIdentityProfilePkmService.saveProfile({
+      ...params,
+      profile,
+    });
+    if (!result.success) {
+      throw new Error(result.message || "KYC details could not be saved.");
+    }
+    pendingProfiles.delete(params.userId);
+    return true;
   }
 }

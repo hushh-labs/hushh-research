@@ -148,9 +148,6 @@ export function OneSetupHub() {
   // count it as done. Connections is also a real, mandatory setup step and is
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
-  const completedCapabilityCount = items.filter((item) =>
-    isCapabilitySetupComplete(item.status),
-  ).length;
   const progressSteps = [
     { id: "connections", complete: runtimeChoiceComplete },
     ...items.map((item) => ({
@@ -162,16 +159,10 @@ export function OneSetupHub() {
   const done = progressSteps.filter((step) => step.complete).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
-  // The MASTER setup acknowledgement is owned by this single hub control:
-  //   - 0 capabilities done  -> "Skip setup"   (master skip-resolved)
-  //   - 1..n capabilities done -> "Finish setup" (master completed, not skipped)
-  // Computed here (ahead of the voice metadata publish below, which needs the
-  // label) rather than only near `handleMasterAck`.
-  // Connections is required before leaving the hub, but choosing a runtime is
-  // not the same as completing an optional capability. Preserve the explicit
-  // Skip outcome until at least one capability itself has been completed.
-  const masterSkipped = completedCapabilityCount === 0;
-  const masterActionLabel = masterSkipped ? "Skip setup" : "Finish setup";
+  // Capability setup is optional, but the root vault is not. Finish setup is
+  // therefore the only exit from the hub and always leads to vault setup when
+  // the vault is not already unlocked.
+  const masterActionLabel = "Finish setup";
   const hubStateLoading =
     isLoading || isEnriching || runtimeChoiceState === "loading";
 
@@ -202,22 +193,37 @@ export function OneSetupHub() {
                   id: "master_ack",
                   actionId: "setup.hub_master_ack",
                   label: masterActionLabel,
-                  purpose: masterSkipped
-                    ? "Skip setup for now and go home."
-                    : "Finish setup for now and go home.",
+                  purpose: "Finish setup and protect what you save.",
                 },
               ]),
         ],
   });
 
-  // Either way, resolving the master ack SATISFIES the root setup gate so the
-  // hard gate on /one/* does not bounce the user back here. Per-capability
-  // tiles never touch this gate; they only record their own signal.
-  // acknowledgeOneSetupExit primes the local completion latch synchronously
-  // (so the guard admits /one on the very next resolve) and then persists the
-  // account-wide gate in the background. Navigation happens right after the
-  // synchronous prime, so a slow or failing network never strands the person
-  // on the hub — Skip / Finish always reaches home.
+  const completeSetupAfterVault = () => {
+    if (!user?.uid) {
+      router.replace(completionTarget);
+      return;
+    }
+    // This is intentionally delayed until vault unlock/creation succeeds.
+    // `acknowledgeOneSetupExit` synchronously primes the local gate and then
+    // mirrors it account-wide, so the next route transition is admitted.
+    void acknowledgeOneSetupExit({
+      userId: user.uid,
+      skipped: false,
+      isVaultUnlocked: true,
+      vaultKey,
+      vaultOwnerToken,
+    }).catch((error) => {
+      console.warn(
+        "[OneSetupHub] Durable setup-exit write failed; the local completion latch keeps you on home:",
+        error,
+      );
+    });
+    setVaultDialogOpen(false);
+    setVaultInvitationOpen(false);
+    router.replace(completionTarget);
+  };
+
   const handleMasterAck = async () => {
     if (dismissing) {
       return {
@@ -264,37 +270,17 @@ export function OneSetupHub() {
         };
       }
 
-      // Resolve the master gate before offering the optional vault introduction.
-      // acknowledgeOneSetupExit primes the local completion latch synchronously
-      // (so the guard admits /one right away); the durable backend writes settle
-      // in the background, so a slow or failing network can never strand the
-      // person on this screen.
-      void acknowledgeOneSetupExit({
-        userId: user.uid,
-        skipped: masterSkipped,
-        isVaultUnlocked,
-        vaultKey,
-        vaultOwnerToken,
-      }).catch((error) => {
-        console.warn(
-          "[OneSetupHub] Durable setup-exit write failed; the local completion latch keeps you on home:",
-          error,
-        );
-      });
       if (!isVaultUnlocked) {
         setVaultInvitationOpen(true);
         return {
           status: "succeeded" as const,
-          summary:
-            "Setup is complete. Choose whether to set up your private vault.",
+          summary: "Continue to set up your private vault.",
         };
       }
-      router.replace(completionTarget);
+      completeSetupAfterVault();
       return {
         status: "succeeded" as const,
-        summary: masterSkipped
-          ? "Skipped setup for now. Opening home."
-          : "Finished setup for now. Opening home.",
+        summary: "Setup complete. Opening home.",
         routeAfter: completionTarget,
       };
     } finally {
@@ -302,8 +288,8 @@ export function OneSetupHub() {
     }
   };
 
-  // Voice parity: "skip setup" / "finish setup" drive the same master
-  // acknowledgement as the visible shared terminal action.
+  // Voice and the visible shared terminal action drive the same mandatory
+  // root-completion boundary.
   useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
     return handleMasterAck();
   });
@@ -315,10 +301,6 @@ export function OneSetupHub() {
       : `${done} of ${total} ready, ${remaining} left to set up.`;
   const showVaultInvitation =
     vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
-  const leaveAfterVaultChoice = () => {
-    setVaultInvitationOpen(false);
-    router.replace(completionTarget);
-  };
 
   return (
     <AppPageShell
@@ -344,7 +326,7 @@ export function OneSetupHub() {
             }
             description={
               showVaultInvitation
-                ? "Set up a vault when you are ready. You can also do this later."
+                ? "Your vault is required to finish setup."
                 : summary
             }
             accent="neutral"
@@ -407,18 +389,6 @@ export function OneSetupHub() {
                 data-testid="one-setup-vault-invitation-open"
               >
                 Set up private vault
-              </Button>
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="lg"
-                fullWidth
-                className="min-h-12 justify-center text-center"
-                onClick={leaveAfterVaultChoice}
-                data-testid="one-setup-vault-invitation-later"
-              >
-                I’ll do this later
               </Button>
             </div>
           </section>
@@ -531,19 +501,15 @@ export function OneSetupHub() {
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
                 purpose={
-                  masterSkipped
-                    ? "Skip the remaining setup for now and go home."
-                    : "Finish setup for now and go home."
+                  "Finish setup and protect what you save."
                 }
                 supportingText={
                   !runtimeChoiceComplete
                     ? "Choose a Connections option before continuing."
-                    : masterSkipped
-                      ? "You can set up these capabilities any time."
-                      : "Your completed setup stays in place. You can add more any time."
+                    : "Your vault is required. You can add more capabilities any time."
                 }
-                variant={masterSkipped ? "none" : "blue-gradient"}
-                effect={masterSkipped ? "fade" : "fill"}
+                variant="blue-gradient"
+                effect="fill"
               />
             </div>
           </>
@@ -554,11 +520,11 @@ export function OneSetupHub() {
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
+          dismissible={false}
           title="Set up your private vault"
           description="Create a private place for the details you choose to save."
           onSuccess={() => {
-            setVaultDialogOpen(false);
-            leaveAfterVaultChoice();
+            completeSetupAfterVault();
           }}
         />
       ) : null}

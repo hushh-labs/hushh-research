@@ -1434,7 +1434,11 @@ describe("OneLocationAgentPage", () => {
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
-  it("refreshes Location after returning from Settings and opens the saved-place prompt", async () => {
+  it("refreshes Location after returning from Settings and opens the saved-place prompt in the unlocked workspace", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
     const deniedPermission = {
       state: "denied" as const,
       precise: false,
@@ -1453,7 +1457,7 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPage mode="setup" />);
+    render(<OneLocationAgentPage />);
 
     await openLocationPermissionsStep();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
@@ -1480,6 +1484,25 @@ describe("OneLocationAgentPage", () => {
       await screen.findByTestId("one-location-onboarding-welcome"),
     ).toBeTruthy();
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
+  });
+
+  it("starts Location setup without vault authority or a saved-place prompt", async () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultKey: null,
+      vaultOwnerToken: null,
+    });
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    expect(
+      await screen.findByTestId("one-location-onboarding-welcome"),
+    ).toBeTruthy();
+    expect(mockRegisterKey).not.toHaveBeenCalled();
+    expect(mockGetState).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Save this place" }),
+    ).toBeNull();
   });
 
   it("keeps contact prefetch alive across steps and renders the first available source", async () => {
@@ -1784,7 +1807,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
   });
 
-  it("retries current-location capture before allowing setup to continue", async () => {
+  it("retries current-location capture in the unlocked workspace", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
     mockCaptureCurrentPosition.mockRejectedValueOnce(
       new Error("Position unavailable"),
     );
@@ -1793,7 +1820,7 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPage mode="setup" />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
@@ -1874,7 +1901,11 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
-  it("reoffers the encrypted saved-place prompt during setup replay when Location is already granted", async () => {
+  it("reoffers the encrypted saved-place prompt in the unlocked workspace when Location is already granted", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
     expect(
       window.localStorage.getItem(
         "one_location_saved_location_prompt_v1:user_a",
@@ -1885,7 +1916,7 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPage mode="setup" />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();

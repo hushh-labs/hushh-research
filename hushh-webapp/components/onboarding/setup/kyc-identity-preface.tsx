@@ -1,94 +1,68 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { Input } from "@/components/ui/input";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import {
-  KycIdentityProfilePkmService,
-  type KycIdentityProfile,
+  KycIdentityProfileDraftService,
+  type KycEmploymentStatus,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
-import { useVault } from "@/lib/vault/vault-context";
 
 const STEPS = [
   { id: "legal-name", label: "Legal name" },
   { id: "date-of-birth", label: "Date of birth" },
-  { id: "residence", label: "Primary residence" },
+  { id: "citizenship", label: "Citizenship" },
+  { id: "employment", label: "Employment" },
 ] as const;
+
+const EMPLOYMENT_OPTIONS: ReadonlyArray<{
+  value: KycEmploymentStatus;
+  label: string;
+}> = [
+  { value: "employed", label: "Employed" },
+  { value: "self_employed", label: "Self-employed" },
+  { value: "student", label: "Student" },
+  { value: "retired", label: "Retired" },
+  { value: "not_currently_employed", label: "Not currently employed" },
+];
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
   const [step, setStep] = useState(0);
   const [legalName, setLegalName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
-  const [countryCode, setCountryCode] = useState("");
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [profileAwaitingUnlock, setProfileAwaitingUnlock] =
-    useState<KycIdentityProfile | null>(null);
+  const [citizenshipCountryCode, setCitizenshipCountryCode] = useState("");
+  const [employmentStatus, setEmploymentStatus] =
+    useState<KycEmploymentStatus | "">("");
 
   const selectedCountry = useMemo(
     () =>
-      COUNTRY_PHONE_OPTIONS.find((country) => country.value === countryCode),
-    [countryCode],
+      COUNTRY_PHONE_OPTIONS.find(
+        (country) => country.value === citizenshipCountryCode,
+      ),
+    [citizenshipCountryCode],
   );
   const canContinue =
     step === 0
       ? legalName.trim().length > 1
       : step === 1
         ? Boolean(dateOfBirth)
-        : Boolean(selectedCountry);
+        : step === 2
+          ? Boolean(selectedCountry)
+          : Boolean(employmentStatus);
   const hasCompleteProfile =
     legalName.trim().length > 1 &&
     Boolean(dateOfBirth) &&
-    Boolean(selectedCountry);
-
-  const saveProfileInBackground = useCallback(
-    async (profile: KycIdentityProfile) => {
-      if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
-
-      try {
-        const result = await KycIdentityProfilePkmService.saveProfile({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          profile,
-        });
-        if (!result.success) {
-          throw new Error(result.message);
-        }
-      } catch {
-        toast.error(
-          "We couldn't save your identity details. Please try again.",
-        );
-      }
-    },
-    [user?.uid, vaultKey, vaultOwnerToken],
-  );
-
-  useEffect(() => {
-    if (!profileAwaitingUnlock || !vaultKey || !vaultOwnerToken) return;
-
-    const profile = profileAwaitingUnlock;
-    setProfileAwaitingUnlock(null);
-    setVaultOpen(false);
-    void saveProfileInBackground(profile);
-    onComplete();
-  }, [
-    onComplete,
-    profileAwaitingUnlock,
-    saveProfileInBackground,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+    Boolean(selectedCountry) &&
+    Boolean(employmentStatus);
 
   const handlePrimary = () => {
     if (!canContinue) return;
@@ -108,16 +82,14 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
     const profile = {
       legalName: legalName.trim(),
       dateOfBirth,
-      countryCode: selectedCountry.value,
-      countryName: selectedCountry.label,
+      citizenshipCountryCode: selectedCountry.value,
+      citizenshipCountryName: selectedCountry.label,
+      employmentStatus: employmentStatus as KycEmploymentStatus,
     };
-    if (!vaultKey || !vaultOwnerToken) {
-      setProfileAwaitingUnlock(profile);
-      setVaultOpen(true);
-      return;
-    }
-
-    void saveProfileInBackground(profile);
+    // Capability setup is deliberately vault-free. Keep the sensitive draft
+    // only in process memory; the root Finish setup action is the one place
+    // that introduces the vault and flushes this profile after unlock.
+    KycIdentityProfileDraftService.stage(user.uid, profile);
     onComplete();
   };
 
@@ -198,7 +170,9 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                     ? "What is your legal name?"
                     : step === 1
                       ? "What is your date of birth?"
-                      : "Where is your primary residence?"}
+                      : step === 2
+                        ? "What is your country of citizenship?"
+                        : "Which best describes your employment?"}
                 </h1>
               </div>
 
@@ -226,16 +200,37 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 ) : null}
                 {step === 2 ? (
                   <select
-                    value={countryCode}
-                    onChange={(event) => setCountryCode(event.target.value)}
-                    autoComplete="country-name"
-                    aria-label="Primary residence"
+                    value={citizenshipCountryCode}
+                    onChange={(event) =>
+                      setCitizenshipCountryCode(event.target.value)
+                    }
+                    autoComplete="country"
+                    aria-label="Country of citizenship"
                     className="h-14 w-full appearance-none rounded-xl border border-input bg-background px-4 text-base text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
                   >
-                    <option value="">Select country or region</option>
+                    <option value="">Select country</option>
                     {COUNTRY_PHONE_OPTIONS.map((country) => (
                       <option key={country.value} value={country.value}>
                         {country.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {step === 3 ? (
+                  <select
+                    value={employmentStatus}
+                    onChange={(event) =>
+                      setEmploymentStatus(
+                        event.target.value as KycEmploymentStatus | "",
+                      )
+                    }
+                    aria-label="Employment status"
+                    className="h-14 w-full appearance-none rounded-xl border border-input bg-background px-4 text-base text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                  >
+                    <option value="">Select an option</option>
+                    {EMPLOYMENT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -267,18 +262,6 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
             </div>
           </div>
         </div>
-
-        {user ? (
-          <VaultUnlockDialog
-            user={user}
-            open={vaultOpen}
-            onOpenChange={setVaultOpen}
-            title="Unlock to continue"
-            description="Enter your passphrase to save these KYC details securely."
-            allowVaultCreation={false}
-            onSuccess={() => setVaultOpen(false)}
-          />
-        ) : null}
       </main>
     </CapabilityCinematicIntroGate>
   );

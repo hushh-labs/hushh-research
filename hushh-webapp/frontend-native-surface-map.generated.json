@@ -5224,7 +5224,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/gemini",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7808,5 +7819,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "870308732b1fd9090590b5ed7efa96146bae5561afd6a936105c0bd4af0042ec"
+  "content_sha256": "4b1c0e41e3fa2269f4fbcddff19e8b8fa516b54d03e954359c03add40c89836c"
 }

@@ -24,7 +24,20 @@ describe("Location setup route contract", () => {
     expect(adapter).toContain(".skip({ suppressErrorToast: true })");
     expect(adapter).toContain('terminalPresentation: "automatic"');
     expect(adapter).not.toContain("vaultPrerequisiteRouteKey");
+    expect(adapter).not.toContain("CapabilityVaultPrerequisite");
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
+  });
+
+  it("keeps Location setup vault-free until the root setup completion", () => {
+    const locationPage = read("app/one/location/page.tsx");
+
+    expect(locationPage).toContain("mode !== \"setup\"");
+    expect(locationPage).toContain(
+      'Boolean(auth.userId && (mode === "setup" || vaultOwnerToken))',
+    );
+    expect(locationPage).toContain(
+      'mode === "setup"\n              ? async () => true',
+    );
   });
 
   it("redirects completed Location only after root setup is resolved", () => {

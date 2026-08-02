@@ -8,7 +8,6 @@ import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
-import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 export function LocationOnboardingSetupClient() {
@@ -26,53 +25,47 @@ export function LocationOnboardingSetupClient() {
 
   return (
     <CapabilityCinematicIntroGate capabilityId="location">
-      <CapabilityVaultPrerequisite
-        capabilityLabel="Location"
-        routeKey="/one/setup/location"
-        allowVaultCreation={false}
-      >
-        <OneLocationAgentPage
-          mode="setup"
-          onSetupReadinessChange={setReady}
-          onSetupComplete={async () => {
-            await toast
-              .promise(
-                coordinator
-                  .finish({ suppressErrorToast: true })
-                  .then((result) => {
-                    if (result.status !== "succeeded")
-                      throw new Error(result.summary);
-                    return result;
-                  }),
-                {
-                  loading: "Finishing Location setup…",
-                  success: (result) => result.summary,
-                  error: "Location setup could not be saved. Please try again.",
-                },
-              )
-              .unwrap();
-          }}
-          onSetupSkip={async () => {
-            await toast
-              .promise(
-                coordinator
-                  .skip({ suppressErrorToast: true })
-                  .then((result) => {
-                    if (result.status !== "succeeded")
-                      throw new Error(result.summary);
-                    return result;
-                  }),
-                {
-                  loading: "Skipping Location setup…",
-                  success: (result) => result.summary,
-                  error:
-                    "Location setup could not be updated. Please try again.",
-                },
-              )
-              .unwrap();
-          }}
-        />
-      </CapabilityVaultPrerequisite>
+      <OneLocationAgentPage
+        mode="setup"
+        onSetupReadinessChange={setReady}
+        onSetupComplete={async () => {
+          await toast
+            .promise(
+              coordinator
+                .finish({ suppressErrorToast: true })
+                .then((result) => {
+                  if (result.status !== "succeeded")
+                    throw new Error(result.summary);
+                  return result;
+                }),
+              {
+                loading: "Finishing Location setup…",
+                success: (result) => result.summary,
+                error: "Location setup could not be saved. Please try again.",
+              },
+            )
+            .unwrap();
+        }}
+        onSetupSkip={async () => {
+          await toast
+            .promise(
+              coordinator
+                .skip({ suppressErrorToast: true })
+                .then((result) => {
+                  if (result.status !== "succeeded")
+                    throw new Error(result.summary);
+                  return result;
+                }),
+              {
+                loading: "Skipping Location setup…",
+                success: (result) => result.summary,
+                error:
+                  "Location setup could not be updated. Please try again.",
+              },
+            )
+            .unwrap();
+        }}
+      />
     </CapabilityCinematicIntroGate>
   );
 }
