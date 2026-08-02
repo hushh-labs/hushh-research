@@ -46,6 +46,7 @@ const {
   mockRouterPush,
   mockRouterReplace,
   mockRouterBack,
+  mockUseSearchParams,
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
@@ -86,6 +87,7 @@ const {
   mockRouterPush: vi.fn(),
   mockRouterReplace: vi.fn(),
   mockRouterBack: vi.fn(),
+  mockUseSearchParams: vi.fn(),
   mockSearchParamsGet: vi.fn(),
   mockSearchParams: {
     get: vi.fn(),
@@ -103,7 +105,7 @@ vi.mock("next/navigation", () => ({
     replace: mockRouterReplace,
     back: mockRouterBack,
   }),
-  useSearchParams: () => mockSearchParams,
+  useSearchParams: mockUseSearchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -619,6 +621,7 @@ describe("OneLocationAgentPage", () => {
     forgetOneLocationControlPreference("user_a");
     mockSearchParams.toString = () => "";
     mockSearchParamsGet.mockReturnValue(null);
+    mockUseSearchParams.mockReturnValue(mockSearchParams);
     mockUseRequireAuth.mockReturnValue({
       loading: false,
       isAuthenticated: true,
@@ -1148,6 +1151,142 @@ describe("OneLocationAgentPage", () => {
         shareKind: "share",
       }),
     );
+  });
+
+  it("resets every abandoned share field and ignores a late review preflight", async () => {
+    const { rerender } = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.change(
+      await screen.findByPlaceholderText("Search trusted people"),
+      { target: { value: "Investor" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+      "",
+    );
+    expect(
+      screen.getByRole("button", {
+        name: /Deselect Investor D for private sharing/i,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_recommendation_selected",
+      expect.objectContaining({
+        action: "share",
+        selection_surface: "section_list",
+        selected_count: 1,
+      }),
+      expect.any(Object),
+    );
+
+    const shareParams = new URLSearchParams("action=share");
+    mockUseSearchParams.mockReturnValue(shareParams);
+    rerender(<OneLocationAgentPage />);
+
+    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
+      target: { value: "Trusted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Approximate area/i }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
+      target: { value: "Meet me by the entrance" },
+    });
+
+    let resolvePermission:
+      | ((value: {
+          state: "granted";
+          precise: true;
+          background: "foreground-only";
+          locationServicesEnabled: true;
+        }) => void)
+      | null = null;
+    mockGetPermissionState.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePermission = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review share" }));
+
+    const hubParams = new URLSearchParams();
+    mockUseSearchParams.mockReturnValue(hubParams);
+    rerender(<OneLocationAgentPage />);
+    expect(
+      await screen.findByRole("heading", { name: "Location Agent" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(
+      await screen.findByPlaceholderText("Search trusted people"),
+    ).toHaveValue("Investor");
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      resolvePermission?.({
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      });
+    });
+    expect(
+      screen.getByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+      "",
+    );
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: /Select Trusted B for private sharing/i,
+      }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for private sharing/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("radio", { name: /Precise live location/i }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("radio", { name: /Approximate area/i }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByRole("combobox", { name: "Duration" }).textContent,
+    ).toContain("15 min");
+    expect(
+      screen.getByRole("textbox", { name: "Optional note" }),
+    ).toHaveValue("");
+    expect(screen.getByText("0/140")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review share" }));
+    expect(
+      await screen.findByRole("heading", { name: "Before you start" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("opens the canonical Location Settings URL and owns Saved Locations there", async () => {
