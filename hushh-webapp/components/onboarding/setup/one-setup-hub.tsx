@@ -148,9 +148,6 @@ export function OneSetupHub() {
   // count it as done. Connections is also a real, mandatory setup step and is
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
-  const completedCapabilityCount = items.filter((item) =>
-    isCapabilitySetupComplete(item.status),
-  ).length;
   const progressSteps = [
     { id: "connections", complete: runtimeChoiceComplete },
     ...items.map((item) => ({
