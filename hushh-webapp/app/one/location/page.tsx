@@ -1770,6 +1770,7 @@ export function OneLocationAgentPageContent({
 
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
+  const [shareRecipientSearch, setShareRecipientSearch] = useState("");
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
@@ -1931,6 +1932,8 @@ export function OneLocationAgentPageContent({
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
   const suppressAutoRecipientSelectionRef = useRef(false);
+  const shareReviewAttemptRef = useRef(0);
+  const shareReviewPendingRef = useRef(false);
   // Continuous movement-driven live tracking (owner side). Holds the active
   // geolocation watch id, the last point we actually published (to measure
   // movement), and the timestamp of that publish (to throttle bursts).
@@ -2001,6 +2004,13 @@ export function OneLocationAgentPageContent({
       recommendationSearchText(recipient).includes(query),
     );
   }, [rankedRecipients, recipientSearch]);
+  const visibleShareRecipients = useMemo(() => {
+    const query = shareRecipientSearch.trim().toLowerCase();
+    if (!query) return rankedRecipients;
+    return rankedRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(query),
+    );
+  }, [rankedRecipients, shareRecipientSearch]);
   const hasMoreVisibleRecipients =
     visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
   const showExpandedOneNetworkList =
@@ -3066,10 +3076,17 @@ export function OneLocationAgentPageContent({
     };
   }, [auth.userId, activeOwnerGrants]);
 
-  const resetShareComposer = useCallback(() => {
+  const resetShareComposer = useCallback((initialRecipientId?: string) => {
+    const recipientId = initialRecipientId?.trim() || "";
+    shareReviewAttemptRef.current += 1;
+    if (shareReviewPendingRef.current) {
+      shareReviewPendingRef.current = false;
+      setBusy((current) => (current === "share" ? null : current));
+    }
     suppressAutoRecipientSelectionRef.current = true;
-    setSelectedRecipientId("");
-    setSelectedRecipientIds([]);
+    setShareRecipientSearch("");
+    setSelectedRecipientId(recipientId);
+    setSelectedRecipientIds(recipientId ? [recipientId] : []);
     setShareReviewOpen(false);
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
@@ -4548,6 +4565,21 @@ export function OneLocationAgentPageContent({
     [],
   );
 
+  const startShareComposer = useCallback(
+    (initialRecipientId?: string) => {
+      const recipientId = initialRecipientId?.trim() || "";
+      resetShareComposer(recipientId || undefined);
+      if (!recipientId) return;
+      const recipient = recipients.find(
+        (item) => item.userId === recipientId,
+      );
+      if (recipient) {
+        trackRecommendationSelection(recipient, "share", "section_list", 1);
+      }
+    },
+    [recipients, resetShareComposer, trackRecommendationSelection],
+  );
+
   const addShareRecipient = useCallback(
     (
       recipientId: string,
@@ -5305,11 +5337,16 @@ export function OneLocationAgentPageContent({
   );
   const handleOpenShareReview = useCallback(async () => {
     if (!canShare) return;
+    const attemptId = shareReviewAttemptRef.current + 1;
+    shareReviewAttemptRef.current = attemptId;
+    shareReviewPendingRef.current = true;
     setBusy("share");
     const readiness = await ensureForegroundLocationReady({
       capturePoint: false,
       autoOpenSettings: true,
     });
+    if (shareReviewAttemptRef.current !== attemptId) return;
+    shareReviewPendingRef.current = false;
     setBusy(null);
     if (!readiness.ready) return;
     setShareReviewOpen(true);
@@ -6189,6 +6226,7 @@ export function OneLocationAgentPageContent({
     myLocationError,
     recipients: rankedRecipients,
     visibleRecipients,
+    visibleShareRecipients,
     activeOwnerGrants,
     // Received grants stay reachable in their focused detail view. Dismissing
     // a preview never mutates the durable grant or its revocation state.
@@ -6203,6 +6241,7 @@ export function OneLocationAgentPageContent({
       detail: event.detail,
     })),
     recipientSearch,
+    shareRecipientSearch,
     selectedRecipientIds,
     selectedRequestOwnerIds,
     shareDurationHours,
@@ -6213,11 +6252,14 @@ export function OneLocationAgentPageContent({
     publicInviteUrl,
     circleInviteUrl,
     setRecipientSearch,
+    setShareRecipientSearch,
     setShareDurationHours,
     setShareMessage,
     setDurationHours,
     setRequestMessage,
     setShareReviewOpen,
+    resetShareComposer,
+    startShareComposer,
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
     onShowMyLocation: () => void handleShowMyLiveLocation(),

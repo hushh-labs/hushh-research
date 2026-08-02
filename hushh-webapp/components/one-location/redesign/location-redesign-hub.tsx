@@ -164,6 +164,7 @@ export type LocationHubViewModel = {
   /* data lists */
   recipients: OneLocationRecipient[];
   visibleRecipients: OneLocationRecipient[];
+  visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
   receivedGrants: OneLocationGrant[];
   pendingOwnerRequests: OneLocationAccessRequest[];
@@ -174,6 +175,7 @@ export type LocationHubViewModel = {
 
   /* composer state */
   recipientSearch: string;
+  shareRecipientSearch: string;
   selectedRecipientIds: string[];
   selectedRequestOwnerIds: string[];
   shareDurationHours: string;
@@ -186,11 +188,14 @@ export type LocationHubViewModel = {
 
   /* setters (presentation state owned by page) */
   setRecipientSearch: (v: string) => void;
+  setShareRecipientSearch: (v: string) => void;
   setShareDurationHours: (v: string) => void;
   setShareMessage: (v: string) => void;
   setDurationHours: (v: string) => void;
   setRequestMessage: (v: string) => void;
   setShareReviewOpen: (v: boolean) => void;
+  resetShareComposer: () => void;
+  startShareComposer: (initialRecipientId?: string) => void;
 
   /* selection */
   toggleShareRecipient: (id: string, surface?: string) => void;
@@ -480,9 +485,24 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [locationType, setLocationType] =
+  const [shareLocationType, setShareLocationType] =
+    useState<LocationTypeValue>("precise");
+  const [temporaryLinkLocationType, setTemporaryLinkLocationType] =
     useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
+  const activeFlowRef = useRef<FlowKind>("none");
+  const resetShareComposer = vm.resetShareComposer;
+  const startShareComposer = vm.startShareComposer;
+  const setShareReviewOpen = vm.setShareReviewOpen;
+
+  const resetShareLocalState = useCallback(() => {
+    setShareStep("person");
+    setShareLocationType("precise");
+  }, []);
+  const resetShareDraft = useCallback(() => {
+    resetShareLocalState();
+    resetShareComposer();
+  }, [resetShareComposer, resetShareLocalState]);
 
   // A location action flow is a focused sub-screen of /one/location.
   // The open flow is mirrored into the URL (`?action=…`) so the SINGLE top-left
@@ -494,8 +514,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const openFlow = useCallback(
     (next: Exclude<FlowKind, "none">) => {
       setFlow(next);
+      activeFlowRef.current = next;
       pendingFlowRef.current = next;
-      if (next === "share") setShareStep("person");
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_SOURCE_PARAM);
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
@@ -504,9 +524,19 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams],
   );
 
+  const openShareFlow = useCallback(
+    (initialRecipientId?: string) => {
+      resetShareLocalState();
+      startShareComposer(initialRecipientId);
+      openFlow("share");
+    },
+    [openFlow, resetShareLocalState, startShareComposer],
+  );
+
   const closeFlow = useCallback(
     (nextTab?: LocationHubTab) => {
       setFlow("none");
+      activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
       vm.setShareReviewOpen(false);
@@ -530,8 +560,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams, vm],
   );
 
+  const closeShareFlow = useCallback(() => {
+    resetShareDraft();
+    closeFlow();
+  }, [closeFlow, resetShareDraft]);
+
   const returnToNearbyCheckIn = useCallback(() => {
     setFlow("none");
+    activeFlowRef.current = "none";
     pendingFlowRef.current = "none";
     setShareStep("person");
     vm.setShareReviewOpen(false);
@@ -580,16 +616,26 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       return;
     }
     pendingFlowRef.current = "none";
+    const previousFlow = activeFlowRef.current;
+    if (previousFlow === "share" && desired !== "share") {
+      resetShareDraft();
+    } else if (previousFlow !== "share" && desired === "share") {
+      resetShareDraft();
+    }
+    activeFlowRef.current = desired;
     setFlow((current) => (current === desired ? current : desired));
     if (desired === "none") {
       setShareStep("person");
-      vm.setShareReviewOpen(false);
+      setShareReviewOpen(false);
     }
-    // `vm.setShareReviewOpen` is a stable useState setter; depend on searchParams
-    // only so this runs on every URL change (open/close) without re-firing on
-    // unrelated vm re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nearbyCheckInAvailable, pathname, router, searchParams]);
+  }, [
+    nearbyCheckInAvailable,
+    pathname,
+    resetShareDraft,
+    router,
+    searchParams,
+    setShareReviewOpen,
+  ]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
   // the 3-step share flow and return to the main One Location hub.
@@ -600,8 +646,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // Closing the flow returns to the hub; the share flow always launches
       // from the "Now" tab, so no explicit tab change is needed.
       setFlow("none");
+      activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
+      setShareLocationType("precise");
       if (nearbyPrivateCheckIn) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
@@ -639,9 +687,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={locationType}
-            setLocationType={setLocationType}
-            onClose={closeFlow}
+            locationType={shareLocationType}
+            setLocationType={setShareLocationType}
+            onClose={closeShareFlow}
           />
         ) : flow === "ask" ? (
           <AskFlow
@@ -706,8 +754,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : (
           <TemporaryLinkFlow
             vm={vm}
-            locationType={locationType}
-            setLocationType={setLocationType}
+            locationType={temporaryLinkLocationType}
+            setLocationType={setTemporaryLinkLocationType}
             onClose={closeFlow}
           />
         )}
@@ -744,7 +792,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationHubPanel>
             <NowHub
               vm={vm}
-              onStartShare={() => openFlow("share")}
+              onStartShare={() => openShareFlow()}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
@@ -767,7 +815,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm={vm}
               onAddConnections={() => router.push(ROUTES.CONNECT)}
               onInvite={() => openFlow("invite")}
-              onStartShare={() => openFlow("share")}
+              onStartShare={openShareFlow}
               onAsk={() => openFlow("ask")}
             />
           </LocationHubPanel>
@@ -1261,7 +1309,7 @@ function PeopleHub({
   vm: LocationHubViewModel;
   onAddConnections: () => void;
   onInvite: () => void;
-  onStartShare: () => void;
+  onStartShare: (initialRecipientId?: string) => void;
   onAsk: () => void;
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
@@ -1397,10 +1445,7 @@ function PeopleHub({
                     </Button>
                   ) : ready ? (
                     <Button
-                      onClick={() => {
-                        vm.toggleShareRecipient(r.userId, "people_hub");
-                        onStartShare();
-                      }}
+                      onClick={() => onStartShare(r.userId)}
                       className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
                     >
                       Share
@@ -1640,7 +1685,7 @@ function ShareFlow({
   setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
-  const filtered = vm.visibleRecipients;
+  const filtered = vm.visibleShareRecipients;
   const recipientById = new globalThis.Map(
     vm.recipients.map((recipient) => [recipient.userId, recipient]),
   );
@@ -1809,8 +1854,8 @@ function ShareFlow({
         description="Only trusted and location-ready people can receive private live location."
       />
       <PersonSearchInput
-        value={vm.recipientSearch}
-        onChange={vm.setRecipientSearch}
+        value={vm.shareRecipientSearch}
+        onChange={vm.setShareRecipientSearch}
       />
       {filtered.length ? (
         <div className={PEOPLE_LIST_SCROLL_CLASS}>
