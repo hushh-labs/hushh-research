@@ -11943,22 +11943,21 @@
     {
       "action_id": "setup.hub_master_ack",
       "surface_id": "one_setup_hub",
-      "label": "Skip or finish setup",
+      "label": "Finish setup",
       "aliases": [
-        "skip setup",
         "i'm done setting up",
-        "continue to home",
         "finish setup",
-        "that's all for now"
+        "finish setting up",
+        "set up my vault"
       ],
       "search_keywords": [
-        "skip",
-        "continue",
+        "finish",
         "done",
-        "finish setup",
-        "home"
+        "vault",
+        "protect",
+        "setup"
       ],
-      "meaning": "Resolves the master setup gate: Skip setup when nothing is set up yet, or Finish setup once at least one capability is ready, then opens One's home.",
+      "meaning": "Validates the Connections choice, then requires the private vault to be created or unlocked before One opens home.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12025,7 +12024,7 @@
           {
             "type": "action",
             "action_id": "setup.hub_master_ack",
-            "label": "Skip or finish setup",
+            "label": "Finish setup",
             "failure_behavior": "stop"
           }
         ],

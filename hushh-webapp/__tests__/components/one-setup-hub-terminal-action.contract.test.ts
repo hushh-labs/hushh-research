@@ -16,19 +16,17 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("changes its explicit outcome from skip to finish after a verified capability completes", () => {
+  it("always finishes root setup through the required vault boundary", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain('masterSkipped ? "Skip setup" : "Finish setup"');
+    expect(source).toContain('const masterActionLabel = "Finish setup"');
     expect(source).toContain("isCapabilitySetupComplete(item.status)");
     expect(source).toContain('actionId="setup.hub_master_ack"');
-    expect(source).toContain(
-      'variant={masterSkipped ? "none" : "blue-gradient"}',
-    );
-    expect(source).toContain('effect={masterSkipped ? "fade" : "fill"}');
+    expect(source).toContain('variant="blue-gradient"');
+    expect(source).toContain('effect="fill"');
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -93,9 +91,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "const done = progressSteps.filter((step) => step.complete).length",
     );
-    expect(source).toContain(
-      "const masterSkipped = completedCapabilityCount === 0",
-    );
+    expect(source).not.toContain("masterSkipped");
     expect(source).not.toContain("const total = items.length");
   });
 
@@ -182,21 +178,24 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('<div className="hidden sm:block">');
   });
 
-  it("offers the optional vault only after the master setup acknowledgement is primed", () => {
+  it("requires vault completion after master setup acknowledgement", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("void acknowledgeOneSetupExit({");
     expect(source).toContain("setVaultInvitationOpen(true);");
-    expect(source.indexOf("void acknowledgeOneSetupExit({")).toBeLessThan(
-      source.indexOf("setVaultInvitationOpen(true);"),
-    );
+    expect(source).toContain("const completeSetupAfterVault = () => {");
+    const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
+    expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain('data-testid="one-setup-vault-invitation"');
     expect(source).toContain("Set up private vault");
-    expect(source).toContain("I’ll do this later");
+    expect(source).not.toContain("I’ll do this later");
+    expect(source).not.toContain("one-setup-vault-invitation-later");
     expect(source).toContain("<VaultUnlockDialog");
+    expect(source).toContain("dismissible={false}");
+    expect(source).toContain("onSuccess={() => {");
+    expect(source).toContain("completeSetupAfterVault();");
   });
 
   it("does not allow a setup route to create a first vault before Finish setup", () => {
