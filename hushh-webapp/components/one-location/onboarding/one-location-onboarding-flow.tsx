@@ -78,8 +78,7 @@ const WELCOME_ORBIT_ITEMS = [
   {
     src: "/one-location/onboarding/orbit-office.webp",
     position: "right-[8%] top-[10%]",
-    imageClassName:
-      "relative left-1/2 !w-auto max-w-none -translate-x-1/2 scale-[0.93] object-contain",
+    imageClassName: "object-contain",
   },
   {
     src: "/one-location/onboarding/orbit-person-2.webp",
@@ -615,10 +614,10 @@ function ShareLocationFeatureCard() {
         </span>
         <TwoLineFeatureTitle
           lines={["No more explaining", "where you are."]}
-          className="mt-3 font-[family-name:var(--font-app-display)] text-[19px]"
+          className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
-          className="mt-2 text-[13px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
           Share once with family, friends, your driver &mdash; or anyone in your
@@ -647,13 +646,14 @@ function ShareLocationFeatureCard() {
         <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
         <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
         <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
-        {SHARE_LOCATION_AVATARS.map((avatar) => (
+        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
           <span
             key={avatar.src}
             className={cn(
               "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
               avatar.className,
             )}
+            data-one-share-avatar={index + 1}
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
             <img
@@ -691,10 +691,10 @@ function CheckInFeatureCard() {
         </span>
         <TwoLineFeatureTitle
           lines={["At the venue, but", "can\u2019t find each other?"]}
-          className="mt-3 text-[16px]"
+          className="text-[19px]"
         />
         <p
-          className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
           Check in once so your Circle sees your exact spot.
@@ -759,10 +759,10 @@ function SaveMySoulFeatureCard() {
         </span>
         <TwoLineFeatureTitle
           lines={["Need help but can\u2019t", "call or speak?"]}
-          className="mt-3 text-[16px]"
+          className="text-[19px]"
         />
         <p
-          className="mt-2 text-[12px] leading-[1.35] text-[#747b86] dark:text-[#c2aeb2]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
           Send an emergency SMS with your live location to trusted contacts.
@@ -880,7 +880,7 @@ function FeaturesScreen({
             Stay connected
           </h1>
           <p
-            className="mt-3 text-[16px] leading-6 text-[#737a84] dark:text-[#aeb8c7]"
+            className="mt-4 text-[17px] leading-[26px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
           >
             For everyday plans, meetups, and emergencies.
@@ -929,6 +929,17 @@ function FeaturesScreen({
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
+        [data-one-feature-heading] {
+          --foundation-title1-size: clamp(36px, 3vw, 40px);
+          --foundation-title1-line: 1.05;
+        }
+        [data-one-feature-copy] {
+          --one-feature-copy-gap: 12px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--one-feature-copy-gap);
+        }
         @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
           [data-one-feature-scroll] { flex: 1 1 0%; }
           [data-one-feature-grid] {
@@ -954,8 +965,8 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { font-size: 32px; }
-          [data-one-feature-subtitle] { margin-top: 7px; font-size: 14px; line-height: 20px; }
+          [data-one-feature-heading] { --foundation-title1-size: 32px; }
+          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
           [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
           [data-one-feature-cta] { padding-top: 14px; }
@@ -968,11 +979,11 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 44px; }
           [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { font-size: 28px; }
+          [data-one-feature-heading] { --foundation-title1-size: 30px; }
           [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 12px;
-            line-height: 16px;
+            margin-top: 6px;
+            font-size: 13px;
+            line-height: 17px;
             white-space: nowrap;
           }
           [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
@@ -986,8 +997,8 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { font-size: 32px; }
-          [data-one-feature-subtitle] { font-size: 14px; }
+          [data-one-feature-heading] { --foundation-title1-size: 34px; }
+          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
           [data-one-feature-grid] {
             gap: 12px;
           }
@@ -1003,7 +1014,7 @@ function FeaturesScreen({
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { font-size: 29px; }
+          [data-one-feature-heading] { --foundation-title1-size: 31px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-card] { border-radius: 20px; }
@@ -1017,7 +1028,8 @@ function FeaturesScreen({
         }
         @container (max-width: 420px) {
           [data-one-feature-card="share"] [data-one-feature-copy] {
-            width: 58%;
+            --one-feature-copy-gap: 8px;
+            width: 60%;
             padding: 16px 14px 0;
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
@@ -1025,14 +1037,12 @@ function FeaturesScreen({
             font-size: 10px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
-            margin-top: 8px;
-            font-size: 16px;
+            font-size: 19px;
             line-height: 1.12;
           }
           [data-one-feature-card="share"] [data-one-feature-body] {
-            margin-top: 6px;
-            font-size: 11px;
-            line-height: 1.3;
+            font-size: 14px;
+            line-height: 1.35;
           }
           [data-one-feature-card="share"] [data-one-use-case-alert] {
             height: 28px;
@@ -1047,6 +1057,7 @@ function FeaturesScreen({
         }
         @container (max-width: 310px) {
           [data-one-feature-card="share"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 6px;
             padding: 13px 11px 0;
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
@@ -1054,13 +1065,11 @@ function FeaturesScreen({
             font-size: 10px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
-            margin-top: 6px;
-            font-size: 15px;
+            font-size: 17px;
           }
           [data-one-feature-card="share"] [data-one-feature-body] {
-            margin-top: 5px;
-            font-size: 11px;
-            line-height: 1.25;
+            font-size: 12px;
+            line-height: 1.3;
           }
           [data-one-feature-card="share"] [data-one-feature-status-row] {
             padding-bottom: 9px;
@@ -1082,6 +1091,7 @@ function FeaturesScreen({
         @container (max-width: 220px) {
           [data-one-feature-card="checkin"] [data-one-feature-copy],
           [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 6px;
             padding-top: 10px;
             padding-left: 12px;
             padding-right: 10px;
@@ -1093,15 +1103,27 @@ function FeaturesScreen({
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
-            margin-top: 5px;
-            font-size: 14px;
+            font-size: clamp(15px, calc(5vw - 4.5px), 17px);
             line-height: 1.12;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title] {
+            letter-spacing: -0.025em;
           }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] {
-            margin-top: 4px;
-            font-size: 11px;
-            line-height: 1.25;
+            font-size: 13.5px;
+            line-height: 1.3;
+          }
+          [data-one-checkin-pin] {
+            top: 14px;
+            bottom: auto;
+          }
+          [data-one-checkin-art] {
+            bottom: clamp(54px, calc(65vh - 486.6px), 120px);
+          }
+          [data-one-feature-card="sms"] [data-one-feature-art-region] {
+            align-items: flex-start;
+            padding-top: 12px;
           }
           [data-one-feature-card="checkin"] [data-one-use-case-alert],
           [data-one-feature-card="sms"] [data-one-use-case-alert] {
@@ -1117,6 +1139,7 @@ function FeaturesScreen({
         @container (max-width: 165px) {
           [data-one-feature-card="checkin"] [data-one-feature-copy],
           [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 4px;
             padding-top: 8px;
             padding-left: 7px;
             padding-right: 5px;
@@ -1128,15 +1151,16 @@ function FeaturesScreen({
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
-            margin-top: 4px;
-            font-size: clamp(13px, 8.55cqw, 13.5px);
+            font-size: clamp(14px, 9.5cqw, 15px);
             line-height: 1.08;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title] {
+            letter-spacing: -0.05em;
           }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] {
-            margin-top: 3px;
-            font-size: 11px;
-            line-height: 1.2;
+            font-size: 12px;
+            line-height: 1.25;
           }
           [data-one-feature-card="checkin"] [data-one-feature-status-row],
           [data-one-feature-card="sms"] [data-one-feature-status-row] {
@@ -1157,24 +1181,138 @@ function FeaturesScreen({
             width: 12px;
             height: 12px;
           }
-          [data-one-checkin-pin] { bottom: 54px; width: 24px; height: 24px; }
-          [data-one-checkin-art] { bottom: 43px; width: 52%; }
+          [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
+          [data-one-checkin-art] { bottom: 36px; width: 52%; }
           [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
           [data-one-sms-radar] { width: 40px; height: 40px; }
           [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
         }
         @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { font-size: 28px; }
+          [data-one-feature-heading] { --foundation-title1-size: 30px; }
           [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 12px;
-            line-height: 16px;
+            margin-top: 6px;
+            font-size: 13px;
+            line-height: 17px;
             white-space: nowrap;
           }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
           [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-cta] { padding-top: 8px; }
           [data-one-feature-cta] button { min-height: 46px; height: 46px; }
+        }
+        @media (max-width: 340px) and (max-height: 680px) {
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
+        }
+        @media (max-width: 365px) and (min-height: 681px) {
+          [data-one-checkin-pin] {
+            bottom: clamp(54px, calc(40vh - 179.4px), 194px);
+          }
+          [data-one-checkin-art] {
+            bottom: clamp(43px, calc(40vh - 218.4px), 155px);
+          }
+        }
+        @media (max-width: 431px) and (max-height: 560px) {
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 4px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
+          }
+          [data-one-onboarding-navigation] { height: 38px; }
+          [data-one-feature-header] { margin-top: 2px; }
+          [data-one-feature-heading] { --foundation-title1-size: 28px; }
+          [data-one-feature-subtitle] {
+            margin-top: 4px;
+            font-size: 11.5px;
+            line-height: 15px;
+          }
+          [data-one-feature-grid] {
+            grid-template-rows: minmax(0, 0.72fr) minmax(0, 1fr);
+            margin-top: 6px;
+            gap: 6px;
+          }
+          [data-one-feature-lower-grid] { gap: 6px; }
+          [data-one-feature-cta] { padding-top: 6px; }
+          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 5px;
+            width: 60%;
+            padding: 9px 9px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 2px 7px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            font-size: 15.5px;
+            line-height: 1.08;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            font-size: 10px;
+            line-height: 1.2;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-right: 9px;
+            padding-bottom: 6px;
+            padding-left: 9px;
+          }
+          [data-one-share-avatar="2"] { left: 20%; }
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 4px;
+            padding-top: 7px;
+            padding-left: 6px;
+            padding-right: 5px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 2px 6px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 13px;
+            line-height: 1.08;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 9.5px;
+            line-height: 1.2;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-status-row],
+          [data-one-feature-card="sms"] [data-one-feature-status-row] {
+            padding-right: 5px;
+            padding-bottom: 6px;
+            padding-left: 5px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert],
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 22px;
+            padding-right: 4px;
+            padding-left: 4px;
+            font-size: 8px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
+            width: 11px;
+            height: 11px;
+          }
+          [data-one-checkin-pin] { top: 8px; }
+          [data-one-checkin-art] { bottom: 36px; width: 44%; }
+          [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
+          [data-one-sms-radar] { width: 32px; height: 32px; }
+          [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
         }
       `}</style>
     </div>

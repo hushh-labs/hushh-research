@@ -124,9 +124,9 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(welcomeHotel).toBeTruthy();
     expect(welcomeHotel?.className).toContain("object-contain");
-    expect(welcomeHotel?.className).toContain("!w-auto");
-    expect(welcomeHotel?.className).toContain("max-w-none");
-    expect(welcomeHotel?.className).toContain("scale-[0.93]");
+    expect(welcomeHotel?.className).not.toContain("!w-auto");
+    expect(welcomeHotel?.className).not.toContain("max-w-none");
+    expect(welcomeHotel?.className).not.toContain("scale-[");
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -160,6 +160,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureGrid?.className).toContain("shrink-0");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
+    expect(
+      document.querySelector("[data-one-feature-subtitle]")?.className,
+    ).toContain("mt-4");
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
@@ -175,7 +178,32 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(responsiveStyles).toContain("aspect-ratio: auto");
     expect(responsiveStyles).toContain(
-      "font-size: clamp(13px, 8.55cqw, 13.5px)",
+      "font-size: clamp(14px, 9.5cqw, 15px)",
+    );
+    expect(responsiveStyles).toContain(
+      "--foundation-title1-size: clamp(36px, 3vw, 40px)",
+    );
+    expect(responsiveStyles).toContain("--foundation-title1-size: 34px");
+    expect(responsiveStyles).toContain("font-size: 13.5px");
+    expect(responsiveStyles).toContain("margin-top: 8px");
+    expect(responsiveStyles).toContain("margin-top: 6px");
+    expect(responsiveStyles).toContain(
+      "font-size: clamp(15px, calc(5vw - 4.5px), 17px)",
+    );
+    expect(responsiveStyles).toContain(
+      "bottom: clamp(54px, calc(65vh - 486.6px), 120px)",
+    );
+    expect(responsiveStyles).toContain("align-items: flex-start");
+    expect(responsiveStyles).toContain("--one-feature-copy-gap: 12px");
+    expect(responsiveStyles).toContain("gap: var(--one-feature-copy-gap)");
+    expect(responsiveStyles).toContain(
+      "--one-feature-copy-gap: 8px",
+    );
+    expect(responsiveStyles).toContain(
+      "--one-feature-copy-gap: 4px",
+    );
+    expect(responsiveStyles).toContain(
+      "@media (max-width: 431px) and (max-height: 560px)",
     );
     expect(responsiveStyles).not.toContain("font-size: 7.5px");
 
