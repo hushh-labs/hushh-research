@@ -134,12 +134,13 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
-  it("keeps the supplied feature cards proportional without an onboarding scroll region", () => {
+  it("keeps the mobile feature screen readable and fitted without page scrolling", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
     expect(featureShell.className).toContain("max-w-[min(560px,58dvh)]");
+    expect(featureShell.className).toContain("max-[431px]:max-w-none");
     const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
@@ -152,23 +153,31 @@ describe("OneLocationOnboardingFlow", () => {
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
     expect(featureScroll?.className).toContain("overflow-hidden");
     expect(featureScroll?.className).not.toContain("overflow-y-auto");
+    expect(featureScroll?.className).toContain("flex-col");
     expect(featureScroll?.className).toContain("flex-[0_1_auto]");
-    expect(featureScroll?.className).not.toContain("flex-1");
     const featureGrid = document.querySelector("[data-one-feature-grid]");
     expect(featureGrid?.className).toContain("mt-6");
     expect(featureGrid?.className).toContain("shrink-0");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
     const featureCta = document.querySelector("[data-one-feature-cta]");
-    expect(featureCta?.className).toContain("max-[431px]:mt-auto");
+    expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
       "h-[58px]",
     );
     const responsiveStyles =
       featureSurface?.querySelector("style")?.textContent;
-    expect(responsiveStyles).toContain("var(--onboarding-agent-bar-clearance)");
-    expect(responsiveStyles).toContain("aspect-ratio: 1.60 / 1");
-    expect(responsiveStyles).toContain("aspect-ratio: 0.63 / 1");
+    expect(responsiveStyles).not.toContain(
+      "var(--onboarding-agent-bar-clearance)",
+    );
+    expect(responsiveStyles).toContain(
+      "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
+    );
+    expect(responsiveStyles).toContain("aspect-ratio: auto");
+    expect(responsiveStyles).toContain(
+      "font-size: clamp(13px, 8.55cqw, 13.5px)",
+    );
+    expect(responsiveStyles).not.toContain("font-size: 7.5px");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);

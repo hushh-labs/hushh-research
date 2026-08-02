@@ -869,7 +869,7 @@ function FeaturesScreen({
         busy={leaving}
       />
       <div
-        className="min-h-0 flex-[0_1_auto] overflow-hidden"
+        className="flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden"
         data-one-feature-scroll
       >
         <header className="mt-3 shrink-0" data-one-feature-header>
@@ -906,7 +906,7 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="shrink-0 pt-8 max-[431px]:mt-auto" data-one-feature-cta>
+      <div className="shrink-0 pt-8" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -928,6 +928,24 @@ function FeaturesScreen({
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
+        }
+        @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
+          [data-one-feature-scroll] { flex: 1 1 0%; }
+          [data-one-feature-grid] {
+            flex: 1 1 0%;
+            min-height: 0;
+            grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr);
+          }
+          [data-one-feature-lower-grid] {
+            height: 100%;
+            min-height: 0;
+            align-items: stretch;
+          }
+          [data-one-feature-card] {
+            height: 100%;
+            min-height: 0;
+            aspect-ratio: auto;
+          }
         }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
@@ -962,28 +980,23 @@ function FeaturesScreen({
           [data-one-feature-cta] { padding-top: 8px; }
           [data-one-feature-cta] button { min-height: 46px; height: 46px; }
         }
-        @media (max-width: 431px) and (min-height: 800px) {
-          [data-one-feature-screen] {
-            padding-bottom: calc(
-              var(--onboarding-agent-bar-clearance) +
-              max(env(safe-area-inset-bottom, 0px), 12px)
-            );
-          }
-        }
         @media (max-width: 431px) and (min-height: 820px) {
           [data-one-feature-header] { margin-top: 16px; }
           [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
-          [data-one-feature-card="share"] { aspect-ratio: 1.60 / 1; }
-          [data-one-feature-card="checkin"],
-          [data-one-feature-card="sms"] { aspect-ratio: 0.63 / 1; }
         }
-        @media (max-width: 430px) {
+        @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
           [data-one-feature-heading] { font-size: 32px; }
           [data-one-feature-subtitle] { font-size: 14px; }
-          [data-one-feature-grid] { gap: 12px; }
-          [data-one-feature-lower-grid] { gap: 12px; }
-          [data-one-feature-card] { border-radius: 22px; }
+          [data-one-feature-grid] {
+            gap: 12px;
+          }
+          [data-one-feature-lower-grid] {
+            gap: 12px;
+          }
+          [data-one-feature-card] {
+            border-radius: 22px;
+          }
         }
         @media (max-width: 380px) {
           [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
@@ -1025,7 +1038,7 @@ function FeaturesScreen({
             height: 28px;
             padding-left: 7px;
             padding-right: 7px;
-            font-size: 8px;
+            font-size: 9px;
           }
           [data-one-feature-card="share"] [data-one-feature-status-row] {
             padding-right: 14px;
@@ -1038,15 +1051,15 @@ function FeaturesScreen({
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
             padding: 3px 7px;
-            font-size: 9px;
+            font-size: 10px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
             margin-top: 6px;
-            font-size: 14px;
+            font-size: 15px;
           }
           [data-one-feature-card="share"] [data-one-feature-body] {
             margin-top: 5px;
-            font-size: 10px;
+            font-size: 11px;
             line-height: 1.25;
           }
           [data-one-feature-card="share"] [data-one-feature-status-row] {
@@ -1059,7 +1072,7 @@ function FeaturesScreen({
             gap: 3px;
             padding-left: 5px;
             padding-right: 5px;
-            font-size: 7.5px;
+            font-size: 9px;
           }
           [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
             width: 12px;
@@ -1095,7 +1108,7 @@ function FeaturesScreen({
             height: 28px;
             padding-left: 7px;
             padding-right: 7px;
-            font-size: 8px;
+            font-size: 9px;
           }
           [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
           [data-one-sms-radar] { width: 60px; height: 60px; }
@@ -1105,24 +1118,24 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-feature-copy],
           [data-one-feature-card="sms"] [data-one-feature-copy] {
             padding-top: 8px;
-            padding-left: 9px;
-            padding-right: 7px;
+            padding-left: 7px;
+            padding-right: 5px;
           }
           [data-one-feature-card="checkin"] [data-one-use-case-tag],
           [data-one-feature-card="sms"] [data-one-use-case-tag] {
             padding: 3px 7px;
-            font-size: 9px;
+            font-size: 10px;
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
             margin-top: 4px;
-            font-size: 12px;
+            font-size: clamp(13px, 8.55cqw, 13.5px);
             line-height: 1.08;
           }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] {
             margin-top: 3px;
-            font-size: 10px;
+            font-size: 11px;
             line-height: 1.2;
           }
           [data-one-feature-card="checkin"] [data-one-feature-status-row],
@@ -1137,7 +1150,7 @@ function FeaturesScreen({
             gap: 3px;
             padding-left: 4px;
             padding-right: 4px;
-            font-size: 7.5px;
+            font-size: 9px;
           }
           [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
           [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
@@ -1148,9 +1161,9 @@ function FeaturesScreen({
           [data-one-checkin-art] { bottom: 43px; width: 52%; }
           [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
           [data-one-sms-radar] { width: 40px; height: 40px; }
-          [data-one-sms-core] { width: 32px; height: 32px; font-size: 10px; }
+          [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
         }
-        @media (max-width: 430px) and (max-height: 680px) {
+        @media (max-width: 431px) and (max-height: 680px) {
           [data-one-feature-heading] { font-size: 28px; }
           [data-one-feature-subtitle] {
             margin-top: 4px;
@@ -1792,7 +1805,9 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          screen === "features" ? "max-w-[min(560px,58dvh)]" : "max-w-[480px]",
+          screen === "features"
+            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none"
+            : "max-w-[480px]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
