@@ -67,6 +67,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/preferences`
 - `/one/profile/preferences/kai`
 - `/one/profile/preferences/device`
+- `/one/profile/preferences/gemini`
 - `/one/profile/security`
 - `/one/profile/security/vault`
 - `/one/profile/security/session`

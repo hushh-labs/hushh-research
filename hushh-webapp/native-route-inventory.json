@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-19",
-  "total_routes": 103,
-  "native_required_routes": 93,
+  "generated_at": "2026-08-02",
+  "total_routes": 104,
+  "native_required_routes": 94,
   "excluded_routes": 10,
   "routes": [
     {
@@ -646,6 +646,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fdevice",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/preferences/device",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/preferences/gemini",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/preferences/gemini",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
