@@ -345,6 +345,7 @@ class PostgresNearbyPresenceStore:
             SELECT
               p.owner_user_id,
               p.participant_alias,
+              p.consent_version,
               p.allow_connection_requests,
               p.radius_meters,
               p.anchor_ciphertext,
@@ -425,6 +426,7 @@ class PostgresNearbyPresenceStore:
             SELECT
               p.owner_user_id,
               p.participant_alias,
+              p.consent_version,
               p.allow_connection_requests,
               p.radius_meters,
               p.anchor_ciphertext,
