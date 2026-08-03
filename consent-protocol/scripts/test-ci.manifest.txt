@@ -64,3 +64,4 @@ tests/test_health_ready.py
 tests/test_firebase_auth_contract.py
 tests/test_pod_memory_service.py
 tests/test_one_memory_service.py
+tests/test_webauthn_repo.py
