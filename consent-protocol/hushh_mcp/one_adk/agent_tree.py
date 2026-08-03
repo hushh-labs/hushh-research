@@ -1145,6 +1145,31 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
 _runner: Runner | None = None
 
 
+def _build_one_memory_service():
+    """Memory service for One's process-wide runners.
+
+    ``None`` in the shared multi-tenant hub — always, and by construction. That is the
+    first half of the Agent Architecture Doctrine (`AGENTS.md`): memory in a runtime that
+    serves every user would be cross-tenant leakage, so the hub stays dumb by default.
+
+    A per-user **pod** is the other half. There the process serves exactly one owner behind
+    its own key, so ``resolve_pod_memory_service`` returns a ``PodMemoryService`` and Agent
+    One can actually remember the person it works for. That resolver checks ``pod_mode()``
+    before its own kill-switch, so this function cannot hand the hub a memory service even
+    if ``POD_AGENT_MEMORY_ENABLED`` is set in the wrong environment.
+
+    Fail-safe: any resolution error degrades to ``None`` (a memoryless agent) rather than
+    failing runner construction — the same posture as the session-service fallback below.
+    """
+    try:
+        from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+
+        return resolve_pod_memory_service()
+    except Exception:  # noqa: BLE001 -- memory is additive; never block the runner
+        logger.exception("one.memory_service_unavailable fallback=none")
+        return None
+
+
 def _build_one_session_service() -> BaseSessionService:
     """Session service for One's process-wide runners.
 
@@ -1191,6 +1216,7 @@ def get_one_runner() -> Runner:
             app_name=ONE_APP_NAME,
             agent=build_one_root_agent(),
             session_service=_build_one_session_service(),
+            memory_service=_build_one_memory_service(),
             auto_create_session=True,
         )
     return _runner
