@@ -503,7 +503,7 @@ the router actually reads and matches against.
 
 ### F3. Generated-file hazard (binding constraint, verified this session)
 
-`.claude/agents/*.md` are **generated** from `.codex/agents/*.toml` via the sync script at
+`.claude/agents/*.md` are **generated** from `agents/*.toml` via the sync script at
 `.codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py`, run with
 `--write`. **Never hand-edit a file under `.claude/agents/`.** Edit the
 source `.toml` and re-run the sync script; a hand-edit to the generated `.md` silently
@@ -516,7 +516,7 @@ disappears on the next sync and is a wasted, invisible change.
   my dev pod started"), and confirm it still routes to the correct lane. If it does not,
   the trigger text needs contextual phrasing added, not just more keywords.
 - Confirm `sync_claude_agents.py --check` (or equivalent dry-run flag — read the script to
-  find it) reports no drift after any `.codex/agents/*.toml` edit.
+  find it) reports no drift after any `agents/*.toml` edit.
 
 ---
 

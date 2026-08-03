@@ -4,7 +4,7 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `.codex/agents`. They are separate namespaces.
+engineering evidence agents live under `agents`. They are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
 `AgentManifestV2` loader rejects unknown fields, and

@@ -1114,7 +1114,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
                     f"{path.relative_to(REPO_ROOT)}: missing planning-question contract phrase `{phrase}`"
                 )
 
-    for agent_path in sorted((REPO_ROOT / ".codex/agents").glob("*.toml")):
+    for agent_path in sorted((REPO_ROOT / "agents").glob("*.toml")):
         text = agent_path.read_text(encoding="utf-8")
         if "Truth-first protocol:" not in text:
             errors.append(f"{agent_path.relative_to(REPO_ROOT)}: missing truth-first protocol block")

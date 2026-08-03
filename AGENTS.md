@@ -87,7 +87,7 @@ These are the durable architecture principles for every Hussh product agent (One
 3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
 5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
-6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
+6. Product agents and engineering agents are separate namespaces. `agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
 7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
 8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, information authority, and action authority remain separate at every hop.
 9. Intelligence owns semantic assessment. The active route and top authored interaction layer bound that assessment; deterministic policy may validate, normalize, reject, and enforce authority, but it must not replace agent meaning with keyword or regex classification, infer DOM controls, or substitute a different action.
@@ -185,6 +185,32 @@ matching on intent both resolve it.
 Reference implementation: `.claude/skills/verify-before-claim/SKILL.md`. The contract that
 must hold is only this — **discovery may be platform-specific; behaviour must be canonical.**
 
+### Canonical subagent center
+
+`agents/` at the repository root is the **single source of truth for subagent definitions**.
+Twelve authored `*.toml` lanes live there and nowhere else.
+
+Subagents use a **stronger** guarantee than the skill bridge: platform copies are
+**generated, not pointed at**. `.claude/agents/*.md` is a mirror produced by
+`.codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write`, and
+`--check` runs in the governance gate so a stale or orphaned mirror fails CI. Generation
+cannot drift the way a hand-maintained copy can; a bridge relies on the agent following a
+pointer, whereas a generated mirror is verified byte-for-byte by a gate.
+
+**Never hand-edit a file under `.claude/agents/`.** Every one carries a generated-from
+header. Edit `agents/<lane>.toml`, re-run the sync with `--write`, and commit both.
+
+To add a platform: write a generator that reads `agents/*.toml` and emits that platform's
+subagent format, then wire its `--check` equivalent into the governance gate. Do not
+introduce a second authored copy — the `.toml` stays the only place a lane is defined.
+
+Seven scripts resolve the authored directory (`sync_claude_agents.py`,
+`agent_orchestration_check.py`, `delegation_router.py`, `agent_fleet_audit.py`,
+`skill_lint.py`, `skill_fleet_audit.py`, `truth_first_smoke.py`). Each holds a single path
+constant; if the directory ever moves again, all seven and the skill/workflow manifests that
+declare it as an owned path must move together, and the governance gate will name any that
+were missed.
+
 ### Boundary with `.codex/skills/`
 
 `.codex/skills/` is not "Codex's copy" of anything. It is the governed routing brain: each
@@ -198,7 +224,7 @@ governed manifest do not move; skills that are pure practice belong in `skills/`
 
 Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
 
-The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
 
 When you need to know *where* something lives rather than *which lane owns it*, start at [docs/project_context_map.md](docs/project_context_map.md): it maps the seven platform layers to their real repo anchors and states the four non-negotiables. This file governs behavior; that file governs orientation.
 

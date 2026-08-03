@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh Research
 
-"""Mirror `.codex/agents/*.toml` into runnable Claude Code subagents.
+"""Mirror `agents/*.toml` into runnable Claude Code subagents.
 
 The codex agent fleet is the single source of truth for lane definitions:
 authority, sandbox posture, the skills each lane routes through, and the
@@ -28,10 +28,10 @@ import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-CODEX_AGENTS = REPO_ROOT / ".codex" / "agents"
+CODEX_AGENTS = REPO_ROOT / "agents"
 CLAUDE_AGENTS = REPO_ROOT / ".claude" / "agents"
 
-GENERATED_MARKER = "<!-- generated from .codex/agents/"
+GENERATED_MARKER = "<!-- generated from agents/"
 
 # Read-only lanes get inspection and verification tools, never mutation tools.
 # Bash is present because the handoff shape requires `validations_run`, which
@@ -87,7 +87,7 @@ def render(path: Path) -> str:
         "",
         "## Operating context in this harness",
         "",
-        f"- Mirror of `.codex/agents/{path.name}`, which stays the source of truth for this lane.",
+        f"- Mirror of `agents/{path.name}`, which stays the source of truth for this lane.",
         f"- Sandbox posture: `{sandbox}`. Inspect the repo and run verification commands; do not edit tracked",
         "  files. Hand proposed edits back to the parent session as a diff or a precise instruction.",
         "- The skills listed above are codex skills, not Claude skills. Load one with",
@@ -134,7 +134,7 @@ def sync(write: bool) -> int:
             if stray.stem in expected:
                 continue
             problems.append(
-                f"{stray.relative_to(REPO_ROOT)}: agent has no authored `.codex/agents/{stray.stem}.toml`; "
+                f"{stray.relative_to(REPO_ROOT)}: agent has no authored `agents/{stray.stem}.toml`; "
                 "the TOML fleet is the only authored source"
             )
 
@@ -145,7 +145,7 @@ def sync(write: bool) -> int:
         print("\nRun: python3 .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write", file=sys.stderr)
         return 1
 
-    print(f"Claude agent mirror in sync: {len(expected)} lane(s) from .codex/agents/")
+    print(f"Claude agent mirror in sync: {len(expected)} lane(s) from agents/")
     return 0
 
 

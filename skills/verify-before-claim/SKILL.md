@@ -141,7 +141,7 @@ Generalise the check: whenever configuration and the code it drives come from di
 refs, versions, or repositories, that seam is unversioned and will skew. Ask where the
 caller comes from, where the callee comes from, and whether anything forces them to agree.
 The same question applies to generated files — `.claude/agents/*.md` are generated from
-`.codex/agents/*.toml`, so editing the generated copy is a change that silently disappears
+`agents/*.toml`, so editing the generated copy is a change that silently disappears
 on the next sync.
 
 ## 3. Read the real code before you design
