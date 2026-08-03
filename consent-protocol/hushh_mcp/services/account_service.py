@@ -546,6 +546,7 @@ class AccountService:
                 "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
+                "one_wallet_cards",
             ],
             params=params,
             results=results,
@@ -1061,6 +1062,7 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "one_wallet_cards",
                 ):
                     self._delete_user_rows_if_table_exists(
                         conn,
