@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import {
+  isValidDateOfBirth,
   KycIdentityProfileDraftService,
   type KycEmploymentStatus,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
@@ -42,6 +43,15 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const [citizenshipCountryCode, setCitizenshipCountryCode] = useState("");
   const [employmentStatus, setEmploymentStatus] =
     useState<KycEmploymentStatus | "">("");
+  const latestDateOfBirth = useMemo(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return [
+      yesterday.getFullYear(),
+      String(yesterday.getMonth() + 1).padStart(2, "0"),
+      String(yesterday.getDate()).padStart(2, "0"),
+    ].join("-");
+  }, []);
 
   const selectedCountry = useMemo(
     () =>
@@ -54,15 +64,17 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
     step === 0
       ? legalName.trim().length > 1
       : step === 1
-        ? Boolean(dateOfBirth)
+        ? isValidDateOfBirth(dateOfBirth)
         : step === 2
           ? Boolean(selectedCountry)
           : Boolean(employmentStatus);
   const hasCompleteProfile =
     legalName.trim().length > 1 &&
-    Boolean(dateOfBirth) &&
+    isValidDateOfBirth(dateOfBirth) &&
     Boolean(selectedCountry) &&
     Boolean(employmentStatus);
+  const dateOfBirthInvalid =
+    Boolean(dateOfBirth) && !isValidDateOfBirth(dateOfBirth);
 
   const handlePrimary = () => {
     if (!canContinue) return;
@@ -189,14 +201,29 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                   />
                 ) : null}
                 {step === 1 ? (
-                  <Input
-                    type="date"
-                    value={dateOfBirth}
-                    onChange={(event) => setDateOfBirth(event.target.value)}
-                    autoComplete="bday"
-                    className="h-14 rounded-xl px-4 text-base"
-                    aria-label="Date of birth"
-                  />
+                  <>
+                    <Input
+                      type="date"
+                      value={dateOfBirth}
+                      onChange={(event) => setDateOfBirth(event.target.value)}
+                      autoComplete="bday"
+                      max={latestDateOfBirth}
+                      className="h-14 rounded-xl px-4 text-base"
+                      aria-label="Date of birth"
+                      aria-describedby={
+                        dateOfBirthInvalid ? "date-of-birth-error" : undefined
+                      }
+                    />
+                    {dateOfBirthInvalid ? (
+                      <p
+                        id="date-of-birth-error"
+                        role="alert"
+                        className="mt-2 text-sm text-destructive"
+                      >
+                        Enter a real date of birth in the past.
+                      </p>
+                    ) : null}
+                  </>
                 ) : null}
                 {step === 2 ? (
                   <select
