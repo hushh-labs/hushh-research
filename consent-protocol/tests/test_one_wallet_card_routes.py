@@ -33,6 +33,7 @@ from slowapi.extension import _rate_limit_exceeded_handler
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter
 from api.routes import one_wallet_card
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.one_wallet_card_service import OneWalletCardError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -655,13 +656,125 @@ def test_the_flag_defaults_to_off_when_unset(
 
 def test_public_routes_carry_an_explicit_per_ip_rate_limit() -> None:
     """`SlowAPIMiddleware` is never added and `GLOBAL_PER_IP` is never applied,
-    so an undecorated public route would carry no limit at all (plan D8)."""
+    so an undecorated public route would carry no limit at all (plan D8).
+
+    The decorator must be ``shared_limit``, not ``limit``: see
+    ``test_the_rate_limit_bucket_is_not_subdivided_by_the_share_token``.
+    """
     source = (ROOT / "api" / "routes" / "one_wallet_card.py").read_text(encoding="utf-8")
 
-    assert source.count("@limiter.limit(") == 2
+    assert source.count("@limiter.shared_limit(") == 2
+    assert "@limiter.limit(" not in source
     assert "key_func=public_rate_limit_key" in source
     assert one_wallet_card.PUBLIC_CARD_RESOLVE_RATE_LIMIT.endswith("/minute")
     assert one_wallet_card.PUBLIC_CARD_PASS_RATE_LIMIT.endswith("/minute")
+    assert (
+        one_wallet_card.PUBLIC_CARD_RESOLVE_RATE_LIMIT_SCOPE
+        != one_wallet_card.PUBLIC_CARD_PASS_RATE_LIMIT_SCOPE
+    )
+
+
+def test_the_route_module_never_imports_the_database_client() -> None:
+    """Routes talk to services, not to ``db.*``
+    (``tests/quality/test_architecture_compliance.py``). The tempting import
+    here is ``DatabaseExecutionError`` for the ``_handle_error`` branch; it is
+    matched by class name instead, which is the same duck-type the Location
+    routes use.
+    """
+    source = (ROOT / "api" / "routes" / "one_wallet_card.py").read_text(encoding="utf-8")
+
+    assert "from db." not in source
+    assert "import db" not in source
+    assert '__name__ == "DatabaseExecutionError"' in source
+
+
+@pytest.fixture
+def enforcing_limiter():
+    """Turn the shared limiter on for one test and leave no residue.
+
+    ``api.middlewares.rate_limit`` disables the limiter whenever ``TESTING`` is
+    set so ordinary route tests are not throttled — which also means a rate
+    limit could regress to "no limit at all" and every other test here would
+    still pass. These tests opt back in, and reset the in-memory storage on both
+    sides because the whole point of the fix is that the bucket now *outlives*
+    the request path.
+    """
+    previous = limiter.enabled
+    limiter.enabled = True
+    limiter.reset()
+    try:
+        yield limiter
+    finally:
+        limiter.reset()
+        limiter.enabled = previous
+
+
+def test_the_rate_limit_bucket_is_not_subdivided_by_the_share_token(
+    service: FakeCardService, enforcing_limiter
+) -> None:
+    """Token enumeration is exactly the traffic this limit exists to bound.
+
+    slowapi's default ``key_style`` is ``"url"``, so an ``@limiter.limit``
+    bucket is keyed by ``(key_func, request.path)``. With ``{share_token}`` in
+    the path, every guessed token opens a *fresh* bucket and a scraper walking
+    the token space would never be throttled once. Binding an explicit scope
+    drops the path out of the storage key.
+    """
+    client = _client(authenticated_as=None)
+    headers = {"x-forwarded-for": "203.0.113.42"}
+    budget = int(one_wallet_card.PUBLIC_CARD_RESOLVE_RATE_LIMIT.split("/")[0])
+
+    statuses = [
+        client.get(
+            f"/api/one/wallet-card/public/enumerated-token-{index}", headers=headers
+        ).status_code
+        for index in range(budget + 1)
+    ]
+
+    assert statuses[:budget] == [200] * budget, "the honest budget must be spendable"
+    assert statuses[budget] == 429, (
+        "a distinct token opened a new bucket — the limit is keyed by path, "
+        "so enumeration is unbounded"
+    )
+
+
+def test_the_two_public_routes_keep_independent_buckets(
+    service: FakeCardService, enforcing_limiter
+) -> None:
+    """Dropping the path out of the key must not merge the two surfaces:
+    exhausting the cheap page read cannot lock a visitor out of their pass."""
+    client = _client(authenticated_as=None)
+    headers = {"x-forwarded-for": "203.0.113.43"}
+    budget = int(one_wallet_card.PUBLIC_CARD_RESOLVE_RATE_LIMIT.split("/")[0])
+
+    for index in range(budget + 1):
+        client.get(f"/api/one/wallet-card/public/token-{index}", headers=headers)
+
+    pkpass = client.get(f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass", headers=headers)
+
+    assert pkpass.status_code != 429
+
+
+def test_the_rate_limit_still_separates_distinct_visitors(
+    service: FakeCardService, enforcing_limiter
+) -> None:
+    """The scope must not collapse every visitor into one global bucket —
+    that would let a single scraper deny the surface to everyone else."""
+    client = _client(authenticated_as=None)
+    budget = int(one_wallet_card.PUBLIC_CARD_RESOLVE_RATE_LIMIT.split("/")[0])
+
+    for index in range(budget + 1):
+        client.get(
+            f"/api/one/wallet-card/public/token-{index}",
+            headers={"x-forwarded-for": "203.0.113.44"},
+        )
+
+    bystander = client.get(
+        f"/api/one/wallet-card/public/{SHARE_TOKEN}",
+        headers={"x-forwarded-for": "203.0.113.45"},
+    )
+
+    assert bystander.status_code == 200
 
 
 def test_the_rate_limit_bucket_is_derived_from_the_forwarded_client_ip() -> None:
@@ -678,6 +791,103 @@ def test_the_rate_limit_bucket_is_derived_from_the_forwarded_client_ip() -> None
 
     assert visitor != other
     assert visitor.startswith("one_wallet_card_public:")
+
+
+# ---------------------------------------------------------------------------
+# Storage failures never reach the caller carrying the row
+# ---------------------------------------------------------------------------
+
+# Shaped exactly like ``str(<SQLAlchemy StatementError>)``: the driver message,
+# then the statement, then every bound value, then the doc-link tail. Nothing
+# strips the parameters unless the engine was built with ``hide_parameters=True``
+# — and none of ours are — so ``DatabaseExecutionError.details`` carries the row.
+LEAKY_DB_DETAILS = (
+    "(psycopg2.errors.UniqueViolation) duplicate key value violates unique "
+    'constraint "one_wallet_cards_pkey"\n'
+    "[SQL: INSERT INTO one_wallet_cards (user_id, card_payload) "
+    "VALUES (%(user_id)s, %(card_payload)s)]\n"
+    "[parameters: {'user_id': 'user_123', 'card_payload': "
+    '\'{"full_name": "Ada Lovelace", "email": "ada@example.com", '
+    '"phone": "+91 99999 90000"}\'}]\n'
+    "(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+)
+
+LEAKED_VALUES = ("Ada Lovelace", "ada@example.com", "+91 99999 90000", "INSERT INTO")
+
+
+def _database_error(status_code: int) -> DatabaseExecutionError:
+    return DatabaseExecutionError(
+        table_name="one_wallet_cards",
+        operation="execute_raw",
+        details=LEAKY_DB_DETAILS,
+        status_code=status_code,
+        code="DATABASE_UNAVAILABLE" if status_code == 503 else "DATABASE_EXECUTION_ERROR",
+        hint="Retry shortly." if status_code == 503 else None,
+    )
+
+
+@pytest.mark.parametrize("status_code", [503, 500])
+def test_a_storage_failure_never_echoes_the_bound_sql_parameters(
+    service: FakeCardService, status_code: int
+) -> None:
+    """The owner's own name and email are in that blob, and on the public
+    routes so is a stranger's card. Forwarding ``exc.details`` verbatim turns
+    every transient database fault into a disclosure the caller cannot even
+    act on, so the response carries the stable code and static text only."""
+    service.raises = _database_error(status_code)
+
+    response = _client().post(
+        "/api/one/wallet-card",
+        json={"userId": OWNER_ID, "cardPayload": CARD_PAYLOAD},
+    )
+
+    assert response.status_code == status_code
+    body = response.text
+    for leaked in LEAKED_VALUES:
+        assert leaked not in body, f"response echoed {leaked!r}"
+    assert "parameters:" not in body
+    detail = response.json()["detail"]
+    assert detail["code"] == (
+        "DATABASE_UNAVAILABLE" if status_code == 503 else "DATABASE_EXECUTION_ERROR"
+    )
+    assert detail["message"] == (
+        one_wallet_card._DB_UNAVAILABLE_MESSAGE
+        if status_code == 503
+        else one_wallet_card._DB_FAILED_MESSAGE
+    )
+
+
+def test_a_storage_failure_on_the_public_route_leaks_nothing_either(
+    service: FakeCardService,
+) -> None:
+    """The public plane has no authentication at all, so the same blob would be
+    readable by anyone holding — or guessing — a token."""
+    service.raises = _database_error(503)
+
+    response = _client(authenticated_as=None).get(f"/api/one/wallet-card/public/{SHARE_TOKEN}")
+
+    assert response.status_code in {404, 500, 503}
+    for leaked in LEAKED_VALUES:
+        assert leaked not in response.text, f"response echoed {leaked!r}"
+
+
+def test_the_database_error_log_line_carries_no_parameters(
+    service: FakeCardService, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Not leaking to the caller is only half of it — the same string must not
+    be handed to the logger either (contract §10.3)."""
+    service.raises = _database_error(503)
+
+    with caplog.at_level("ERROR"):
+        _client().post(
+            "/api/one/wallet-card",
+            json={"userId": OWNER_ID, "cardPayload": CARD_PAYLOAD},
+        )
+
+    emitted = "\n".join(record.getMessage() for record in caplog.records)
+    assert "wallet_card.database_error" in emitted
+    for leaked in LEAKED_VALUES:
+        assert leaked not in emitted, f"log echoed {leaked!r}"
 
 
 # ---------------------------------------------------------------------------

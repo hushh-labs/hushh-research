@@ -103,6 +103,14 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/location/invite/sample")).toBe(
       "one_location_circle_invite",
     );
+    expect(resolveRouteId("/one/wallet-card")).toBe("one_wallet_card");
+    // The public Wallet Profile emits no analytics, but it still needs a
+    // stable ID: "unknown" is the branch that would otherwise carry the raw
+    // pathname — and here the pathname is the share token.
+    expect(resolveRouteId("/c")).toBe("wallet_card_public");
+    expect(resolveRouteId("/c/tok_abc123")).toBe("wallet_card_public");
+    // Must not swallow an unrelated sibling.
+    expect(resolveRouteId("/consents")).toBe("consents");
     expect(resolveRouteId("/agent")).toBe("agent");
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(

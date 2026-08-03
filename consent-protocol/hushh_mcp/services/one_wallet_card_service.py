@@ -95,7 +95,16 @@ _MAX_USER_ID_LENGTH: Final = 160
 
 # Public card page (contract §1). Relative when no public origin is configured.
 _PUBLIC_CARD_PATH: Final = "/c/"
-_PUBLIC_ORIGIN_ENV: Final = ("NEXT_PUBLIC_APP_URL", "APP_PUBLIC_URL", "FRONTEND_BASE_URL")
+# APP_FRONTEND_ORIGIN first: it is the only one of these the deployed backend
+# actually receives (see deploy/backend.cloudbuild.yaml), so without it every
+# QR minted in UAT/prod would encode a relative path and resolve nowhere when
+# scanned by a phone camera. The rest stay as local/dev overrides.
+_PUBLIC_ORIGIN_ENV: Final = (
+    "APP_FRONTEND_ORIGIN",
+    "NEXT_PUBLIC_APP_URL",
+    "APP_PUBLIC_URL",
+    "FRONTEND_BASE_URL",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +573,10 @@ def _public_origin() -> str:
         raw = _text(os.getenv(name))
         if raw:
             break
-    raw = raw.rstrip("/")
+    # APP_FRONTEND_ORIGIN is a CSV allowlist in some deployments (see
+    # vault_keys_service CORS collection). A QR can only encode one origin, so
+    # take the first entry rather than emitting a comma-spliced non-URL.
+    raw = _text(raw.split(",")[0]).rstrip("/")
     if not raw:
         return ""
     return raw if "://" in raw else f"https://{raw}"

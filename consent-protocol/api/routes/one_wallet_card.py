@@ -49,7 +49,6 @@ from slowapi.util import get_remote_address
 
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.apple_wallet_pass_service import (
     WALLET_PASS_CONTENT_TYPE,
     WALLET_PASS_FILENAME,
@@ -89,11 +88,23 @@ _OwnerUserId = Annotated[str, Query(min_length=1, max_length=160)]
 # Explicit rate limits for the unauthenticated surfaces
 # ---------------------------------------------------------------------------
 
-# Per client IP, per endpoint (slowapi scopes a bucket by the decorated
-# endpoint). Resolve is the scanned-page read and must stay comfortably
-# interactive; pass generation signs and zips a bundle, so it is bound harder.
+# Per client IP, per endpoint. slowapi's default key_style is "url", so the
+# storage key is (key_func, request path) and a {share_token} path parameter
+# would give every distinct token its own fresh bucket — an attacker enumerating
+# tokens is exactly the traffic these limits exist to bound, and it would never
+# hit one. Binding an explicit scope (shared_limit) drops the path out of the
+# key; distinct scope strings keep the two routes independently bucketed.
+# Resolve is the scanned-page read and must stay comfortably interactive; pass
+# generation signs and zips a bundle, so it is bound harder.
 PUBLIC_CARD_RESOLVE_RATE_LIMIT = "30/minute"
 PUBLIC_CARD_PASS_RATE_LIMIT = "10/minute"  # noqa: S105 - rate limit, not a credential
+PUBLIC_CARD_RESOLVE_RATE_LIMIT_SCOPE = "one_wallet_card_public_resolve"
+PUBLIC_CARD_PASS_RATE_LIMIT_SCOPE = "one_wallet_card_public_pass"  # noqa: S105 - bucket name
+
+# Static client-facing text for storage failures. The underlying driver message
+# is never forwarded (see _handle_error).
+_DB_UNAVAILABLE_MESSAGE = "Wallet Profile storage is temporarily unavailable. Try again shortly."
+_DB_FAILED_MESSAGE = "Wallet Profile request failed."
 
 # Number of trailing X-Forwarded-For entries that belong to our own edge rather
 # than the visitor. Cloud Run (direct) *appends* the real client IP to whatever
@@ -377,10 +388,31 @@ def _owner_user_id(token_data: dict[str, Any], user_id: str) -> str:
 def _handle_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OneWalletCardError):
         return HTTPException(status_code=exc.status_code, detail=wallet_card_error_detail(exc))
-    if isinstance(exc, DatabaseExecutionError):
+    # Matched by name, not by import: routes may not import `db.*` (enforced by
+    # tests/quality/test_architecture_compliance.py). Same duck-type the
+    # Location routes use for this exact exception.
+    if exc.__class__.__name__ == "DatabaseExecutionError":
+        # exc.details is str(<the DBAPI error>), and SQLAlchemy appends the
+        # statement plus every bound value to that (no engine here sets
+        # hide_parameters). On these routes the bound values include
+        # card_payload, so the detail stays server-side: the caller gets the
+        # stable code and the static hint, which is all it can act on anyway.
+        # Deliberately NOT `database_error_detail()`, which forwards
+        # `exc.details` verbatim.
+        code = getattr(exc, "code", "DATABASE_EXECUTION_ERROR")
+        status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error("wallet_card.database_error code=%s", code)
         return HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.details, "hint": exc.hint or ""},
+            status_code=status_code,
+            detail={
+                "code": code,
+                "message": (
+                    _DB_UNAVAILABLE_MESSAGE
+                    if status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+                    else _DB_FAILED_MESSAGE
+                ),
+                "hint": getattr(exc, "hint", "") or "",
+            },
         )
     logger.error("wallet_card.owner_request_failed error=%s", exc.__class__.__name__)
     return HTTPException(
@@ -647,7 +679,11 @@ def preview_wallet_card(
 
 
 @router.get("/public/{share_token}", response_model=None)
-@limiter.limit(PUBLIC_CARD_RESOLVE_RATE_LIMIT, key_func=public_rate_limit_key)
+@limiter.shared_limit(
+    PUBLIC_CARD_RESOLVE_RATE_LIMIT,
+    PUBLIC_CARD_RESOLVE_RATE_LIMIT_SCOPE,
+    key_func=public_rate_limit_key,
+)
 def resolve_public_wallet_card(
     request: Request,
     share_token: _ShareToken,
@@ -683,7 +719,11 @@ def resolve_public_wallet_card(
 
 
 @router.get("/pass/{share_token}.pkpass", response_model=None)
-@limiter.limit(PUBLIC_CARD_PASS_RATE_LIMIT, key_func=public_rate_limit_key)
+@limiter.shared_limit(
+    PUBLIC_CARD_PASS_RATE_LIMIT,
+    PUBLIC_CARD_PASS_RATE_LIMIT_SCOPE,
+    key_func=public_rate_limit_key,
+)
 def download_wallet_pass(
     request: Request,
     share_token: _ShareToken,
