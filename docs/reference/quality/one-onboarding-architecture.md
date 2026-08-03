@@ -236,11 +236,13 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   The final circle has no terminal completion button: after its four-second,
   reduced-motion-safe confirmation, it invokes
   the coordinator's durable finish action. While root setup remains active,
-  completion returns to `/one/setup`, and the completed Location tile can
-  replay the authored journey. After the master setup acknowledgement,
-  completed Location entry opens `/one/location`. Settlement retries
-  automatically on a transient failure. The first share remains optional. A
-  dismissed or failed vault setup leaves Location pending.
+  completion returns to `/one/setup`. Re-entering the completed Location tile
+  shows a brief completion acknowledgement and returns to the hub without
+  replaying permissions, contacts, saved-place capture, or circle confirmation.
+  After the master setup acknowledgement, completed Location entry opens
+  `/one/location`. Settlement retries automatically on a transient failure.
+  The first share remains optional. A dismissed or failed vault setup leaves
+  Location pending.
 - **KYC** reuses the email workspace; it becomes finishable after a verified
   identity and initialized client connector. Sending a draft remains optional.
 - **Finance** uses `/one/setup/finance` for preferences and
