@@ -28,6 +28,9 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
+
+
 import {
   ChevronRight,
   Link as LinkIcon,
@@ -1016,9 +1019,16 @@ function PrivacyFlow({
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
       </button>
+
+      {/* Saved places (Home / Work / Other) — encrypted in the vault, added
+          during onboarding and manageable here from Settings. */}
+      <div className="mt-7">
+        <SavedLocationsSection />
+      </div>
     </div>
   );
 }
+
 
 /* =================================================================== */
 /* PEOPLE HUB                                                           */

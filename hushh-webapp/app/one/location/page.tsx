@@ -55,7 +55,16 @@ import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
   type ConnectionRequestResult,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import {
+  addSavedLocation,
+  DuplicateSavedLocationError,
+  type SavedLocationCategory,
+} from "@/lib/one-location/saved-locations";
+
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
+
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1588,6 +1597,20 @@ type OneLocationAgentPageProps = {
   onSetupSkip?: () => void | Promise<void>;
 };
 
+// Legacy per-user localStorage markers from the first saved-place release. The
+// encrypted PKM domain is now the source of truth, so these are only cleared
+// (never read to suppress the prompt) — the "Save this place" step must appear
+// EVERY time Location onboarding is shown, even if a prior run was skipped.
+const SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX =
+  "one_location_saved_location_prompt_v1";
+const SAVED_LOCATION_PROMPT_OUTCOME_KEY_PREFIX =
+  "one_location_saved_location_prompt_v2";
+
+function savedLocationPromptKey(prefix: string, userId: string): string {
+  return `${prefix}:${userId}`;
+}
+
+
 export function OneLocationAgentPageContent({
   mode = "workspace",
   surface = "hub",
@@ -1678,7 +1701,23 @@ export function OneLocationAgentPageContent({
   const [locationOnboardingStep, setLocationOnboardingStep] =
     useState<OneLocationOnboardingStep>("welcome");
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
+  // "Save this place" prompt (Home/Work/Other) shown after Location becomes
+  // ready during onboarding. It re-appears on every onboarding run — see
+  // `promptSaveLocationDuringOnboarding` — so a discarded first run still gets
+  // the chance to save Home next time.
+  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
+  const [saveLocationPoint, setSaveLocationPoint] =
+    useState<PlainLocationPoint | null>(null);
+  const [saveLocationAddress, setSaveLocationAddress] = useState<string | null>(
+    null,
+  );
+  const [saveLocationAddressLoading, setSaveLocationAddressLoading] =
+    useState(false);
+  const [saveLocationSaving, setSaveLocationSaving] = useState(false);
+  const savedLocationPromptInFlightRef = useRef<Promise<boolean> | null>(null);
+  const savedLocationAddressResolutionIdRef = useRef(0);
   const notificationOnboardingAttemptRef = useRef(false);
+
   const notificationOnboardingObservedBusyRef = useRef(false);
   const notificationOnboardingRetryOnFocusRef = useRef(false);
   const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
@@ -5180,9 +5219,255 @@ export function OneLocationAgentPageContent({
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
 
+  // Fired by the onboarding flow once Location is granted. Captures the current
+  // position ONCE, opens the "Save this place" modal, and best-effort resolves a
+  // friendly address in the background. Runs on EVERY onboarding appearance (no
+  // once-per-user suppression) so a previously discarded onboarding still gets
+  // the chance to save Home/Work/Other. If a place already exists it pre-seeds
+  // nothing and simply lets the owner add/update.
+  const promptSaveLocationDuringOnboarding =
+    useCallback((): Promise<boolean> => {
+      if (savedLocationPromptInFlightRef.current) {
+        return savedLocationPromptInFlightRef.current;
+      }
+      if (!auth.userId || !vaultKey || !vaultOwnerToken) {
+        return Promise.resolve(false);
+      }
+
+      const userId = auth.userId;
+      const attempt = (async (): Promise<boolean> => {
+        let point: PlainLocationPoint;
+        try {
+          point = await OneLocationService.captureCurrentPosition();
+        } catch {
+          toast.error(
+            "We could not read your current location. Check permission and try again.",
+          );
+          return false;
+        }
+
+        // Retire any legacy suppression markers so the prompt keeps appearing.
+        if (typeof window !== "undefined") {
+          try {
+            window.localStorage.removeItem(
+              savedLocationPromptKey(
+                SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX,
+                userId,
+              ),
+            );
+            window.localStorage.removeItem(
+              savedLocationPromptKey(
+                SAVED_LOCATION_PROMPT_OUTCOME_KEY_PREFIX,
+                userId,
+              ),
+            );
+          } catch {
+            // Encrypted PKM remains the saved-state authority.
+          }
+        }
+
+        const addressResolutionId =
+          savedLocationAddressResolutionIdRef.current + 1;
+        savedLocationAddressResolutionIdRef.current = addressResolutionId;
+        setSaveLocationPoint(point);
+        setSaveLocationAddress(null);
+        setSaveLocationAddressLoading(true);
+        setSaveLocationModalOpen(true);
+
+        // Resolve friendly copy while the modal remains usable. Exact
+        // coordinates are never rendered or written to browser storage.
+        void OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat: point.latitude,
+          lng: point.longitude,
+        })
+          .then((place) => {
+            if (
+              savedLocationAddressResolutionIdRef.current !==
+              addressResolutionId
+            ) {
+              return;
+            }
+            setSaveLocationAddress(place.formattedAddress || place.name || null);
+          })
+          .catch(() => {
+            if (
+              savedLocationAddressResolutionIdRef.current !==
+              addressResolutionId
+            ) {
+              return;
+            }
+            setSaveLocationAddress(null);
+          })
+          .finally(() => {
+            if (
+              savedLocationAddressResolutionIdRef.current === addressResolutionId
+            ) {
+              setSaveLocationAddressLoading(false);
+            }
+          });
+        return true;
+      })().finally(() => {
+        savedLocationPromptInFlightRef.current = null;
+      });
+
+      savedLocationPromptInFlightRef.current = attempt;
+      return attempt;
+    }, [auth.userId, vaultKey, vaultOwnerToken]);
+
+  const handleSaveOnboardingLocation = useCallback(
+    async (category: SavedLocationCategory, label: string) => {
+      if (!auth.userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
+        toast.error("Unlock your vault before saving this location.");
+        return;
+      }
+      setSaveLocationSaving(true);
+      try {
+        await addSavedLocation({
+          context: {
+            userId: auth.userId,
+            vaultKey,
+            vaultOwnerToken,
+          },
+          input: {
+            category,
+            label,
+            latitude: saveLocationPoint.latitude,
+            longitude: saveLocationPoint.longitude,
+            address: saveLocationAddress,
+          },
+        });
+        savedLocationAddressResolutionIdRef.current += 1;
+        setSaveLocationModalOpen(false);
+        setSaveLocationPoint(null);
+        toast.success("Location saved securely.");
+      } catch (error) {
+        toast.error(
+          error instanceof DuplicateSavedLocationError
+            ? error.message
+            : "Could not save this location. Please try again.",
+        );
+      } finally {
+        setSaveLocationSaving(false);
+      }
+    },
+    [
+      auth.userId,
+      saveLocationAddress,
+      saveLocationPoint,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
+
+  const handleSkipSaveOnboardingLocation = useCallback(() => {
+    savedLocationAddressResolutionIdRef.current += 1;
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+  }, []);
+
+  // Authenticated Maps autocomplete used by the modal's "Change" search.
+  const searchOnboardingSavedPlaces = useCallback(
+    async (input: string) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Vault owner token required.");
+      }
+      return OneLocationService.placesAutocomplete({
+        vaultOwnerToken,
+        input,
+      });
+    },
+    [vaultOwnerToken],
+  );
+
+  // Replace the captured point with a searched place's exact coordinates.
+  const selectOnboardingSavedPlace = useCallback(
+    async (placeId: string) => {
+      if (!vaultOwnerToken || !saveLocationPoint) {
+        throw new Error("Capture a location before changing the place.");
+      }
+      const place = await OneLocationService.placeDetails({
+        vaultOwnerToken,
+        placeId,
+      });
+      if (
+        !Number.isFinite(place.latitude) ||
+        !Number.isFinite(place.longitude) ||
+        place.latitude < -90 ||
+        place.latitude > 90 ||
+        place.longitude < -180 ||
+        place.longitude > 180
+      ) {
+        throw new Error("The selected place did not return valid coordinates.");
+      }
+      const label = place.label.trim();
+      if (!label) {
+        throw new Error("The selected place did not return an address.");
+      }
+      savedLocationAddressResolutionIdRef.current += 1;
+      setSaveLocationPoint({
+        ...saveLocationPoint,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        accuracyM: null,
+        capturedAt: new Date().toISOString(),
+      });
+      setSaveLocationAddress(label);
+      setSaveLocationAddressLoading(false);
+    },
+    [saveLocationPoint, vaultOwnerToken],
+  );
+
+  // Drag-to-pin confirm: adopt the precise coordinate + address the owner set
+  // on the map, replacing the coarse GPS fix. This is the accuracy fix (Task 2).
+  const handlePickExactSavedLocation = useCallback(
+    (picked: PickedLocation) => {
+      setSaveLocationPoint((current) => ({
+        latitude: picked.latitude,
+        longitude: picked.longitude,
+        accuracyM: null,
+        capturedAt: new Date().toISOString(),
+        sourcePlatform: current?.sourcePlatform ?? "web",
+      }));
+      savedLocationAddressResolutionIdRef.current += 1;
+      setSaveLocationAddress(picked.address);
+      setSaveLocationAddressLoading(false);
+    },
+    [],
+  );
+
+  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  const locateMeForSavedLocation = useCallback(async () => {
+    try {
+      const point = await OneLocationService.captureCurrentPosition();
+      return { latitude: point.latitude, longitude: point.longitude };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Reverse-geocode wrapper the map picker calls on every settle.
+  const reverseGeocodeForSavedLocation = useCallback(
+    async (lat: number, lng: number): Promise<string | null> => {
+      if (!vaultOwnerToken) return null;
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat,
+          lng,
+        });
+        return place.formattedAddress || place.name || null;
+      } catch {
+        return null;
+      }
+    },
+    [vaultOwnerToken],
+  );
+
   const handleLocationOnboardingPermission = useCallback(async () => {
     if (locationOnboardingBusy) return;
     setLocationOnboardingBusy(true);
+
     try {
       if (isLocationServicesDisabled(permission)) {
         await openLocationSettingsForOnboarding();
@@ -5389,15 +5674,40 @@ export function OneLocationAgentPageContent({
             handleSendLocationOnboardingConnectionRequests
           }
           onRequestLocation={handleLocationOnboardingPermission}
+          onLocationReady={promptSaveLocationDuringOnboarding}
           onRequestNotifications={handleLocationOnboardingNotifications}
           onBack={() => router.back()}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
         />
+        <SaveLocationModal
+          open={saveLocationModalOpen}
+          address={saveLocationAddress}
+          loadingAddress={saveLocationAddressLoading}
+          saving={saveLocationSaving}
+          onSearchPlaces={searchOnboardingSavedPlaces}
+          onSelectPlace={selectOnboardingSavedPlace}
+          mapInitial={
+            saveLocationPoint
+              ? {
+                  latitude: saveLocationPoint.latitude,
+                  longitude: saveLocationPoint.longitude,
+                }
+              : null
+          }
+          reverseGeocode={reverseGeocodeForSavedLocation}
+          onLocateMe={locateMeForSavedLocation}
+          onPickExactLocation={handlePickExactSavedLocation}
+          onSave={(category, label) =>
+            void handleSaveOnboardingLocation(category, label)
+          }
+          onSkip={handleSkipSaveOnboardingLocation}
+        />
       </BodyPortal>
     );
   }
+
 
   // ---------------------------------------------------------------------------
   // Mobile-first redesign (Figma: one_location_final_fixed_clean_navigation).

@@ -69,12 +69,20 @@ type OneLocationOnboardingFlowProps = {
     userIds: string[],
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
+  /**
+   * Called once Location is ready during onboarding. Opens the "Save this place"
+   * (Home/Work/Other) prompt hosted by the page. Resolves true when the prompt
+   * step is satisfied (shown, skipped, or already saved), false if it must be
+   * retried. Optional so other callers can omit the saved-place step.
+   */
+  onLocationReady?: () => Promise<boolean>;
   onRequestNotifications: () => Promise<void>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   requireLocationToComplete?: boolean;
 };
+
 
 const WELCOME_ORBIT_ITEMS = [
   {
@@ -1117,12 +1125,14 @@ export function OneLocationOnboardingFlow({
   onRetryPeople,
   onSendConnectionRequests,
   onRequestLocation,
+  onLocationReady,
   onRequestNotifications,
   onBack,
   onComplete,
   onSkip = onComplete,
   requireLocationToComplete = false,
 }: OneLocationOnboardingFlowProps) {
+
   for (const source of ONBOARDING_IMAGE_SOURCES) {
     preload(source, { as: "image", fetchPriority: "high" });
   }
@@ -1139,6 +1149,10 @@ export function OneLocationOnboardingFlow({
   const requestBatchRef = useRef(0);
   const permissionPromptAttemptedRef = useRef(false);
   const completionInFlightRef = useRef(false);
+  // Fires the "Save this place" prompt exactly once per mounted onboarding run,
+  // as soon as Location is ready — so it reliably appears every onboarding.
+  const savedLocationTriggeredRef = useRef(false);
+
 
   const locationGranted =
     locationPermission?.state === "granted" &&
@@ -1170,6 +1184,21 @@ export function OneLocationOnboardingFlow({
   useEffect(() => {
     if (startAt === "permissions") requestMissingPermissions();
   }, [requestMissingPermissions, startAt]);
+
+  // The "Save this place" (Home/Work/Other) prompt must appear every onboarding
+  // run once Location is ready. Fire onLocationReady exactly once per mount the
+  // moment the permission flips to granted, before the owner leaves the flow.
+  useEffect(() => {
+    if (!onLocationReady) return;
+    if (!locationGranted) return;
+    if (savedLocationTriggeredRef.current) return;
+    savedLocationTriggeredRef.current = true;
+    void Promise.resolve(onLocationReady()).catch(() => {
+      // Allow a later retry (e.g. via Continue) if the prompt could not open.
+      savedLocationTriggeredRef.current = false;
+    });
+  }, [locationGranted, onLocationReady]);
+
 
   useEffect(() => {
     if (screen !== "circle") return;
