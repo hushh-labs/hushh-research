@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -43,6 +43,16 @@ FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
+# Apple Wallet pass signing material. The three PEMs arrive as their own Cloud
+# Run secret refs (never inside BACKEND_RUNTIME_CONFIG_JSON) and are read here so
+# that no service reads them from the environment directly.
+WALLET_PASS_CERT_PEM_ENV = "WALLET_PASS_CERT_PEM"  # noqa: S105
+WALLET_PASS_KEY_PEM_ENV = "WALLET_PASS_KEY_PEM"  # noqa: S105
+WALLET_PASS_WWDR_PEM_ENV = "WALLET_PASS_WWDR_PEM"  # noqa: S105
+WALLET_PASS_TEAM_IDENTIFIER_ENV = "WALLET_PASS_TEAM_IDENTIFIER"  # noqa: S105
+WALLET_PASS_TYPE_IDENTIFIER_ENV = "WALLET_PASS_TYPE_IDENTIFIER"  # noqa: S105
+_WALLET_PASS_TYPE_IDENTIFIER_DEFAULT = "pass.com.hushh.app.one"  # noqa: S105
+
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
@@ -78,6 +88,9 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
     "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
     "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
+    "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
+    "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
 }
 
 
@@ -175,6 +188,32 @@ class FirebaseCredentialSettings:
 class AppRuntimeSettings:
     environment: str
     app_frontend_origin: str
+
+
+@dataclass(frozen=True)
+class WalletPassSettings:
+    """Apple Wallet pass signing material and pass identifiers.
+
+    Every PEM is ``repr=False`` so private key material can never surface in a
+    log line, an exception repr or a traceback frame dump.
+    """
+
+    team_identifier: str
+    pass_type_identifier: str
+    cert_pem: str = field(repr=False, default="")
+    key_pem: str = field(repr=False, default="")
+    wwdr_pem: str = field(repr=False, default="")
+
+    @property
+    def is_complete(self) -> bool:
+        """True only when every value needed to sign a pass is present."""
+        return bool(
+            self.team_identifier
+            and self.pass_type_identifier
+            and self.cert_pem
+            and self.key_pem
+            and self.wwdr_pem
+        )
 
 
 @dataclass(frozen=True)
@@ -294,6 +333,34 @@ def kai_analyze_durable_run_store_enabled() -> bool:
     404ing (the multi-instance prod-parity bug). Defaults off; when off the
     run manager behaves exactly as before with zero durable-store I/O."""
     return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=False)
+
+
+def one_wallet_card_enabled() -> bool:
+    """Feature flag: expose the Wallet Profile plane — the ``one_wallet_cards``
+    table, the ``/api/one/wallet-card`` owner routes and the two unauthenticated
+    public surfaces (card resolve and the signed ``.pkpass`` download). Defaults
+    off; while off every wallet-card route answers as if the feature did not
+    exist and no card is ever resolved."""
+    return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
+
+
+def get_wallet_pass_settings() -> WalletPassSettings:
+    """Signing material for Apple Wallet ``.pkpass`` generation.
+
+    Deliberately uncached: the PEMs are Cloud Run secret refs, so reading them
+    per pass download keeps a rotated certificate live without a redeploy.
+    Missing material yields empty strings, which makes ``is_complete`` False and
+    lets the route degrade to the friendly 503 copy instead of raising.
+    """
+    return WalletPassSettings(
+        team_identifier=_clean_env(WALLET_PASS_TEAM_IDENTIFIER_ENV) or "",
+        pass_type_identifier=(
+            _clean_env(WALLET_PASS_TYPE_IDENTIFIER_ENV) or _WALLET_PASS_TYPE_IDENTIFIER_DEFAULT
+        ),
+        cert_pem=_clean_env(WALLET_PASS_CERT_PEM_ENV) or "",
+        key_pem=_clean_env(WALLET_PASS_KEY_PEM_ENV) or "",
+        wwdr_pem=_clean_env(WALLET_PASS_WWDR_PEM_ENV) or "",
+    )
 
 
 @lru_cache(maxsize=1)
