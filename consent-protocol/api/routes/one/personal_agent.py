@@ -52,6 +52,41 @@ def _service() -> PersonalAgentProvisioningService:
     )
 
 
+# ``personal_agent_registry.status`` -> the ``state`` this endpoint reports.
+#
+# The left column is the real vocabulary of that column, taken from the code that
+# WRITES it rather than from any design note. Four values have a writer today:
+#
+#   unprovisioned  schema DEFAULT (db/migrations/parked/900_personal_agent_registry.sql)
+#   pending        PersonalAgentProvisioningService.register_pending, off phone-verify
+#   provisioning   PersonalAgentProvisioningService.provision, around the backend call
+#   provisioned    PersonalAgentProvisioningService.provision, after the standing mint
+#
+# ``connecting`` and ``provisioning_failed`` are declared here AHEAD of their
+# writer. Nothing emits them yet -- the live compute backend and the reconcile
+# sweep that will (DEV-LIVE-EXECUTION-PLAN.md, Workstreams B and C) are unbuilt, so
+# today those two rows are unreachable. They are declared anyway because this map
+# is the read-side contract: with them present the write side lands without a
+# second edit here and without any client change. Keeping the two halves of that
+# seam in one file is the point.
+#
+# ``deprovision_requested`` is deliberately absent: it is written to
+# ``personal_agent_deletion_tombstones.status``, never to the registry.
+_STATE_BY_REGISTRY_STATUS: dict[str, str] = {
+    "unprovisioned": "reserved",
+    "pending": "reserved",
+    "provisioning": "provisioning",
+    "connecting": "connecting",
+    "provisioned": "active",
+    "provisioning_failed": "failed",
+}
+
+# Every unmapped status degrades to this. A raw DB value is NEVER echoed to the
+# caller: an unrecognised status is a backend detail, and leaking it would make a
+# client's own state handling a function of our schema.
+_DEFAULT_STATE = "reserved"
+
+
 @router.get("/status")
 async def personal_agent_status(
     user_id: str = Depends(require_firebase_auth),
@@ -59,10 +94,16 @@ async def personal_agent_status(
     """The caller's own personal-agent state — honest even while the feature is off.
 
     Deliberately NOT flag-gated and never 404: an Apple-grade product meets the
-    customer honestly rather than in silence. When the always-on pod is not yet
-    active for this user the honest state is ``reserved`` (their sovereign agent
-    identity is reserved and ready to activate), becoming ``active`` once a pod is
-    provisioned. Reads only the user's OWN row; fails safe to ``reserved``.
+    customer honestly rather than in silence. Reads only the user's OWN row.
+
+    ``state`` is one of ``reserved | provisioning | connecting | active | failed``,
+    mapped from ``personal_agent_registry.status`` by
+    :data:`_STATE_BY_REGISTRY_STATUS` (see that map for which of those the backend
+    can actually produce today). ``reserved`` is both a real state — their sovereign
+    agent identity is reserved and ready to activate — and the fail-safe: a registry
+    read error, a missing row, and a status this build does not recognise all report
+    ``reserved`` rather than an error or a raw DB value. That is deliberate. The home
+    must never break, and it must never over-claim.
     """
     row = None
     try:
@@ -71,7 +112,7 @@ async def personal_agent_status(
         logger.warning("personal_agent.status_read_failed err=%s", type(exc).__name__)
 
     status = str((row or {}).get("status") or "").strip()
-    state = "active" if status == "provisioned" else "reserved"
+    state = _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
     result: dict = {"state": state, "featureEnabled": personal_agent_enabled()}
     hushh_id = (row or {}).get("hushh_id")
     if hushh_id:

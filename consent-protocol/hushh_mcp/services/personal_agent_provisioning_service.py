@@ -46,7 +46,7 @@ import asyncio
 import logging
 from typing import Any, Optional, Protocol
 
-from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.runtime_settings import personal_agent_enabled, personal_agent_max_pods
 from hushh_mcp.services.compute_backend import (
     BackendHandle,
     ComputeBackend,
@@ -83,9 +83,24 @@ FEED_EVENT_RESERVED = "personal_agent_reserved"
 FEED_EVENT_PROVISIONING = "personal_agent_provisioning"
 FEED_EVENT_READY = "personal_agent_ready"
 FEED_EVENT_FAILED = "personal_agent_failed"
+# The fleet is at PERSONAL_AGENT_MAX_PODS: nothing was provisioned, nothing
+# failed, and the reservation still stands. A distinct line, because "we are at
+# capacity, your agent is queued" is a different truth from "setup failed".
+FEED_EVENT_CAPPED = "personal_agent_provisioning_capped"
+# The host was torn down after HUSSH_POD_IDLE_REAP_HOURS of inactivity. The
+# registry row, HusshID and A2A address survive; the agent re-provisions on the
+# owner's next activity (see personal_agent_reconcile_worker).
+FEED_EVENT_REAPED = "personal_agent_reaped"
 
 _FEED_EVENT_TYPES = frozenset(
-    {FEED_EVENT_RESERVED, FEED_EVENT_PROVISIONING, FEED_EVENT_READY, FEED_EVENT_FAILED}
+    {
+        FEED_EVENT_RESERVED,
+        FEED_EVENT_PROVISIONING,
+        FEED_EVENT_READY,
+        FEED_EVENT_FAILED,
+        FEED_EVENT_CAPPED,
+        FEED_EVENT_REAPED,
+    }
 )
 
 # ``feed_events.source_domain`` is CHECK-constrained (migration 117) and
@@ -172,6 +187,11 @@ class _Registry(Protocol):
 
     async def get(self, user_id: str) -> Optional[dict]: ...
 
+    # OPTIONAL. The fleet-cap denominator. Resolved defensively with ``getattr``
+    # (see ``_fleet_cap_reached``) because registry adapters written before the
+    # cap existed -- including every test fake -- do not implement it.
+    async def count_active_pods(self, *, exclude_user_id: Optional[str] = ...) -> int: ...
+
     async def tombstone(
         self, *, hushh_id: Optional[str], external_agent_id: Optional[str], status: str
     ) -> None: ...
@@ -238,6 +258,15 @@ class PersonalAgentProvisioningService:
         (``personal_agent_provisioning`` -> ``personal_agent_ready``, or
         ``personal_agent_failed``); the projection never alters what this raises or
         returns.
+
+        Fleet ceiling (DEV-LIVE-EXECUTION-PLAN.md B3): if the fleet is already at
+        ``PERSONAL_AGENT_MAX_PODS`` this returns ``{"status": "pending",
+        "capped": True}`` WITHOUT raising, without touching the registry, and
+        without calling the backend -- so the row stays as phone-verify left it and
+        the user keeps their reservation. Capping does not raise because this runs
+        fire-and-forget off phone-verify, where an exception is an invisible,
+        unretried break; the user learns of it from the
+        ``personal_agent_provisioning_capped`` feed row instead.
         """
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
@@ -254,6 +283,26 @@ class PersonalAgentProvisioningService:
             hushh_id = mint_hushh_id(phone_e164, generation)
             phone_hash = hash_phone_e164(phone_e164)
             pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+
+            # Fleet ceiling, checked AFTER validation (pure, no side effect) and
+            # BEFORE the first registry write, so a capped user's row is left
+            # exactly as phone-verify left it -- 'pending', not 'provisioning'.
+            if await self._fleet_cap_reached(user_id=user_id):
+                await record_provisioning_feed_event_safe(
+                    user_id=user_id, event_type=FEED_EVENT_CAPPED
+                )
+                logger.warning(
+                    "personal_agent.provisioning_capped max_pods=%s", personal_agent_max_pods()
+                )
+                return {
+                    "hushhId": hushh_id,
+                    "status": "pending",
+                    "capped": True,
+                    "backend": None,
+                    "externalAgentId": None,
+                    "a2aRoute": None,
+                    "standingReadExpiresAt": None,
+                }
 
             async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
                 fields: dict[str, Any] = dict(
@@ -438,6 +487,37 @@ class PersonalAgentProvisioningService:
             revoked,
         )
         return {"status": "deprovisioned", "hushhId": hushh_id, "standingReadRevoked": revoked}
+
+    async def _fleet_cap_reached(self, *, user_id: str) -> bool:
+        """Whether the pod fleet already sits at ``PERSONAL_AGENT_MAX_PODS``.
+
+        The cap is a COST guardrail, not a security or consent control, and the two
+        are deliberately not treated the same way. A known breach fails CLOSED (no
+        host is created). Not being able to *evaluate* the cap fails OPEN, with a
+        warning, in exactly two cases:
+
+          * the injected registry has no ``count_active_pods`` -- adapters written
+            before the cap existed, and every test fake, do not implement it;
+          * the count query raised -- a transient DB hiccup.
+
+        Failing closed on those would let a database blip silently break agent
+        setup for everyone, which trades a bounded cost risk for an unbounded
+        reliability one. The backstops that do not depend on this query are
+        ``HUSSH_POD_MAX_INSTANCES`` (per-pod ceiling) and the project budget alert.
+        """
+        counter = getattr(self._registry, "count_active_pods", None)
+        if counter is None:
+            logger.warning(
+                "personal_agent.fleet_cap_unenforceable registry=%s",
+                type(self._registry).__name__,
+            )
+            return False
+        try:
+            live = int(await counter(exclude_user_id=user_id))
+        except Exception:  # noqa: BLE001 -- see docstring: an unknown count fails open
+            logger.exception("personal_agent.fleet_cap_count_failed")
+            return False
+        return live >= personal_agent_max_pods()
 
     async def _next_free_generation(self, phone_e164: str) -> int:
         """First HusshID generation for this phone that has no deletion tombstone.

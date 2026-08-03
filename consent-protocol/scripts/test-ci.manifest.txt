@@ -67,3 +67,7 @@ tests/test_one_memory_service.py
 tests/test_webauthn_repo.py
 tests/test_dev_migration_lane.py
 tests/test_personal_agent_feed_events.py
+tests/test_personal_agent_fleet_cap.py
+tests/test_gcp_backend_cost_labels.py
+tests/test_personal_agent_reconcile_worker.py
+tests/test_health_ready_pod_fleet.py

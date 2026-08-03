@@ -149,27 +149,46 @@ predeploy schema gate" (read its current invocation of `migrate.py` before editi
 in any way** — those files are in `protected_pipeline_paths` per `CLAUDE.md` and are
 edit-restricted to the maintainer cohort regardless.
 
-### A4. Fix the data-plane contract lifecycle status (already partially done)
+### A4. Fix the data-plane contract lifecycle status — done
 
-`docs/reference/architecture/runtime-db-data-plane-contract.json` was corrected in commit
-`e459487d6` to mark these tables `"lifecycle_status": "planned"`. Once A1–A3 land and the
-tables are live in dev, update the entry for each table to reflect dev reality precisely —
-e.g. `"lifecycle_status": "dev_only"` if that value is valid in the contract's schema, or
-add a `"environments": ["dev"]` field if the schema supports one. **Read the contract's own
-JSON structure first** — do not invent a field the validators do not expect. Regenerate
-`contracts/architecture/runtime-topology-index.v1.json` via
-`python3 scripts/ops/generate_runtime_topology_index.py` afterward, exactly as was required
-after the previous contract edit.
+`docs/reference/architecture/runtime-db-data-plane-contract.json` marked these tables
+`"lifecycle_status": "planned"` (commit `e459487d6`). With A1–A3 landed that is no longer
+true: a governed applier exists for them. The five families covering the six tables
+(`personal_agent_registry`, `agent_prompt_registry`, `webauthn_authenticators`,
+`webauthn_ceremony_state`, `consent_audit_receipts`) now read `"lifecycle_status": "dev_only"`.
 
-### A5. Document the promotion path (write, do not execute)
+What the validators actually permit, read before writing rather than assumed:
 
-Add a "Promotion to UAT/production" section to this document's own repo location once
-written, or to `EXECUTION-LOG.md`, stating the exact manual steps for the day a human
-decides to promote: renumber `900–904` → `122–126` (the next free slot after
-`122_trusted_device_repair.sql`, confirm the actual next-free number at execution time
-since main moves fast), `git mv` into `migrations/` proper, append to
-`release_migration_manifest.json`, bump `expected_migration_version` in the UAT contract.
-**Do not perform these steps as part of this workstream.**
+- **There is no enum for `lifecycle_status`.** The contract carries exactly one `allowed_*`
+  list, `allowed_data_classes`, and it constrains `data_class` only.
+  `scripts/ops/data_model_audit.py` requires `lifecycle_status` to be present and non-empty
+  and nothing more; its single behavioural branch is `startswith("legacy")`, which pulls a
+  family into the legacy-write scan. `scripts/ops/generate_runtime_topology_index.py` copies
+  the value through verbatim. So `dev_only` is legal — and equally, nothing would have caught
+  a typo. The value is also in keeping with the existing vocabulary, which already carries
+  deployment scope rather than pure maturity (`customer0` is used by five live families).
+- **There is no `environments` field.** No family carries one, and no script anywhere in the
+  repo reads one. Adding it would create a field with no reader — a second, unenforced source
+  of truth, which the Bacterial Gate in `AGENTS.md` prohibits. It was not added.
+
+Because the field has no validator, the vocabulary is now written down where a maintainer
+will look for it: the `## Lifecycle Status` table in
+`docs/reference/architecture/data-model-governance.md`. Add a row there before introducing
+any further value.
+
+`contracts/architecture/runtime-topology-index.v1.json` was regenerated with
+`python3 scripts/ops/generate_runtime_topology_index.py` (the governance gate runs
+`--check` and fails on staleness).
+
+### A5. Document the promotion path (write, do not execute) — written
+
+Done, unexecuted: [Promotion to UAT/production](#promotion-to-uatproduction) below.
+
+The renumber range this step originally guessed (`122–126`) was already stale when it was
+written — the repo head had moved on. The section below carries a range measured against
+the repository at the time of writing **and** the command to re-measure it, because the
+number is a fact about `main`'s head on the day of promotion, not a constant.
+**Do not perform those steps as part of this workstream.**
 
 ### A execution note (known hazard)
 
@@ -195,6 +214,147 @@ psql "$DEV_DB_URL" -c "\dt personal_agent_registry personal_agent_deletion_tombs
 python3 scripts/ops/verify_release_migration_contract.py
 echo "exit code must be 0 with manifest head unchanged from before this workstream"
 ```
+
+---
+
+## Promotion to UAT/production
+
+**Status: written, never executed.** This is the runbook for the day a human decides the six
+personal-agent tables should exist in UAT and production. It is deliberately manual and
+deliberately not automated: promotion moves UAT and production's expected schema forward,
+which is precisely what the founder decision in §1 says must not happen without a person
+choosing it. Nothing in Workstreams A–F performs any step below.
+
+### P0. Re-measure the head — do not trust the numbers in this document
+
+Every number here was measured against this branch on **2026-08-03**. `main` moves fast, so
+the first action is to reproduce the measurement:
+
+```bash
+# repo head (the highest numbered file directly under db/migrations/)
+ls consent-protocol/db/migrations/*.sql | sed 's|.*/||' | sort | tail -1
+
+# manifest head
+python3 - <<'PY'
+import json
+print(json.load(open("consent-protocol/db/release_migration_manifest.json"))["ordered_migrations"][-1])
+PY
+```
+
+Both printed `131_one_location_nearby_point_contract.sql` at the time of writing, so the
+next free number was **132** and the renumber target was **132–136**. If they print anything
+else, shift the whole range and keep the relative order — 902 creates an index on a table 900
+creates, so numeric order stays load-bearing.
+
+| Parked file | Promoted name (as measured 2026-08-03) |
+| --- | --- |
+| `900_personal_agent_registry.sql` | `132_personal_agent_registry.sql` |
+| `901_agent_prompt_versions.sql` | `133_agent_prompt_versions.sql` |
+| `902_personal_agent_tombstone_hushh_id_index.sql` | `134_personal_agent_tombstone_hushh_id_index.sql` |
+| `903_webauthn_credentials.sql` | `135_webauthn_credentials.sql` |
+| `904_consent_audit_receipts.sql` | `136_consent_audit_receipts.sql` |
+
+Filenames must match `^\d{3}_[a-z0-9_]+\.sql$` — the pattern
+`scripts/ops/db_migration_release_guard.py` enforces. All five targets above already do.
+
+### P1. Prove you are starting from an aligned state
+
+```bash
+python3 scripts/ops/verify_release_migration_contract.py   # must exit 0 BEFORE you touch anything
+```
+
+At the time of writing this reported manifest head 131, repo head 131, UAT 131 (exact),
+prod 131 (exact). A non-zero exit here means someone else already left the contract skewed;
+stop and fix that first, or you will not be able to tell your own breakage from theirs.
+
+### P2. Move the files — `git add` new, `git rm` old, never `git mv`
+
+**Known hazard, hit in a real session:** a classifier blocked `git mv` on migration files.
+Do not retry it. Copy to the new path, stage it, then remove the old path as a separate
+operation, one file at a time:
+
+```bash
+cp consent-protocol/db/migrations/parked/900_personal_agent_registry.sql \
+   consent-protocol/db/migrations/132_personal_agent_registry.sql
+git add consent-protocol/db/migrations/132_personal_agent_registry.sql
+git rm consent-protocol/db/migrations/parked/900_personal_agent_registry.sql
+# ...repeat for 901→133, 902→134, 903→135, 904→136
+```
+
+Leave the SQL bodies byte-identical apart from the header comment, which currently says the
+file is parked and out of sequence. That comment becomes false the moment the file moves;
+update it in the same commit rather than leaving a migration that lies about itself.
+
+### P3. Append to the release manifest
+
+Append the five new filenames, in numeric order, to `ordered_migrations` in
+`consent-protocol/db/release_migration_manifest.json`. That list is what the release lane
+applies — `consent-protocol/db/migrate.py` resolves migrations by a flat filename join
+against it and never scans the directory, so a file not in the list is never applied no
+matter where it sits.
+
+`groups` is optional. `_load_release_manifest` validates only that each group is a non-empty
+subset of `ordered_migrations`; the groups feed the narrower `--iam` / `--pkm` lanes, and 23
+of the 109 currently-ordered migrations belong to no group at all. If you do add them, the
+four `iam-consent-governance`-owned families belong in `groups.iam`.
+
+### P4. Bump the environment contracts
+
+- `consent-protocol/db/contracts/uat_integrated_schema.json` — set `expected_migration_version`
+  to the new manifest head (136 on the numbers above). **Required**:
+  `scripts/ops/verify_release_migration_contract.py` fails with `uat_contract_version_mismatch`
+  unless this equals the manifest head exactly.
+- `consent-protocol/db/contracts/prod_core_schema.json` — the same verifier only fails when
+  prod *exceeds* the manifest head, so a lagging prod contract passes that gate. It should
+  still be bumped in the same change: prod runs the same Cloud SQL schema as UAT, its policy
+  is `exact`, and `scripts/ops/report_prod_contract_posture.py` reports parity against the
+  integrated contract.
+- Add the six tables to `required_tables` in the UAT contract (and prod, per the parity rule)
+  if you want the deploy gate to prove they actually landed. Omitting them is not a gate
+  failure — it just means nothing checks.
+- `docs/reference/architecture/runtime-db-data-plane-contract.json` — change these five
+  families from `"lifecycle_status": "dev_only"` to `"current"`: `personal_agent_registry`,
+  `agent_prompt_registry`, `webauthn_authenticators`, `webauthn_ceremony_state`,
+  `consent_audit_receipts`. Then regenerate the topology index with
+  `python3 scripts/ops/generate_runtime_topology_index.py`, or the governance gate flags it
+  stale.
+
+### P5. Retire the dev-only lane — it breaks on promotion if you skip this
+
+This step is not optional and is easy to miss. `consent-protocol/db/dev_migration_manifest.json`
+names the five files by their **parked** paths, and `build_manifest_entries` raises
+`FileNotFoundError` on a missing file. `dev_extra_active()` fires on
+`GCP_PROJECT_ID == "hushh-pda-dev"`, which the dev workflow always sets — so once the files
+move, **every dev deploy's migration step fails**, immediately and loudly.
+
+Delete `consent-protocol/db/dev_migration_manifest.json` and the lane that reads it in the
+same change that promotes the files. The promoted migrations are then applied to dev by the
+ordinary release lane, like every other migration.
+
+### P6. Understand what happens to a dev database that already has these tables
+
+Dev's `schema_migrations` ledger records these under migration ids `900`–`904` (the id is the
+leading number of the filename). After renumbering, ids `132`–`136` are unrecorded, so the
+release lane will re-run the SQL against a database that already has the objects.
+
+That is safe **only because** all five files are exclusively `CREATE TABLE IF NOT EXISTS` /
+`CREATE INDEX IF NOT EXISTS` — no `ALTER`, no `DROP`. Re-verify that property at promotion
+time; if anyone has since added a non-idempotent statement, the re-run stops being a no-op
+and dev needs a ledger reconciliation instead.
+
+### P7. Prove the result
+
+```bash
+python3 scripts/ops/verify_release_migration_contract.py   # must exit 0 AFTER, at the new head
+python3 scripts/ops/db_migration_release_guard.py --help   # ordering/monotonicity + contract policy
+bash scripts/ci/repo-governance-check.sh
+```
+
+The verifier must now report manifest head 136, repo head 136, UAT 136 (exact). A `prod`
+figure that still reads 131 means P4's second bullet was skipped.
+
+Only after all of this does the normal deploy sequence apply: UAT first, verify, then
+production — per `CLAUDE.md`, both with founder sign-off.
 
 ---
 
@@ -360,16 +520,40 @@ cycle. Confirm the frontend feed list component that renders `presentFeedItem()`
 before assuming a new UI surface is needed — it is very likely an existing feed view just
 starts showing new cards once C1/C2 land.
 
-### C4. Extend `GET /api/one/personal-agent/status`, do not duplicate it
+### C4. Extend `GET /api/one/personal-agent/status`, do not duplicate it — done
 
-`consent-protocol/api/routes/one/personal_agent.py` (`personal_agent_status()`, lines 55-80
-as of this writing) already implements a deliberately
-ungated, fail-safe status endpoint (`state: reserved | active`). Extend its `state`
-vocabulary to include the intermediate states (`provisioning`, `connecting`) by reading the
-same registry row's `status` column, rather than adding a second endpoint.
-`hushh-webapp/components/dashboard/one-agent-presence.tsx` is the existing consumer — read
-its current state-handling switch before adding new states so the UI degrades sensibly for
-states it doesn't yet render.
+`consent-protocol/api/routes/one/personal_agent.py` reported `state: reserved | active`,
+collapsing every intermediate state into `reserved` — dishonest once provisioning genuinely
+has intermediate states. `personal_agent_status()` now maps
+`personal_agent_registry.status` through a single explicit table,
+`_STATE_BY_REGISTRY_STATUS`, and reports `reserved | provisioning | connecting | active |
+failed`. One endpoint, one data source, no second surface.
+
+The map's left-hand side is the real vocabulary of that column, taken from the code that
+writes it:
+
+| Registry status | Written by | Reported `state` |
+| --- | --- | --- |
+| `unprovisioned` | schema `DEFAULT` in `900_personal_agent_registry.sql` | `reserved` |
+| `pending` | `PersonalAgentProvisioningService.register_pending`, off phone-verify | `reserved` |
+| `provisioning` | `PersonalAgentProvisioningService.provision`, around the backend call | `provisioning` |
+| `provisioned` | `PersonalAgentProvisioningService.provision`, after the standing mint | `active` |
+| `connecting` | **nothing yet** — Workstream B's live backend will | `connecting` |
+| `provisioning_failed` | **nothing yet** — Workstream B6's reconcile sweep will | `failed` |
+
+The last two rows are declared ahead of their writer and are unreachable today. They are in
+the map so the write side lands without a second edit to the read contract or to any client.
+`deprovision_requested` is deliberately absent: it belongs to
+`personal_agent_deletion_tombstones.status`, never to the registry.
+
+The endpoint's original posture is unchanged and load-bearing: never flag-gated, never 404s,
+and everything unrecognised — a read error, a missing row, a status this build has not heard
+of — degrades to `reserved`. A raw DB value is never echoed back to the caller.
+
+`hushh-webapp/components/dashboard/one-agent-presence.tsx` renders all five states, with copy
+matching the feed's convention (the badge names the state, the body says the one thing the
+badge does not). Its state parse uses an explicit allow-list, so an unknown, non-string, or
+inherited-key value lands on `reserved` rather than rendering an empty card.
 
 ### C verification
 

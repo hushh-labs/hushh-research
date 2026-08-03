@@ -103,6 +103,179 @@ UAT and production remain GitHub-Actions-only.
   and redeploy. Never "fix" dev by hand-editing infrastructure.
 - Auditing dev at any time: `python3 scripts/ops/dev_environment_doctor.py`.
 
+## Pod fleet
+
+Dev is the only environment where per-user personal-agent pods run, because the registry
+tables ship as parked, dev-only migrations
+(`consent-protocol/db/migrations/parked/900_personal_agent_registry.sql`, applied through
+`consent-protocol/db/dev_migration_manifest.json` and never through the release manifest).
+Everything below is therefore a dev procedure; none of it applies to UAT or production,
+where the tables do not exist at all.
+
+**Two sources of truth, and only one is authoritative.** The `personal_agent_registry` row
+is the authority for provisioning state; a Cloud Run service is the compute that row points
+at. They can legitimately disagree — most often because the backend is in plan mode. A pod
+becomes a real, billable Cloud Run service only when `PERSONAL_AGENT_BACKEND=gcp` **and**
+`HUSSH_GCP_BACKEND_LIVE` is on; with either unset,
+`consent-protocol/hushh_mcp/services/gcp_backend.py` computes the deployment and returns a
+plan-mode handle — never `live` — **without making any GCP call**, so `gcloud` shows nothing
+while registry rows still read `provisioned`. Check the registry first, then the fleet.
+
+**List the fleet.** The filter comes from the labels
+`GcpBackend.render_deploy_config` actually sets — `app`, `hussh-space-id`, `hussh-tier`,
+`hussh-env`, `hussh-purpose`. `app=hussh-one-pod` is the only one that is unconditional, so
+filter on it and use the rest to narrow:
+
+```bash
+# Every pod in dev, with its cost labels
+gcloud run services list --project hushh-pda-dev --region us-central1 \
+  --filter="metadata.labels.app=hussh-one-pod" \
+  --format="table(metadata.name, metadata.labels.hussh-env, metadata.labels.hussh-tier, status.url)"
+
+# Fallback if your gcloud renders labels under a different key: pods are named
+# one-pod-<lowercased HusshID>, per GcpBackend._service_name
+gcloud run services list --project hushh-pda-dev --region us-central1 \
+  --filter="metadata.name ~ ^one-pod-"
+```
+
+```sql
+-- The authority. Run against the dev Cloud SQL instance.
+SELECT status, count(*) FROM personal_agent_registry GROUP BY status ORDER BY 2 DESC;
+```
+
+A pod count that disagrees with the `provisioned` row count is the signal worth chasing.
+`GET /health/ready` reports the same divergence as a `pod_fleet` check once
+`POD_FLEET_HEALTH_SIGNAL_ENABLED` is on — see `consent-protocol/api/routes/health.py`. That
+check is reported, never gating: broken pods are separate hosts and must never pull the
+control plane out of rotation.
+
+**Force-reap one pod.** The supported route is the owner-authorized API in
+`consent-protocol/api/routes/one/personal_agent.py`: `POST /api/one/personal-agent/deprovision`
+with that owner's `VAULT_OWNER` token. It revokes the standing `pkm.read` first, writes the
+retained tombstone, then deletes the registry row — the ordering in
+`consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py`. Prefer it
+whenever it is available; it is the only route that leaves consent state correct. Note the
+route returns 404 while `PERSONAL_AGENT_ENABLED` is off.
+
+When the API is not reachable (feature flag off, no owner token), delete the compute
+directly. This is the one sanctioned exception to "never fix dev by hand" above — a pod is a
+disposable resource, not infrastructure config:
+
+```bash
+gcloud run services delete one-pod-<husshid-slug> \
+  --project hushh-pda-dev --region us-central1 --quiet
+```
+
+Be honest about what that leaves behind: **only the compute is gone.** The registry row still
+says `provisioned`, and the standing `pkm.read` grant for that user is still live. Close the
+gap by re-running the API deprovision once the flag is back on — do not assume the reconcile
+sweep will clean it up, because nothing starts that sweep today (see below). A hand-deleted
+pod that nobody reconciles is exactly the divergence the `pod_fleet` health signal exists to
+surface.
+
+**Read the reconcile worker's logs.** The sweep that retries stalled provisions and reaps
+idle pods is `consent-protocol/hushh_mcp/services/personal_agent_reconcile_worker.py`. Three
+things about it matter operationally. **Nothing starts it automatically** — `server.py` has no
+attach point for it, deliberately — so if you see no reconcile lines at all, the most likely
+reason is that no one has wired it up in this environment. It sits behind its own kill-switch,
+`PERSONAL_AGENT_RECONCILE_ENABLED`, on top of `PERSONAL_AGENT_ENABLED`, because reaping
+**deletes compute**. And reaping removes only the host — the registry row, the HusshID, and
+the A2A address survive, so the agent re-provisions on the owner's next activity.
+
+It follows the log convention of `consent-protocol/hushh_mcp/services/revocation_worker.py`,
+the worker it is modeled on: every line the loop emits is prefixed with the module's own
+bracketed `_LABEL` constant, then a dotted `noun.verb` event name, then `key=value` pairs,
+with one summary line per pass. Here `_LABEL` is `personal-agent reconcile`, so the whole
+sweep is greppable on that one string:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   resource.labels.service_name="consent-protocol"
+   textPayload:"[personal-agent reconcile]"' \
+  --project hushh-pda-dev --limit 100 --freshness 1h --format="value(textPayload)"
+```
+
+| Line you will see | What it means |
+| --- | --- |
+| `Reconcile loop started (interval=…s)` | the sweep is scheduled and running |
+| `not scheduled: reconcile sweep is disabled` | `PERSONAL_AGENT_RECONCILE_ENABLED` is off |
+| `personal_agent.retried status=…` | a stalled row was re-driven through provisioning |
+| `personal_agent.retry_failed status=…` | that retry raised; the row stays stalled |
+| `personal_agent.reaped idle_since=…` | an idle pod's host was torn down |
+| `personal_agent.reap_failed` | the host teardown raised; the pod is still billing |
+| `Reconcile scan: N retried, M reaped, K failed of T in Xs` | the per-pass summary |
+| *(nothing at all)* | either the loop was never started, or every pass is being skipped because a kill-switch is off — a skipped pass writes no line |
+
+No owner identifier appears on any of those lines by design — only `hushh_id_present=true`
+— so a log grep can tell you how many pods are stuck but never which person is behind one.
+Use the registry query above for that, under the usual owner-gated access.
+
+The sweep runs in the hub, not in a pod: `pod_mode` in
+`consent-protocol/hushh_mcp/runtime_settings.py` keeps fleet-wide singleton workers out of
+pods, so a fleet of pods cannot each run their own sweep against shared state.
+
+**Manual rollback — and what it does and does not cover.** The lever is
+`PERSONAL_AGENT_ENABLED=0` plus a redeploy. It genuinely does the main job — but read all
+four points, because three of them are not what the shorthand implies.
+
+1. **It does stop new provisioning.** Verified across every entry point: the phone-verify
+   kickoff in `consent-protocol/hushh_mcp/services/actor_identity_service.py` returns
+   `False` before scheduling anything; `provision()` and `register_pending()` in
+   `consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py` raise
+   `PersonalAgentDisabledError`; the owner-authorized routes in
+   `consent-protocol/api/routes/one/personal_agent.py` return 404; and the reconcile
+   sweep re-checks the same flag on **every pass**, returning a skipped report having
+   touched nothing, so a flip mid-flight stops an already-running loop without a redeploy.
+2. **It does leave existing pods alone** — the flag is read only on creation paths, so
+   nothing deprovisions anything. But it is **not a freeze on the fleet.**
+   `consent-protocol/api/routes/account.py` deliberately does **not** gate its
+   personal-agent teardown on the flag (its own docstring says so), and routes through
+   `resolve_compute_backend()`, so a user deleting their account still tears down a live
+   pod with the flag off. That is correct — erasure must not be blockable by a feature
+   flag — but "flag off" does not mean "nothing touches the fleet".
+3. **It does not disarm the compute backend.** `PERSONAL_AGENT_BACKEND` and
+   `HUSSH_GCP_BACKEND_LIVE` are independent switches
+   (`consent-protocol/hushh_mcp/services/compute_backend.py`). Any caller that reaches
+   `GcpBackend.provision` while those are live creates real billable services. For a
+   belt-and-braces rollback, also clear `PERSONAL_AGENT_BACKEND` (resolves to the inert
+   `NullBackend`) or `HUSSH_GCP_BACKEND_LIVE` (drops the backend to plan mode, no live GCP
+   call). Turn `PERSONAL_AGENT_RECONCILE_ENABLED` off in the same pass: the master flag
+   already stops the sweep today, but the reconcile switch is the one that keeps the reap
+   half — the part that deletes compute — off if someone turns the master flag back on.
+4. **The variable is not in any deploy config today.** A repo-wide search finds
+   `PERSONAL_AGENT_ENABLED` in code, tests, and docs — and in no file under
+   `.github/workflows/` or `deploy/`. It is unset in dev, so the surface is already off by
+   default. Turning it **on** means adding it in two places: a `_PERSONAL_AGENT_ENABLED`
+   substitution in `.github/workflows/deploy-dev.yml` and a matching `--set-env-vars` entry
+   in `deploy/backend.cloudbuild.yaml`. Rollback is removing or zeroing it in the same two
+   places and redeploying. Ordering matters: `deploy-dev.yml` drops any substitution the
+   deployed SHA's cloudbuild does not declare, so the `deploy/backend.cloudbuild.yaml`
+   change has to be present on the ref you deploy.
+
+The redeploy is required only because a Cloud Run environment change is a new revision.
+Inside a running process the flag is a live `os.getenv` read per call — `personal_agent_enabled`
+is not cached — so it takes effect on the next call with no restart.
+
+One in-flight edge, written here rather than left to be discovered: `provision()` checks the
+flag on entry only, so a provision already past that line completes. If the redeploy drains
+the old revision mid-provision, the row is left in `provisioning` with no pod — which is
+precisely what the `pod_fleet` signal counts as a failed pod.
+
+Verify the rollback landed:
+
+```bash
+# Fleet signal (when POD_FLEET_HEALTH_SIGNAL_ENABLED is on)
+curl -s "$DEV_BACKEND_URL/health/ready" | jq '.checks'
+
+# Feature state, straight from the runtime. This route is deliberately never
+# flag-gated and never 404s, so it is honest with the flag off.
+curl -s -H "Authorization: Bearer $DEV_ID_TOKEN" \
+  "$DEV_BACKEND_URL/api/one/personal-agent/status" | jq '.featureEnabled'
+```
+
+Then confirm no new services appear: re-run the fleet list above and check the count is flat.
+
 ## The agentic-team principle behind the rule
 
 Agents ship in minutes; humans sign off in hours. The pipeline must let those two

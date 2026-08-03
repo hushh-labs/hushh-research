@@ -645,7 +645,7 @@
         "agent_prompt_versions"
       ],
       "id": "agent_prompt_registry",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "owner": "backend-agents-operons",
       "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
     },
@@ -676,7 +676,7 @@
         "consent_audit_receipts"
       ],
       "id": "consent_audit_receipts",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain"
     },
@@ -912,7 +912,7 @@
         "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_registry",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "per-user sovereign-agent provisioning/deprovision and status services (flag-off, PERSONAL_AGENT_ENABLED)"
     },
@@ -1104,7 +1104,7 @@
         "webauthn_credentials"
       ],
       "id": "webauthn_authenticators",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)"
     },
@@ -1114,7 +1114,7 @@
         "webauthn_challenges"
       ],
       "id": "webauthn_ceremony_state",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)"
     }
@@ -4441,7 +4441,7 @@
     "action_gateway": "85c1210647994c51c6d5f203fbed513461184a380500ef3badf136b6b87762dc",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "4de3e2980f72c70f7b641d91c4d4b3a10614cbcb5fdc8d1cd18620aaf0a8a92d",
-    "data_plane": "df39e2d45facd225d2d9d755ffe5b714de4ceae5c6c7cf72f38c9431ec8ad609",
+    "data_plane": "1ac3f4da8291c15087ec66ab740209a9a9152f36d7799fa35c85129f2cea4193",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "167d04e6700661185f7b08249decdb09e27f32b1630e0fcc16595719fe9d1f91",

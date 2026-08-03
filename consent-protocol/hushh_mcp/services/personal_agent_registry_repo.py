@@ -21,6 +21,13 @@ from db.db_client import get_db
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
 
+# Statuses that mean this row is holding, or is in the act of standing up, a real
+# host. ``provisioning`` is counted deliberately: provision() records that status
+# before the backend call and leaves it there while the host is created, so a row
+# mid-flight may already own a billable service. Over-counting is the safe
+# direction for a cost ceiling; under-counting is the one that spends money.
+_ACTIVE_POD_STATUSES = ("provisioning", "provisioned")
+
 
 class PersonalAgentRegistryRepo:
     """CRUD over the personal-agent registry and deletion tombstones."""
@@ -73,6 +80,31 @@ class PersonalAgentRegistryRepo:
         response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
         rows = response.data or []
         return rows[0] if rows else None
+
+    async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
+        """How many rows currently hold (or are standing up) a pod. The cap's denominator.
+
+        Read by ``PersonalAgentProvisioningService`` before it asks a backend to
+        create a host, so the fleet cannot grow past ``PERSONAL_AGENT_MAX_PODS``.
+        ``exclude_user_id`` leaves the caller's own row out, so a user who already
+        has a pod is never blocked from re-provisioning by their own row.
+
+        Uses the client's exact-count path (a ``COUNT(*)`` with ``LIMIT 0``, no row
+        fetch). If a client cannot produce a count it falls back to the returned row
+        length -- which may under-count, and under-counting only ever lets a
+        provision through, never blocks one incorrectly.
+        """
+        query = (
+            self._db()
+            .table(_REGISTRY)
+            .select("user_id", count="exact")
+            .in_("status", list(_ACTIVE_POD_STATUSES))
+        )
+        if (exclude_user_id or "").strip():
+            query = query.neq("user_id", exclude_user_id)
+        response = query.limit(0).execute()
+        count = getattr(response, "count", None)
+        return int(count) if count is not None else len(response.data or [])
 
     async def tombstone(
         self, *, hushh_id: Optional[str], external_agent_id: Optional[str], status: str

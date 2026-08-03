@@ -8,6 +8,8 @@ the verified-phone precondition, and that the handler forwards the pod key.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -152,3 +154,83 @@ def test_status_fails_safe_to_reserved(monkeypatch):
     resp = client.get("/api/one/personal-agent/status")
     assert resp.status_code == 200
     assert resp.json()["state"] == "reserved"
+
+
+# --- state vocabulary -------------------------------------------------------
+# Provisioning has real intermediate states, so collapsing everything that is not
+# "provisioned" into "reserved" told the customer something false while their agent
+# was mid-flight. These pin the whole map, both directions.
+
+
+@pytest.mark.parametrize(
+    "registry_status,expected_state",
+    [
+        # Written by the schema DEFAULT (migration 900) and register_pending().
+        ("unprovisioned", "reserved"),
+        ("pending", "reserved"),
+        # Written by PersonalAgentProvisioningService.provision().
+        ("provisioning", "provisioning"),
+        ("provisioned", "active"),
+        # Declared ahead of their writer (Workstreams B/C); unreachable today.
+        ("connecting", "connecting"),
+        ("provisioning_failed", "failed"),
+    ],
+)
+def test_status_maps_every_registry_status(monkeypatch, registry_status, expected_state):
+    client = _status_client(monkeypatch, row={"status": registry_status})
+    assert client.get("/api/one/personal-agent/status").json()["state"] == expected_state
+
+
+@pytest.mark.parametrize(
+    "registry_status",
+    [
+        "",
+        "  ",
+        # Tombstone-only value: it belongs to personal_agent_deletion_tombstones,
+        # never to the registry, so the registry seeing it is already a defect.
+        "deprovision_requested",
+        # A status a newer backend might write that this build has never heard of.
+        "some_future_status",
+        "PROVISIONED",  # case matters: the writers are all lowercase
+    ],
+)
+def test_status_degrades_unknown_status_to_reserved(monkeypatch, registry_status):
+    client = _status_client(monkeypatch, row={"status": registry_status})
+    body = client.get("/api/one/personal-agent/status").json()
+    assert body["state"] == "reserved"
+    # The contract that matters most here: a raw DB value never reaches the client.
+    assert registry_status.strip() not in json.dumps(body) or not registry_status.strip()
+
+
+def test_status_never_leaks_a_raw_db_value(monkeypatch):
+    # A status carrying something that must not be echoed (an internal id, a hint of
+    # an exception) still renders exactly one of the closed state vocabulary.
+    client = _status_client(monkeypatch, row={"status": "error: connect ECONNREFUSED 10.0.0.4"})
+    body = client.get("/api/one/personal-agent/status").json()
+    assert body["state"] == "reserved"
+    assert "ECONNREFUSED" not in json.dumps(body)
+
+
+def test_status_intermediate_states_are_honest_while_flag_off(monkeypatch):
+    # The endpoint is deliberately NOT flag-gated: it reports the row it can see
+    # even with PERSONAL_AGENT_ENABLED off, and says so in featureEnabled.
+    client = _status_client(
+        monkeypatch, row={"status": "provisioning", "hushh_id": "ha1_abc"}, enabled=False
+    )
+    body = client.get("/api/one/personal-agent/status").json()
+    assert body["state"] == "provisioning"
+    assert body["featureEnabled"] is False
+    assert body["hushhId"] == "ha1_abc"
+
+
+def test_status_state_vocabulary_is_closed():
+    # Guards the client contract: every value the map can emit is one the frontend
+    # (hushh-webapp/components/dashboard/one-agent-presence.tsx) renders.
+    assert set(pa._STATE_BY_REGISTRY_STATUS.values()) <= {
+        "reserved",
+        "provisioning",
+        "connecting",
+        "active",
+        "failed",
+    }
+    assert pa._DEFAULT_STATE == "reserved"

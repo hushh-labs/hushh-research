@@ -307,6 +307,106 @@ def personal_agent_backend() -> str:
     return (_clean_env("PERSONAL_AGENT_BACKEND") or "").strip().lower()
 
 
+# Dev-team-sized fleet ceiling. Deliberately small: every signed-in user gets a
+# pod (founder decision), so the ceiling -- not an eligibility allowlist -- is the
+# cost containment. See docs/future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md B3.
+_PERSONAL_AGENT_MAX_PODS_DEFAULT = 50
+
+
+def personal_agent_max_pods() -> int:
+    """Hard ceiling on how many personal-agent pods may exist at once.
+
+    A pod is a real, billable host once ``PERSONAL_AGENT_BACKEND`` names a live
+    backend, and every signed-in user gets one, so a runaway test loop is a
+    runaway bill. Provisioning checks this BEFORE asking a backend to stand a host
+    up; at the ceiling the registry row is left untouched (``pending``) and a
+    ``personal_agent_provisioning_capped`` feed row is written instead of raising,
+    because provisioning is fire-and-forget and an exception there would be an
+    invisible, unretried break.
+
+    Defaults to 50. Unset, blank, non-numeric, and non-positive all FAIL SAFE back
+    to that default rather than to "unlimited": a typo in the environment must
+    never silently remove the ceiling. There is deliberately no unlimited value --
+    to raise the ceiling, raise the number."""
+    value = _int_from_value(_clean_env("PERSONAL_AGENT_MAX_PODS"), _PERSONAL_AGENT_MAX_PODS_DEFAULT)
+    return value if value > 0 else _PERSONAL_AGENT_MAX_PODS_DEFAULT
+
+
+# 7 days. Long enough that a developer who steps away for a week keeps a warm pod,
+# short enough that an abandoned pod is not billed indefinitely.
+_POD_IDLE_REAP_HOURS_DEFAULT = 168
+
+
+def pod_idle_reap_hours() -> int:
+    """Hours of inactivity after which a provisioned pod's HOST is torn down.
+
+    Fleet hygiene for the reconcile sweep
+    (``personal_agent_reconcile_worker``). Reaping removes only the compute --
+    the registry row, the HusshID, and the A2A address all survive, so the agent
+    re-provisions on the owner's next activity. Nothing is lost; a cold start is
+    paid instead of an idle warm floor.
+
+    Defaults to 168 (7 days). Unset, blank, non-numeric, and non-positive all FAIL
+    SAFE back to that default: a bad value must never collapse the threshold to
+    zero and reap a live fleet."""
+    value = _int_from_value(_clean_env("HUSSH_POD_IDLE_REAP_HOURS"), _POD_IDLE_REAP_HOURS_DEFAULT)
+    return value if value > 0 else _POD_IDLE_REAP_HOURS_DEFAULT
+
+
+def personal_agent_reconcile_enabled() -> bool:
+    """Kill-switch for the personal-agent reconcile sweep (retry stalls, reap idle).
+
+    Default **OFF**: the worker is never scheduled, and even an already-running
+    loop goes inert on the next pass, so flipping this back to off stops the sweep
+    with no redeploy. It is a second, independent switch on top of
+    ``PERSONAL_AGENT_ENABLED`` because the sweep DELETES compute (idle reaping) --
+    a destructive-to-hosts action that must be turned on deliberately, separately
+    from turning the personal-agent surface on."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
+
+
+# Failed-pod count /health/ready tolerates before it calls the fleet degraded.
+# Small on purpose: at dev fleet sizes (see _PERSONAL_AGENT_MAX_PODS_DEFAULT) a
+# handful of wedged pods is already a signal, and the check is reported-only, so a
+# false positive costs one string in a health body and never a rotation change.
+_POD_FLEET_FAILED_THRESHOLD_DEFAULT = 5
+
+
+def pod_fleet_health_signal_enabled() -> bool:
+    """Kill-switch for the pod-fleet signal inside ``GET /health/ready``.
+
+    Default **OFF**: the readiness body stays exactly what it is today --
+    ``database`` and ``firebase_admin``, nothing else -- and the probe never reads
+    the personal-agent registry. When **ON**, readiness ALSO reports a ``pod_fleet``
+    check counting the per-user pods the fleet failed to stand up, so a broken fleet
+    shows up in the check operators already watch instead of needing its own
+    dashboard.
+
+    The signal is observability only: reported, **never gating**. A fleet-wide pod
+    failure must not simultaneously pull every control-plane instance out of
+    rotation -- that turns a partial failure into a total one. ``api/routes/health.py``
+    holds the fail-safe contract.
+
+    Deliberately independent of ``PERSONAL_AGENT_ENABLED``: freezing new provisioning
+    does not make the pods that are already broken stop mattering."""
+    return _bool_from_value(_clean_env("POD_FLEET_HEALTH_SIGNAL_ENABLED"), default=False)
+
+
+def pod_fleet_failed_threshold() -> int:
+    """Failed-pod count ``/health/ready`` tolerates before it reports ``degraded``.
+
+    Read only when ``pod_fleet_health_signal_enabled`` is on. A count at or below
+    this reports ``ok``; strictly above it reports ``degraded``. ``0`` is a valid
+    setting (report on the very first failure), which is why this fails safe on
+    negative rather than on non-positive. Unset, blank, non-numeric, and negative
+    all fall back to the default, so a typo cannot make the signal fire on every
+    probe."""
+    value = _int_from_value(
+        _clean_env("POD_FLEET_FAILED_THRESHOLD"), _POD_FLEET_FAILED_THRESHOLD_DEFAULT
+    )
+    return value if value >= 0 else _POD_FLEET_FAILED_THRESHOLD_DEFAULT
+
+
 def one_db_sessions_enabled() -> bool:
     """Feature flag: durable ADK ``DatabaseSessionService`` for One's runners.
 

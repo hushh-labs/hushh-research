@@ -14,12 +14,18 @@ import {
   CapabilitySetupTile,
   SetupNavigationTile,
 } from "@/components/onboarding/setup/capability-setup-tile";
+import {
+  BufferHandoffScreen,
+  GuidedConnectionScreen,
+  VaultExplainerScreens,
+} from "@/components/onboarding/setup/local-first-vault-sequence";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { isPersonalAgentReadyFromCachedFeed } from "@/lib/feed/personal-agent-readiness";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   isOneSetupSurfaceRoute,
@@ -46,6 +52,8 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
+import { isLocalFirstOnboardingEnabled } from "@/lib/onboarding/local-first-flags";
+import { migrateOnboardingBuffer } from "@/lib/services/onboarding-buffer-migration-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 /**
@@ -76,6 +84,18 @@ export function OneSetupHub() {
   const [dismissing, setDismissing] = useState(false);
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  /**
+   * Local-first sequencing (Workstream D4), OFF by default.
+   *
+   * This changes only WHEN the vault flow is entered — guided connection, then
+   * the buffer migration, then the explainers, then the same unmodified vault
+   * dialog. With the flag off, `localFirstStage` never leaves "idle" and every
+   * branch below falls through to today's behaviour.
+   */
+  const localFirstEnabled = isLocalFirstOnboardingEnabled();
+  const [localFirstStage, setLocalFirstStage] = useState<
+    "idle" | "guided_connection" | "migrating" | "explainer" | "draining"
+  >("idle");
   const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
     userId: string | null;
     state: "loading" | "required" | "complete";
@@ -221,7 +241,84 @@ export function OneSetupHub() {
     });
     setVaultDialogOpen(false);
     setVaultInvitationOpen(false);
+    if (localFirstEnabled) {
+      // The vault key reaches this component on the NEXT render (VaultFlow
+      // calls unlockVault then onSuccess in the same tick), so the final drain
+      // cannot run inside this callback. Stay mounted one more beat; the effect
+      // below runs it and then routes home.
+      setLocalFirstStage("draining");
+      return;
+    }
     router.replace(completionTarget);
+  };
+
+  // Final drain, after the vault exists. Idempotent: anything already
+  // acknowledged is skipped, anything still buffered is retried on the next
+  // signed-in pass. A stalled vault key must not strand the person on this
+  // screen, so the watchdog routes home regardless.
+  useEffect(() => {
+    if (!localFirstEnabled || localFirstStage !== "draining") return;
+
+    let active = true;
+    const watchdog = setTimeout(() => {
+      if (active) router.replace(completionTarget);
+    }, 8000);
+
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      // Wait for the render that carries the freshly unlocked key.
+      return () => {
+        active = false;
+        clearTimeout(watchdog);
+      };
+    }
+
+    void migrateOnboardingBuffer({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .catch((error) => {
+        console.warn(
+          "[OneSetupHub] Could not finish moving buffered details into the private agent:",
+          error,
+        );
+      })
+      .finally(() => {
+        if (active) router.replace(completionTarget);
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(watchdog);
+    };
+  }, [
+    completionTarget,
+    localFirstEnabled,
+    localFirstStage,
+    router,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  // The pre-vault pass. It writes nothing (there is no vault key yet) and
+  // reports what is still waiting — but it runs BEFORE any vault surface opens,
+  // so the vault is genuinely the last thing the person is asked for.
+  const runGuidedConnection = async () => {
+    setLocalFirstStage("migrating");
+    if (user?.uid) {
+      await migrateOnboardingBuffer({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[OneSetupHub] Pre-vault buffer pass failed; continuing to vault setup:",
+          error,
+        );
+      });
+    }
+    setLocalFirstStage("explainer");
   };
 
   const handleMasterAck = async () => {
@@ -271,6 +368,13 @@ export function OneSetupHub() {
       }
 
       if (!isVaultUnlocked) {
+        if (localFirstEnabled) {
+          setLocalFirstStage("guided_connection");
+          return {
+            status: "succeeded" as const,
+            summary: "Continue to connect your private agent.",
+          };
+        }
         setVaultInvitationOpen(true);
         return {
           status: "succeeded" as const,
@@ -301,6 +405,26 @@ export function OneSetupHub() {
       : `${done} of ${total} ready, ${remaining} left to set up.`;
   const showVaultInvitation =
     vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
+  const localFirstSequenceActive =
+    localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
+  // One heading per takeover screen. Null keeps the hub's own heading, which is
+  // the only thing the flag-off path ever sees beyond the vault invitation.
+  const takeoverHeading = localFirstSequenceActive
+    ? localFirstStage === "guided_connection" || localFirstStage === "migrating"
+      ? {
+          title: "Your private agent",
+          description: "One last connection.",
+        }
+      : {
+          title: "A private place for what matters",
+          description: "Your vault is required to finish setup.",
+        }
+    : showVaultInvitation
+      ? {
+          title: "A private place for what matters",
+          description: "Your vault is required to finish setup.",
+        }
+      : null;
 
   return (
     <AppPageShell
@@ -318,16 +442,14 @@ export function OneSetupHub() {
         <div className="relative">
           <PageHeader
             title={
-              showVaultInvitation
-                ? "A private place for what matters"
+              takeoverHeading
+                ? takeoverHeading.title
                 : !hubStateLoading && allReady
                   ? "You're all set"
                   : "Finish setting up One"
             }
             description={
-              showVaultInvitation
-                ? "Your vault is required to finish setup."
-                : summary
+              takeoverHeading ? takeoverHeading.description : summary
             }
             accent="neutral"
             className={styles.setupHeader}
@@ -335,7 +457,7 @@ export function OneSetupHub() {
           {/* Mobile surfaces the master Skip/Finish action top-right in the
               header so it is always reachable and never hides behind the fixed
               "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading && !showVaultInvitation ? (
+          {!hubStateLoading && !takeoverHeading ? (
             <button
               type="button"
               onClick={() => void handleMasterAck()}
@@ -355,7 +477,26 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {showVaultInvitation ? (
+        {localFirstSequenceActive ? (
+          localFirstStage === "guided_connection" ||
+          localFirstStage === "migrating" ? (
+            <GuidedConnectionScreen
+              agentReady={
+                user?.uid
+                  ? isPersonalAgentReadyFromCachedFeed(user.uid)
+                  : false
+              }
+              busy={localFirstStage === "migrating"}
+              onContinue={() => void runGuidedConnection()}
+            />
+          ) : localFirstStage === "explainer" ? (
+            <VaultExplainerScreens
+              onComplete={() => setVaultDialogOpen(true)}
+            />
+          ) : (
+            <BufferHandoffScreen />
+          )
+        ) : showVaultInvitation ? (
           <section
             className="motion-step-enter mx-auto flex min-h-[18rem] w-full max-w-[30rem] flex-col items-center justify-center text-center"
             aria-labelledby="one-setup-vault-invitation-title"

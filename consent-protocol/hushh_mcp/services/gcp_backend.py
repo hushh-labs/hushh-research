@@ -55,6 +55,43 @@ A2A_ADDRESS_BASE = "https://a2a.hushh.ai/u"
 
 _DNS_SAFE = re.compile(r"[^a-z0-9-]+")
 
+# GCP resource label values accept only lowercase letters, digits, dashes and
+# underscores, up to 63 characters. Anything else is rejected by the Cloud Run
+# Admin API, so every label value is put through ``_label_value`` first.
+_LABEL_UNSAFE = re.compile(r"[^a-z0-9_-]+")
+
+# What the pod is FOR, for cost attribution -- overridable per lane with
+# HUSSH_POD_PURPOSE (the dev validation tier sets ``dev-validation``).
+_POD_PURPOSE_DEFAULT = "personal-agent"
+
+
+def _label_value(raw: Any, default: str = "") -> str:
+    """A GCP-legal label value: lowercase ``[a-z0-9_-]``, at most 63 characters.
+
+    NEVER pass a person through here. Cost labels are attached to a cloud
+    resource that is readable by anyone with project-level billing access, so an
+    email, phone number, or raw user id must never become a label value. The
+    opaque ``space_id`` is the non-PII per-user identifier; per-developer cost
+    attribution is done by joining the Cloud Billing export against the registry
+    server-side (DEV-LIVE-EXECUTION-PLAN.md B5), not by labeling the resource.
+    """
+    cleaned = _LABEL_UNSAFE.sub("-", str(raw or "").strip().lower()).strip("-_")
+    return (cleaned or default)[:63].rstrip("-_")
+
+
+def _deploy_env_label() -> str:
+    """Which deploy lane owns this pod's spend: dev, uat, production.
+
+    ``HUSHH_DEPLOY_ENV`` first, ``ENVIRONMENT`` second -- the same precedence as
+    ``hushh_mcp/runtime_providers/factory.py::_deployment_environment``, and the
+    order is load-bearing here: the dev lane deliberately deploys with
+    ``_DEPLOY_ENV=dev`` while running with ``ENVIRONMENT=uat`` so behavior gates
+    replicate UAT (deploy/backend.cloudbuild.yaml, "Runtime identity may differ
+    from deploy identity"). Reading ``ENVIRONMENT`` would therefore bill every
+    dev pod to ``uat`` -- a cost report that is confidently wrong.
+    """
+    return _label_value(_env("HUSHH_DEPLOY_ENV") or _env("ENVIRONMENT"), "unknown")
+
 
 def _service_name(hushh_id: str) -> str:
     """A DNS-safe, deterministic Cloud Run service name for a HusshID.
@@ -161,10 +198,15 @@ class GcpBackend:
             "metadata": {
                 "name": name,
                 "namespace": self._project or "",
+                # Cost attribution (DEV-LIVE-EXECUTION-PLAN.md B5). Non-PII only:
+                # the opaque spaceID identifies the pod, the lane and purpose
+                # identify the spend. No email, phone, or user id ever appears here.
                 "labels": {
                     "app": "hussh-one-pod",
-                    "hussh-space-id": spec.space_id or "",
-                    "hussh-tier": spec.tier,
+                    "hussh-space-id": _label_value(spec.space_id),
+                    "hussh-tier": _label_value(spec.tier),
+                    "hussh-env": _deploy_env_label(),
+                    "hussh-purpose": _label_value(_env("HUSSH_POD_PURPOSE"), _POD_PURPOSE_DEFAULT),
                 },
                 # internal ingress: the pod is never publicly reachable; only the
                 # Hushh A2A gateway (Layer A) routes to it.
