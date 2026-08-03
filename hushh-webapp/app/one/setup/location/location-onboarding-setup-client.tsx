@@ -1,14 +1,115 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 
 import OneLocationAgentPage from "@/app/one/location/page";
+import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+
+export const LOCATION_COMPLETION_RETURN_DELAY_MS = 4_000;
+
+export function LocationOnboardingCompletedScreen({
+  onReturn,
+}: {
+  onReturn: () => void;
+}) {
+  const returnedRef = useRef(false);
+  const returnOnce = useCallback(() => {
+    if (returnedRef.current) return;
+    returnedRef.current = true;
+    onReturn();
+  }, [onReturn]);
+
+  useEffect(() => {
+    const returnTimer = window.setTimeout(
+      returnOnce,
+      LOCATION_COMPLETION_RETURN_DELAY_MS,
+    );
+    return () => window.clearTimeout(returnTimer);
+  }, [returnOnce]);
+
+  usePublishVoiceSurfaceMetadata({
+    screenId: "one_setup_location_complete",
+    title: "Location setup complete",
+    purpose: "Confirm Location is already set up before returning to setup.",
+    primaryEntity: "Location",
+    actions: [
+      {
+        id: "return_to_setup",
+        label: "Back to setup",
+        purpose: "Return to the One setup hub.",
+      },
+    ],
+    controls: [
+      {
+        id: "one_setup_location_complete_return",
+        label: "Back to setup",
+        type: "button",
+        purpose: "Return to the One setup hub.",
+      },
+    ],
+    availableActions: ["Back to setup"],
+  });
+
+  return (
+    <FullscreenFlowShell
+      width="reading"
+      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-center px-[var(--page-inline-gutter-standard)] py-10"
+      data-testid="location-onboarding-completed"
+    >
+      <section
+        className="motion-step-enter mx-auto flex w-full max-w-[34rem] flex-col items-center text-center"
+        aria-labelledby="location-onboarding-completed-title"
+      >
+        <span className="flex size-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 sm:size-20">
+          <CheckCircle2 className="size-9 sm:size-11" aria-hidden="true" />
+        </span>
+        <p className="mt-6 type-subhead text-muted-foreground">
+          One · Location
+        </p>
+        <h1
+          id="location-onboarding-completed-title"
+          className="mt-3 max-w-[18ch] text-balance type-display text-foreground"
+        >
+          Your Location onboarding is complete
+        </h1>
+        <p className="mt-4 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
+          Everything is ready. You can manage Location anytime from One.
+        </p>
+        <div className="mt-8 w-full max-w-[30rem]">
+          <Button
+            type="button"
+            variant="blue-gradient"
+            effect="fill"
+            size="lg"
+            fullWidth
+            className="min-h-14 justify-center text-center"
+            onClick={returnOnce}
+            data-testid="location-onboarding-completed-return"
+            data-voice-control-id="one_setup_location_complete_return"
+          >
+            Back to setup
+          </Button>
+        </div>
+        <p
+          className="mt-3 text-sm text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          Returning automatically in a few seconds.
+        </p>
+      </section>
+    </FullscreenFlowShell>
+  );
+}
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
@@ -22,6 +123,12 @@ export function LocationOnboardingSetupClient() {
 
   if (!coordinator.isReady)
     return <SetupCapabilityLoading label="Preparing location setup…" />;
+
+  if (coordinator.isAlreadyComplete) {
+    return (
+      <LocationOnboardingCompletedScreen onReturn={coordinator.returnToSetup} />
+    );
+  }
 
   return (
     <CapabilityCinematicIntroGate capabilityId="location">

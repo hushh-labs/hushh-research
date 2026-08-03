@@ -12,7 +12,7 @@ import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   buildOneSetupCapabilityRoute,
   resolveCapabilityHandoffTarget,
-  resolveCompletedSetupCapabilityTarget,
+  resolveCompletedSetupCapabilityEntry,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
@@ -43,11 +43,15 @@ type SetupSettlementOptions = {
 
 export type SetupCapabilityCoordinator = {
   isReady: boolean;
+  /** Durable completion detected before the feature-owned setup body mounts. */
+  isAlreadyComplete: boolean;
   /** A verified feature result, optionally recovered from a typed callback. */
   operationallyReady: boolean;
   isSettling: boolean;
   finish: (options?: SetupSettlementOptions) => Promise<Settlement>;
   skip: (options?: SetupSettlementOptions) => Promise<Settlement>;
+  /** Idempotent return used by a completed-entry acknowledgement. */
+  returnToSetup: () => void;
 };
 
 export type SetupCapabilityJourneyMode = "auto" | "root" | "individual";
@@ -204,30 +208,44 @@ export function useSetupCapabilityCoordinator({
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const userId = user?.uid;
   const [isReady, setIsReady] = useState(false);
   const [isSettling, setIsSettling] = useState(false);
   const [callbackReadiness, setCallbackReadiness] = useState(false);
+  const [confirmedCompletionKey, setConfirmedCompletionKey] = useState<
+    string | null
+  >(null);
 
   const operationallyReady = isOperationallyReady || callbackReadiness;
   // Same-session setup transitions reuse the redacted bootstrap record already
   // hydrated by the app runtime. Cold entry waits once; explicit settlement
   // retains the force-refresh + version checks for durable correctness.
-  const cachedJourney = user?.uid
-    ? PreVaultUserStateService.getCachedBootstrapState?.(user.uid) ?? null
+  const cachedJourney = userId
+    ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
     : null;
-  const cachedCompletedTarget = resolveCompletedSetupCapabilityTarget({
+  const cachedCompletedEntry = resolveCompletedSetupCapabilityEntry({
     capabilityId,
     completedCapabilityIds: cachedJourney?.setupCapabilityIds ?? [],
     rootSetupResolved:
       PreVaultUserStateService.isSetupResolved(cachedJourney),
   });
+  const cachedCompletedTarget =
+    cachedCompletedEntry.kind === "redirect"
+      ? cachedCompletedEntry.target
+      : null;
+  const completionKey = userId ? `${userId}:${capabilityId}` : null;
+  const isAlreadyComplete =
+    cachedCompletedEntry.kind === "acknowledge" ||
+    (cachedCompletedEntry.kind === "continue" &&
+      completionKey !== null &&
+      confirmedCompletionKey === completionKey);
   const hasUsableCachedJourney = Boolean(
     enabled &&
       cachedJourney &&
       !cachedCompletedTarget &&
       !PreVaultUserStateService.isSetupResolved(cachedJourney),
   );
-  const routeReady = isReady || hasUsableCachedJourney;
+  const routeReady = isReady || hasUsableCachedJourney || isAlreadyComplete;
 
   const canonicalRoute = useMemo(
     () => buildOneSetupCapabilityRoute(capabilityId),
@@ -247,11 +265,14 @@ export function useSetupCapabilityCoordinator({
     },
     [router],
   );
+  const returnToSetup = useCallback(() => {
+    replaceRoute(ROUTES.ONE_SETUP);
+  }, [replaceRoute]);
 
   useEffect(() => {
     if (!enabled) return;
     if (authLoading) return;
-    if (!user?.uid) {
+    if (!userId) {
       replaceRoute(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(canonicalRoute)}`);
       return;
     }
@@ -262,17 +283,24 @@ export function useSetupCapabilityCoordinator({
       try {
         const initialJourney =
           cachedJourney ??
-          (await PreVaultUserStateService.bootstrapState(user.uid));
-        const completedTarget = resolveCompletedSetupCapabilityTarget({
+          (await PreVaultUserStateService.bootstrapState(userId));
+        if (cancelled) return;
+        const completedEntry = resolveCompletedSetupCapabilityEntry({
           capabilityId,
           completedCapabilityIds: initialJourney.setupCapabilityIds,
           rootSetupResolved:
             PreVaultUserStateService.isSetupResolved(initialJourney),
         });
-        if (completedTarget) {
-          replaceRoute(completedTarget);
+        if (completedEntry.kind === "redirect") {
+          replaceRoute(completedEntry.target);
           return;
         }
+        if (completedEntry.kind === "acknowledge") {
+          setConfirmedCompletionKey(`${userId}:${capabilityId}`);
+          setIsReady(true);
+          return;
+        }
+        setConfirmedCompletionKey(null);
         const prepare = async (
           journey: typeof initialJourney,
           retryConflict: boolean,
@@ -306,7 +334,7 @@ export function useSetupCapabilityCoordinator({
 
           try {
             await PreVaultUserStateService.syncOnboardingJourney({
-              userId: user.uid,
+              userId,
               phase: "capability_setup",
               activeCapability: capabilityId,
               callbackState: "none",
@@ -315,7 +343,7 @@ export function useSetupCapabilityCoordinator({
             if (!cancelled) setIsReady(true);
           } catch (error) {
             if (!retryConflict || !isOnboardingJourneyConflict(error)) throw error;
-            const fresh = await PreVaultUserStateService.bootstrapState(user.uid, {
+            const fresh = await PreVaultUserStateService.bootstrapState(userId, {
               force: true,
             });
             await prepare(fresh, false);
@@ -345,7 +373,7 @@ export function useSetupCapabilityCoordinator({
     journeyMode,
     resumeReadinessFromCallback,
     replaceRoute,
-    user?.uid,
+    userId,
   ]);
 
   const settle = useCallback(
@@ -353,7 +381,7 @@ export function useSetupCapabilityCoordinator({
       kind: "finish" | "skip",
       options: SetupSettlementOptions = {},
     ): Promise<Settlement> => {
-      if (!user?.uid) {
+      if (!userId) {
         return { status: "blocked", summary: "Sign in to continue setup." };
       }
       if (isSettling) {
@@ -374,7 +402,7 @@ export function useSetupCapabilityCoordinator({
 
       setIsSettling(true);
       try {
-        const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+        const journey = await PreVaultUserStateService.bootstrapState(userId, {
           force: true,
         });
         const resolvedJourneyMode = resolveSetupCapabilityJourneyMode(
@@ -400,26 +428,26 @@ export function useSetupCapabilityCoordinator({
               new Set([...journey.setupCapabilityIds, capabilityId]),
             ).sort();
             await PreVaultUserStateService.syncSetupCapabilities(
-              user.uid,
+              userId,
               completed,
             );
-            await CapabilityTourService.markExplored(user.uid, capabilityId);
+            await CapabilityTourService.markExplored(userId, capabilityId);
           }
         } else if (kind === "finish") {
           const completed = Array.from(
             new Set([...journey.setupCapabilityIds, capabilityId]),
           ).sort();
           await PreVaultUserStateService.settleOnboardingCapability({
-            userId: user.uid,
+            userId,
             capabilityId,
             completedCapabilityIds: completed,
             expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
             callbackState: "succeeded",
           });
-          await CapabilityTourService.markExplored(user.uid, capabilityId);
+          await CapabilityTourService.markExplored(userId, capabilityId);
         } else {
           await PreVaultUserStateService.settleOnboardingCapability({
-            userId: user.uid,
+            userId,
             capabilityId,
             expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
             callbackState: "none",
@@ -480,7 +508,7 @@ export function useSetupCapabilityCoordinator({
       replaceRoute,
       settlementBlocked,
       journeyMode,
-      user?.uid,
+      userId,
     ],
   );
 
@@ -493,10 +521,12 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
-    enabled: enabled && !settlementBlocked,
+    enabled:
+      enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
   useLocalOnboardingActionHandler(skipActionId, skip, {
-    enabled: enabled && !settlementBlocked,
+    enabled:
+      enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
 
   const visibleActionId = operationallyReady ? finishActionId : skipActionId;
@@ -505,7 +535,7 @@ export function useSetupCapabilityCoordinator({
     : `Skip ${setupCapabilityLabel(capabilityId)} setup`;
   const routeSurfaceMetadata = useMemo(
     () =>
-      !enabled || !routeReady
+      !enabled || !routeReady || isAlreadyComplete
         ? null
         : {
             screenId: screenId || SETUP_CAPABILITY_SCREEN[capabilityId],
@@ -539,6 +569,7 @@ export function useSetupCapabilityCoordinator({
     [
       capabilityId,
       enabled,
+      isAlreadyComplete,
       routeReady,
       operationallyReady,
       settlementBlocked,
@@ -553,7 +584,15 @@ export function useSetupCapabilityCoordinator({
     routeSurfaceMetadata,
   );
 
-  return { isReady: routeReady, operationallyReady, isSettling, finish, skip };
+  return {
+    isReady: routeReady,
+    isAlreadyComplete,
+    operationallyReady,
+    isSettling,
+    finish,
+    skip,
+    returnToSetup,
+  };
 }
 
 type SetupCapabilityTerminalFooterProps = {
