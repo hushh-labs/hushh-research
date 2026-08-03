@@ -199,6 +199,7 @@ class AccountService:
             "one_location_public_invites": text(
                 "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
             ),
+            "one_wallet_cards": text("DELETE FROM one_wallet_cards WHERE user_id = :user_id"),
             "one_location_circle_invites": text(
                 """
                 DELETE FROM one_location_circle_invites

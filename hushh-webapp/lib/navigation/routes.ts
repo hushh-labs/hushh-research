@@ -108,6 +108,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
+  /** Owner setup and management for the Apple Wallet profile pass. */
+  ONE_WALLET_CARD: "/one/wallet-card",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -622,6 +624,15 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * Public Wallet Profile prefix. Deliberately a module-local constant rather
+ * than a ROUTES entry: `/c` is a token namespace with no page of its own, so it
+ * needs neither a native-route-inventory classification nor a ROUTES-derived
+ * app-route-layout entry. Precedent: the location public-invite prefix is
+ * likewise not a ROUTES value.
+ */
+const WALLET_CARD_PUBLIC_PREFIX = "/c";
+
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
@@ -636,7 +647,9 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
 }
 
