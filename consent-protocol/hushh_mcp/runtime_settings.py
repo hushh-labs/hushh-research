@@ -373,6 +373,24 @@ def pod_mode() -> bool:
     return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
 
 
+def pod_agent_memory_enabled() -> bool:
+    """Kill-switch for per-pod agent memory (AGENTS.md, Agent Architecture Doctrine 1).
+
+    Default **OFF**: every ADK ``Runner`` is built with ``memory_service=None``, exactly as
+    today, and the agent remembers nothing between turns beyond session state.
+
+    When **ON** *and* the process is a pod (``HUSSH_POD_MODE``), Private Agent One gets its
+    own ``PodMemoryService`` — conversation, learned preference, and working context sealed
+    under the pod's own key and scoped to the single owner that pod serves. It is never
+    enabled in the shared multi-tenant hub: memory there would be cross-tenant leakage,
+    which is why the doctrine keeps the hub dumb by default and why
+    ``resolve_pod_memory_service`` checks ``pod_mode()`` before this flag.
+
+    Memory is the agent-experience layer, not an information authority: PKM remains the
+    zero-knowledge system of record. See docs/future/personal-agent/ARCHITECTURE.md §7a."""
+    return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
+
+
 def crm_registry_db_enabled() -> bool:
     """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
     registry (decrypting credentials with VAULT_DATA_KEY) instead of the
