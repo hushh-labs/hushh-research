@@ -46,11 +46,19 @@ export type PkmScopeRegistryEntry = {
   owner_consent_override?: boolean;
   summary_projection?: Record<string, unknown> & {
     top_level_scope_path?: string;
+    materialization_state?: "materialized" | "empty" | "unknown";
+    materialized_leaf_count?: number;
+    source_manifest_revision?: number;
     consumer_visible?: boolean;
     internal_only?: boolean;
     visibility_reason?: string;
     storage_mode?: string;
   };
+};
+
+export type PkmScopeMaterialization = {
+  state: "materialized" | "empty" | "unknown";
+  materialized_leaf_count: number;
 };
 
 export type DomainManifest = {
@@ -151,6 +159,25 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
 function isExternalizablePath(path: string, pathType: PathDescriptor["path_type"]): boolean {
   if (pathType !== "leaf") return false;
   return !path.split(".").some((part) => BLOCKED_EXTERNAL_PATH_PARTS.has(part));
+}
+
+function countMaterializedLeaves(value: unknown, path: string[] = []): number {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === "string") return value.trim().length > 0 ? 1 : 0;
+  if (typeof value === "number" || typeof value === "boolean") return 1;
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (count, item) => count + countMaterializedLeaves(item, [...path, "_items"]),
+      0
+    );
+  }
+  if (typeof value !== "object") return 0;
+
+  return Object.entries(value as Record<string, unknown>).reduce((count, [rawKey, child]) => {
+    const normalizedKey = normalizePathSegment(rawKey);
+    if (!normalizedKey || BLOCKED_EXTERNAL_PATH_PARTS.has(normalizedKey)) return count;
+    return count + countMaterializedLeaves(child, [...path, normalizedKey]);
+  }, 0);
 }
 
 function countEntityMaps(value: unknown): number {
@@ -285,6 +312,16 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const nextManifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + (
     action === "match_existing_domain" ? 0 : 1
   );
+  const scopeMaterialization: Record<string, PkmScopeMaterialization> = {};
+  for (const [rawScope, value] of Object.entries(params.domainData)) {
+    const scope = normalizePathSegment(rawScope);
+    if (!scope || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
+    const materializedLeafCount = countMaterializedLeaves(value, [scope]);
+    scopeMaterialization[scope] = {
+      state: materializedLeafCount > 0 ? "materialized" : "empty",
+      materialized_leaf_count: materializedLeafCount,
+    };
+  }
   const summaryProjection = {
     manifest_version: nextManifestVersion,
     domain_contract_version: currentDomainContractVersion(normalizedDomain),
@@ -297,6 +334,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
     path_count: jsonPaths.length,
     externalizable_path_count: externalizablePaths.length,
     top_level_scope_count: topLevelScopePaths.length,
+    scope_materialization: scopeMaterialization,
   };
 
   const structureDecision: StructureDecision = {

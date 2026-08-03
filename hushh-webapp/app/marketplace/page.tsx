@@ -47,6 +47,7 @@ import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
 import {
   isIAMSchemaNotReadyError,
@@ -881,23 +882,13 @@ export default function MarketplacePage() {
     try {
       setActionLoadingUserId(investorUserId);
       const idToken = await user.getIdToken();
-      const request = await ConsentCenterService.createRequest({
+      const request = await ConnectionsService.sendRequest({
         idToken,
-        userId: user.uid,
-        payload: {
-          subject_user_id: investorUserId,
-          requester_actor_type: "ria",
-          subject_actor_type: "investor",
-          scope_template_id: "ria_financial_summary_v1",
-          duration_mode: "preset",
-          duration_hours: 168,
-        },
+        addresseeUserId: investorUserId,
+        message: "Would like to connect.",
       });
       await persistInvestorAction(investor, "connect_request", {
-        request_id:
-          request && typeof request === "object" && "request_id" in request
-            ? String(request.request_id || "")
-            : null,
+        request_id: request.id || null,
         gesture: "right_swipe_or_connect",
       });
       const investorId = marketplaceInvestorCardId(investor);
@@ -921,17 +912,10 @@ export default function MarketplacePage() {
     try {
       setActionLoadingUserId(ria.user_id);
       const idToken = await user.getIdToken();
-      await ConsentCenterService.createRequest({
+      await ConnectionsService.sendRequest({
         idToken,
-        userId: user.uid,
-        payload: {
-          subject_user_id: ria.user_id,
-          requester_actor_type: "investor",
-          subject_actor_type: "ria",
-          scope_template_id: "investor_advisor_disclosure_v1",
-          duration_mode: "preset",
-          duration_hours: 168,
-        },
+        addresseeUserId: ria.user_id,
+        message: "Would like to connect.",
       });
       toast.success("Connection request sent", {
         description: "The advisor can review it in their pending connections.",

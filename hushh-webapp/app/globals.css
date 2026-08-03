@@ -388,11 +388,10 @@ textarea {
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
   --app-bottom-chrome-lift: 0px;
-  /* Visual-only tail for the persistent dock. It deliberately does not affect
-   * scroll clearance: the fade can dissolve content above the Agent Bar without
-   * moving controls or shrinking the usable viewport. */
+  /* The bottom material stays within the measured fixed chrome. Its gradient
+   * and mask may feather inside that footprint but must not blur page content
+   * above the Agent Bar or navigation edge. */
   --bottom-chrome-fade-overscan: 10px;
-  --bottom-chrome-fade-tail: 52px;
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) +
       var(--app-bottom-chrome-lift)
@@ -442,7 +441,7 @@ textarea {
   --top-tabs-total: 0px;
   --top-subnav-h: 30px;
   --top-subnav-gap: 12px;
-  --top-fade-active: 14px;
+  --top-fade-active: 12px;
   --top-content-safe-gap: 14px;
   --page-top-body-gap: 18px;
   /* Single visual clearance between the fixed top shell and the first page block.
@@ -462,6 +461,23 @@ textarea {
   );
   --top-shell-visual-height: calc(
     var(--top-shell-reserved-height) + var(--top-fade-active)
+  );
+  /* The fixed top mask contracts with the scroll-collapsed app bar. Sticky
+   * route content consumes this same live boundary so labels cannot underlap
+   * the readable chrome or pin themselves to the viewport's raw top edge. */
+  --top-shell-live-height: calc(
+    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
+  );
+  /* Content spacing below contextual tabs is not physical chrome. The mask
+   * stops at the tab row; the route still retains this gap for readable
+   * content through --top-shell-live-height. */
+  --top-shell-mask-tabs-gap: 0px;
+  --top-shell-mask-solid-height: calc(
+    var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) -
+      var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-visible-height: calc(
+    var(--top-shell-mask-solid-height) + var(--top-fade-active)
   );
   --top-shell-h: var(--top-shell-reserved-height);
   --top-glass-h: var(--top-shell-visual-height);
@@ -629,6 +645,9 @@ textarea {
   --app-bg-start: #ffffff;
   --app-bg-mid: #ffffff;
   --app-bg-end: #ffffff;
+  /* The base beneath persistent chrome. Foundation may add its restrained
+   * corner ambience over this, but shell material must share the same base. */
+  --app-layout-surface: var(--background);
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -801,29 +820,33 @@ textarea {
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  /* Lift the composer above the on-screen keyboard when it is up (--kb-height),
-   * otherwise use the resting safe-area gap. max() avoids double-counting the
-   * home-indicator inset (the keyboard already covers that zone). Inert on
-   * desktop where --kb-height is 0. */
+  /* Mobile browsers already shrink this full-screen workspace through `dvh`.
+   * Capacitor keeps its WebView frame stable, so it opts into the additional
+   * keyboard inset below. */
+  --agent-chat-keyboard-inset: 0px;
   --agent-chat-composer-bottom: max(
     calc(0.75rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
     calc(1.25rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
+}
+
+html.native-keyboard-inset .agent-chat-workspace {
+  --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
 
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
     calc(1rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
     calc(1.75rem + var(--app-safe-area-bottom-effective)),
-    calc(var(--kb-height, 0px) + 0.5rem)
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
 
@@ -2284,6 +2307,11 @@ html.native-ios {
   --app-bg-start: oklch(0.146 0.004 285.9);
   --app-bg-mid: oklch(0.146 0.004 285.9);
   --app-bg-end: oklch(0.146 0.004 285.9);
+  --app-layout-surface: color-mix(
+    in oklab,
+    var(--background) 92%,
+    var(--app-accent) 8%
+  );
 
   --glass1: #ffffff40 !important;
   --glass2: #6464643b !important;
@@ -2738,25 +2766,42 @@ md-ripple.morphy-md-ripple {
   /* Persistent chrome uses one neutral, theme-derived feather. Surface
      sampling still drives native system-bar contrast, but it must not cast a
      route color across either app edge. */
-  --ambient-chrome-material-bg: var(--background);
+  --ambient-chrome-material-bg: var(--app-layout-surface, var(--background));
   --ambient-chrome-material-fg: var(--foreground);
-  --tw-backdrop-blur: blur(0px);
-  --tw-backdrop-saturate: saturate(1);
+  --ambient-chrome-mask-blur: var(--app-shared-chrome-mask-blur);
+  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur));
   --ambient-chrome-wash: 58%;
-  --ambient-chrome-ramp-hold: 42%;
-  --ambient-chrome-ramp-mid: 72%;
-  --ambient-chrome-ramp-mid-alpha: 0.44;
-  will-change: background-color;
+  /* One feather profile drives both chrome edges. Edge classes may choose
+     geometry, never their own opacity curve. */
+  --ambient-chrome-fade-solid: 94%;
+  --ambient-chrome-fade-dense: 91%;
+  --ambient-chrome-fade-mid: 72%;
+  --ambient-chrome-fade-soft: 38%;
+  --ambient-chrome-fade-trace: 12%;
+  --ambient-chrome-fade-dense-stop: 16%;
+  --ambient-chrome-fade-mid-stop: 38%;
+  --ambient-chrome-fade-soft-stop: 64%;
+  --ambient-chrome-fade-trace-stop: 84%;
+  --ambient-chrome-fade-mask-mid: 0.72;
+  --ambient-chrome-fade-mask-soft: 0.38;
+  --ambient-chrome-fade-mask-trace: 0.12;
+  -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
+  backdrop-filter: var(--ambient-chrome-backdrop-filter);
+  will-change: background-color, backdrop-filter;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
-  --tw-backdrop-blur: blur(0px);
-  --tw-backdrop-saturate: saturate(1);
   --ambient-chrome-wash: 0%;
 }
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
+  /* Keep the shell legible without turning the top edge into an opaque slab.
+     The final 12–14px tail is deliberately short, but its eased curve mirrors
+     the bottom dock instead of falling from full opacity inside one hard step. */
+  --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
+  --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
+  --ambient-chrome-top-visible-height: var(--top-shell-mask-visible-height);
   background-color: color-mix(
     in srgb,
     var(--ambient-chrome-bg) var(--ambient-chrome-wash),
@@ -2764,75 +2809,54 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    #000 0%,
-    #000 var(--ambient-chrome-ramp-hold),
-    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha))
-      var(--ambient-chrome-ramp-mid),
-    transparent 100%
+    #000 0,
+    #000 var(--ambient-chrome-top-solid-height),
+    #000
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
+      ),
+    transparent var(--ambient-chrome-top-visible-height)
   );
   mask-image: linear-gradient(
     to bottom,
-    #000 0%,
-    #000 var(--ambient-chrome-ramp-hold),
-    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha))
-      var(--ambient-chrome-ramp-mid),
-    transparent 100%
+    #000 0,
+    #000 var(--ambient-chrome-top-solid-height),
+    #000
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.16
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.38
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.64
+      ),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      calc(
+        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.84
+      ),
+    transparent var(--ambient-chrome-top-visible-height)
   );
 }
 
-/* The visual mask already spans --top-shell-visual-height. Keep its solid
- * portion through contextual tabs, then dissolve below their underline so the
- * tab row is never cut by the same fade intended for page content. */
+/* Tabbed shells use the same resolved mask geometry as a plain top bar. The
+ * class stays as the semantic hook for the shell mode; it must not fork the
+ * fade curve or reintroduce a second visual engine. */
 .ambient-chrome-mask--top-with-tabs {
-  /* Percentages vary with a device's safe-area inset and can begin fading
-     inside the tab row. Pin the opaque tint to the exact shell boundary,
-     then dissolve only in the visual tail below the active underline. */
-  /* Multi-stop ease so the tail below the tab underline dissolves smoothly
-     instead of stepping through a single mid alpha. Stops are fractions of the
-     resolved fade tail (--top-fade-active) so they stay in order and adapt to
-     the device safe-area inset. */
-  --ambient-chrome-top-solid-height: calc(
-    var(--top-shell-reserved-height) - var(--top-chrome-collapse-px, 0px)
-  );
-  --ambient-chrome-top-visible-height: calc(
-    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
-  );
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.82)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
-      ),
-    rgba(0, 0, 0, 0.5)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
-      ),
-    rgba(0, 0, 0, 0.2)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
-      ),
-    transparent var(--ambient-chrome-top-visible-height)
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 var(--ambient-chrome-top-solid-height),
-    rgba(0, 0, 0, 0.82)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.24
-      ),
-    rgba(0, 0, 0, 0.5)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.46
-      ),
-    rgba(0, 0, 0, 0.2)
-      calc(
-        var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.72
-      ),
-    transparent var(--ambient-chrome-top-visible-height)
-  );
 }
 
 .ambient-chrome-mask--bottom {
@@ -2842,13 +2866,34 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-color: transparent;
   background-image: linear-gradient(
     to top,
-    color-mix(in srgb, var(--ambient-chrome-bg) 94%, transparent) 0%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%,
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-solid), transparent) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-dense), transparent) var(--ambient-chrome-fade-dense-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-mid), transparent) var(--ambient-chrome-fade-mid-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-soft), transparent) var(--ambient-chrome-fade-soft-stop),
+    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-trace), transparent) var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
-  -webkit-mask-image: none;
-  mask-image: none;
+  /* `backdrop-filter` affects transparent pixels unless the element itself is
+   * masked. Match the visual dissolve here so blur stops at the chrome edge
+   * instead of extending into the page's final component. */
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 var(--ambient-chrome-fade-dense-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    #000 var(--ambient-chrome-fade-dense-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
+    transparent 100%
+  );
 }
 
 /* Top controls consume the same foreground token as the top mask. This is
@@ -3417,7 +3462,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   --foundation-ambient-secondary: 10%;
   --foundation-ambient-tertiary: 9%;
   --foundation-ambient-quaternary: 7%;
-  background-color: var(--background);
+  background-color: var(--app-layout-surface);
   background-image:
     radial-gradient(
       circle at 4% 4%,

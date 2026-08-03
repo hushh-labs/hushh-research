@@ -98,12 +98,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM relationship_share_events",
         "DELETE FROM relationship_share_grants",
         "DELETE FROM ria_pick_share_artifacts",
-        "DELETE FROM ria_pick_uploads",
         "DELETE FROM advisor_investor_relationships",
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
         "DELETE FROM one_location_referrals",
         "DELETE FROM one_location_public_invite_submissions",
@@ -221,6 +221,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
     ]
     for fragment in cleared_fragments:

@@ -43,6 +43,27 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 7. Device owner capabilities require Firebase identity plus a fresh P-256 signature.
 8. Device revocation rejects challenges and subsequent owner-capability issuance.
 9. Developer tokens cannot mint `VAULT_OWNER`, unwrap the vault, or write PKM.
+10. Connected Systems never unlinks on timeout, authorization failure, MCP
+    error, or malformed response; owner-confirmed recovery disconnects only the
+    server-resolved active binding and preserves workflow/audit history.
+11. Nearby presence defaults to absent, requires fresh owner confirmation and
+    phone verification, and is visible only to another explicitly active
+    check-in whose independently confirmed point is inside the fixed exact
+    radius.
+12. Nearby roster and Connect responses expose rotating aliases and safe display
+    labels only—never peer coordinates, distance, selected place, email, phone,
+    or stable user ids.
+13. Check out synchronously clears encrypted anchor/candidate material. Expiry
+    synchronously blocks roster and alias resolution; the next feature
+    operation or the required hosted hourly retention job scrubs due material
+    and leaves only bounded metadata for account deletion and the 12-hour
+    Location retention purge.
+14. Candidate tokens are short-epoch, server-keyed, and broad-phase only.
+    Exact point-to-point distance is rechecked after decryption; Connect binds that result to
+    both presence versions and atomically rechecks eligibility on insert.
+15. GPS-only nearby simulation is unavailable in production even when its
+    mode is misconfigured; Check out remains available while discovery is
+    disabled.
 
 ## Ecosystem Checks
 

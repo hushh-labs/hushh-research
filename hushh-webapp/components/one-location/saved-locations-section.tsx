@@ -17,6 +17,9 @@ import { SaveLocationModal } from "@/components/one-location/onboarding/save-loc
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
+  duplicateSavedLocationMessage,
+  DuplicateSavedLocationError,
+  findDuplicateSavedLocation,
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
@@ -24,8 +27,10 @@ import {
   type SavedLocationCategory,
   updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
+import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -55,6 +60,7 @@ export function SavedLocationsSection() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const locationControl = useOneLocationControlState(userId);
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,6 +78,7 @@ export function SavedLocationsSection() {
     useState(false);
   const [saveLocationSaving, setSaveLocationSaving] = useState(false);
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
+  const captureRequestIdRef = useRef(0);
   vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
 
   const hasVaultAccess = Boolean(
@@ -136,6 +143,7 @@ export function SavedLocationsSection() {
 
   useEffect(() => {
     if (hasVaultAccess) return;
+    captureRequestIdRef.current += 1;
     setLocations([]);
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
@@ -148,6 +156,16 @@ export function SavedLocationsSection() {
     setLoading(false);
   }, [hasVaultAccess]);
 
+  useEffect(() => {
+    if (!locationControl.paused) return;
+    captureRequestIdRef.current += 1;
+    setCapturing(false);
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(false);
+  }, [locationControl.paused]);
+
   const handleAdd = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken || capturing) {
       if (!hasVaultAccess) {
@@ -155,12 +173,24 @@ export function SavedLocationsSection() {
       }
       return;
     }
+    if (readOneLocationControlState(userId).paused) {
+      toast.error("Resume Location before adding a saved place.");
+      return;
+    }
 
     setCapturing(true);
+    const captureRequestId = captureRequestIdRef.current + 1;
+    captureRequestIdRef.current = captureRequestId;
     const session = { userId, vaultKey, vaultOwnerToken };
     try {
       const point = await OneLocationService.captureCurrentPosition();
-      if (!isCurrentVaultSession(session)) return;
+      if (
+        captureRequestIdRef.current !== captureRequestId ||
+        !isCurrentVaultSession(session) ||
+        readOneLocationControlState(userId).paused
+      ) {
+        return;
+      }
       setSaveLocationPoint(point);
       setSaveLocationAddress(null);
       setSaveLocationAddressLoading(true);
@@ -172,25 +202,47 @@ export function SavedLocationsSection() {
           lat: point.latitude,
           lng: point.longitude,
         });
-        if (!isCurrentVaultSession(session)) return;
+        if (
+          captureRequestIdRef.current !== captureRequestId ||
+          !isCurrentVaultSession(session) ||
+          readOneLocationControlState(userId).paused
+        ) {
+          return;
+        }
         setSaveLocationAddress(
           (place.formattedAddress || place.name || "").trim() || null,
         );
       } catch {
-        if (!isCurrentVaultSession(session)) return;
+        if (
+          captureRequestIdRef.current !== captureRequestId ||
+          !isCurrentVaultSession(session)
+        ) {
+          return;
+        }
         setSaveLocationAddress(null);
       } finally {
-        if (isCurrentVaultSession(session)) {
+        if (
+          captureRequestIdRef.current === captureRequestId &&
+          isCurrentVaultSession(session)
+        ) {
           setSaveLocationAddressLoading(false);
         }
       }
     } catch {
-      if (!isCurrentVaultSession(session)) return;
+      if (
+        captureRequestIdRef.current !== captureRequestId ||
+        !isCurrentVaultSession(session)
+      ) {
+        return;
+      }
       toast.error(
         "We could not read your current location. Check location permission and try again.",
       );
     } finally {
-      if (isCurrentVaultSession(session)) {
+      if (
+        captureRequestIdRef.current === captureRequestId &&
+        isCurrentVaultSession(session)
+      ) {
         setCapturing(false);
       }
     }
@@ -215,6 +267,15 @@ export function SavedLocationsSection() {
         return;
       }
 
+      const duplicate = findDuplicateSavedLocation(
+        locations,
+        saveLocationPoint,
+      );
+      if (duplicate) {
+        toast.error(duplicateSavedLocationMessage(duplicate));
+        return;
+      }
+
       setSaveLocationSaving(true);
       const session = { userId, vaultKey, vaultOwnerToken };
       try {
@@ -233,9 +294,13 @@ export function SavedLocationsSection() {
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         toast.success("Location saved securely.");
-      } catch {
+      } catch (error) {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not save this location. Please try again.");
+        toast.error(
+          error instanceof DuplicateSavedLocationError
+            ? error.message
+            : "Could not save this location. Please try again.",
+        );
       } finally {
         if (isCurrentVaultSession(session)) {
           setSaveLocationSaving(false);
@@ -245,6 +310,7 @@ export function SavedLocationsSection() {
     [
       saveLocationAddress,
       saveLocationPoint,
+      locations,
       isCurrentVaultSession,
       userId,
       vaultKey,
@@ -346,7 +412,7 @@ export function SavedLocationsSection() {
           <button
             type="button"
             onClick={() => void handleAdd()}
-            disabled={!hasVaultAccess || capturing}
+            disabled={!hasVaultAccess || locationControl.paused || capturing}
             className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint,#e7f0fd)] px-3 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
@@ -468,8 +534,9 @@ export function SavedLocationsSection() {
         </div>
         {hasVaultAccess ? (
           <p className="mt-2 px-1 text-[11px] leading-[1.45] text-black/40 dark:text-muted-foreground">
-            Saved places are encrypted in your vault and shared only when you
-            explicitly approve location access.
+            {locationControl.paused
+              ? "Resume Location before capturing another saved place."
+              : "Saved places are encrypted in your vault and shared only when you explicitly approve location access."}
           </p>
         ) : null}
       </section>

@@ -19,3 +19,25 @@ export function liveFreshness(
     agoLabel,
   };
 }
+
+/**
+ * Preview semantics for both continuous live streams and fixed Check-In
+ * snapshots. A Check-In remains a valid place for its grant duration; it does
+ * not become "paused" merely because no tracking heartbeat follows it.
+ */
+export function locationPreviewFreshness(params: {
+  capturedAtISO: string;
+  nowMs: number;
+  staleThresholdMs: number;
+  fixedCheckIn: boolean;
+}): { state: "check_in" | "live" | "paused"; agoLabel: string } {
+  const freshness = liveFreshness(
+    params.capturedAtISO,
+    params.nowMs,
+    params.staleThresholdMs,
+  );
+  return {
+    state: params.fixedCheckIn ? "check_in" : freshness.state,
+    agoLabel: freshness.agoLabel,
+  };
+}

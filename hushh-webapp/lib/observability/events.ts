@@ -86,6 +86,9 @@ export type ObservabilityEventName =
   | "route_refresh_completed"
   | "warmup_completed"
   | "startup_readiness_warmup_completed"
+  | "agent_pkm_context_resolved"
+  | "agent_pkm_context_unavailable"
+  | "agent_pkm_save_confirmation_completed"
   | "one_location_foreground_retry"
   | "one_location_share_confirmed"
   | "one_location_contact_signal_synced"
@@ -153,6 +156,12 @@ export type CacheFootprintBucket =
   | "250kb_1mb"
   | "1mb_5mb"
   | "gte_5mb";
+export type PkmFactCountBucket =
+  | "none"
+  | "1_9"
+  | "10_49"
+  | "50_249"
+  | "250_plus";
 
 export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
@@ -222,6 +231,9 @@ const EVENT_CATEGORY_BY_NAME: Record<
   route_refresh_completed: "system",
   warmup_completed: "system",
   startup_readiness_warmup_completed: "system",
+  agent_pkm_context_resolved: "system",
+  agent_pkm_context_unavailable: "system",
+  agent_pkm_save_confirmation_completed: "system",
   one_location_foreground_retry: "feature",
   one_location_share_confirmed: "feature",
   one_location_contact_signal_synced: "feature",
@@ -484,6 +496,29 @@ export interface EventPayloadMap {
     consents_warmed: boolean;
     vault_status_warmed: boolean;
     agent_context_warmed: boolean;
+  };
+  agent_pkm_context_resolved: {
+    route_id: "agent";
+    result: "success";
+    context_mode: "relevant" | "broad";
+    total_fact_count_bucket: PkmFactCountBucket;
+    selected_fact_count_bucket: PkmFactCountBucket;
+    context_clipped: boolean;
+    inventory_only: boolean;
+    safety_omitted: boolean;
+    duration_ms_bucket: DurationBucket;
+  };
+  agent_pkm_context_unavailable: {
+    route_id: "agent";
+    result: "expected_error" | "error";
+    reason: "vault_locked" | "load_failed";
+  };
+  agent_pkm_save_confirmation_completed: {
+    route_id: "agent";
+    result: EventResult;
+    saved_count_bucket: PkmFactCountBucket;
+    failed_count_bucket: PkmFactCountBucket;
+    has_active_recipients: boolean;
   };
   one_location_foreground_retry: {
     route_id: RouteId;

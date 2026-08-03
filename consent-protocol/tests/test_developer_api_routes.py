@@ -815,6 +815,52 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
+def test_request_consent_rejects_authoritatively_empty_information_scope(monkeypatch):
+    async def _empty_scope_snapshot(user_id: str, *, detail: str):
+        assert user_id == "user_123"
+        assert detail == "verbose"
+        return (
+            ["financial"],
+            ["attr.financial.portfolio.*"],
+            [
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "materialization_state": "empty",
+                }
+            ],
+        )
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "_get_user_scope_snapshot", _empty_scope_snapshot)
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "get_active_connector_key",
+        lambda self, *, app_id: None,
+    )
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "attr.financial.portfolio.*",
+            "expiry_hours": 24,
+            "reason": "Portfolio analysis",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "SCOPE_NOT_DISCOVERED_FOR_USER"
+    assert "no available information" in response.json()["detail"]["message"]
+
+
 def test_request_consent_creates_pending_one_invocation_request(monkeypatch):
     inserted: dict[str, object] = {}
 
@@ -1202,6 +1248,11 @@ def test_request_consent_reuses_active_semantic_scope_token(monkeypatch):
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1293,6 +1344,11 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1318,6 +1374,85 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     assert payload["covered_by_existing_grant"] is True
     assert payload["consent_token"] == existing_grant
     assert payload["export_revision"] == 7
+
+
+def test_request_consent_replaces_revoked_active_token(monkeypatch):
+    inserted: dict[str, object] = {}
+
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return ["attr.financial.portfolio.*"]
+
+    class _FakeIndex:
+        available_domains = ["financial"]
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(self, *_args, **_kwargs):
+            return [
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "request_id": "req_revoked",
+                    "token_id": "grant_revoked",
+                    "expires_at": 9999999999999,
+                }
+            ]
+
+        async def get_consent_export_metadata(self, *_args, **_kwargs):
+            raise AssertionError("revoked grants must not be read or reused")
+
+        async def get_pending_request_for_scope(self, *_args, **_kwargs):
+            return None
+
+        async def was_recently_denied(self, *_args, **_kwargs):
+            return False
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
+
+    async def _revoked_token(_token: str):
+        return False, "Token has been revoked", None
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "get_active_connector_key",
+        lambda self, *, app_id: None,
+    )
+    monkeypatch.setattr(developer, "validate_token_with_db", _revoked_token)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "attr.financial.portfolio.*",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert inserted["action"] == "REQUESTED"
 
 
 def test_request_consent_reuses_exact_pending_request(monkeypatch):
@@ -1640,6 +1775,11 @@ def test_get_consent_status_uses_covering_active_token(monkeypatch):
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1877,6 +2017,11 @@ def test_mcp_status_is_app_bound_and_identifier_free(monkeypatch):
 
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
     client = TestClient(_build_app())
@@ -1935,6 +2080,64 @@ def test_mcp_status_marks_past_grant_expired(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "expired"
     assert response.json()["grant_ref"] is None
+
+
+def test_mcp_status_marks_db_revoked_grant_revoked(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status_for_agent(self, _request_ref: str, *, agent_id: str):
+            assert agent_id == "developer:app_demo_123"
+            return {
+                "action": "CONSENT_GRANTED",
+                "expires_at": 9999999999999,
+                "approval_timeout_at": 123450000,
+                "token_id": "HCT:revoked-in-db",
+            }
+
+    async def _invalid_token(_token: str):
+        return False, "Token has been revoked (DB check)", None
+
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _invalid_token)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/mcp/consent-status/req_0123456789abcdef0123456789ab",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "revoked"
+    assert response.json()["grant_ref"] is None
+
+
+def test_mcp_status_keeps_db_validation_outage_retryable(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status_for_agent(self, _request_ref: str, *, agent_id: str):
+            assert agent_id == "developer:app_demo_123"
+            return {
+                "action": "CONSENT_GRANTED",
+                "expires_at": 9999999999999,
+                "token_id": "HCT:db-unavailable",
+            }
+
+    async def _db_unavailable(_token: str):
+        return False, "Token revocation status could not be confirmed (DB unavailable)", None
+
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _db_unavailable)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/mcp/consent-status/req_0123456789abcdef0123456789ab",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_code"] == "CONSENT_STATUS_UNAVAILABLE"
 
 
 def test_mcp_request_sanitizes_raw_consent_response(monkeypatch):

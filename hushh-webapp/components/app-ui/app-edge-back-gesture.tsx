@@ -3,12 +3,13 @@
 import { useEffect, useMemo } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import {
   navigateTopShellBack,
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const EDGE_WIDTH_PX = 28;
 const AXIS_LOCK_PX = 8;
@@ -72,7 +73,6 @@ function hasBlockingOverlay(): boolean {
 export function AppEdgeBackGesture() {
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
-  const router = useRouter();
   const enabled = useMemo(
     () =>
       isNativeIOS() &&
@@ -151,7 +151,19 @@ export function AppEdgeBackGesture() {
 
       reset();
       if (!shouldNavigate) return;
-      navigateTopShellBack({ router, pathname, searchParams });
+      navigateTopShellBack({
+        pathname,
+        searchParams,
+        navigate: (action) => {
+          requestInternalAppNavigation({
+            href: action.href,
+            replace: action.mode === "replace",
+            scroll: false,
+            source: "native_back",
+            transitionMode: "full",
+          });
+        },
+      });
     };
 
     const pointerStart = (event: PointerEvent) => {
@@ -282,7 +294,7 @@ export function AppEdgeBackGesture() {
       root.style.removeProperty("--app-edge-back-y");
       root.style.removeProperty("--app-edge-back-opacity");
     };
-  }, [enabled, pathname, router, searchParams]);
+  }, [enabled, pathname, searchParams]);
 
   return (
     <div

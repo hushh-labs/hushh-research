@@ -200,10 +200,11 @@ export function resolveRiaNavSlot(
 ): RiaNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const activeTab = activeRiaRouteTabFromPath(
-    normalizedPathname || ROUTES.RIA_HOME,
+    normalizedPathname || ROUTES.RIA_PROFILE,
   );
   if (activeTab === "picks") return "picks";
-  return "clients";
+  if (activeTab === "clients") return "clients";
+  return "ria-home";
 }
 
 export function resolveRiaActiveNav(
@@ -222,9 +223,9 @@ export function resolveRiaActiveNav(
   }
 
   const activeTab = activeRiaRouteTabFromPath(
-    normalizedPathname || ROUTES.RIA_HOME,
+    normalizedPathname || ROUTES.RIA_PROFILE,
   );
-  if (activeTab === "home") return "ria-home";
+  if (activeTab === "profile") return "ria-home";
   if (activeTab === "clients") return "clients";
   if (activeTab === "picks") return "picks";
   return "ria-home";
@@ -324,7 +325,7 @@ export function resolveBottomNavAction(
         href: scope === "one" ? ROUTES.CONNECT : ROUTES.MARKETPLACE,
       };
     case "ria-home":
-      return { type: "route", href: ROUTES.RIA_HOME };
+      return { type: "route", href: ROUTES.RIA_PROFILE };
     case "clients":
       return { type: "route", href: ROUTES.RIA_CLIENTS };
     case "picks":

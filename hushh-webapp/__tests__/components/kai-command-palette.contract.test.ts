@@ -7,6 +7,10 @@ const source = readFileSync(
   join(process.cwd(), "components/kai/kai-command-palette.tsx"),
   "utf8",
 );
+const keyboardInsetSource = readFileSync(
+  join(process.cwd(), "components/keyboard-inset-manager.tsx"),
+  "utf8",
+);
 
 describe("Kai command palette contract", () => {
   it("prioritizes an explicit natural-language handoff above generated actions", () => {
@@ -30,5 +34,13 @@ describe("Kai command palette contract", () => {
     expect(source).toContain(
       "max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)]",
     );
+    expect(source).toContain("max-sm:!translate-y-0");
+  });
+
+  it("does not feed fixed keyboard-anchored dialogs back into viewport scrolling", () => {
+    expect(keyboardInsetSource).toContain(
+      "el.closest('[data-keyboard-anchor=\"bottom\"]')",
+    );
+    expect(keyboardInsetSource).toContain("if (el.closest");
   });
 });

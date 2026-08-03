@@ -2214,21 +2214,16 @@
       "page_file": "app/one/connect/settings/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects legacy Gemini settings links to the canonical Profile preference.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.connect.settings",
-          "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+          "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -2243,9 +2238,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-          "next_route": "/one/connect/settings",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+          "next_route": "/one/profile/preferences/gemini",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -2333,7 +2328,7 @@
       },
       "shell": {
         "app_page_shell": true,
-        "page_header": true,
+        "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
@@ -2739,8 +2734,8 @@
       "page_file": "app/one/kai/analysis/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility route only redirects to the canonical Finance Analysis tab.",
+        "mode": "standard",
+        "exemption_reason": null,
         "shell_verification_file": "app/one/kai/analysis/page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
@@ -3921,11 +3916,22 @@
             "getMapState",
             "updateMapPreferences",
             "getState",
-            "storeEnvelope"
+            "storeEnvelope",
+            "captureCurrentPosition",
+            "getPermissionState",
+            "openLocationSettings",
+            "openAppSettings",
+            "nearbyPlaces",
+            "placesAutocomplete",
+            "placeDetails",
+            "getNearbyPresence",
+            "checkInNearby",
+            "checkoutNearby",
+            "requestNearbyConnection"
           ],
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
-          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes,maps/*,nearby-presence*}",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service"
         }
       ],
@@ -3939,13 +3945,19 @@
         {
           "package": "@capacitor/app",
           "integration": "Foreground lifecycle gates the bounded map refresh loop"
+        },
+        {
+          "package": "HushhLocation",
+          "integration": "Foreground-only permission, bounded one-shot position capture, and native settings recovery",
+          "ios": "When-in-use Core Location; full-accuracy checks; no background mode",
+          "android": "Fine/coarse foreground permission; coarse-only capture avoids the GPS provider; no background permission"
         }
       ],
       "thread_and_consent_contract": {
         "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
-        "coordinate_storage": "foreground renderer memory only; preferences contain no coordinates",
-        "location_capture": "explicit Locate me action only; opening the route never captures or watches location",
-        "visibility": "Ghost Mode by default; foreground map publication never promotes direct/background envelopes"
+        "coordinate_storage": "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
+        "location_capture": "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
+        "visibility": "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
       }
     },
     {
@@ -4203,11 +4215,9 @@
         "profile.marketplace_visibility.toggle",
         "profile.sign_out",
         "profile.support.submit_message",
-        "ria.profile.edit_services",
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
-        "route.profile_regulatory",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5174,6 +5184,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/preferences/gemini",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.gemini",
+          "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/gemini",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/preferences/kai",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "physical_page_exists": true,
@@ -5307,30 +5383,21 @@
       "page_file": "app/one/profile/regulatory/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect to the canonical RIA profile.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.profile.regulatory",
-          "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+          "playbook_id": "route.profile.regulatory_compat",
+          "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
           "screen": "profile_regulatory",
-          "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_regulatory",
-          "happy_path_action_ids": [
-            "route.profile_regulatory",
-            "ria.profile.edit_services"
-          ],
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -5340,9 +5407,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
+          "completion_boundary": "The compatibility redirect has no completion authority.",
+          "next_route": "/ria/profile",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -6111,7 +6178,7 @@
           "playbook_id": "route.one.setup.connections",
           "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.",
+          "entry_cue": "Choose Hushh managed Gemini now, or record BYOK and add the encrypted key after setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -6126,7 +6193,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.",
+          "completion_boundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
           "next_route": "/one/setup",
           "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7432,6 +7499,7 @@
         "ria.picks.open_category_top_picks",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
+        "ria.picks.open_view_debate",
         "ria.picks.save_package",
         "ria.picks.start_edit_package",
         "ria.picks.upload_csv_replace_top_picks",
@@ -7446,21 +7514,27 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the unified /one/profile/regulatory surface.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/ria/profile/page.tsx",
+        "shell_verification_includes": [
+          "RiaPageShell",
+          "RiaProfileSection"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.ria.profile",
-          "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+          "purpose": "Help the advisor view and manage their RIA profile.",
           "screen": "profile_regulatory",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "entry_cue": "You can say “Open RIA Profile” to return here.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_profile",
+          "happy_path_action_ids": [
+            "route.ria_profile",
+            "ria.profile.edit_services"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -7470,9 +7544,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The compatibility redirect has no completion authority.",
-          "next_route": "/one/profile/regulatory",
-          "return_policy": "navigate",
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -7495,8 +7569,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7742,5 +7819,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5f87fa447ef4e4597022a9de422679f61aa9f2a094fd8c09030933ea29a08ffe"
+  "content_sha256": "4b1c0e41e3fa2269f4fbcddff19e8b8fa516b54d03e954359c03add40c89836c"
 }

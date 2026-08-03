@@ -64,6 +64,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 
 1. `github-contribution-governance`
 2. `uat-scoped-deploy`
+3. `release-ios-appstore`
 
 ## Canonical workflow packs
 

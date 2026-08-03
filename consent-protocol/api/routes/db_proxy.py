@@ -19,6 +19,7 @@ Security:
 import logging
 import os
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -180,6 +181,9 @@ class VaultBootstrapStateResponse(BaseModel):
     setupCapabilityIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
     setupStateUpdatedAt: int | None = None
+    # A strict, non-secret Connections preference. BYOK remains pending until
+    # the person finishes setup and stores the actual key in their vault.
+    oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     # Redacted, resumable onboarding goal. It deliberately contains no voice
     # transcript, credentials, or page content.
     onboardingJourneyVersion: int | None = None
@@ -208,6 +212,7 @@ class VaultPreStateUpdateRequest(BaseModel):
     navSetupSkippedAt: int | None = None
     # Replace the stored setup capability set. None leaves it unchanged.
     setupCapabilityIds: list[str] | None = None
+    oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
     onboardingPhase: str | None = Field(default=None, max_length=32)
     onboardingActiveCapability: str | None = Field(default=None, max_length=32)
@@ -394,6 +399,7 @@ async def vault_bootstrap_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
             onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
             onboardingPhase=state.get("onboardingPhase"),
             onboardingActiveCapability=state.get("onboardingActiveCapability"),
@@ -441,6 +447,7 @@ async def vault_pre_vault_state(
             nav_setup_completed_at=request.navSetupCompletedAt,
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
+            one_runtime_setup_choice=request.oneRuntimeSetupChoice,
             onboarding_journey_version=request.onboardingJourneyVersion,
             onboarding_phase=request.onboardingPhase,
             onboarding_active_capability=request.onboardingActiveCapability,
@@ -467,6 +474,7 @@ async def vault_pre_vault_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
             onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
             onboardingPhase=state.get("onboardingPhase"),
             onboardingActiveCapability=state.get("onboardingActiveCapability"),

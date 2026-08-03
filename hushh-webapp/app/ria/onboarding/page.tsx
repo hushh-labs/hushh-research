@@ -7,12 +7,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { OnboardingShell } from "@/components/ria/onboarding/onboarding-shell";
 import { OnboardingStepWelcome } from "@/components/ria/onboarding/onboarding-step-welcome";
 import { OnboardingStepLicense } from "@/components/ria/onboarding/onboarding-step-license";
@@ -21,11 +23,7 @@ import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-s
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import {
-  normalizeInternalRouteHref,
-  ROUTES,
-} from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -81,6 +79,23 @@ const RIA_ONBOARDING_STEP_IMAGES: Record<
   services: { src: "/ria/onboarding/adv1f.webp", variant: "accent" },
   review: { src: "/ria/onboarding/adv5f.webp", variant: "accent" },
 };
+
+function RiaOnboardingJourney({
+  showIntro,
+  children,
+}: {
+  showIntro: boolean;
+  children: ReactNode;
+}) {
+  if (!showIntro) return <>{children}</>;
+
+  return (
+    <CapabilityCinematicIntroGate capabilityId="ria" embedded>
+      {children}
+    </CapabilityCinematicIntroGate>
+  );
+}
+
 const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   advisorName: "",
   firmName: "",
@@ -393,7 +408,9 @@ export default function RiaOnboardingPage({
         setShouldPersistDraft(true);
         if (setupMode && nextStatus?.exists === true) {
           const effectiveStatus = String(
-            nextStatus.advisory_status || nextStatus.verification_status || "pending",
+            nextStatus.advisory_status ||
+              nextStatus.verification_status ||
+              "pending",
           ).toLowerCase();
           onSetupReadinessChange?.(effectiveStatus !== "rejected");
         }
@@ -484,7 +501,7 @@ export default function RiaOnboardingPage({
     if (entryMode !== "established") return;
     if (onboardingEntryHandledRef.current) return;
     onboardingEntryHandledRef.current = true;
-    router.replace(buildProfileRoute({ panel: "regulatory" }));
+    router.replace(ROUTES.RIA_PROFILE);
   }, [entryMode, router]);
 
   useEffect(() => {
@@ -826,7 +843,7 @@ export default function RiaOnboardingPage({
         }
         return;
       }
-      router.push(ROUTES.RIA_HOME);
+      router.push(ROUTES.RIA_PROFILE);
       return;
     }
 
@@ -905,13 +922,18 @@ export default function RiaOnboardingPage({
       // reconciles the dashboard count on the next load if this write fails.
       if (!setupMode) {
         try {
-          const current = await PreVaultUserStateService.bootstrapState(user.uid);
+          const current = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+          );
           if (!current.setupCapabilityIds.includes("ria")) {
             const next = Array.from(
               new Set([...current.setupCapabilityIds, "ria"]),
             ).sort();
             // syncSetupCapabilities REPLACES the stored set, so pass the union.
-            await PreVaultUserStateService.syncSetupCapabilities(user.uid, next);
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              next,
+            );
           }
         } catch {
           // best-effort; dashboard enrichRia reconciles the count on next load.
@@ -968,7 +990,7 @@ export default function RiaOnboardingPage({
             router.replace(ROUTES.ONE_SETUP_RIA);
           }
         } else {
-          router.replace(buildProfileRoute({ panel: "regulatory" }));
+          router.replace(ROUTES.RIA_PROFILE);
         }
       }
     } catch (submitError) {
@@ -1227,32 +1249,34 @@ export default function RiaOnboardingPage({
           } as CSSProperties
         }
       >
-        <OnboardingShell
-          currentStepIndex={currentStepIndex}
-          totalSteps={steps.length}
-          eyebrow={currentStep.eyebrow}
-          title={currentStep.title}
-          description={currentStep.description}
-          canContinue={canContinue}
-          saving={saving}
-          isFirstStep={currentStepIndex === 0}
-          isLastStep={currentStep.id === "review"}
-          advisoryAccessReady={advisoryAccessReady}
-          hideTerminal={setupMode && advisoryAccessReady}
-          onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
-          allowInvalidPress={currentStep.id === "services"}
-          heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
-          onBack={handleBack}
-          onContinue={handleContinue}
-        >
-          {renderStep()}
+        <RiaOnboardingJourney showIntro={currentStep.id === "welcome"}>
+          <OnboardingShell
+            currentStepIndex={currentStepIndex}
+            totalSteps={steps.length}
+            eyebrow={currentStep.eyebrow}
+            title={currentStep.title}
+            description={currentStep.description}
+            canContinue={canContinue}
+            saving={saving}
+            isFirstStep={currentStepIndex === 0}
+            isLastStep={currentStep.id === "review"}
+            advisoryAccessReady={advisoryAccessReady}
+            hideTerminal={setupMode && advisoryAccessReady}
+            onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
+            allowInvalidPress={currentStep.id === "services"}
+            heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
+            onBack={handleBack}
+            onContinue={handleContinue}
+          >
+            {renderStep()}
 
-          {error ? (
-            <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
-              {error}
-            </div>
-          ) : null}
-        </OnboardingShell>
+            {error ? (
+              <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+                {error}
+              </div>
+            ) : null}
+          </OnboardingShell>
+        </RiaOnboardingJourney>
       </FullscreenFlowShell>
     </>
   );

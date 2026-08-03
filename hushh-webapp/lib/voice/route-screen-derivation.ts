@@ -282,6 +282,16 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
     return { screen: "gmail", subview: "legacy" };
   }
+  if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICES) {
+    return { screen: "profile_security_devices", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE) {
+    return { screen: "app", subview: "trusted-device-authorization" };
+  }
+  // Legacy direct links settle immediately on the canonical RIA profile.
+  if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
+    return { screen: "profile_regulatory", subview: null };
+  }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");
@@ -296,9 +306,6 @@ export function deriveVoiceRouteScreen(
     }
     if (panel === "security") {
       return { screen: "profile_security_panel", subview: tab || null };
-    }
-    if (panel === "regulatory") {
-      return { screen: "profile_regulatory", subview: tab || null };
     }
     if (tab === "preferences") {
       return { screen: "profile_preferences", subview: null };
@@ -339,12 +346,6 @@ export function deriveVoiceRouteScreen(
     }
     if (panel === "my-data") {
       return { screen: "profile_my_data", subview: detail || null };
-    }
-    if (panel === "regulatory") {
-      return {
-        screen: "profile_regulatory",
-        subview: query.get("tab") || null,
-      };
     }
     return { screen: "profile_account", subview: detail || panel || null };
   }

@@ -206,7 +206,7 @@ export function SosPanel({
 
         <header className="mt-1 px-3 text-center">
           <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[1.15] !tracking-[-0.45px]">
-            SMS · Save my soul
+            SMS · Save my Soul
           </h1>
           <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
             Press and hold. An SMS with your live location goes to your people —

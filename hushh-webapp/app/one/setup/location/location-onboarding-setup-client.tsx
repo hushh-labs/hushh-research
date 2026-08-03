@@ -3,11 +3,11 @@
 import { useState } from "react";
 
 import OneLocationAgentPage from "@/app/one/location/page";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
-import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 export function LocationOnboardingSetupClient() {
@@ -24,24 +24,24 @@ export function LocationOnboardingSetupClient() {
     return <SetupCapabilityLoading label="Preparing location setup…" />;
 
   return (
-    <CapabilityVaultPrerequisite
-      capabilityLabel="Location"
-      routeKey="/one/setup/location"
-    >
+    <CapabilityCinematicIntroGate capabilityId="location">
       <OneLocationAgentPage
         mode="setup"
         onSetupReadinessChange={setReady}
         onSetupComplete={async () => {
           await toast
             .promise(
-              coordinator.finish({ suppressErrorToast: true }).then((result) => {
-                if (result.status !== "succeeded") throw new Error(result.summary);
-                return result;
-              }),
+              coordinator
+                .finish({ suppressErrorToast: true })
+                .then((result) => {
+                  if (result.status !== "succeeded")
+                    throw new Error(result.summary);
+                  return result;
+                }),
               {
-              loading: "Finishing Location setup…",
+                loading: "Finishing Location setup…",
                 success: (result) => result.summary,
-              error: "Location setup could not be saved. Please try again.",
+                error: "Location setup could not be saved. Please try again.",
               },
             )
             .unwrap();
@@ -49,19 +49,23 @@ export function LocationOnboardingSetupClient() {
         onSetupSkip={async () => {
           await toast
             .promise(
-              coordinator.skip({ suppressErrorToast: true }).then((result) => {
-                if (result.status !== "succeeded") throw new Error(result.summary);
-                return result;
-              }),
+              coordinator
+                .skip({ suppressErrorToast: true })
+                .then((result) => {
+                  if (result.status !== "succeeded")
+                    throw new Error(result.summary);
+                  return result;
+                }),
               {
-              loading: "Skipping Location setup…",
-              success: (result) => result.summary,
-              error: "Location setup could not be updated. Please try again.",
+                loading: "Skipping Location setup…",
+                success: (result) => result.summary,
+                error:
+                  "Location setup could not be updated. Please try again.",
               },
             )
             .unwrap();
         }}
       />
-    </CapabilityVaultPrerequisite>
+    </CapabilityCinematicIntroGate>
   );
 }

@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
@@ -47,5 +47,25 @@ describe("OnboardingStepServices", () => {
 
     expect(screen.getByText("Map preview")).toBeTruthy();
     expect(screen.queryByAltText("Business location map")).toBeNull();
+  });
+
+  it("uses accessible checkboxes for independently selectable services", () => {
+    const onServicesChange = vi.fn();
+    renderServicesStep({
+      servicesOffered: ["Portfolio Management", "Retirement Planning"],
+      onServicesChange,
+    });
+
+    const portfolio = screen.getByRole("checkbox", {
+      name: "Portfolio Management",
+    });
+    const retirement = screen.getByRole("checkbox", {
+      name: "Retirement Planning",
+    });
+    expect(portfolio).toHaveAttribute("aria-checked", "true");
+    expect(retirement).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(portfolio);
+    expect(onServicesChange).toHaveBeenCalledWith(["Retirement Planning"]);
   });
 });

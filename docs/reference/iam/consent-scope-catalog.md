@@ -31,6 +31,11 @@ Define canonical scope families and template policy for Investor + RIA consent r
 6. Public profiles are owner-published resources addressed by an opaque
    `public_profile_handle`; they are not `attr.*` scopes and never authorize
    private PKM access.
+7. One-to-One capabilities are proposed with server-issued opaque handles in
+   `connection_scope_proposals`. A connection is accepted separately from its
+   scopes; only the capability owner can activate a requested handle, and an
+   offered handle requires recipient opt-in. Proposal metadata never contains
+   PKM content or authorizes an `attr.*` export.
 
 ## Display Metadata Contract
 
@@ -97,6 +102,28 @@ consent.
 Consent and audit metadata for these scopes may include actor ids, request ids,
 grant ids, duration, timestamps, status, and reason codes. It must not include
 coordinates, addresses, map previews, or movement traces.
+
+## One Nearby Presence Capability Scopes
+
+Nearby presence is short-lived workflow state, separate from
+`cap.location.live.*`. These actions require a fresh first-party VAULT_OWNER
+session plus explicit in-flow confirmation; the scopes remain internal
+capability vocabulary and are not externally requestable.
+
+| Scope | Intended Use |
+| --- | --- |
+| `cap.location.nearby.publish` | Publish a 30/60/120-minute opted-in presence after final-point and selected-place verification |
+| `cap.location.nearby.discover` | Read only the caller's active, exact-radius, mutually opted-in nearby projection |
+| `cap.location.nearby.revoke` | Check out, clear anchor material, and immediately remove the caller from discovery |
+
+These scopes never authorize a location grant. Accuracy is request-memory-only.
+Allowed active persistence is limited to the confirmed check-in point and safe
+place label inside AES-256-GCM ciphertext, a short-epoch keyed
+candidate token, rotating attendee alias, fixed radius, consent/audience
+posture, status, and expiry metadata. Plaintext coordinates, exact distance,
+provider place ids, place labels, roster contents, email, phone, and stable
+public user ids are forbidden in nearby-presence persistence, logs, analytics,
+and audit metadata. Peer responses expose none of the encrypted anchor fields.
 
 ### Capability token enforcement
 

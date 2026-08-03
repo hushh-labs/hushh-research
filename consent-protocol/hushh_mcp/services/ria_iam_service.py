@@ -18,7 +18,6 @@ import asyncpg
 
 from db.connection import get_pool
 from hushh_mcp.consent.scope_helpers import get_scope_description
-from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import (
     build_connection_request_url,
     build_consent_request_url,
@@ -57,6 +56,7 @@ _IAM_REQUIRED_TABLES: tuple[str, ...] = (
     "marketplace_investor_actions",
     "relationship_share_grants",
     "relationship_share_events",
+    "connection_scope_proposals",
 )
 _RUNTIME_PERSONA_STATE_TABLE = "runtime_persona_state"
 # TTL-aware cache: maps table_name -> expiry datetime (UTC).
@@ -67,7 +67,6 @@ _TABLE_EXISTS_CACHE_TTL = timedelta(seconds=300)
 _TABLE_EXISTS_CACHE: dict[str, datetime] = {}
 _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
-_RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
@@ -779,7 +778,7 @@ _RIA_KAI_SPECIALIZED_PRESENTATIONS: tuple[str, ...] = ("kai", "explorer")
 _RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
     "attr.financial.portfolio.*",
     "attr.financial.profile.*",
-    "attr.financial.analysis_history.*",
+    "attr.financial.analysis.decisions.*",
     "attr.financial.runtime.*",
 )
 _RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
@@ -2770,7 +2769,7 @@ class RIAIAMService:
                 "grant_key": normalized,
                 "label": "Advisor picks feed",
                 "description": (
-                    "Included with the advisor relationship so Kai can surface the advisor's "
+                    "Explicitly approved for this connection so Kai can surface the advisor's "
                     "active picks list to the investor."
                 ),
             }
@@ -2788,10 +2787,7 @@ class RIAIAMService:
     @staticmethod
     def _relationship_share_origin(metadata: Any) -> str:
         parsed = RIAIAMService._parse_metadata(metadata)
-        origin = str(
-            parsed.get("share_origin") or _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT
-        ).strip()
-        return origin or _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT
+        return str(parsed.get("share_origin") or "unknown").strip() or "unknown"
 
     @staticmethod
     def _serialize_datetime_value(value: Any) -> str | None:
@@ -2844,18 +2840,6 @@ class RIAIAMService:
             return "unavailable"
         return "ready" if has_active_pick_upload else "pending"
 
-    @classmethod
-    def _implicit_picks_relationship_share_metadata(
-        cls,
-        *,
-        source: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        merged = dict(metadata or {})
-        merged.setdefault("share_origin", _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT)
-        merged["source"] = source
-        return merged
-
     async def _get_relationship_share(
         self,
         conn: asyncpg.Connection,
@@ -2874,6 +2858,8 @@ class RIAIAMService:
               status,
               granted_at,
               revoked_at,
+              connection_request_id,
+              connection_scope_proposal_id,
               metadata,
               created_at,
               updated_at
@@ -2896,6 +2882,8 @@ class RIAIAMService:
         event_type: str,
         provider_user_id: str,
         receiver_user_id: str,
+        connection_request_id: str | None = None,
+        connection_scope_proposal_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         created_at: datetime | None = None,
     ) -> None:
@@ -2908,10 +2896,12 @@ class RIAIAMService:
               event_type,
               provider_user_id,
               receiver_user_id,
+              connection_request_id,
+              connection_scope_proposal_id,
               metadata,
               created_at
             )
-            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, COALESCE($8, NOW()))
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid, $8::uuid, $9::jsonb, COALESCE($10, NOW()))
             """,
             share_grant_id,
             relationship_id,
@@ -2919,127 +2909,11 @@ class RIAIAMService:
             event_type,
             provider_user_id,
             receiver_user_id,
+            connection_request_id,
+            connection_scope_proposal_id,
             json.dumps(metadata or {}),
             created_at,
         )
-
-    async def _materialize_relationship_share_grant(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        relationship_id: str,
-        provider_user_id: str,
-        receiver_user_id: str,
-        grant_key: str,
-        metadata: dict[str, Any] | None = None,
-        activate_at: datetime | None = None,
-    ) -> dict[str, Any]:
-        existing = await self._get_relationship_share(
-            conn,
-            relationship_id=relationship_id,
-            grant_key=grant_key,
-        )
-        merged_metadata = self._implicit_picks_relationship_share_metadata(
-            source=str((metadata or {}).get("source") or "relationship_sync"),
-            metadata=metadata,
-        )
-        if existing is None:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO relationship_share_grants (
-                  relationship_id,
-                  grant_key,
-                  provider_user_id,
-                  receiver_user_id,
-                  status,
-                  granted_at,
-                  revoked_at,
-                  metadata,
-                  created_at,
-                  updated_at
-                )
-                VALUES (
-                  $1::uuid,
-                  $2,
-                  $3,
-                  $4,
-                  'active',
-                  COALESCE($5, NOW()),
-                  NULL,
-                  $6::jsonb,
-                  NOW(),
-                  NOW()
-                )
-                RETURNING *
-                """,
-                relationship_id,
-                grant_key,
-                provider_user_id,
-                receiver_user_id,
-                activate_at,
-                json.dumps(merged_metadata),
-            )
-            await self._insert_relationship_share_event(
-                conn,
-                share_grant_id=str(row["id"]),
-                relationship_id=str(row["relationship_id"]),
-                grant_key=grant_key,
-                event_type="GRANTED",
-                provider_user_id=provider_user_id,
-                receiver_user_id=receiver_user_id,
-                metadata=merged_metadata,
-                created_at=row["granted_at"],
-            )
-            if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
-                await self._bootstrap_pick_share_artifact(
-                    conn,
-                    relationship_id=str(row["relationship_id"]),
-                    provider_user_id=provider_user_id,
-                    receiver_user_id=receiver_user_id,
-                )
-            return dict(row)
-
-        existing_status = str(existing["status"] or "").strip().lower()
-        row = await conn.fetchrow(
-            """
-            UPDATE relationship_share_grants
-            SET
-              provider_user_id = $2,
-              receiver_user_id = $3,
-              status = 'active',
-              granted_at = COALESCE(granted_at, $4, NOW()),
-              revoked_at = NULL,
-              metadata = $5::jsonb,
-              updated_at = NOW()
-            WHERE id = $1::uuid
-            RETURNING *
-            """,
-            str(existing["id"]),
-            provider_user_id,
-            receiver_user_id,
-            activate_at,
-            json.dumps(merged_metadata),
-        )
-        if existing_status != "active":
-            await self._insert_relationship_share_event(
-                conn,
-                share_grant_id=str(row["id"]),
-                relationship_id=str(row["relationship_id"]),
-                grant_key=grant_key,
-                event_type="GRANTED",
-                provider_user_id=provider_user_id,
-                receiver_user_id=receiver_user_id,
-                metadata=merged_metadata,
-                created_at=activate_at or row["updated_at"],
-            )
-        if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
-            await self._bootstrap_pick_share_artifact(
-                conn,
-                relationship_id=str(row["relationship_id"]),
-                provider_user_id=provider_user_id,
-                receiver_user_id=receiver_user_id,
-            )
-        return dict(row)
 
     async def _revoke_relationship_share_grant(
         self,
@@ -3106,6 +2980,16 @@ class RIAIAMService:
             event_type=event_type,
             provider_user_id=str(row["provider_user_id"]),
             receiver_user_id=str(row["receiver_user_id"]),
+            connection_request_id=(
+                str(row["connection_request_id"])
+                if row["connection_request_id"] is not None
+                else None
+            ),
+            connection_scope_proposal_id=(
+                str(row["connection_scope_proposal_id"])
+                if row["connection_scope_proposal_id"] is not None
+                else None
+            ),
             metadata={"reason": reason},
             created_at=row["revoked_at"],
         )
@@ -3583,15 +3467,11 @@ class RIAIAMService:
             "request_url": request_url,
             "selected_account_ids": normalized_account_ids,
             "account_branch_mode": "explicit_snapshot" if normalized_account_ids else "unspecified",
-            "additional_access_summary": account_summary
-            or self._relationship_share_summary(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
-            "included_relationship_shares": [
-                {
-                    **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
-                    "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
-                    "status": "included_on_approval",
-                }
-            ],
+            "additional_access_summary": account_summary,
+            # Generic ``attr.*`` consent cannot imply an RIA Picks share.
+            # That capability is proposed and accepted on its own bilateral
+            # connection lifecycle.
+            "included_relationship_shares": [],
         }
 
         await conn.execute(
@@ -4857,8 +4737,8 @@ class RIAIAMService:
 
                 # (4) Delete the RIA profile — cascades ria_firm_memberships,
                 # ria_verification_events, advisor_investor_relationships (→ share
-                # grants/events, pick share artifacts), ria_client_invites,
-                # ria_pick_uploads(→rows). The shared ria_firms row survives.
+                # grants/events, pick share artifacts), and ria_client_invites.
+                # The shared ria_firms row survives.
                 await conn.execute("DELETE FROM ria_profiles WHERE user_id = $1", user_id)
 
                 # (5) Drop the 'ria' persona and fall back to investor. Both fields
@@ -5062,9 +4942,18 @@ class RIAIAMService:
                     "  ORDER BY issued_at DESC",
                     "  LIMIT 1",
                     ") consent ON TRUE",
-                    "LEFT JOIN relationship_share_grants picks_share",
+                    "JOIN relationship_share_grants picks_share",
                     "  ON picks_share.relationship_id = rel.id",
                     "  AND picks_share.grant_key = $2",
+                    "  AND picks_share.status = 'active'",
+                    "  AND picks_share.connection_scope_proposal_id IS NOT NULL",
+                    "JOIN connection_scope_proposals picks_proposal",
+                    "  ON picks_proposal.id = picks_share.connection_scope_proposal_id",
+                    "  AND picks_proposal.status = 'active'",
+                    "  AND picks_proposal.expires_at > NOW()",
+                    "  AND picks_proposal.capability_key = $2",
+                    "  AND picks_proposal.owner_user_id = rp.user_id",
+                    "  AND picks_proposal.receiver_user_id = rel.investor_user_id",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
                     "  FROM ria_pick_share_artifacts",
@@ -5083,45 +4972,6 @@ class RIAIAMService:
                 user_id,
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,
             )
-            invite_rows = await conn.fetch(
-                """
-                SELECT
-                  i.id,
-                  i.invite_token,
-                  i.target_investor_user_id,
-                  i.target_display_name,
-                  i.target_email,
-                  i.target_phone,
-                  i.source,
-                  i.status,
-                  i.delivery_channel,
-                  i.scope_template_id,
-                  i.expires_at,
-                  i.created_at,
-                  (active_upload.id IS NOT NULL) AS has_active_pick_upload
-                FROM ria_profiles rp
-                JOIN ria_client_invites i ON i.ria_profile_id = rp.id
-                LEFT JOIN advisor_investor_relationships rel
-                  ON rel.ria_profile_id = rp.id
-                  AND rel.investor_user_id = COALESCE(i.accepted_by_user_id, i.target_investor_user_id)
-                LEFT JOIN LATERAL (
-                  SELECT 1 AS id
-                  FROM pkm_blobs
-                  WHERE user_id = rp.user_id
-                    AND domain = $2
-                    AND segment_id = 'root'
-                  LIMIT 1
-                ) active_upload ON TRUE
-                WHERE rp.user_id = $1
-                  AND i.status = 'sent'
-                  AND i.expires_at > NOW()
-                  AND rel.id IS NULL
-                ORDER BY i.created_at DESC
-                """,
-                user_id,
-                _RIA_PICKS_PKM_DOMAIN,
-            )
-
             items: list[dict[str, Any]] = []
             for row in relationship_rows:
                 payload = dict(row)
@@ -5162,53 +5012,6 @@ class RIAIAMService:
                 )
                 items.append(payload)
 
-            for row in invite_rows:
-                payload = dict(row)
-                headline = (
-                    payload.get("target_email") or payload.get("target_phone") or "Invite pending"
-                )
-                items.append(
-                    {
-                        "id": f"invite:{payload['id']}",
-                        "invite_id": str(payload["id"]),
-                        "invite_token": payload["invite_token"],
-                        "investor_user_id": payload.get("target_investor_user_id"),
-                        "status": "invited",
-                        "granted_scope": None,
-                        "last_request_id": None,
-                        "consent_granted_at": None,
-                        "revoked_at": None,
-                        "investor_display_name": payload.get("target_display_name")
-                        or payload.get("target_email")
-                        or payload.get("target_phone")
-                        or "Invited investor",
-                        "investor_headline": headline,
-                        "acquisition_source": payload.get("source") or "manual",
-                        "invite_status": payload.get("status"),
-                        "delivery_channel": payload.get("delivery_channel"),
-                        "consent_expires_at": None,
-                        "invite_expires_at": payload.get("expires_at"),
-                        "next_action": "await_acceptance",
-                        "scope_template_id": payload.get("scope_template_id"),
-                        "is_invite_only": True,
-                        "relationship_status": "invited",
-                        "investor_email": payload.get("target_email"),
-                        "investor_secondary_label": payload.get("target_email")
-                        or payload.get("target_phone")
-                        or "Invite pending",
-                        "relationship_shares": [],
-                        "picks_feed_status": self._picks_feed_status(
-                            relationship_status="invited",
-                            share_status=None,
-                            has_active_pick_upload=bool(payload.get("has_active_pick_upload")),
-                        ),
-                        "picks_feed_granted_at": None,
-                        "has_active_pick_upload": bool(payload.get("has_active_pick_upload")),
-                        "disconnect_allowed": False,
-                        "is_self_relationship": str(payload.get("target_investor_user_id") or "")
-                        == user_id,
-                    }
-                )
             normalized_status = self._normalize_client_status_filter(status)
             filtered = [
                 item
@@ -5278,13 +5081,23 @@ class RIAIAMService:
                     "  picks_share.metadata AS picks_share_metadata,",
                     "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
                     "FROM advisor_investor_relationships rel",
+                    "JOIN ria_profiles rp ON rp.id = rel.ria_profile_id",
                     identity_join_sql,
                     "LEFT JOIN marketplace_public_profiles mp",
                     "  ON mp.user_id = rel.investor_user_id",
                     "  AND mp.profile_type = 'investor'",
-                    "LEFT JOIN relationship_share_grants picks_share",
+                    "JOIN relationship_share_grants picks_share",
                     "  ON picks_share.relationship_id = rel.id",
                     "  AND picks_share.grant_key = $3",
+                    "  AND picks_share.status = 'active'",
+                    "  AND picks_share.connection_scope_proposal_id IS NOT NULL",
+                    "JOIN connection_scope_proposals picks_proposal",
+                    "  ON picks_proposal.id = picks_share.connection_scope_proposal_id",
+                    "  AND picks_proposal.status = 'active'",
+                    "  AND picks_proposal.expires_at > NOW()",
+                    "  AND picks_proposal.capability_key = $3",
+                    "  AND picks_proposal.owner_user_id = rp.user_id",
+                    "  AND picks_proposal.receiver_user_id = rel.investor_user_id",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
                     "  FROM ria_pick_share_artifacts",
@@ -5648,6 +5461,29 @@ class RIAIAMService:
                     """,
                     relationship["id"],
                 )
+                revoked_proposals = await conn.fetch(
+                    """
+                    UPDATE connection_scope_proposals proposal
+                    SET status = 'revoked', resolved_at = NOW()
+                    FROM relationship_share_grants grant_row
+                    WHERE grant_row.relationship_id = $1::uuid
+                      AND grant_row.connection_scope_proposal_id = proposal.id
+                      AND proposal.status = 'active'
+                    RETURNING proposal.id
+                    """,
+                    relationship["id"],
+                )
+                for proposal in revoked_proposals:
+                    await conn.execute(
+                        """
+                        INSERT INTO connection_scope_proposal_events (
+                          connection_scope_proposal_id, event_type, actor_user_id, reason
+                        ) VALUES ($1::uuid, 'REVOKED', $2, $3)
+                        """,
+                        proposal["id"],
+                        auth_user_id,
+                        f"relationship_disconnect:{initiated_by}",
+                    )
                 await self._revoke_relationship_share_grant(
                     conn,
                     relationship_id=str(relationship["id"]),
@@ -6241,10 +6077,19 @@ class RIAIAMService:
             """
             SELECT COUNT(*)
             FROM advisor_investor_relationships rel
+            JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
             JOIN relationship_share_grants share
               ON share.relationship_id = rel.id
              AND share.grant_key = $2
              AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.expires_at > NOW()
+             AND proposal.capability_key = $2
+             AND proposal.owner_user_id = rp.user_id
+             AND proposal.receiver_user_id = rel.investor_user_id
             WHERE rel.ria_profile_id = $1::uuid
               AND rel.status = 'approved'
             """,
@@ -6436,92 +6281,10 @@ class RIAIAMService:
             )
             return
 
-        legacy_package = await self._get_pick_package_for_source_legacy(
-            conn,
-            ria_profile_id=ria_profile_id,
-        )
-        if not self._pick_package_has_material_content(legacy_package):
-            return
-        await self._upsert_pick_share_artifact(
-            conn,
-            relationship_id=relationship_id,
-            ria_profile_id=ria_profile_id,
-            provider_user_id=provider_user_id,
-            receiver_user_id=receiver_user_id,
-            package_projection=legacy_package,
-            source_data_version=None,
-            source_manifest_revision=None,
-            label="Active advisor package",
-            package_note=str(legacy_package.get("package_note") or "").strip() or None,
-        )
-
-    async def _retire_legacy_pick_uploads(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        ria_profile_id: str,
-    ) -> None:
-        await conn.execute(
-            """
-            DELETE FROM ria_pick_upload_rows
-            WHERE upload_id IN (
-              SELECT id
-              FROM ria_pick_uploads
-              WHERE ria_profile_id = $1::uuid
-            )
-            """,
-            ria_profile_id,
-        )
-        await conn.execute(
-            """
-            DELETE FROM ria_pick_uploads
-            WHERE ria_profile_id = $1::uuid
-            """,
-            ria_profile_id,
-        )
-
-    async def _get_pick_package_for_source_legacy(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        ria_profile_id: str,
-    ) -> dict[str, Any]:
-        upload = await conn.fetchrow(
-            """
-            SELECT id, package_metadata
-            FROM ria_pick_uploads
-            WHERE ria_profile_id = $1::uuid
-              AND status = 'active'
-            ORDER BY activated_at DESC NULLS LAST, created_at DESC
-            LIMIT 1
-            """,
-            ria_profile_id,
-        )
-        if upload is None:
-            return self._empty_pick_package_response()
-        rows = await conn.fetch(
-            """
-            SELECT
-              r.ticker,
-              r.company_name,
-              r.sector,
-              r.tier,
-              r.tier_rank,
-              r.conviction_weight,
-              r.recommendation_bias,
-              r.investment_thesis,
-              r.fcf_billions
-            FROM ria_pick_upload_rows r
-            WHERE r.upload_id = $1
-            ORDER BY r.sort_order ASC
-            """,
-            upload["id"],
-        )
-        top_picks = [dict(row) for row in rows]
-        return self._normalize_pick_package_response(
-            top_picks,
-            self._parse_metadata(upload.get("package_metadata")),
-        )
+        # Do not read legacy upload rows into a recipient-facing artifact. A
+        # package becomes shareable only after its owner has synced the
+        # vault-backed `ria.advisor_package` projection.
+        return
 
     async def get_ria_pick_bootstrap(self, user_id: str) -> dict[str, Any]:
         conn = await self._conn()
@@ -6557,20 +6320,18 @@ class RIAIAMService:
                     )
                 return {"package": empty_package, "metadata": metadata}
 
-            legacy_package = await self._get_pick_package_for_source_legacy(
-                conn,
-                ria_profile_id=str(ria["id"]),
-            )
-            has_legacy_package = self._pick_package_has_material_content(legacy_package)
+            # Legacy uploads are retained for an audited owner migration but
+            # are never a runtime fallback or a source of recipient access.
+            empty_package = self._empty_pick_package_response()
             metadata = self._build_pick_package_summary(
-                package=legacy_package,
-                storage_source="legacy" if has_legacy_package else "empty",
+                package=empty_package,
+                storage_source="empty",
                 revision=0,
                 updated_at=None,
                 active_share_count=active_share_count,
-                has_package=has_legacy_package,
+                has_package=False,
             )
-            return {"package": legacy_package, "metadata": metadata}
+            return {"package": empty_package, "metadata": metadata}
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
@@ -6587,7 +6348,6 @@ class RIAIAMService:
         screening_sections: list[dict[str, Any]] | None,
         source_data_version: int | None = None,
         source_manifest_revision: int | None = None,
-        retire_legacy: bool = True,
     ) -> dict[str, Any]:
         package_projection = self._build_pick_package_projection(
             {
@@ -6606,15 +6366,24 @@ class RIAIAMService:
                     """
                     SELECT rel.id, rel.investor_user_id
                     FROM advisor_investor_relationships rel
-                    JOIN relationship_share_grants share
-                      ON share.relationship_id = rel.id
+                JOIN relationship_share_grants share
+                  ON share.relationship_id = rel.id
                      AND share.grant_key = $2
                      AND share.status = 'active'
+                     AND share.connection_scope_proposal_id IS NOT NULL
+                JOIN connection_scope_proposals proposal
+                  ON proposal.id = share.connection_scope_proposal_id
+                 AND proposal.status = 'active'
+                 AND proposal.expires_at > NOW()
+                 AND proposal.capability_key = $2
+                 AND proposal.owner_user_id = $3
+                 AND proposal.receiver_user_id = rel.investor_user_id
                     WHERE rel.ria_profile_id = $1
                       AND rel.status = 'approved'
                     """,
                     ria["id"],
                     _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    user_id,
                 )
                 updated_relationship_ids: list[str] = []
                 for relationship in relationships:
@@ -6632,12 +6401,6 @@ class RIAIAMService:
                     )
                     updated_relationship_ids.append(str(artifact["relationship_id"]))
 
-                if retire_legacy:
-                    await self._retire_legacy_pick_uploads(
-                        conn,
-                        ria_profile_id=str(ria["id"]),
-                    )
-
                 metadata = self._build_pick_package_summary(
                     package=package_projection,
                     storage_source="pkm",
@@ -6649,171 +6412,9 @@ class RIAIAMService:
                 return {
                     "status": "synced",
                     "share_artifacts_updated": len(updated_relationship_ids),
-                    "retired_legacy": bool(retire_legacy),
                     "package": package_projection,
                     "metadata": metadata,
                     "relationship_ids": updated_relationship_ids,
-                }
-        except asyncpg.exceptions.UndefinedTableError as exc:
-            raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
-
-    async def upload_ria_pick_list(
-        self,
-        user_id: str,
-        *,
-        csv_content: str | None,
-        source_filename: str | None,
-        label: str | None,
-        package_note: str | None = None,
-        top_picks: list[dict[str, Any]] | None = None,
-        avoid_rows: list[dict[str, Any]] | None = None,
-        screening_sections: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        if csv_content and str(csv_content).strip():
-            package = self._normalize_pick_package(
-                top_picks=self._parse_pick_csv(csv_content),
-                avoid_rows=self._coerce_package_rows(avoid_rows),
-                screening_sections=self._coerce_package_rows(screening_sections),
-                package_note=package_note,
-            )
-        else:
-            package = self._normalize_pick_package(
-                top_picks=self._coerce_package_rows(top_picks),
-                avoid_rows=self._coerce_package_rows(avoid_rows),
-                screening_sections=self._coerce_package_rows(screening_sections),
-                package_note=package_note,
-            )
-        rows = package["top_picks"]
-        conn = await self._conn()
-        try:
-            async with conn.transaction():
-                await self._ensure_iam_schema_ready(conn)
-                ria = await self._get_ria_profile_by_user(conn, user_id)
-                existing_upload = await conn.fetchrow(
-                    """
-                    SELECT id
-                    FROM ria_pick_uploads
-                    WHERE ria_profile_id = $1
-                    ORDER BY
-                      CASE WHEN status = 'active' THEN 0 ELSE 1 END ASC,
-                      COALESCE(activated_at, updated_at, created_at) DESC,
-                      created_at DESC
-                    LIMIT 1
-                    """,
-                    ria["id"],
-                )
-                if existing_upload is None:
-                    upload = await conn.fetchrow(
-                        """
-                        INSERT INTO ria_pick_uploads (
-                          ria_profile_id,
-                          uploaded_by_user_id,
-                          label,
-                          status,
-                          source_filename,
-                          row_count,
-                          template_version,
-                          package_metadata,
-                          activated_at,
-                          updated_at
-                        )
-                        VALUES ($1, $2, $3, 'active', $4, $5, 1, $6::jsonb, NOW(), NOW())
-                        RETURNING id, created_at, activated_at
-                        """,
-                        ria["id"],
-                        user_id,
-                        (label or "").strip() or "Active advisor package",
-                        (source_filename or "").strip() or None,
-                        len(rows),
-                        json.dumps(package["package_metadata"]),
-                    )
-                else:
-                    upload = await conn.fetchrow(
-                        """
-                        UPDATE ria_pick_uploads
-                        SET
-                          uploaded_by_user_id = $2,
-                          label = $3,
-                          status = 'active',
-                          source_filename = $4,
-                          row_count = $5,
-                          template_version = 1,
-                          package_metadata = $6::jsonb,
-                          activated_at = NOW(),
-                          updated_at = NOW()
-                        WHERE id = $1
-                        RETURNING id, created_at, activated_at
-                        """,
-                        existing_upload["id"],
-                        user_id,
-                        (label or "").strip() or "Active advisor package",
-                        (source_filename or "").strip() or None,
-                        len(rows),
-                        json.dumps(package["package_metadata"]),
-                    )
-                    await conn.execute(
-                        """
-                        DELETE FROM ria_pick_upload_rows
-                        WHERE upload_id = $1
-                        """,
-                        existing_upload["id"],
-                    )
-                    await conn.execute(
-                        """
-                        DELETE FROM ria_pick_uploads
-                        WHERE ria_profile_id = $1
-                          AND id <> $2
-                        """,
-                        ria["id"],
-                        existing_upload["id"],
-                    )
-                if upload is None:
-                    raise RIAIAMPolicyError("Failed to create RIA picks upload", status_code=500)
-
-                for row in rows:
-                    await conn.execute(
-                        """
-                        INSERT INTO ria_pick_upload_rows (
-                          upload_id,
-                          sort_order,
-                          ticker,
-                          company_name,
-                          sector,
-                          tier,
-                          tier_rank,
-                          conviction_weight,
-                          recommendation_bias,
-                          investment_thesis,
-                          fcf_billions
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                        """,
-                        upload["id"],
-                        row["sort_order"],
-                        row["ticker"],
-                        row["company_name"],
-                        row["sector"],
-                        row["tier"],
-                        row["tier_rank"],
-                        row["conviction_weight"],
-                        row["recommendation_bias"],
-                        row["investment_thesis"],
-                        row["fcf_billions"],
-                    )
-
-                return {
-                    "upload_id": str(upload["id"]),
-                    "label": (label or "").strip() or "Active advisor package",
-                    "row_count": len(rows),
-                    "status": "active",
-                    "created_at": upload["created_at"],
-                    "activated_at": upload["activated_at"],
-                    "package": self._normalize_pick_package_response(
-                        rows,
-                        package["package_metadata"],
-                    ),
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
@@ -6838,54 +6439,6 @@ class RIAIAMService:
             package["top_picks"],
             package["package_metadata"],
         )
-
-    async def list_ria_pick_uploads(self, user_id: str) -> list[dict[str, Any]]:
-        conn = await self._conn()
-        try:
-            await self._ensure_iam_schema_ready(conn)
-            ria = await self._get_ria_profile_by_user(conn, user_id)
-            rows = await conn.fetch(
-                """
-                SELECT
-                  id,
-                  label,
-                  status,
-                  source_filename,
-                  row_count,
-                  package_metadata,
-                  activated_at,
-                  created_at,
-                  updated_at
-                FROM ria_pick_uploads
-                WHERE ria_profile_id = $1
-                  AND status = 'active'
-                ORDER BY COALESCE(activated_at, updated_at, created_at) DESC
-                LIMIT 1
-                """,
-                ria["id"],
-            )
-            return [
-                {
-                    "upload_id": str(row["id"]),
-                    "label": row["label"],
-                    "status": row["status"],
-                    "source_filename": row["source_filename"],
-                    "row_count": int(row["row_count"] or 0),
-                    "package_note": (
-                        row["package_metadata"].get("package_note")
-                        if isinstance(row["package_metadata"], dict)
-                        else None
-                    ),
-                    "activated_at": row["activated_at"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
-                for row in rows
-            ]
-        except asyncpg.exceptions.UndefinedTableError as exc:
-            raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
 
     async def get_active_ria_pick_rows(self, user_id: str) -> list[dict[str, Any]]:
         bootstrap = await self.get_active_ria_pick_package(user_id)
@@ -6920,7 +6473,15 @@ class RIAIAMService:
                   ON picks_share.relationship_id = rel.id
                   AND picks_share.grant_key = $2
                   AND picks_share.status = 'active'
-                LEFT JOIN ria_pick_share_artifacts artifact
+                  AND picks_share.connection_scope_proposal_id IS NOT NULL
+                JOIN connection_scope_proposals proposal
+                  ON proposal.id = picks_share.connection_scope_proposal_id
+                 AND proposal.status = 'active'
+                 AND proposal.expires_at > NOW()
+                 AND proposal.capability_key = $2
+                 AND proposal.owner_user_id = rp.user_id
+                 AND proposal.receiver_user_id = rel.investor_user_id
+                JOIN ria_pick_share_artifacts artifact
                   ON artifact.relationship_id = rel.id
                  AND artifact.grant_key = $2
                  AND artifact.status = 'active'
@@ -6936,7 +6497,7 @@ class RIAIAMService:
                     "id": f"ria:{row['ria_profile_id']}",
                     "label": row["label"] or "Linked RIA picks",
                     "kind": "ria",
-                    "state": "ready" if row.get("artifact_id") else "pending",
+                    "state": "ready",
                     "is_default": False,
                     "ria_user_id": row["ria_user_id"],
                     "ria_profile_id": str(row["ria_profile_id"]),
@@ -6965,80 +6526,140 @@ class RIAIAMService:
         investor_user_id: str,
         source_id: str,
     ) -> list[dict[str, Any]]:
-        package = await self.get_pick_package_for_source(investor_user_id, source_id)
+        resolved = await self.resolve_investor_pick_source(investor_user_id, source_id)
+        package = resolved.get("package") if resolved else self._empty_pick_package_response()
         return list(package.get("top_picks") or [])
 
-    async def get_pick_package_for_source(
+    async def resolve_investor_pick_source(
         self,
         investor_user_id: str,
-        source_id: str,
-    ) -> dict[str, Any]:
-        normalized_source = str(source_id or "").strip()
+        source_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Resolve one canonical, currently-authorized Market source.
+
+        `source_id` is a selector, never provenance.  The returned descriptor
+        is generated entirely from the active proposal → grant → artifact chain
+        and is the single service seam for Market, preview, and Kai run start.
+        """
+        normalized_source = str(source_id or "default").strip().lower()
+        if normalized_source in {"", "default"}:
+            return {
+                "id": "default",
+                "label": "Default list",
+                "kind": "default",
+                "state": "ready",
+                "is_default": True,
+                "package": None,
+                "snapshot": {"source_id": "default", "kind": "default"},
+            }
         if not normalized_source.startswith("ria:"):
-            return self._empty_pick_package_response()
+            return None
         ria_profile_id = normalized_source.split(":", 1)[1]
+        if not ria_profile_id:
+            return None
+
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
-            relationship = await conn.fetchrow(
+            row = await conn.fetchrow(
                 """
-                SELECT 1
+                SELECT
+                  rel.id AS relationship_id,
+                  share.id AS share_grant_id,
+                  share.connection_scope_proposal_id,
+                  rp.user_id AS ria_user_id,
+                  COALESCE(mp.display_name, rp.display_name) AS label,
+                  artifact.id AS artifact_id,
+                  artifact.source_data_version,
+                  artifact.source_manifest_revision,
+                  artifact.updated_at AS artifact_updated_at,
+                  artifact.artifact_projection
                 FROM advisor_investor_relationships rel
+                JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id AND mp.profile_type = 'ria'
                 JOIN relationship_share_grants share
                   ON share.relationship_id = rel.id
-                  AND share.grant_key = $3
-                  AND share.status = 'active'
-                WHERE rel.investor_user_id = $1
-                  AND rel.ria_profile_id = $2::uuid
-                  AND rel.status = 'approved'
-                """,
-                investor_user_id,
-                ria_profile_id,
-                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
-            )
-            if relationship is None:
-                return self._empty_pick_package_response()
-            artifact = await conn.fetchrow(
-                """
-                SELECT artifact.artifact_projection
-                FROM advisor_investor_relationships rel
-                JOIN relationship_share_grants share
-                  ON share.relationship_id = rel.id
-                  AND share.grant_key = $3
-                  AND share.status = 'active'
+                 AND share.grant_key = $3
+                 AND share.status = 'active'
+                 AND share.connection_scope_proposal_id IS NOT NULL
+                JOIN connection_scope_proposals proposal
+                  ON proposal.id = share.connection_scope_proposal_id
+                 AND proposal.status = 'active'
+                 AND proposal.expires_at > NOW()
+                 AND proposal.capability_key = $3
+                 AND proposal.owner_user_id = rp.user_id
+                 AND proposal.receiver_user_id = rel.investor_user_id
                 JOIN ria_pick_share_artifacts artifact
                   ON artifact.relationship_id = rel.id
-                  AND artifact.grant_key = $3
-                  AND artifact.status = 'active'
+                 AND artifact.grant_key = $3
+                 AND artifact.status = 'active'
                 WHERE rel.investor_user_id = $1
                   AND rel.ria_profile_id = $2::uuid
                   AND rel.status = 'approved'
-                ORDER BY
-                  COALESCE(artifact.updated_at, share.granted_at, rel.updated_at, rel.created_at)
-                  DESC
+                ORDER BY artifact.updated_at DESC
                 LIMIT 1
                 """,
                 investor_user_id,
                 ria_profile_id,
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,
             )
-            if artifact is not None:
-                artifact_payload = dict(artifact)
-                artifact_projection = self._parse_metadata(
-                    artifact_payload.get("artifact_projection")
-                )
-                if artifact_projection:
-                    return self._build_pick_package_projection(artifact_projection)
-
-            legacy_package = await self._get_pick_package_for_source_legacy(
-                conn,
-                ria_profile_id=ria_profile_id,
-            )
-            return legacy_package
+            if row is None:
+                return None
+            payload = dict(row)
+            projection = self._parse_metadata(payload.get("artifact_projection"))
+            if not isinstance(projection, dict):
+                return None
+            package = self._build_pick_package_projection(projection)
+            source = {
+                "id": f"ria:{ria_profile_id}",
+                "label": str(payload.get("label") or "Linked RIA picks"),
+                "kind": "ria",
+                "state": "ready",
+                "is_default": False,
+                "ria_user_id": str(payload.get("ria_user_id") or ""),
+                "ria_profile_id": ria_profile_id,
+                "relationship_id": str(payload.get("relationship_id") or ""),
+                "share_grant_id": str(payload.get("share_grant_id") or ""),
+                "connection_scope_proposal_id": str(
+                    payload.get("connection_scope_proposal_id") or ""
+                ),
+                "artifact_id": str(payload.get("artifact_id") or ""),
+                "source_data_version": payload.get("source_data_version"),
+                "source_manifest_revision": payload.get("source_manifest_revision"),
+                "artifact_updated_at": self._serialize_datetime_value(
+                    payload.get("artifact_updated_at")
+                ),
+                "package": package,
+            }
+            source["snapshot"] = {
+                "source_id": source["id"],
+                "label": source["label"],
+                "kind": "ria",
+                "relationship_id": source["relationship_id"],
+                "share_grant_id": source["share_grant_id"],
+                "connection_scope_proposal_id": source["connection_scope_proposal_id"],
+                "artifact_id": source["artifact_id"],
+                "source_data_version": source["source_data_version"],
+                "source_manifest_revision": source["source_manifest_revision"],
+                # The projection stays in the authorized run's in-memory
+                # context; durable run storage deliberately strips PKM values.
+                "package": package,
+            }
+            return source
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
+
+    async def get_pick_package_for_source(
+        self,
+        investor_user_id: str,
+        source_id: str,
+    ) -> dict[str, Any]:
+        resolved = await self.resolve_investor_pick_source(investor_user_id, source_id)
+        package = resolved.get("package") if resolved else None
+        return package if isinstance(package, dict) else self._empty_pick_package_response()
 
     async def create_ria_invites(
         self,
@@ -7727,22 +7348,6 @@ class RIAIAMService:
                     user_id,
                     request["request_id"],
                 )
-                relationship_id = str(request.get("relationship_id") or "").strip()
-                if relationship_id:
-                    await self._materialize_relationship_share_grant(
-                        conn,
-                        relationship_id=relationship_id,
-                        provider_user_id=ria_user_id,
-                        receiver_user_id=user_id,
-                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                        metadata=self._implicit_picks_relationship_share_metadata(
-                            source="invite_acceptance",
-                            metadata={
-                                "request_id": request["request_id"],
-                                "invite_token": invite_token,
-                            },
-                        ),
-                    )
             if updated.endswith("0"):
                 # Never log the raw invite bearer token (log-read = invite replay);
                 # correlate on the request id instead. (FedRAMP IA-5 / SI-11.)
@@ -7820,16 +7425,13 @@ class RIAIAMService:
                         str(ria["display_name"] or ria["legal_name"] or "").strip()
                         or f"RIA {str(ria['id'])[:8]}"
                     )
-                    additional_access_summary = self._relationship_share_summary(
-                        _RELATIONSHIP_SHARE_ACTIVE_PICKS
+                    additional_access_summary = (
+                        "The investor can review the requested information scope before sharing it."
                     )
-                    included_relationship_shares = [
-                        {
-                            **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
-                            "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
-                            "status": "included_on_approval",
-                        }
-                    ]
+                    # Generic RIA consent is an attr.* information grant. It
+                    # never proposes or pre-approves the separate Picks
+                    # capability; that lives only in connection proposals.
+                    included_relationship_shares: list[dict[str, Any]] = []
                 else:
                     await self._ensure_actor_profile_row(conn, user_id)
                     await self._ensure_actor_profile_row(
@@ -8085,13 +7687,28 @@ class RIAIAMService:
                     "  picks_share.metadata AS picks_share_metadata,",
                     "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
                     "FROM advisor_investor_relationships rel",
+                    "JOIN ria_profiles rp ON rp.id = rel.ria_profile_id",
                     identity_join_sql,
                     "LEFT JOIN marketplace_public_profiles mp",
                     "  ON mp.user_id = rel.investor_user_id",
                     "  AND mp.profile_type = 'investor'",
-                    "LEFT JOIN relationship_share_grants picks_share",
-                    "  ON picks_share.relationship_id = rel.id",
-                    "  AND picks_share.grant_key = $3",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT share.id, share.status, share.granted_at, share.revoked_at, share.metadata",
+                    "  FROM relationship_share_grants share",
+                    "  JOIN connection_scope_proposals proposal",
+                    "    ON proposal.id = share.connection_scope_proposal_id",
+                    "   AND proposal.status = 'active'",
+                    "   AND proposal.expires_at > NOW()",
+                    "   AND proposal.capability_key = $3",
+                    "   AND proposal.owner_user_id = rp.user_id",
+                    "   AND proposal.receiver_user_id = rel.investor_user_id",
+                    "  WHERE share.relationship_id = rel.id",
+                    "    AND share.grant_key = $3",
+                    "    AND share.status = 'active'",
+                    "    AND share.connection_scope_proposal_id IS NOT NULL",
+                    "  ORDER BY share.updated_at DESC",
+                    "  LIMIT 1",
+                    ") picks_share ON TRUE",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
                     "  FROM ria_pick_share_artifacts",
@@ -8115,7 +7732,7 @@ class RIAIAMService:
             )
             if relationship is None:
                 raise RIAIAMPolicyError(
-                    "No approved relationship for investor workspace", status_code=403
+                    "No RIA relationship exists for this workspace", status_code=403
                 )
             relationship_payload = dict(relationship)
 
@@ -8303,269 +7920,6 @@ class RIAIAMService:
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
-
-    async def set_ria_pick_share_state(
-        self,
-        user_id: str,
-        *,
-        investor_user_id: str,
-        enabled: bool,
-    ) -> dict[str, Any]:
-        conn = await self._conn()
-        try:
-            async with conn.transaction():
-                await self._ensure_iam_schema_ready(conn)
-                ria = await self._get_ria_profile_by_user(conn, user_id)
-                relationship = await conn.fetchrow(
-                    """
-                    SELECT id, status
-                    FROM advisor_investor_relationships
-                    WHERE ria_profile_id = $1
-                      AND investor_user_id = $2
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """,
-                    ria["id"],
-                    investor_user_id,
-                )
-                if relationship is None:
-                    raise RIAIAMPolicyError("Relationship not found", status_code=404)
-                if str(relationship["status"] or "").strip().lower() != "approved":
-                    raise RIAIAMPolicyError(
-                        "Only approved relationships can manage the picks share",
-                        status_code=409,
-                    )
-                if enabled:
-                    row = await self._materialize_relationship_share_grant(
-                        conn,
-                        relationship_id=str(relationship["id"]),
-                        provider_user_id=user_id,
-                        receiver_user_id=investor_user_id,
-                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                        metadata=self._implicit_picks_relationship_share_metadata(
-                            source="ria_pick_share_toggle",
-                            metadata={"enabled": True},
-                        ),
-                    )
-                    return {
-                        "enabled": True,
-                        "status": str(row["status"] or "active"),
-                        "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                    }
-                await self._revoke_relationship_share_grant(
-                    conn,
-                    relationship_id=str(relationship["id"]),
-                    grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                    status="revoked",
-                    reason="ria_pick_share_toggle:disabled",
-                )
-                return {
-                    "enabled": False,
-                    "status": "revoked",
-                    "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                }
-        except asyncpg.exceptions.UndefinedTableError as exc:
-            raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
-
-    async def sync_relationship_from_consent_action(
-        self,
-        *,
-        user_id: str,
-        request_id: str | None,
-        action: str,
-        agent_id: str | None = None,
-        scope: str | None = None,
-    ) -> None:
-        if action not in {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}:
-            return
-
-        conn = await self._conn()
-        try:
-            async with conn.transaction():
-                if not await self._is_iam_schema_ready(conn):
-                    return
-                row: asyncpg.Record | None = None
-                if request_id:
-                    row = await conn.fetchrow(
-                        """
-                        SELECT request_id, user_id, agent_id, scope, metadata
-                        FROM consent_audit
-                        WHERE request_id = $1
-                          AND action = 'REQUESTED'
-                        ORDER BY issued_at DESC
-                        LIMIT 1
-                        """,
-                        request_id,
-                    )
-                if row is None and action == "REVOKED" and agent_id and scope:
-                    row = await conn.fetchrow(
-                        """
-                        SELECT request_id, user_id, agent_id, scope, metadata
-                        FROM consent_audit
-                        WHERE user_id = $1
-                          AND agent_id = $2
-                          AND scope = $3
-                          AND action = 'REQUESTED'
-                        ORDER BY issued_at DESC
-                        LIMIT 1
-                        """,
-                        user_id,
-                        agent_id,
-                        scope,
-                    )
-
-                if row is None:
-                    return
-
-                metadata = self._parse_metadata(row["metadata"])
-                requester_actor_type = self._normalize_actor(
-                    str(metadata.get("requester_actor_type") or "ria")
-                )
-                subject_actor_type = self._normalize_actor(
-                    str(metadata.get("subject_actor_type") or "investor")
-                )
-                if (requester_actor_type, subject_actor_type) not in {
-                    ("ria", "investor"),
-                    ("investor", "ria"),
-                }:
-                    return
-
-                if requester_actor_type == "ria":
-                    investor_user_id = str(row["user_id"] or "").strip()
-                    requester_entity_id = metadata.get("requester_entity_id")
-                    if not requester_entity_id:
-                        return
-                    ria_profile_id = str(requester_entity_id).strip()
-                else:
-                    investor_user_id = str(metadata.get("requester_entity_id") or "").strip()
-                    ria_profile_id = str(metadata.get("subject_entity_id") or "").strip()
-                    if not investor_user_id or not ria_profile_id:
-                        return
-
-                relationship = await conn.fetchrow(
-                    """
-                    SELECT rel.id, rp.user_id AS ria_user_id
-                    FROM advisor_investor_relationships rel
-                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-                    WHERE rel.investor_user_id = $1
-                      AND rel.ria_profile_id = $2::uuid
-                      AND (
-                        rel.last_request_id = $3
-                        OR ($3 IS NULL AND rel.granted_scope = $4)
-                      )
-                    ORDER BY rel.updated_at DESC
-                    LIMIT 1
-                    """,
-                    investor_user_id,
-                    ria_profile_id,
-                    row["request_id"],
-                    row["scope"],
-                )
-                if relationship is None:
-                    return
-
-                all_rows = await conn.fetch(
-                    """
-                    SELECT scope, action, expires_at, issued_at
-                    FROM consent_audit
-                    WHERE user_id = $1
-                      AND agent_id = $2
-                    ORDER BY issued_at DESC
-                    """,
-                    user_id,
-                    row["agent_id"],
-                )
-                latest_by_scope: dict[str, asyncpg.Record] = {}
-                for audit_row in all_rows:
-                    scope_key = str(audit_row["scope"] or "").strip()
-                    if not scope_key or scope_key in latest_by_scope:
-                        continue
-                    latest_by_scope[scope_key] = audit_row
-
-                active_tokens = await ConsentDBService().get_active_tokens(
-                    str(row["user_id"] or user_id),
-                    agent_id=row["agent_id"],
-                )
-                has_active_grant = bool(active_tokens)
-                has_pending_request = any(
-                    str(audit_row["action"] or "") == "REQUESTED"
-                    for audit_row in latest_by_scope.values()
-                )
-
-                next_status = "discovered"
-                if has_active_grant:
-                    next_status = "approved"
-                elif has_pending_request:
-                    next_status = "request_pending"
-                elif action == "REVOKED":
-                    next_status = "revoked"
-                elif action == "TIMEOUT":
-                    next_status = "expired"
-
-                await conn.execute(
-                    """
-                    UPDATE advisor_investor_relationships
-                    SET
-                      status = $2,
-                      consent_granted_at = CASE
-                        WHEN $2 = 'approved' THEN NOW()
-                        ELSE consent_granted_at
-                      END,
-                      revoked_at = CASE
-                        WHEN $2 = 'approved' THEN NULL
-                        WHEN $2 = 'revoked' THEN NOW()
-                        ELSE revoked_at
-                      END,
-                      updated_at = NOW()
-                    WHERE id = $1
-                    """,
-                    relationship["id"],
-                    next_status,
-                )
-
-                relationship_id = str(relationship["id"])
-                provider_user_id = str(relationship["ria_user_id"])
-                if action == "CONSENT_GRANTED" and requester_actor_type == "ria":
-                    await self._materialize_relationship_share_grant(
-                        conn,
-                        relationship_id=relationship_id,
-                        provider_user_id=provider_user_id,
-                        receiver_user_id=investor_user_id,
-                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                        metadata=self._implicit_picks_relationship_share_metadata(
-                            source="relationship_sync",
-                            metadata={
-                                "request_id": row["request_id"],
-                                "action": action,
-                            },
-                        ),
-                    )
-                elif (
-                    action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
-                    and requester_actor_type == "ria"
-                ):
-                    await self._revoke_relationship_share_grant(
-                        conn,
-                        relationship_id=relationship_id,
-                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                        status="revoked",
-                        reason=f"consent_action:{action.lower()}",
-                    )
-                elif action == "TIMEOUT" and requester_actor_type == "ria":
-                    await self._revoke_relationship_share_grant(
-                        conn,
-                        relationship_id=relationship_id,
-                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
-                        status="expired",
-                        reason="consent_action:timeout",
-                    )
-        except asyncpg.exceptions.UndefinedTableError:
-            # Non-blocking path: consent lifecycle should not fail for investor flows.
-            return
         finally:
             await conn.close()
 

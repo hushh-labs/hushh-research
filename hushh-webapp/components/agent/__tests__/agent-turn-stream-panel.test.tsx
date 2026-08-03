@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -53,7 +53,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByLabelText("Agent response stream")).toHaveClass("w-full", "max-w-none");
   });
 
-  it("does not simulate response tokens while only progress is available", () => {
+  it("shows an app-owned pending state while progress is available but response text has not arrived", () => {
     const event = agentToolEventToVisibleStreamEvent("start", makeToolEvent(), 1_700_001);
 
     render(
@@ -64,7 +64,54 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByText("Waiting for response tokens.")).toBeInTheDocument();
-    expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+  });
+
+  it("formats actual working notes without treating them as response tokens", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText=""
+        thinkingText="**Checking context**\n\nComparing the active settings."
+        isStreaming
+      />
+    );
+
+    expect(screen.getByText("Working notes")).toBeInTheDocument();
+    expect(screen.getByText("Checking context")).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("Comparing the active settings."))).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+  });
+
+  it("presents consulted specialists as bounded provenance without internal ids or request text", async () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="The Finance specialist reviewed this."
+        isStreaming={false}
+        sources={[
+          {
+            agentId: "agent_kai",
+            label: "Finance",
+            reason: "Review the portfolio question.",
+          },
+          {
+            agentId: "agent_kai",
+            label: "Finance",
+            reason: "Duplicate source.",
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Sources consulted/i }));
+
+    expect(screen.getByText("Finance")).toBeInTheDocument();
+    expect(screen.getByText("Finance specialist consulted.")).toBeInTheDocument();
+    expect(screen.queryByText("agent_kai")).not.toBeInTheDocument();
+    expect(screen.queryByText("Review the portfolio question.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Duplicate source.")).not.toBeInTheDocument();
   });
 });

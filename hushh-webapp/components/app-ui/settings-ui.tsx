@@ -22,6 +22,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -145,6 +152,8 @@ export function SettingsGroup({
   embedded = false,
   separatorInset,
   className,
+  shellClassName,
+  contentClassName,
   testId = "settings-group",
 }: {
   eyebrow?: string;
@@ -159,6 +168,10 @@ export function SettingsGroup({
    */
   separatorInset?: boolean;
   className?: string;
+  /** Lets a bounded manager make the shared group shell a flex viewport. */
+  shellClassName?: string;
+  /** Lets a bounded manager make the shared row stack the scroll owner. */
+  contentClassName?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -174,6 +187,7 @@ export function SettingsGroup({
         "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--app-card-radius-compact)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[var(--app-card-radius-compact)]",
+        shellClassName,
       )}
     >
       <div
@@ -182,6 +196,7 @@ export function SettingsGroup({
           resolvedSeparatorInset
             ? "group/settings-list"
             : "divide-y divide-border/60",
+          contentClassName,
         )}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
       >
@@ -505,6 +520,7 @@ export function SettingsRow({
 export type AdaptiveDetailSurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  leading?: ReactNode;
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -515,6 +531,8 @@ export type AdaptiveDetailSurfaceProps = {
   surfaceClassName?: string;
   contentClassName?: string;
   mobilePresentation?: "fullscreen" | "sheet";
+  /** Direct-decision sheets may omit a redundant visual X. */
+  showCloseButton?: boolean;
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
 };
@@ -523,6 +541,7 @@ export type AdaptiveDetailSurfaceProps = {
 export function AdaptiveDetailSurface({
   open,
   onOpenChange,
+  leading,
   eyebrow,
   title,
   description,
@@ -532,6 +551,7 @@ export function AdaptiveDetailSurface({
   surfaceClassName,
   contentClassName,
   mobilePresentation = "fullscreen",
+  showCloseButton = true,
   desktopMaxWidthClassName,
   desktopMaxWidth,
 }: AdaptiveDetailSurfaceProps) {
@@ -569,6 +589,59 @@ export function AdaptiveDetailSurface({
   );
 
   if (isMobile) {
+    if (mobilePresentation === "sheet") {
+      return (
+        <Sheet open={open} onOpenChange={onOpenChange} modal>
+          <SheetContent
+            side="bottom"
+            showCloseButton={showCloseButton}
+            className={cn("gap-0", surfaceClassName, contentClassName)}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              (event.currentTarget as HTMLElement).focus();
+            }}
+          >
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 text-left backdrop-blur-[var(--blur-standard)]">
+              <div className="flex min-w-0 items-center gap-3 pr-10">
+                {leading ? <div className="shrink-0">{leading}</div> : null}
+                <div className="min-w-0">
+                  {eyebrow ? (
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      {eyebrow}
+                    </p>
+                  ) : null}
+                  <SheetTitle className="truncate text-base font-semibold tracking-tight">
+                    {title}
+                  </SheetTitle>
+                  <SheetDescription
+                    className={cn(
+                      "line-clamp-2 text-sm leading-5",
+                      !description && "sr-only",
+                    )}
+                  >
+                    {description ?? "Details"}
+                  </SheetDescription>
+                </div>
+              </div>
+            </SheetHeader>
+            <div
+              className={cn(
+                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-3 sm:px-4 sm:pt-4",
+                bodyClassName,
+              )}
+            >
+              {children}
+            </div>
+            {footer ? (
+              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+                {footer}
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      );
+    }
+
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
@@ -585,24 +658,29 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 pr-14 text-left sm:px-5 sm:py-4 sm:pr-14">
-            {eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                {eyebrow}
-              </p>
-            ) : null}
-            <DrawerTitle className="text-base font-semibold tracking-tight">
-              {title}
-            </DrawerTitle>
-            <DrawerDescription
-              className={cn(
-                "text-sm leading-5 sm:leading-6",
-                !description && "sr-only",
-              )}
-            >
-              {description ?? "Settings"}
-            </DrawerDescription>
-            {closeButton}
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:py-4 sm:pr-14">
+            <div className="flex min-w-0 items-center gap-3">
+              {leading ? <div className="shrink-0">{leading}</div> : null}
+              <div className="min-w-0">
+                {eyebrow ? (
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    {eyebrow}
+                  </p>
+                ) : null}
+                <DrawerTitle className="truncate text-base font-semibold tracking-tight">
+                  {title}
+                </DrawerTitle>
+                <DrawerDescription
+                  className={cn(
+                    "line-clamp-2 text-sm leading-5 sm:leading-6",
+                    !description && "sr-only",
+                  )}
+                >
+                  {description ?? "Details"}
+                </DrawerDescription>
+              </div>
+            </div>
+            {showCloseButton ? closeButton : null}
           </DrawerHeader>
           <div
             className={cn(
@@ -639,21 +717,29 @@ export function AdaptiveDetailSurface({
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 pr-16 text-left">
-          {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              {eyebrow}
-            </p>
-          ) : null}
-          <DialogTitle className="text-base font-semibold tracking-tight">
-            {title}
-          </DialogTitle>
-          <DialogDescription
-            className={cn("text-sm leading-6", !description && "sr-only")}
-          >
-            {description ?? "Settings"}
-          </DialogDescription>
-          {closeButton}
+        <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 py-4 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
+          <div className="flex min-w-0 items-center gap-3">
+            {leading ? <div className="shrink-0">{leading}</div> : null}
+            <div className="min-w-0">
+              {eyebrow ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  {eyebrow}
+                </p>
+              ) : null}
+              <DialogTitle className="truncate text-base font-semibold tracking-tight">
+                {title}
+              </DialogTitle>
+              <DialogDescription
+                className={cn(
+                  "line-clamp-2 text-sm leading-6",
+                  !description && "sr-only",
+                )}
+              >
+                {description ?? "Details"}
+              </DialogDescription>
+            </div>
+          </div>
+          {showCloseButton ? closeButton : null}
         </DialogHeader>
         <div
           className={cn(

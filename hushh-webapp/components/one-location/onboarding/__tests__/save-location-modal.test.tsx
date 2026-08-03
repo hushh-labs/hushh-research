@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
@@ -100,6 +105,59 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /save location/i }));
 
     expect(baseProps.onSave).toHaveBeenCalledWith("other", "Gym");
+  });
+
+  it("atomically changes the captured place through authenticated suggestions", async () => {
+    const onSearchPlaces = vi.fn().mockResolvedValue([
+      {
+        placeId: "office",
+        text: "Hushh Office, Bengaluru",
+      },
+    ]);
+    const onSelectPlace = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <SaveLocationModal
+        {...baseProps}
+        address="India Gate, New Delhi"
+        onSearchPlaces={onSearchPlaces}
+        onSelectPlace={onSelectPlace}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Change captured location" }),
+    );
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Search for another place",
+      }),
+      { target: { value: "Hushh Office" } },
+    );
+    expect(
+      screen.getByRole("button", { name: /save location/i }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Hushh Office, Bengaluru",
+      }),
+    );
+    await waitFor(() =>
+      expect(onSelectPlace).toHaveBeenCalledWith("office"),
+    );
+
+    rerender(
+      <SaveLocationModal
+        {...baseProps}
+        address="Hushh Office, Bengaluru, Karnataka, India"
+        onSearchPlaces={onSearchPlaces}
+        onSelectPlace={onSelectPlace}
+      />,
+    );
+    expect(
+      screen.getByText("Hushh Office, Bengaluru, Karnataka, India"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/12\.9716|77\.5946/)).not.toBeInTheDocument();
   });
 
   it("prevents dismissal while an encrypted save is in flight", () => {

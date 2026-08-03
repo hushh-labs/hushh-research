@@ -214,6 +214,7 @@ export interface ConsentCenterResponse {
   history: ConsentCenterEntry[];
   invites: ConsentCenterEntry[];
   developer_requests: ConsentCenterEntry[];
+  connection_requests?: ConsentCenterEntry[];
   requestor_groups: {
     pending: ConsentRequestorGroup[];
     active: ConsentRequestorGroup[];
@@ -425,6 +426,9 @@ export class ConsentCenterService {
     payload.invites = normalizeConsentEntries(payload.invites);
     payload.developer_requests = normalizeConsentEntries(
       payload.developer_requests,
+    );
+    payload.connection_requests = normalizeConsentEntries(
+      payload.connection_requests,
     );
     payload.self_activity_summary = payload.self_activity_summary || null;
 

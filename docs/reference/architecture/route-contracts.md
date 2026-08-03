@@ -67,6 +67,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/preferences`
 - `/one/profile/preferences/kai`
 - `/one/profile/preferences/device`
+- `/one/profile/preferences/gemini`
 - `/one/profile/security`
 - `/one/profile/security/vault`
 - `/one/profile/security/session`
@@ -77,6 +78,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/access`
 - `/one/profile/access/connection?id=<connection_id>`
 - `/one/profile/connected-systems`
+- `/one/connected-systems`
+- `/one/connected-systems/[systemId]`
 - `/one/profile/gmail`
 - `/one/profile/gmail/connection`
 - `/one/profile/gmail/actions`
@@ -98,7 +101,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`
-- `/ria`
+- `/ria/profile`
 - `/ria/onboarding`
 - `/ria/clients`
 - `/ria/picks`
@@ -129,6 +132,11 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 - `/one/profile/support/compose?kind=<support_kind>`
 
 Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
+
+`/ria/profile` is the canonical RIA home. `/ria` is a compatibility redirect for
+saved links and native intents; it must not become a second RIA workspace. The
+RIA shell exposes `Profile`, `Clients`, and `Picks`. `profile_regulatory` is a
+legacy telemetry identifier for this screen, not a separate product route.
 
 `/developers`, `/research`, and `/blog` are also compatibility redirects. Their
 canonical public-workspace destinations are `/welcome?tab=developers`,
@@ -218,9 +226,13 @@ Connections-owned runtime configuration is intentionally a non-agent route pair:
 management re-entry point. They publish no voice action contract because a
 provider-secret mutation must remain a direct, vault-gated UI action.
 The setup preface is admitted as a non-capability root-setup navigation route.
-An explicit managed/BYOK choice writes a bounded non-secret marker to the
-existing pre-vault setup-state set; the root setup cannot Skip or Finish until
-that marker is freshly verified.
+An explicit managed/BYOK choice writes a bounded non-secret marker plus the
+strict `one_runtime_setup_choice` enum to existing pre-vault state. Its only
+values are `hushh_managed_vertex` and `byok_pending_vault`; it cannot contain a
+credential, credential reference, vault key, or access token. The root setup
+cannot Skip or Finish until that preference is freshly verified. A pending BYOK
+choice is applied only after setup, when the person creates or opens their
+private vault and saves the encrypted key through the existing settings route.
 
 ## Relationship To Other Docs
 

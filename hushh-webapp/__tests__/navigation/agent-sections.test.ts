@@ -38,13 +38,14 @@ describe("agent sections", () => {
   it("routes the RIA agent to the RIA workspace with the ria nav scope", () => {
     const ria = getAgentSection("ria");
     expect(ria).not.toBeNull();
-    expect(ria?.href).toBe(ROUTES.RIA_HOME);
+    expect(ria?.href).toBe(ROUTES.RIA_PROFILE);
     expect(ria?.bottomNavScope).toBe("ria");
     expect(ria?.routeFamily).toBe("ria");
     expect(ria?.voiceRouteActionId).toBe("route.ria_home");
   });
 
   it("resolves RIA workspace paths back to the RIA agent", () => {
+    expect(resolveAgentSectionForPath(ROUTES.RIA_PROFILE)?.id).toBe("ria");
     expect(resolveAgentSectionForPath(ROUTES.RIA_HOME)?.id).toBe("ria");
     expect(resolveAgentSectionForPath(`${ROUTES.RIA_PICKS}`)?.id).toBe("ria");
   });
@@ -57,8 +58,14 @@ describe("agent sections", () => {
   });
 
   it("keeps Finance selected throughout its onboarding workspace", () => {
-    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE)?.id).toBe("finance");
-    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE_IMPORT)?.id).toBe("finance");
-    expect(resolveAgentSectionForPath(ROUTES.KAI_PLAID_OAUTH_RETURN)?.id).toBe("finance");
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE)?.id).toBe(
+      "finance",
+    );
+    expect(
+      resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE_IMPORT)?.id,
+    ).toBe("finance");
+    expect(resolveAgentSectionForPath(ROUTES.KAI_PLAID_OAUTH_RETURN)?.id).toBe(
+      "finance",
+    );
   });
 });

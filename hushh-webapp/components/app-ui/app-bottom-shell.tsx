@@ -5,9 +5,7 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
-import {
-  snapKaiBottomChromeVisible,
-} from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 
 export type BottomShellModel = {
   ambientEnabled: boolean;
@@ -60,7 +58,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
 
   const maskStyle = {
     height:
-      "calc(var(--bottom-chrome-full-height) + var(--bottom-chrome-fade-tail))",
+      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
   } as CSSProperties;
 
   return (
@@ -87,9 +85,16 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
         <div
           data-bottom-shell-motion-stack
           className="flex flex-col items-center gap-1.5 transform-gpu will-change-transform"
-          style={{ transform: model.navigationHidden ? undefined : BOTTOM_SCROLL_TRANSFORM }}
+          style={{
+            transform: model.navigationHidden
+              ? undefined
+              : BOTTOM_SCROLL_TRANSFORM,
+          }}
         >
-          <div data-bottom-shell-agent-slot className="flex w-full justify-center">
+          <div
+            data-bottom-shell-agent-slot
+            className="flex w-full justify-center"
+          >
             <AgentBar layout="slot" />
           </div>
           <div
@@ -97,7 +102,10 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
             data-bottom-shell-navigation-slot
             className="flex w-full justify-center"
           >
-            <Navbar shellNavigationHidden={model.navigationHidden} layout="slot" />
+            <Navbar
+              shellNavigationHidden={model.navigationHidden}
+              layout="slot"
+            />
           </div>
         </div>
       </div>

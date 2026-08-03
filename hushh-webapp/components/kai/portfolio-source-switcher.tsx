@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -8,7 +7,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SegmentedPill } from "@/lib/morphy-ux/ui/segmented-pill";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSegmentedTabs,
+} from "@/components/app-ui/settings-ui";
 import type {
   PortfolioFreshness,
   PortfolioSource,
@@ -16,29 +19,31 @@ import type {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   Building2,
-  Loader2,
   Link2,
   RefreshCw,
   ScrollText,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
-import { Button } from "@/lib/morphy-ux/button";
 
 interface PortfolioSourceSwitcherProps {
   activeSource: PortfolioSource;
   availableSources: PortfolioSource[];
   freshness?: PortfolioFreshness | null;
-  onSourceChange: (source: PortfolioSource) => void;
+  onSourceChange: (source: PortfolioSource) => Promise<void>;
   statementSnapshots?: StatementSnapshotOption[];
   activeStatementSnapshotId?: string | null;
-  onStatementSnapshotChange?: (snapshotId: string) => void;
+  onStatementSnapshotChange?: (snapshotId: string) => Promise<void>;
   onDeleteStatementSnapshot?: (snapshotId: string) => void;
   onRefreshPlaid?: () => void;
   onCancelRefreshPlaid?: () => void;
   onManageConnections?: () => void;
   onImportStatement?: () => void;
   onDeletePortfolio?: () => void;
+  canChangePortfolioSource?: boolean;
+  isChangingSource?: boolean;
+  isChangingStatementSnapshot?: boolean;
   isRefreshing?: boolean;
   isDeletingPortfolio?: boolean;
   isDeletingStatementSnapshot?: boolean;
@@ -56,6 +61,15 @@ function formatRelativeTimestamp(value: string | null | undefined): string {
   });
 }
 
+function sourceLabel(source: PortfolioSource): string {
+  return source === "plaid" ? "Connected brokerage" : "Statement";
+}
+
+/**
+ * A compact source manager for the Portfolio detail route. Durable source
+ * selection stays in the hook; this component only renders confirmed state and
+ * disables competing actions while a selection is settling.
+ */
 export function PortfolioSourceSwitcher({
   activeSource,
   availableSources,
@@ -70,138 +84,116 @@ export function PortfolioSourceSwitcher({
   onManageConnections,
   onImportStatement,
   onDeletePortfolio,
+  canChangePortfolioSource = true,
+  isChangingSource = false,
+  isChangingStatementSnapshot = false,
   isRefreshing = false,
   isDeletingPortfolio = false,
   isDeletingStatementSnapshot = false,
 }: PortfolioSourceSwitcherProps) {
-  const options = [
-    {
-      value: "statement",
-      label: "Statement",
-      icon: ScrollText,
-      disabled: !availableSources.includes("statement"),
-    },
-    {
-      value: "plaid",
-      label: "Plaid",
-      icon: Link2,
-      disabled: !availableSources.includes("plaid"),
-      tone: "accent" as const,
-    },
-  ];
-  const showStatementPicker =
-    activeSource === "statement" &&
+  const sourceOptions = availableSources.map((source) => ({
+    value: source,
+    label: source === "plaid" ? "Brokerage" : "Statement",
+  }));
+  const activeStatementId =
+    activeStatementSnapshotId || statementSnapshots[0]?.id || null;
+  const activeStatement = statementSnapshots.find(
+    (snapshot) => snapshot.id === activeStatementId,
+  );
+  const hasStatementSnapshots = statementSnapshots.length > 0;
+  const hasMultipleStatements =
     statementSnapshots.length > 1 &&
     typeof onStatementSnapshotChange === "function";
-  const activeStatementId = activeStatementSnapshotId || statementSnapshots[0]?.id || null;
-  const showStatementControls = activeSource === "statement" && statementSnapshots.length > 0;
-  const showDeleteStatement =
-    showStatementControls && activeStatementId && typeof onDeleteStatementSnapshot === "function";
-  const showImportStatement = typeof onImportStatement === "function";
-  const showPlaidActions = activeSource === "plaid" && availableSources.includes("plaid");
+  const hasPlaidSource = availableSources.includes("plaid");
+  const selectionBusy = isChangingSource || isChangingStatementSnapshot;
+  const interactionBusy =
+    selectionBusy ||
+    isRefreshing ||
+    isDeletingPortfolio ||
+    isDeletingStatementSnapshot;
+
+  const requestSourceChange = (value: string) => {
+    void onSourceChange(value as PortfolioSource).catch(() => undefined);
+  };
+
+  const requestStatementChange = (snapshotId: string) => {
+    if (!onStatementSnapshotChange) return;
+    void onStatementSnapshotChange(snapshotId).catch(() => undefined);
+  };
 
   return (
-    <section className="max-w-full space-y-3 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-card/65 px-4 py-3">
-        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div className="min-w-0 space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Portfolio Source
-            </p>
-            <SegmentedPill
-              value={activeSource}
-              options={options}
-              onValueChange={(value) => onSourceChange(value as PortfolioSource)}
-              ariaLabel="Portfolio source selector"
-              size="compact"
-              className="w-full max-w-md"
-            />
-          </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
-            {showImportStatement ? (
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={onImportStatement}
-                data-voice-control-id="import_portfolio"
-              >
-                <Upload className="mr-2 h-3.5 w-3.5" />
-                Import Portfolio
-              </Button>
-            ) : null}
-            {showPlaidActions ? (
-              <>
-                <Badge variant="outline" className="gap-1.5">
-                  <Building2 className="h-3.5 w-3.5" />
-                  {freshness?.itemCount || 0} item{(freshness?.itemCount || 0) === 1 ? "" : "s"}
-                </Badge>
-                <Badge variant="outline">
-                  Synced {formatRelativeTimestamp(freshness?.lastSyncedAt || null)}
-                </Badge>
-                {onRefreshPlaid ? (
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    onClick={onRefreshPlaid}
-                    disabled={isRefreshing}
-                  >
-                    <RefreshCw
-                      className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-                    />
-                    Refresh
-                  </Button>
-                ) : null}
-                {onCancelRefreshPlaid && isRefreshing ? (
-                  <Button variant="none" effect="fade" size="sm" onClick={onCancelRefreshPlaid}>
-                    Cancel
-                  </Button>
-                ) : null}
-                {onManageConnections ? (
-                  <Button variant="none" effect="fade" size="sm" onClick={onManageConnections}>
-                    {(freshness?.itemCount || 0) > 0 ? "Connect Another Brokerage" : "Connect Plaid"}
-                  </Button>
-                ) : null}
-              </>
-            ) : null}
-            {onDeletePortfolio ? (
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={onDeletePortfolio}
-                disabled={isDeletingPortfolio}
-                className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                data-voice-control-id="delete_imported_data"
-              >
-                {isDeletingPortfolio ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                )}
-                Delete Portfolio
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {showStatementControls ? (
-          <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-end">
-            <div className="min-w-0 space-y-0.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Saved Statements
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Choose which saved statement drives the editable portfolio.
-              </p>
-            </div>
-            <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-              {showStatementPicker ? (
+    <section
+      className="w-full space-y-5"
+      aria-busy={interactionBusy || undefined}
+      aria-label="Portfolio source settings"
+      data-testid="portfolio-source-switcher"
+    >
+      <SettingsGroup
+        title="Active portfolio"
+        description={
+          selectionBusy
+            ? "Saving your portfolio choice."
+            : !canChangePortfolioSource
+              ? "Unlock your Vault to change the active portfolio."
+            : "Choose the holdings you want to review."
+        }
+        separatorInset
+        testId="portfolio-source-active-group"
+      >
+        <SettingsRow
+          icon={activeSource === "plaid" ? Building2 : ScrollText}
+          iconTone={activeSource === "plaid" ? "blue" : "accent"}
+          title="Portfolio source"
+          description={
+            activeSource === "plaid"
+              ? "Connected brokerage holdings are read-only."
+              : "Saved-statement holdings are editable."
+          }
+          stackTrailingOnMobile={sourceOptions.length > 1}
+          trailing={
+            sourceOptions.length > 1 ? (
+              <SettingsSegmentedTabs
+                value={activeSource}
+                onValueChange={requestSourceChange}
+                options={sourceOptions}
+                disabled={interactionBusy || !canChangePortfolioSource}
+                className="w-full sm:w-[18rem]"
+              />
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                {sourceLabel(activeSource)}
+              </span>
+            )
+          }
+          testId="portfolio-source-active-row"
+        />
+      </SettingsGroup>
+
+      {activeSource === "statement" && hasStatementSnapshots ? (
+        <SettingsGroup
+          title="Saved statements"
+          description="Choose the statement that drives your editable portfolio."
+          separatorInset
+          testId="portfolio-source-statements-group"
+        >
+          <SettingsRow
+            icon={ScrollText}
+            iconTone="accent"
+            title="Selected statement"
+            description="This statement drives your editable holdings."
+            stackTrailingOnMobile={hasMultipleStatements}
+            trailing={
+              hasMultipleStatements ? (
                 <Select
                   value={activeStatementId || undefined}
-                  onValueChange={onStatementSnapshotChange}
-                  disabled={isDeletingStatementSnapshot}
+                  onValueChange={requestStatementChange}
+                  disabled={interactionBusy || !canChangePortfolioSource}
                 >
-                  <SelectTrigger size="sm" className="w-full min-w-0 sm:flex-1">
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full min-w-0 sm:w-[18rem]"
+                    aria-label="Selected statement"
+                  >
                     <SelectValue placeholder="Select statement" />
                   </SelectTrigger>
                   <SelectContent>
@@ -213,31 +205,127 @@ export function PortfolioSourceSwitcher({
                   </SelectContent>
                 </Select>
               ) : (
-                <Badge variant="outline" className="w-fit max-w-full truncate">
-                  {statementSnapshots[0]?.label || "Statement"}
-                </Badge>
-              )}
-              {showDeleteStatement ? (
-                <Button
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  onClick={() => onDeleteStatementSnapshot(activeStatementId)}
-                  disabled={isDeletingStatementSnapshot}
-                  className="justify-start text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                  data-voice-control-id="delete_statement_snapshot"
-                >
-                  {isDeletingStatementSnapshot ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  )}
-                  Delete Statement
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+                <span className="text-sm text-muted-foreground">
+                  {activeStatement?.label || "Current"}
+                </span>
+              )
+            }
+            testId="portfolio-source-selected-statement"
+          />
+          {onImportStatement ? (
+            <SettingsRow
+              icon={Upload}
+              iconTone="accent"
+              title="Import another statement"
+              description="Add a PDF or CSV from your brokerage."
+              onClick={onImportStatement}
+              disabled={interactionBusy}
+              chevron
+              voiceControlId="import_portfolio"
+              testId="portfolio-source-import-statement"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {activeSource === "plaid" && hasPlaidSource ? (
+        <SettingsGroup
+          title="Connected brokerage"
+          description="Brokerage holdings stay read-only here."
+          separatorInset
+          testId="portfolio-source-plaid-group"
+        >
+          <SettingsRow
+            icon={Building2}
+            iconTone="blue"
+            title={`${freshness?.itemCount || 0} connected ${
+              (freshness?.itemCount || 0) === 1 ? "brokerage" : "brokerages"
+            }`}
+            description={`Last synced ${formatRelativeTimestamp(
+              freshness?.lastSyncedAt || null,
+            )}.`}
+            testId="portfolio-source-plaid-status"
+          />
+          {isRefreshing && onCancelRefreshPlaid ? (
+            <SettingsRow
+              icon={X}
+              title="Refresh in progress"
+              description="Stop this update if you need to make a change."
+              onClick={onCancelRefreshPlaid}
+              chevron
+              testId="portfolio-source-cancel-refresh"
+            />
+          ) : onRefreshPlaid ? (
+            <SettingsRow
+              icon={RefreshCw}
+              title="Refresh brokerage"
+              description="Get the latest available holdings."
+              onClick={onRefreshPlaid}
+              disabled={interactionBusy}
+              chevron
+              testId="portfolio-source-refresh-plaid"
+            />
+          ) : null}
+          {onManageConnections ? (
+            <SettingsRow
+              icon={Link2}
+              title="Manage connections"
+              description="Connect or update a brokerage."
+              onClick={onManageConnections}
+              disabled={interactionBusy}
+              chevron
+              testId="portfolio-source-manage-connections"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {activeSource !== "statement" && onImportStatement ? (
+        <SettingsGroup title="Statements" separatorInset testId="portfolio-source-add-statement-group">
+          <SettingsRow
+            icon={Upload}
+            iconTone="accent"
+            title="Add a statement"
+            description="Import a PDF or CSV for an editable portfolio."
+            onClick={onImportStatement}
+            disabled={interactionBusy}
+            chevron
+            voiceControlId="import_portfolio"
+            testId="portfolio-source-add-statement"
+          />
+        </SettingsGroup>
+      ) : null}
+
+      {onDeletePortfolio || (activeSource === "statement" && activeStatementId && onDeleteStatementSnapshot) ? (
+        <SettingsGroup title="Remove data" separatorInset testId="portfolio-source-remove-group">
+          {onDeletePortfolio ? (
+            <SettingsRow
+              icon={Trash2}
+              title="Delete active portfolio"
+              description="This opens a confirmation before anything is removed."
+              onClick={onDeletePortfolio}
+              disabled={interactionBusy}
+              tone="destructive"
+              chevron
+              voiceControlId="delete_imported_data"
+              testId="portfolio-source-delete-portfolio"
+            />
+          ) : null}
+          {activeSource === "statement" && activeStatementId && onDeleteStatementSnapshot ? (
+            <SettingsRow
+              icon={Trash2}
+              title="Delete selected statement"
+              description={activeStatement?.label || "Remove this saved statement."}
+              onClick={() => onDeleteStatementSnapshot(activeStatementId)}
+              disabled={interactionBusy}
+              tone="destructive"
+              chevron
+              voiceControlId="delete_statement_snapshot"
+              testId="portfolio-source-delete-statement"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
     </section>
   );
 }

@@ -3,7 +3,7 @@
 Database connection pool management.
 
 This module provides a direct PostgreSQL connection pool via asyncpg to
-Google Cloud SQL (Postgres). Cloud SQL has been removed; Cloud SQL is the
+Google Cloud SQL (Postgres). Supabase has been removed; Cloud SQL is the
 only runtime datastore.
 
 Connectivity:

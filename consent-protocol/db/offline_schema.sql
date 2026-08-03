@@ -357,6 +357,7 @@ CREATE TABLE IF NOT EXISTS "vault_keys" (
   "setup_capability_ids" TEXT,
   "setup_capabilities_updated_at" INTEGER,
   "setup_state_updated_at" INTEGER,
+  "one_runtime_setup_choice" TEXT CHECK ("one_runtime_setup_choice" IS NULL OR "one_runtime_setup_choice" IN ('hushh_managed_vertex', 'byok_pending_vault')),
   "onboarding_journey_version" INTEGER,
   "onboarding_phase" TEXT,
   "onboarding_active_capability" TEXT,
@@ -534,5 +535,27 @@ CREATE TABLE IF NOT EXISTS "developer_oauth_audit_events" (
   "event_type" TEXT NOT NULL,
   "created_at" INTEGER NOT NULL
 );
+
+-- Coarse terminal checkpoint for resumable Kai analyze (debate) runs.
+-- Mirror of migration 125_kai_analyze_run_store.sql for the offline SQLite test
+-- harness. Epochs are INTEGER; terminal_payload is TEXT JSON (portable across
+-- Postgres and SQLite -- no jsonb/now()/INTERVAL).
+CREATE TABLE IF NOT EXISTS "kai_analyze_runs" (
+  "run_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "debate_session_id" TEXT NOT NULL,
+  "ticker" TEXT NOT NULL,
+  "risk_profile" TEXT NOT NULL,
+  "status" TEXT NOT NULL CHECK ("status" IN ('completed', 'failed', 'canceled')),
+  "terminal_event" TEXT,
+  "terminal_payload" TEXT NOT NULL DEFAULT '{}',
+  "started_at_iso" TEXT,
+  "completed_at_iso" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "expires_at" INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "idx_kai_analyze_runs_expiry"
+  ON "kai_analyze_runs" ("expires_at");
 
 -- WARNING: table users not found in live schema, skipped

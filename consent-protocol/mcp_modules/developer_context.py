@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from contextvars import ContextVar, Token
 from urllib.parse import urlparse
+
+import httpx
 
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
@@ -23,10 +27,72 @@ _current_developer_token: ContextVar[str | None] = ContextVar(
     "hushh_mcp_developer_token",
     default=None,
 )
+_oauth_token_lock = threading.Lock()
+_oauth_access_token: tuple[str, float] | None = None
+_OAUTH_TOKEN_REFRESH_SKEW_SECONDS = 60.0
+_OAUTH_TOKEN_REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 def _configured_token() -> str:
-    return str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
+    developer_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
+    return developer_token or _client_credentials_access_token()
+
+
+def _client_credentials_access_token() -> str:
+    """Return one in-memory OAuth client-credentials token for this bridge.
+
+    Client credentials are accepted only for operations-provisioned developer
+    apps by the remote OAuth service.  This connector caches the returned
+    bearer token only in process memory and renews it before expiry.  It never
+    persists or logs the client secret, access token, or token response.
+    """
+    global _oauth_access_token
+
+    client_id = str(os.getenv("HUSHH_OAUTH_CLIENT_ID", "")).strip()
+    client_secret = str(os.getenv("HUSHH_OAUTH_CLIENT_SECRET", "")).strip()
+    if not client_id or not client_secret:
+        return ""
+
+    now = time.monotonic()
+    cached = _oauth_access_token
+    if cached is not None and cached[1] > now:
+        return cached[0]
+
+    with _oauth_token_lock:
+        now = time.monotonic()
+        cached = _oauth_access_token
+        if cached is not None and cached[1] > now:
+            return cached[0]
+
+        configured_url = str(os.getenv("HUSHH_OAUTH_TOKEN_URL", "")).strip()
+        api_origin = str(os.getenv("CONSENT_API_URL", "")).strip().rstrip("/")
+        token_url = configured_url or f"{api_origin}/oauth/token"
+        if not token_url or urlparse(token_url).scheme not in {"http", "https"}:
+            return ""
+        try:
+            response = httpx.post(
+                token_url,
+                data={"grant_type": "client_credentials", "scope": "mcp:tools"},
+                auth=(client_id, client_secret),
+                timeout=_OAUTH_TOKEN_REQUEST_TIMEOUT_SECONDS,
+            )
+            if response.status_code != 200:
+                return ""
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return ""
+
+        access_token = str(payload.get("access_token") or "").strip()
+        token_type = str(payload.get("token_type") or "").strip().lower()
+        if not access_token or token_type != "bearer":  # noqa: S105 - OAuth token type
+            return ""
+        try:
+            expires_in = max(1, int(payload.get("expires_in") or 0))
+        except (TypeError, ValueError):
+            return ""
+        refresh_after = now + max(1.0, expires_in - _OAUTH_TOKEN_REFRESH_SKEW_SECONDS)
+        _oauth_access_token = (access_token, refresh_after)
+        return access_token
 
 
 def _delegates_auth_to_remote_api() -> bool:

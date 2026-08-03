@@ -8,26 +8,31 @@
  * explicit confirmation, dispatches the workflow with `gh workflow run`, then
  * streams the run with `gh run watch`.
  *
- * The Apple-facing work (build → sign with production entitlements → archive →
- * upload to App Store Connect → prepare the App Store version) all runs on the
- * GitHub macOS runner, because GCP has no macOS instances and local builds hang
- * inside iCloud Drive. This script is the thin, auditable dispatcher.
+ * The Apple-facing work (build the UAT-backed app → sign with production APNs
+ * entitlements → archive → upload to App Store Connect → set What's New →
+ * attach the build → optionally submit for review) all runs on the GitHub macOS
+ * runner, because GCP has no macOS instances and local builds hang inside iCloud
+ * Drive. This script is the thin, auditable dispatcher.
+ *
+ * BACKEND: the public App Store build ships the SAME UAT backend + UAT Firebase
+ * (hushh-pda-uat) as TestFlight — the latest frontend+backend that is live on
+ * UAT. It is NOT built against a separate production backend.
  *
  * SAFETY / IRREVERSIBILITY
  *   By default this prepares the release up to — but NOT including — the final,
- *   irreversible "Submit for App Store Review" action. Submitting for public
- *   review requires BOTH flags together:
- *       --submit --ack-blockers
- *   which map to the workflow's `submit_for_review=true` + `ack_publish_blockers=true`.
- *   The workflow itself re-checks that both are set. Never pass --submit from an
- *   automated context; it publishes to real users and cannot be undone.
+ *   irreversible "Submit for App Store Review" action. One-click submission maps
+ *   to the workflow's `submit_for_review=true`. On this CLI path it additionally
+ *   requires a local `--ack-blockers` acknowledgement so a public submit is never
+ *   fired by accident or from an automated context; it publishes to real users
+ *   and cannot be undone. Clear the publish-safety blockers first.
  *
  * Usage:
  *   node scripts/release/dispatch-ios-appstore.mjs                 # prepare-only, SHA=origin/main
  *   node scripts/release/dispatch-ios-appstore.mjs --sha <sha>     # pin an explicit green SHA
  *   node scripts/release/dispatch-ios-appstore.mjs --dry-run       # archive+sign only, no upload
+ *   node scripts/release/dispatch-ios-appstore.mjs --whats-new "..."  # App Store release notes for this version
  *   node scripts/release/dispatch-ios-appstore.mjs --notes "..."   # annotate the run summary
- *   node scripts/release/dispatch-ios-appstore.mjs --submit --ack-blockers   # IRREVERSIBLE public submit
+ *   node scripts/release/dispatch-ios-appstore.mjs --submit --ack-blockers   # IRREVERSIBLE one-click public submit
  *   node scripts/release/dispatch-ios-appstore.mjs --yes           # skip the interactive confirm
  *   node scripts/release/dispatch-ios-appstore.mjs --no-watch      # dispatch and return immediately
  */
@@ -58,6 +63,7 @@ function parseArgs(argv) {
     dryRun: false,
     submit: false,
     ackBlockers: false,
+    whatsNew: "",
     notes: "",
     yes: false,
     watch: true,
@@ -77,6 +83,9 @@ function parseArgs(argv) {
       case "--ack-blockers":
         opts.ackBlockers = true;
         break;
+      case "--whats-new":
+        opts.whatsNew = argv[++i] ?? "";
+        break;
       case "--notes":
         opts.notes = argv[++i] ?? "";
         break;
@@ -91,7 +100,7 @@ function parseArgs(argv) {
       case "-h":
         console.log(
           "Usage: node scripts/release/dispatch-ios-appstore.mjs " +
-            "[--sha <sha>] [--dry-run] [--submit --ack-blockers] [--notes <text>] [--yes] [--no-watch]",
+            "[--sha <sha>] [--dry-run] [--whats-new <text>] [--submit --ack-blockers] [--notes <text>] [--yes] [--no-watch]",
         );
         process.exit(0);
         break;
@@ -191,12 +200,15 @@ async function main() {
 
   console.log("\nProduction iOS App Store release");
   console.log("────────────────────────────────");
-  console.log(`  Workflow : ${WORKFLOW}`);
-  console.log(`  Ref      : ${REF}`);
-  console.log(`  SHA      : ${sha}`);
-  console.log(`  Backend  : PRODUCTION (hushh-pda / api.hushh.ai)`);
-  console.log(`  Mode     : ${mode}`);
-  if (opts.notes) console.log(`  Notes    : ${opts.notes}`);
+  console.log(`  Workflow  : ${WORKFLOW}`);
+  console.log(`  Ref       : ${REF}`);
+  console.log(`  SHA       : ${sha}`);
+  console.log(`  Backend   : UAT (hushh-pda-uat) — same as TestFlight`);
+  console.log(`  Mode      : ${mode}`);
+  if (!opts.dryRun) {
+    console.log(`  What's New : ${opts.whatsNew || "(workflow default)"}`);
+  }
+  if (opts.notes) console.log(`  Notes     : ${opts.notes}`);
   console.log("");
 
   if (!opts.yes) {
@@ -213,9 +225,12 @@ async function main() {
 
   const ghArgs = ["workflow", "run", WORKFLOW, "--ref", REF, "-f", `sha=${sha}`];
   if (opts.dryRun) ghArgs.push("-f", "dry_run=true");
+  if (opts.whatsNew) ghArgs.push("-f", `whats_new=${opts.whatsNew}`);
   if (opts.notes) ghArgs.push("-f", `notes=${opts.notes}`);
+  // --ack-blockers is a local CLI safety gate (checked above); the workflow no
+  // longer takes an ack input — one-click submit is the single submit_for_review flag.
   if (opts.submit) {
-    ghArgs.push("-f", "submit_for_review=true", "-f", "ack_publish_blockers=true");
+    ghArgs.push("-f", "submit_for_review=true");
   }
 
   console.log(`\n$ gh ${ghArgs.join(" ")}\n`);

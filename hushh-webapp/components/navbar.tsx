@@ -188,14 +188,16 @@ function navOptionForKey(
   feedUnreadCount: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
-  // Pending-consent badge home: the dedicated "guardian" tab when it exists
-  // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One Agents dashboard.
+  // Feed is the single notification home in the persistent navigation. Its
+  // live "Needs you" section includes pending consent requests, while its
+  // chronological section owns unread Feed events. Consent is not currently a
+  // feed_events writer, so these are disjoint counts.
   let badge: number | undefined;
-  if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
-    badge = pendingConsents;
-  } else if (key === "feed" && feedUnreadCount > 0) {
-    badge = feedUnreadCount;
+  if (key === "feed") {
+    const feedNotificationCount = pendingConsents + feedUnreadCount;
+    if (feedNotificationCount > 0) {
+      badge = feedNotificationCount;
+    }
   }
   return { ...option, badge };
 }
@@ -247,7 +249,7 @@ export const Navbar = ({
       // Never record the onboarding wizard as the RIA entry path — otherwise an
       // established advisor who opens onboarding once (e.g. via profile "Edit
       // licence") gets sent back into the wizard on every later RIA open,
-      // overriding the correct riaEntryRoute (switch → RIA_HOME) and causing the
+      // overriding the correct riaEntryRoute (switch → RIA_PROFILE) and causing the
       // onboarding→profile flash.
       const isOnboardingRoute =
         pathname === ROUTES.RIA_ONBOARDING ||

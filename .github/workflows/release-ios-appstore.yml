@@ -1,20 +1,25 @@
 name: Release iOS to App Store
 
-# Production App Store release for Hushh One iOS. Cuts a build from an exact green
-# `main` SHA, builds the Capacitor app against the PRODUCTION backend + PRODUCTION
-# Firebase (hushh-pda), signs with Apple-managed signing via an App Store Connect
-# API key using the production APNs entitlement (AppRelease.entitlements), uploads
-# to App Store Connect, and then completes every automatable App Store step up to
-# the final Apple review action.
+# Public App Store release for Hushh One iOS. Cuts a build from an exact green
+# `main` SHA and — by product decision — ships the SAME frontend + backend that
+# is live on UAT: it builds the Capacitor app against the UAT backend + UAT
+# Firebase (hushh-pda-uat), signs with Apple-managed signing via an App Store
+# Connect API key using the production APNs entitlement (AppRelease.entitlements,
+# required for any store binary), uploads to App Store Connect, sets the required
+# "What's New in This Version" notes, attaches the build, and — when asked — takes
+# the single irreversible "submit for App Store review" action.
 #
 # The same archive/export/upload is what feeds TestFlight; the App Store vs
-# TestFlight difference is entirely at the version/submission layer below. This
-# workflow does NOT auto-submit for public review: the irreversible "submit for
-# App Store review" action only runs when BOTH `submit_for_review` and
-# `ack_publish_blockers` are explicitly set true. Left at their defaults, the run
-# stops after attaching the processed build to a MANUAL-release App Store version.
+# TestFlight difference is entirely at the version/submission layer below. Set
+# `submit_for_review=true` for the one-click path (build -> upload -> set What's
+# New -> attach -> submit for public review). Left false, the run stops after
+# attaching the processed build to a MANUAL-release App Store version.
 #
-# Prod web sibling: .github/workflows/deploy-production.yml
+# Backend note: this store build points at the UAT backend on purpose (latest
+# frontend + latest backend, matching UAT). Push on a store binary routes through
+# Apple's PRODUCTION APNs, so the UAT Firebase project must hold a production APNs
+# key for notifications to deliver — see the runbook.
+#
 # TestFlight sibling: .github/workflows/ship-ios-testflight.yml
 # Runbook + secret/IAM setup: docs/guides/mobile/release-ios-appstore.md
 
@@ -31,15 +36,15 @@ on:
         default: false
         type: boolean
       submit_for_review:
-        description: "IRREVERSIBLE: submit the build for public App Store review (requires ack_publish_blockers)"
+        description: "IRREVERSIBLE one-click: upload, set What's New, attach, and SUBMIT for public App Store review. False = stop after attaching the build."
         required: false
         default: false
         type: boolean
-      ack_publish_blockers:
-        description: "I have cleared every publish-safety blocker in docs/guides/mobile/release-ios-appstore.md"
+      whats_new:
+        description: "What's New in This Version (App Store release notes; Apple requires this for every new version)"
         required: false
-        default: false
-        type: boolean
+        default: "Stability improvements and bug fixes."
+        type: string
       notes:
         description: "Optional note for the run summary"
         required: false
@@ -48,10 +53,13 @@ on:
 permissions:
   contents: read
   checks: read
-  id-token: write
 
 env:
-  GCP_PROJECT_ID: hushh-pda
+  # This public App Store build ships the UAT frontend + UAT backend by product
+  # decision (same as what's live on UAT / TestFlight), so it authenticates to
+  # and reads its contract from hushh-pda-uat, exactly like the TestFlight
+  # pipeline. The App Store vs TestFlight difference is only the submission layer.
+  GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
@@ -113,16 +121,6 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           git --no-pager log -1 --oneline
 
-      - name: Validate Google Cloud workload identity configuration
-        shell: bash
-        env:
-          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-        run: |
-          set -euo pipefail
-          test -n "$WIF_PROVIDER" || { echo "Missing environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
-          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
-
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -149,15 +147,13 @@ jobs:
           # deps must exist before any Swift Package Manager resolution.
           npm ci --prefix hushh-webapp
 
-      - name: Authenticate to Google Cloud (production, WIF)
-        id: gcp-auth
+      - name: Authenticate to Google Cloud (UAT)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          create_credentials_file: true
-          export_environment_variables: true
+          # UAT-scoped SA key (repo-level secret, inherited by the production
+          # environment). This build's contract, Firebase config, and ASC key all
+          # live in hushh-pda-uat, so it authenticates there like TestFlight does.
+          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -173,15 +169,16 @@ jobs:
             exit 1
           fi
 
-      - name: Materialize production frontend contract + native Firebase config
+      - name: Materialize UAT frontend contract + native Firebase config
         shell: bash
         run: |
           set -euo pipefail
 
-          # Each NEXT_PUBLIC_* value is a GCP Secret Manager secret in hushh-pda
-          # (same source of truth deploy-production.yml uses). The prod prep script
-          # (prepare-ios-prod-archive.mjs) lets process env override APP_RUNTIME_PROFILE
-          # and NEXT_PUBLIC_* keys, and hard-fails on a UAT or localhost backend.
+          # Each NEXT_PUBLIC_* value is a GCP Secret Manager secret in
+          # hushh-pda-uat (same source of truth deploy-uat.yml / the TestFlight
+          # pipeline use). prepare-ios-uat-archive.mjs lets process env override
+          # APP_RUNTIME_PROFILE and NEXT_PUBLIC_* keys; the guard below requires
+          # the UAT backend, since this store build ships against UAT by design.
           get() {
             gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
           }
@@ -196,16 +193,21 @@ jobs:
 
           BACKEND_URL="$(get BACKEND_URL)"
           require BACKEND_URL "$BACKEND_URL"
-          # Fail fast on a non-production backend before the heavy web build.
+          # This store build ships the UAT backend by design. Fail fast BEFORE the
+          # heavy web build if the resolved backend is not the UAT host (guards
+          # against a mis-scoped project or a prod/localhost URL sneaking in).
           BACKEND_HOST="$(printf '%s' "$BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
           case "$BACKEND_HOST" in
-            *uat*|*f2gsa4kfsq*|localhost|127.0.0.1|0.0.0.0|10.0.2.2)
-              echo "Refusing release: NEXT_PUBLIC_BACKEND_URL resolves to non-production host '$BACKEND_HOST'." >&2
+            *uat*|*f2gsa4kfsq*)
+              : # expected UAT backend
+              ;;
+            *)
+              echo "Refusing release: this App Store build must ship the UAT backend, but NEXT_PUBLIC_BACKEND_URL resolves to '$BACKEND_HOST' (project ${GCP_PROJECT_ID})." >&2
               exit 1
               ;;
           esac
           APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$APP_URL" ] || APP_URL="https://one.hushh.ai"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
 
           FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
@@ -222,8 +224,8 @@ jobs:
           echo "::add-mask::$FB_VAPID"
           [ -n "$MAPS_IOS_KEY" ] && echo "::add-mask::$MAPS_IOS_KEY"
 
-          put APP_RUNTIME_PROFILE "prod"
-          put NEXT_PUBLIC_APP_ENV "production"
+          put APP_RUNTIME_PROFILE "uat"
+          put NEXT_PUBLIC_APP_ENV "uat"
           put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
           put NEXT_PUBLIC_APP_URL "$APP_URL"
           put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
@@ -240,11 +242,11 @@ jobs:
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
 
-          # Native GoogleService-Info.plist for the iOS target (production Firebase).
+          # Native GoogleService-Info.plist for the iOS target (UAT Firebase).
           PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
           if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
             echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
-            echo "Create it from the PRODUCTION iOS GoogleService-Info.plist:" >&2
+            echo "Create it from the UAT iOS GoogleService-Info.plist:" >&2
             echo "  base64 -i GoogleService-Info.plist | gcloud secrets create IOS_GOOGLESERVICE_INFO_PLIST_B64 --data-file=- --project=${GCP_PROJECT_ID}" >&2
             echo "See docs/guides/mobile/release-ios-appstore.md." >&2
             exit 1
@@ -261,7 +263,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The ASC signing key lives in GCP Secret Manager (hushh-pda):
+          # The ASC signing key lives in GCP Secret Manager (hushh-pda-uat):
           #   APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID / _ISSUER_ID.
           get() {
             gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
@@ -299,11 +301,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
           security default-keychain -s "$KEYCHAIN"
 
-      - name: Prepare iOS project (web build + cap sync, PRODUCTION backend)
+      - name: Prepare iOS project (web build + cap sync, UAT backend)
         shell: bash
         run: |
           set -euo pipefail
-          npm run --prefix hushh-webapp ios:prepare:prod
+          npm run --prefix hushh-webapp ios:prepare:uat
 
       - name: Create App Store Connect Python venv
         shell: bash
@@ -351,7 +353,10 @@ jobs:
           set -euo pipefail
           set -o pipefail
           # CODE_SIGN_ENTITLEMENTS override swaps aps-environment development ->
-          # production for the released binary without editing the committed pbxproj.
+          # production for the released binary without editing the committed
+          # pbxproj. A store binary must use production APNs regardless of which
+          # backend/Firebase it talks to (here UAT), so the UAT Firebase project
+          # needs a production APNs key for push to deliver -- see the runbook.
           xcodebuild \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -391,22 +396,20 @@ jobs:
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
 
-      - name: Prepare App Store version (attach build; gated submit)
+      - name: Prepare App Store version (set What's New, attach build; one-click submit)
         id: appstore
         if: ${{ github.event.inputs.dry_run != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
+          # bash 3.2 on macos runners: guard the possibly-empty array under set -u.
           SUBMIT_ARGS=()
           if [ "${{ github.event.inputs.submit_for_review }}" = "true" ]; then
-            if [ "${{ github.event.inputs.ack_publish_blockers }}" != "true" ]; then
-              echo "submit_for_review=true requires ack_publish_blockers=true. Refusing to submit for public review." >&2
-              exit 1
-            fi
-            echo "submit_for_review + ack_publish_blockers set: WILL submit for public App Store review (IRREVERSIBLE)."
+            echo "::warning title=Public App Store submission::submit_for_review=true -> this run will SUBMIT the build for public Apple review (IRREVERSIBLE). Confirm the publish-safety blockers in KT/hushh-one-publish-safety-audit.md (led by PrivacyInfo.xcprivacy privacy-label reconciliation) are cleared, and that ASC metadata/screenshots/age rating/pricing are set for this version."
+            echo "submit_for_review=true: will set What's New, attach the build, and SUBMIT for public App Store review."
             SUBMIT_ARGS+=(--submit)
           else
-            echo "Prepare-only: ensuring MANUAL App Store version and attaching build; NOT submitting for review."
+            echo "Prepare-only: setting What's New, ensuring the MANUAL App Store version, and attaching the build; NOT submitting for review."
           fi
           "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/submit-appstore-version.py \
             --p8-path "${RUNNER_TEMP}/asc.p8" \
@@ -416,7 +419,8 @@ jobs:
             --pbxproj "${PBXPROJ}" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --release-type MANUAL \
-            "${SUBMIT_ARGS[@]}"
+            --whats-new "${{ github.event.inputs.whats_new }}" \
+            "${SUBMIT_ARGS[@]+"${SUBMIT_ARGS[@]}"}"
 
       - name: Upload build artifacts
         if: always()
@@ -453,17 +457,21 @@ jobs:
             echo "| Version | ${MARKETING:-unknown} |"
             echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
-            echo "| Backend | PRODUCTION (hushh-pda) |"
+            echo "| Backend | UAT (hushh-pda-uat) |"
             echo "| Mode | ${MODE} |"
             if [ -n "${{ github.event.inputs.notes }}" ]; then
               echo "| Notes | ${{ github.event.inputs.notes }} |"
             fi
             echo ""
             if [ "${{ github.event.inputs.dry_run }}" != "true" ] && [ "${{ github.event.inputs.submit_for_review }}" != "true" ]; then
-              echo "> Prepared the App Store version with the build attached. The final"
-              echo "> **Submit for Review** action (and Apple's manual metadata / screenshots /"
-              echo "> privacy nutrition labels / age rating / pricing) is still required — see"
-              echo "> the runbook. Re-dispatch with \`submit_for_review=true\` +"
-              echo "> \`ack_publish_blockers=true\` to submit programmatically."
+              echo "> Set What's New, prepared the App Store version, and attached the build."
+              echo "> The final **Submit for Review** action was NOT fired. Re-dispatch with"
+              echo "> \`submit_for_review=true\` to submit for public Apple review in one click"
+              echo "> (screenshots / age rating / pricing are reused from the existing ASC"
+              echo "> listing and stay stable across versions — see the runbook). Confirm the"
+              echo "> publish-safety blockers (KT/hushh-one-publish-safety-audit.md) first."
+            elif [ "${{ github.event.inputs.submit_for_review }}" = "true" ] && [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+              echo "> Set What's New, attached the build, and SUBMITTED for public App Store"
+              echo "> review. Track the review state in App Store Connect."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

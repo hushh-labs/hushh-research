@@ -186,7 +186,7 @@ Use plain-language labels on persona-facing surfaces. Internal architecture term
 Rules:
 
 1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
-2. Prefer descriptive labels such as `Personal Data` when the surface is user-facing.
+2. Prefer descriptive labels such as `Personal information` when the surface is user-facing.
 3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
 4. Consumer notifications and background-task rows must not show implementation diagnostics such as manifests, schemas, timings, tokens, correlation ids, route names, raw provider errors, or dummy-save language.
 5. Put diagnostics in logs, task metadata, or developer-only panels. The default copy should tell the user what is happening and what they can do next.
@@ -337,3 +337,20 @@ Rules:
 1. The whole row owns hover, press, and ripple.
 2. Inner text blocks must not create a second hover state.
 3. Use `asChild` for link rows so anchors inherit the same interaction contract.
+
+## Pattern: Identity-First Detail Surfaces
+
+Use `AdaptiveDetailSurface` (or an existing compatibility adapter such as
+`KaiControlSurface`) for entity drill-ins.
+
+Rules:
+
+1. Put the supplied logo, avatar, or semantic glyph in the shared `leading`
+   header slot.
+2. Follow it with one entity title and one concise metadata line.
+3. Start the body with new evidence such as price, status, or the primary
+   decision—not another identity card.
+4. Do not repeat the title, subtitle, thesis, or the same badges in multiple
+   body sections.
+5. Hide repair flags, provider diagnostics, and other implementation state from
+   consumer details; expose only actionable freshness or availability states.

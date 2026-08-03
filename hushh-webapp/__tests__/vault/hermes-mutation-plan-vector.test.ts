@@ -66,4 +66,65 @@ describe("Hermes mutation plan v2 golden vector", () => {
       sharing_impact_acknowledged: true,
     });
   });
+
+  it("matches the shared delete-plan shape", async () => {
+    const currentManifest = manifest();
+    const plan = await buildConfirmedPkmMutationPlanV2({
+      userId: vector.user_id,
+      domain: vector.domain,
+      currentManifest,
+      targetManifest: null,
+      scopePath: vector.scope_path,
+      operation: "delete",
+      confidence: 1,
+      explanation: "Delete the synthetic profile marker.",
+      sourceRevision: vector.source_revision,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "hussh_one_hermes",
+        sharingImpactAcknowledged: true,
+        sharingImpact: {
+          activeRecipientCount: vector.sharing_impact.active_recipient_count,
+          recipientLabels: vector.sharing_impact.recipient_labels,
+          entersNextExportRevision:
+            vector.sharing_impact.enters_next_export_revision,
+          summary: vector.sharing_impact.summary,
+          affectedGrantIds: vector.sharing_impact.affected_grant_ids,
+          affectedExportIds: vector.sharing_impact.affected_export_ids,
+        },
+      },
+    });
+
+    expect(plan.operation).toBe("delete");
+    expect(plan.source_scope_handle).toBe(vector.scope_handle);
+    expect(plan).not.toHaveProperty("target_scope_handle");
+  });
+
+  it("records a distinct owner auto-save authorization without claiming review", async () => {
+    const currentManifest = manifest();
+    const plan = await buildConfirmedPkmMutationPlanV2({
+      userId: vector.user_id,
+      domain: vector.domain,
+      currentManifest,
+      targetManifest: currentManifest,
+      scopePath: vector.scope_path,
+      operation: "update",
+      confirmation: {
+        authorizationMode: "owner_auto_save_policy",
+        surface: "chat",
+        source: "agent_chat_auto_save_policy",
+        autoSavePolicyVersion: 1,
+        autoSavePolicyEnabledAt: "2026-07-30T00:00:00.000Z",
+      },
+    });
+
+    expect(plan.confirmation_receipt).toMatchObject({
+      authorization_mode: "owner_auto_save_policy",
+      auto_save_policy_version: 1,
+      auto_save_policy_enabled_at: "2026-07-30T00:00:00.000Z",
+      sharing_impact_acknowledged: false,
+    });
+    expect(plan.explanation).toContain("enabled automatic saving");
+  });
 });

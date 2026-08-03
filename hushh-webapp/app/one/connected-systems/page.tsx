@@ -1,27 +1,39 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { ConnectedSystemDetailClient } from "@/app/one/connected-systems/[systemId]/connected-system-detail-client";
 import { useAuth } from "@/hooks/use-auth";
+import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 
 export default function ConnectedSystemsPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
   const selectedSystemId = String(searchParams.get("system") || "").trim();
 
+  useEffect(() => {
+    if (!selectedSystemId) return;
+    router.replace(
+      buildConnectedSystemRoute(selectedSystemId, {
+        agentActionId: searchParams.get("agentActionId"),
+      }),
+      { scroll: false },
+    );
+  }, [router, searchParams, selectedSystemId]);
+
+  // One release of query-backed detail links remains readable while the client
+  // replaces it with the canonical finite nested route above.
   if (selectedSystemId) {
     return (
       <ConnectedSystemDetailClient
@@ -49,13 +61,6 @@ export default function ConnectedSystemsPage() {
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="Connected systems"
-          description="Set up and manage profiles with your connected CRM systems."
-          accent="neutral"
-        />
-      </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
           cacheUserId={user?.uid}

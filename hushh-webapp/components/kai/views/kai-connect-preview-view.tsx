@@ -437,7 +437,7 @@ function NotificationsSheet({
         {[
           { title: "Registration verified", body: "SEBI network check completed", time: "2m", tone: "up" },
           { title: "Kai pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
-          { title: "Consent receipt saved", body: "No advisor data shared yet", time: "3h", tone: "neutral" },
+          { title: "Consent receipt saved", body: "No advisor information shared yet", time: "3h", tone: "neutral" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
             <span

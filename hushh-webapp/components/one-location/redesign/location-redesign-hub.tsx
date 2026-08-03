@@ -45,6 +45,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import type {
   OneLocationAccessRequest,
@@ -86,6 +87,12 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import {
+  buildNearbyCheckInResumeHref,
+  isNearbyPrivateReturnToken,
+  NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
+} from "@/lib/one-location/nearby-private-navigation";
 import type {
   EmergencyInfo,
   EmergencyNumberLookupStatus,
@@ -95,6 +102,20 @@ import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-l
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
 export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+
+export type PrivateCheckInResult = {
+  succeededRecipientIds: string[];
+  failedRecipientIds: string[];
+};
+
+export type PrivateCheckInRequest = {
+  recipientIds: string[];
+  durationHours: string;
+  message?: string;
+  point: PlainLocationPoint;
+  clientOperationId: string;
+  confirmedAt: string;
+};
 
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
@@ -133,12 +154,17 @@ export type LocationHubViewModel = {
     actionLabel?: string | null;
   };
   permissionIsPrompt: boolean;
+  locationEnabled: boolean;
+  autoShareEnabled: boolean;
+  locationPaused: boolean;
+  locationAccuracyLimited: boolean;
   myLocationPoint: PlainLocationPoint | null;
   myLocationError: string | null;
 
   /* data lists */
   recipients: OneLocationRecipient[];
   visibleRecipients: OneLocationRecipient[];
+  visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
   receivedGrants: OneLocationGrant[];
   pendingOwnerRequests: OneLocationAccessRequest[];
@@ -149,6 +175,7 @@ export type LocationHubViewModel = {
 
   /* composer state */
   recipientSearch: string;
+  shareRecipientSearch: string;
   selectedRecipientIds: string[];
   selectedRequestOwnerIds: string[];
   shareDurationHours: string;
@@ -161,20 +188,24 @@ export type LocationHubViewModel = {
 
   /* setters (presentation state owned by page) */
   setRecipientSearch: (v: string) => void;
+  setShareRecipientSearch: (v: string) => void;
   setShareDurationHours: (v: string) => void;
   setShareMessage: (v: string) => void;
   setDurationHours: (v: string) => void;
   setRequestMessage: (v: string) => void;
   setShareReviewOpen: (v: boolean) => void;
+  resetShareComposer: () => void;
+  startShareComposer: (initialRecipientId?: string) => void;
 
   /* selection */
   toggleShareRecipient: (id: string, surface?: string) => void;
   toggleRequestOwner: (id: string, surface?: string) => void;
 
   /* actions — wired 1:1 to existing handlers */
-  onRefresh: () => void;
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
+  onResumeMyLocation: () => void;
+  onAutoShareChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -213,14 +244,9 @@ export type LocationHubViewModel = {
   onAddSmsContact: (recipientUserId: string) => void;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
-  /* Check-In (quick action) — reuses the encrypted share pipeline. The message
-     is surfaced in the recipient's notification (e.g. "Alex: I've checked in
-     here, let's catch up") so they see who checked in and why. */
-  onCheckIn: (
-    recipientIds: string[],
-    durationHours: string,
-    message?: string,
-  ) => void;
+  /* Check-In (quick action) — reuses the encrypted share pipeline. */
+  onCheckIn: (request: PrivateCheckInRequest) => Promise<PrivateCheckInResult>;
+  onDiscardPrivateCheckInOperation: (operationId: string | null) => void;
 
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
@@ -238,6 +264,7 @@ export type LocationHubViewModel = {
   renderMapPreview: (
     point: PlainLocationPoint,
     showNavigation?: boolean,
+    viewportResetKey?: string | number,
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -261,6 +288,9 @@ type FlowKind =
 // top-left back button in the app chrome (and the OS/hardware back button) knows
 // to return to the Location hub instead of leaving the whole page to /one.
 const FLOW_ACTION_PARAM = "action";
+const FLOW_SOURCE_PARAM = "source";
+const PRIVATE_CHECK_IN_ACTION = "private-check-in";
+const NEARBY_CHECK_IN_SOURCE = "nearby";
 
 const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   share: "share",
@@ -283,18 +313,71 @@ const RETIRED_ACTIONS = new Set([
   "safe-arrival",
 ]);
 
-const ACTION_TO_FLOW: Record<string, FlowKind> = Object.fromEntries(
-  Object.entries(FLOW_TO_ACTION).map(([flow, action]) => [
-    action,
-    flow as FlowKind,
-  ]),
-);
+const ACTION_TO_FLOW: Record<string, FlowKind> = {
+  ...Object.fromEntries(
+    Object.entries(FLOW_TO_ACTION).map(([flow, action]) => [
+      action,
+      flow as FlowKind,
+    ]),
+  ),
+  [PRIVATE_CHECK_IN_ACTION]: "check-in",
+};
 
 const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
   privacy: "settings",
 };
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
+
+function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
+  const locationOn = vm.locationEnabled;
+  const toggling = BUSY(vm, "selfLocation");
+  const refreshing = BUSY(vm, "load");
+  const statusLabel = vm.locationPaused
+    ? "Location paused"
+    : vm.locationAccuracyLimited
+      ? "Location limited"
+      : locationOn
+        ? "Location on"
+        : "Location off";
+
+  const handleLocationChange = (checked: boolean) => {
+    if (checked === locationOn) return;
+    if (checked) {
+      vm.onShowMyLocation();
+      return;
+    }
+    vm.onHideMyLocation();
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Location preview control"
+      className="ml-auto flex max-w-full shrink-0 items-center justify-end"
+      data-testid="one-location-header-actions"
+    >
+      <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
+        <span
+          className="hidden whitespace-nowrap sm:inline"
+          aria-hidden="true"
+        >
+          {statusLabel}
+        </span>
+        <Switch
+          checked={locationOn}
+          onCheckedChange={handleLocationChange}
+          disabled={toggling || refreshing}
+          aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          className={cn(
+            "data-[state=checked]:bg-emerald-500 dark:data-[state=checked]:bg-emerald-400",
+            toggling && "animate-pulse",
+          )}
+        />
+      </div>
+    </div>
+  );
+}
 
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
@@ -307,6 +390,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
+  const nearbyPrivateCheckIn =
+    searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
+    searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
+  const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
+  const nearbyCheckInReturnHref =
+    nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
+      ? buildNearbyCheckInResumeHref(nearbyReturnToken)
+      : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`;
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
@@ -393,9 +485,24 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [locationType, setLocationType] =
+  const [shareLocationType, setShareLocationType] =
+    useState<LocationTypeValue>("precise");
+  const [temporaryLinkLocationType, setTemporaryLinkLocationType] =
     useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
+  const activeFlowRef = useRef<FlowKind>("none");
+  const resetShareComposer = vm.resetShareComposer;
+  const startShareComposer = vm.startShareComposer;
+  const setShareReviewOpen = vm.setShareReviewOpen;
+
+  const resetShareLocalState = useCallback(() => {
+    setShareStep("person");
+    setShareLocationType("precise");
+  }, []);
+  const resetShareDraft = useCallback(() => {
+    resetShareLocalState();
+    resetShareComposer();
+  }, [resetShareComposer, resetShareLocalState]);
 
   // A location action flow is a focused sub-screen of /one/location.
   // The open flow is mirrored into the URL (`?action=…`) so the SINGLE top-left
@@ -407,18 +514,29 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const openFlow = useCallback(
     (next: Exclude<FlowKind, "none">) => {
       setFlow(next);
+      activeFlowRef.current = next;
       pendingFlowRef.current = next;
-      if (next === "share") setShareStep("person");
       const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_SOURCE_PARAM);
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     },
     [pathname, router, searchParams],
   );
 
+  const openShareFlow = useCallback(
+    (initialRecipientId?: string) => {
+      resetShareLocalState();
+      startShareComposer(initialRecipientId);
+      openFlow("share");
+    },
+    [openFlow, resetShareLocalState, startShareComposer],
+  );
+
   const closeFlow = useCallback(
     (nextTab?: LocationHubTab) => {
       setFlow("none");
+      activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
       vm.setShareReviewOpen(false);
@@ -428,6 +546,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete(FLOW_SOURCE_PARAM);
       if (nextTab === "now") {
         params.delete(LOCATION_HUB_TAB_PARAM);
       } else if (nextTab) {
@@ -440,6 +559,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     },
     [pathname, router, searchParams, vm],
   );
+
+  const closeShareFlow = useCallback(() => {
+    resetShareDraft();
+    closeFlow();
+  }, [closeFlow, resetShareDraft]);
+
+  const returnToNearbyCheckIn = useCallback(() => {
+    setFlow("none");
+    activeFlowRef.current = "none";
+    pendingFlowRef.current = "none";
+    setShareStep("person");
+    vm.setShareReviewOpen(false);
+    router.replace(nearbyCheckInReturnHref, { scroll: false });
+  }, [nearbyCheckInReturnHref, router, vm]);
 
   // Keep the flow view in sync with the URL action param: the chrome/OS back
   // button strips the param, which closes the flow back to the hub. A direct
@@ -465,23 +598,44 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       });
       return;
     }
-    const desired: FlowKind = action
-      ? (ACTION_TO_FLOW[action] ?? "none")
+    const flowAction = action === "event-check-in" ? "check-in" : action;
+    const requested: FlowKind = flowAction
+      ? (ACTION_TO_FLOW[flowAction] ?? "none")
       : "none";
+    if (
+      nearbyCheckInAvailable &&
+      (action === "check-in" || action === "event-check-in")
+    ) {
+      router.replace(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`, {
+        scroll: false,
+      });
+      return;
+    }
+    const desired = requested;
     if (desired === "none" && pendingFlowRef.current !== "none") {
       return;
     }
     pendingFlowRef.current = "none";
+    const previousFlow = activeFlowRef.current;
+    if (previousFlow === "share" && desired !== "share") {
+      resetShareDraft();
+    } else if (previousFlow !== "share" && desired === "share") {
+      resetShareDraft();
+    }
+    activeFlowRef.current = desired;
     setFlow((current) => (current === desired ? current : desired));
     if (desired === "none") {
       setShareStep("person");
-      vm.setShareReviewOpen(false);
+      setShareReviewOpen(false);
     }
-    // `vm.setShareReviewOpen` is a stable useState setter; depend on searchParams
-    // only so this runs on every URL change (open/close) without re-firing on
-    // unrelated vm re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, router, searchParams]);
+  }, [
+    nearbyCheckInAvailable,
+    pathname,
+    resetShareDraft,
+    router,
+    searchParams,
+    setShareReviewOpen,
+  ]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
   // the 3-step share flow and return to the main One Location hub.
@@ -492,17 +646,31 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // Closing the flow returns to the hub; the share flow always launches
       // from the "Now" tab, so no explicit tab change is needed.
       setFlow("none");
+      activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
+      setShareLocationType("precise");
+      if (nearbyPrivateCheckIn) {
+        router.replace(nearbyCheckInReturnHref, { scroll: false });
+        return;
+      }
       // Drop the action param so the hub URL is clean after a completed share.
       if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
         const params = new URLSearchParams(searchParams.toString());
         params.delete(FLOW_ACTION_PARAM);
+        params.delete(FLOW_SOURCE_PARAM);
         const qs = params.toString();
         router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       }
     }
-  }, [vm.shareCompletedTick, pathname, router, searchParams]);
+  }, [
+    vm.shareCompletedTick,
+    nearbyCheckInReturnHref,
+    nearbyPrivateCheckIn,
+    pathname,
+    router,
+    searchParams,
+  ]);
 
   /* ----------------------------------------------------------------- */
   /* Task flows (full-screen, no local tabs)                           */
@@ -519,9 +687,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={locationType}
-            setLocationType={setLocationType}
-            onClose={closeFlow}
+            locationType={shareLocationType}
+            setLocationType={setShareLocationType}
+            onClose={closeShareFlow}
           />
         ) : flow === "ask" ? (
           <AskFlow
@@ -531,7 +699,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onClose={closeFlow}
           />
         ) : flow === "check-in" ? (
-          <CheckInFlow vm={vm} onClose={closeFlow} />
+          <CheckInFlow
+            vm={vm}
+            entrySource={nearbyPrivateCheckIn ? "nearby" : undefined}
+            onClose={
+              nearbyPrivateCheckIn ? returnToNearbyCheckIn : () => closeFlow()
+            }
+          />
         ) : flow === "sos" ? (
           <SosFlow
             vm={vm}
@@ -573,15 +747,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "settings" ? (
           <LocationSettingsFlow
+            vm={vm}
             smsContactCount={vm.smsContactUserIds.length}
-            onManageSharing={() => closeFlow("people")}
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
           <TemporaryLinkFlow
             vm={vm}
-            locationType={locationType}
-            setLocationType={setLocationType}
+            locationType={temporaryLinkLocationType}
+            setLocationType={setTemporaryLinkLocationType}
             onClose={closeFlow}
           />
         )}
@@ -595,50 +769,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Location Agent"
+        title={
+          <span className="inline-flex h-9 items-center whitespace-nowrap">
+            Location Agent
+          </span>
+        }
         icon={MapPin}
         accent="neutral"
         actionsInlineMobile
-        actions={
-          (() => {
-            const locationOn = Boolean(vm.myLocationPoint);
-            const toggling = BUSY(vm, "selfLocation");
-            return (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                role="switch"
-                aria-checked={locationOn}
-                aria-label={
-                  locationOn ? "Turn location off" : "Turn location on"
-                }
-                onClick={
-                  locationOn ? vm.onHideMyLocation : vm.onShowMyLocation
-                }
-                disabled={toggling || BUSY(vm, "load")}
-                className={cn(
-                  "gap-2 rounded-full font-semibold transition-colors",
-                  locationOn
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200"
-                    : "border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted/60",
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-2 w-2 rounded-full transition-colors",
-                    locationOn
-                      ? "bg-emerald-500 dark:bg-emerald-400"
-                      : "bg-muted-foreground/40",
-                    toggling && "animate-pulse",
-                  )}
-                  aria-hidden="true"
-                />
-                {locationOn ? "Location on" : "Location off"}
-              </Button>
-            );
-          })()
-        }
+        actions={<LocationHeaderActions vm={vm} />}
       />
 
 
@@ -648,12 +787,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
+          viewportMinHeight="0px"
         >
           <LocationHubPanel>
             <NowHub
               vm={vm}
-              onStartShare={() => openFlow("share")}
-              onCheckIn={() => openFlow("check-in")}
+              onStartShare={() => openShareFlow()}
+              onCheckIn={() =>
+                nearbyCheckInAvailable
+                  ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
+                  : openFlow("check-in")
+              }
+              checkInSubtitle={
+                nearbyCheckInAvailable ? "See people nearby" : "Share now"
+              }
               onSos={() => openFlow("sos")}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
@@ -668,7 +815,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm={vm}
               onAddConnections={() => router.push(ROUTES.CONNECT)}
               onInvite={() => openFlow("invite")}
-              onStartShare={() => openFlow("share")}
+              onStartShare={openShareFlow}
               onAsk={() => openFlow("ask")}
             />
           </LocationHubPanel>
@@ -698,6 +845,7 @@ function NowHub({
   vm,
   onStartShare,
   onCheckIn,
+  checkInSubtitle,
   onSos,
   onOpenMap,
   onOpenActiveShares,
@@ -708,6 +856,7 @@ function NowHub({
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
+  checkInSubtitle: string;
   onSos: () => void;
   onOpenMap: () => void;
   onOpenActiveShares: () => void;
@@ -782,7 +931,7 @@ function NowHub({
           tone="green"
           icon={<ShieldCheck className="h-5 w-5" />}
           title="Check-In"
-          subtitle="Share now"
+          subtitle={checkInSubtitle}
           onClick={onCheckIn}
         />
         <QuickActionCard
@@ -811,6 +960,15 @@ function LocationDetailFlow({
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
+  const [grantViewportResetKeys, setGrantViewportResetKeys] = useState<
+    Record<string, number>
+  >({});
+  const recenterGrantViewport = useCallback((grantId: string) => {
+    setGrantViewportResetKeys((current) => ({
+      ...current,
+      [grantId]: (current[grantId] ?? 0) + 1,
+    }));
+  }, []);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -876,10 +1034,23 @@ function LocationDetailFlow({
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
+                  onRecenter={
+                    point ? () => recenterGrantViewport(grant.id) : undefined
+                  }
                   viewBusy={vm.busy === "view"}
-                  message={grant.shareMessage ?? undefined}
+                  message={
+                    point?.checkIn?.message ??
+                    grant.shareMessage ??
+                    undefined
+                  }
                 >
-                  {expanded && point ? vm.renderMapPreview(point, false) : null}
+                  {expanded && point
+                    ? vm.renderMapPreview(
+                        point,
+                        false,
+                        `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
+                      )
+                    : null}
                 </SharedWithMeCard>
               );
             })}
@@ -931,10 +1102,12 @@ function LocationToggle({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -942,10 +1115,12 @@ function LocationToggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
         checked ? "bg-[#34c759]" : "bg-black/15 dark:bg-white/20",
+        disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <span
@@ -959,18 +1134,14 @@ function LocationToggle({
 }
 
 function LocationSettingsFlow({
+  vm,
   smsContactCount,
-  onManageSharing,
   onManageSmsContacts,
 }: {
+  vm: LocationHubViewModel;
   smsContactCount: number;
-  onManageSharing: () => void;
   onManageSmsContacts: () => void;
 }) {
-  // Inert local state for now — real auto-share / pause wiring comes later.
-  const [autoShare, setAutoShare] = useState(false);
-  const [paused, setPaused] = useState(false);
-
   return (
     <div>
       <TaskFlowHeader
@@ -989,14 +1160,15 @@ function LocationSettingsFlow({
               Auto-share my location
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — your circle sees you live, no approval needed. Off — every
-              request needs your approval first.
+              On — approved shares keep receiving live updates. Off — new shares
+              send only the location you explicitly confirm.
             </p>
           </div>
           <LocationToggle
-            checked={autoShare}
-            onChange={setAutoShare}
+            checked={vm.autoShareEnabled}
+            onChange={vm.onAutoShareChange}
             label="Auto-share my location"
+            disabled={BUSY(vm, "selfLocation")}
           />
         </div>
         <div className="flex items-center gap-3.5 py-4">
@@ -1005,13 +1177,21 @@ function LocationSettingsFlow({
               Pause my location
             </p>
             <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Go invisible to everyone until you turn this off.
+              Stop new private-share updates and check out from Nearby. Existing
+              shares keep their expiry and may retain your last encrypted point.
             </p>
           </div>
           <LocationToggle
-            checked={paused}
-            onChange={setPaused}
+            checked={vm.locationPaused}
+            onChange={(next) => {
+              if (next) {
+                vm.onHideMyLocation();
+                return;
+              }
+              vm.onResumeMyLocation();
+            }}
             label="Pause my location"
+            disabled={BUSY(vm, "selfLocation")}
           />
         </div>
       </div>
@@ -1019,29 +1199,10 @@ function LocationSettingsFlow({
       <div className="mt-4 flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
-          Your location is never shared outside your circle. You can revoke
-          access to anyone at any time.
+          Private shares stay in your circle. Nearby Check-In is separate and
+          only starts after you explicitly agree.
         </p>
       </div>
-
-      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Who can see you
-      </p>
-      <button
-        type="button"
-        onClick={onManageSharing}
-        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-      >
-        <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-            Manage sharing
-          </p>
-          <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
-            See and change who has your live location
-          </p>
-        </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
-      </button>
 
       <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
         Safety
@@ -1148,7 +1309,7 @@ function PeopleHub({
   vm: LocationHubViewModel;
   onAddConnections: () => void;
   onInvite: () => void;
-  onStartShare: () => void;
+  onStartShare: (initialRecipientId?: string) => void;
   onAsk: () => void;
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
@@ -1284,10 +1445,7 @@ function PeopleHub({
                     </Button>
                   ) : ready ? (
                     <Button
-                      onClick={() => {
-                        vm.toggleShareRecipient(r.userId, "people_hub");
-                        onStartShare();
-                      }}
+                      onClick={() => onStartShare(r.userId)}
                       className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
                     >
                       Share
@@ -1527,7 +1685,7 @@ function ShareFlow({
   setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
-  const filtered = vm.visibleRecipients;
+  const filtered = vm.visibleShareRecipients;
   const recipientById = new globalThis.Map(
     vm.recipients.map((recipient) => [recipient.userId, recipient]),
   );
@@ -1696,8 +1854,8 @@ function ShareFlow({
         description="Only trusted and location-ready people can receive private live location."
       />
       <PersonSearchInput
-        value={vm.recipientSearch}
-        onChange={vm.setRecipientSearch}
+        value={vm.shareRecipientSearch}
+        onChange={vm.setShareRecipientSearch}
       />
       {filtered.length ? (
         <div className={PEOPLE_LIST_SCROLL_CLASS}>

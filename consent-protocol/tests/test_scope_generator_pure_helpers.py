@@ -403,3 +403,117 @@ class TestMatchesWildcard:
     )
     def test_cross_domain_wildcard_never_matches(self, scope, wildcard):
         assert GEN.matches_wildcard(scope, wildcard) is False
+
+
+# ===========================================================================
+# get_scope_display_info
+# ===========================================================================
+
+
+class TestGetScopeDisplayInfo:
+    """Guards the Connect scope-picker labels.
+
+    Regression: branch-level wildcards (``attr.financial.profile.*``) used to
+    collapse to "All Financial Data" because ``is_wildcard`` was checked before
+    ``attribute_key``. Five financial and three health scopes then rendered as
+    two identical rows in the requestable-scope catalog. These tests lock in
+    that every branch keeps a distinct, legible label while the true
+    domain-level wildcard still reads "All {domain} Data", and that the scope's
+    machine identity (domain / attribute / is_wildcard) is preserved untouched.
+    """
+
+    # --- Domain-level wildcard stays "All {domain} Data" ---
+
+    def test_domain_wildcard_is_all_domain_data(self):
+        info = GEN.get_scope_display_info("attr.financial.*")
+        assert info["display_name"] == "All Financial Data"
+        assert info["domain"] == "financial"
+        assert info["attribute"] is None
+        assert info["is_wildcard"] is True
+
+    def test_health_domain_wildcard_is_all_domain_data(self):
+        info = GEN.get_scope_display_info("attr.health.*")
+        assert info["display_name"] == "All Health & Wellness Data"
+        assert info["attribute"] is None
+
+    # --- Branch wildcards no longer collapse to the domain label ---
+
+    def test_financial_profile_branch_is_not_domain_label(self):
+        info = GEN.get_scope_display_info("attr.financial.profile.*")
+        assert info["display_name"] == "Financial Profile"
+        assert info["display_name"] != "All Financial Data"
+        assert info["domain"] == "financial"
+        assert info["attribute"] == "profile"
+        assert info["is_wildcard"] is True
+
+    def test_financial_documents_branch_is_distinct(self):
+        info = GEN.get_scope_display_info("attr.financial.documents.*")
+        assert info["display_name"] == "Financial Documents"
+        assert info["display_name"] != "All Financial Data"
+        assert info["attribute"] == "documents"
+
+    def test_health_branch_is_not_domain_label(self):
+        info = GEN.get_scope_display_info("attr.health.fitness.*")
+        assert "Fitness" in info["display_name"]
+        assert info["display_name"] != "All Health & Wellness Data"
+        assert info["domain"] == "health"
+        assert info["attribute"] == "fitness"
+
+    # --- Sibling branches are mutually distinct (label + description) ---
+
+    def test_financial_sibling_branches_have_distinct_labels(self):
+        branches = [
+            "attr.financial.portfolio.*",
+            "attr.financial.profile.*",
+            "attr.financial.documents.*",
+            "attr.financial.analysis_history.*",
+            "attr.financial.decisions.*",
+        ]
+        labels = [GEN.get_scope_display_info(s)["display_name"] for s in branches]
+        assert len(set(labels)) == len(labels), f"collapsed labels: {labels}"
+
+    def test_health_sibling_branches_have_distinct_labels(self):
+        branches = [
+            "attr.health.fitness.*",
+            "attr.health.metrics.*",
+            "attr.health.wellness_preferences.*",
+        ]
+        labels = [GEN.get_scope_display_info(s)["display_name"] for s in branches]
+        assert len(set(labels)) == len(labels), f"collapsed labels: {labels}"
+
+    def test_domain_wildcard_and_branch_wildcard_differ(self):
+        domain = GEN.get_scope_display_info("attr.financial.*")["display_name"]
+        branch = GEN.get_scope_display_info("attr.financial.profile.*")["display_name"]
+        assert domain != branch
+
+    # --- Authored subintent metadata is applied to financial branches ---
+
+    def test_financial_branch_uses_authored_subintent_metadata(self):
+        info = GEN.get_scope_display_info("attr.financial.profile.*")
+        # authored FINANCIAL_SUBINTENT_REGISTRY entries carry icon + colour
+        assert info["icon_name"] is not None
+        assert info["color_hex"] is not None
+        assert info["description"]
+
+    # --- Underscored branch keys survive normalisation ---
+
+    def test_underscored_branch_key_preserved(self):
+        info = GEN.get_scope_display_info("attr.financial.analysis_history.*")
+        assert info["attribute"] == "analysis_history"
+        assert info["display_name"] != "All Financial Data"
+
+    # --- Composed fallback for domains with no authored subintents ---
+
+    def test_composed_fallback_label_for_unregistered_branch(self):
+        info = GEN.get_scope_display_info("attr.health.metrics.*")
+        # health registers no subintents, so the label is composed from the
+        # domain display name and the humanised attribute key.
+        assert info["display_name"] == "Health & Wellness — Metrics"
+
+    # --- Non-attr scope identity is preserved ---
+
+    def test_non_attr_scope_returns_scope_as_label(self):
+        info = GEN.get_scope_display_info("vault.owner")
+        assert info["display_name"] == "vault.owner"
+        assert info["domain"] is None
+        assert info["is_wildcard"] is False

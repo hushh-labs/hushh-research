@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   MapPin,
+  RefreshCw,
   Route,
 } from "lucide-react";
 
@@ -55,7 +56,7 @@ function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
 }
 
 function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
-
+  const [viewportResetKey, setViewportResetKey] = useState(0);
   const capturedAt = formatDateTime(point.capturedAt);
   const accuracy =
     typeof point.accuracyM === "number" && Number.isFinite(point.accuracyM)
@@ -65,6 +66,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
     <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-background">
       <div className="relative h-64 overflow-hidden bg-muted">
         <iframe
+          key={`public-location-map:${viewportResetKey}`}
           title="Public location map"
           src={googleMapsEmbedUrl(point)}
           loading="lazy"
@@ -76,6 +78,17 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
           Public location
         </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          aria-label="Recenter public location map"
+          title="Recenter map"
+          onClick={() => setViewportResetKey((current) => current + 1)}
+          className="absolute right-3 top-3 z-10 h-11 w-11 rounded-full border border-border/70 bg-background/90 shadow-lg backdrop-blur-xl hover:bg-background sm:h-9 sm:w-9"
+        >
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        </Button>
       </div>
       <div className="space-y-3 p-3">
         <div className="min-w-0">

@@ -419,6 +419,15 @@ def kms_key_resolution_strict() -> bool:
     return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_STRICT"), default=False)
 
 
+def kai_analyze_durable_run_store_enabled() -> bool:
+    """Feature flag: persist a coarse terminal checkpoint for resumable Kai
+    analyze ("debate") runs to Postgres so a /stream request that lands on a
+    different Cloud Run instance can replay the final DecisionCard instead of
+    404ing (the multi-instance prod-parity bug). Defaults off; when off the
+    run manager behaves exactly as before with zero durable-store I/O."""
+    return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=False)
+
+
 @lru_cache(maxsize=1)
 def get_core_security_settings() -> CoreSecuritySettings:
     # KMS envelope resolution (SC-12 / SC-28): unwrap each DEK from KMS-wrapped

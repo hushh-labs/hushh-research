@@ -37,20 +37,25 @@ export function TopShellTabs({
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Query tabs swap content inside one route. Route-backed workspaces (RIA)
+  // own distinct durable screens and therefore use the single full route
+  // envelope for both taps and swipes.
+  const transitionMode =
+    tabSet.queryParam === null ? "full" : "contextual";
   const optimisticValue = useMemo(() => {
     const activeIntent = [...interactionIntents]
       .reverse()
       .find(
         (intent) =>
           intent.kind === "navigation" &&
-          intent.transitionMode === "contextual" &&
+          intent.transitionMode === transitionMode &&
           (intent.status === "accepted" || intent.status === "committing") &&
           tabSet.tabs.some((tab) => tab.href === intent.target),
       );
     return activeIntent
       ? tabSet.tabs.find((tab) => tab.href === activeIntent.target)?.value
       : null;
-  }, [interactionIntents, tabSet.tabs]);
+  }, [interactionIntents, tabSet.tabs, transitionMode]);
   const selectedValue = optimisticValue ?? tabSet.activeValue;
   const activeIndex = Math.max(
     0,
@@ -87,10 +92,10 @@ export function TopShellTabs({
           router.replace(tab.href, { scroll: false });
         },
         "tap",
-        "contextual",
+        transitionMode,
       );
     },
-    [navigationMode, router, selectedValue, tabSet],
+    [navigationMode, router, selectedValue, tabSet, transitionMode],
   );
 
   return (
@@ -108,15 +113,6 @@ export function TopShellTabs({
         className="relative flex h-full w-full"
         role="tablist"
       >
-        {/* Full-width baseline hairline the accent underline rides along, so
-            the moving indicator reads as travelling a track rather than a
-            floating blue stick. */}
-        {showIndicators ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-current/[0.12]"
-          />
-        ) : null}
         {tabSet.tabs.map((tab, index) => {
           const isActive = tab.value === selectedValue;
           return (

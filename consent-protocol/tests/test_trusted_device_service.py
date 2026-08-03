@@ -24,6 +24,26 @@ class MemoryStore:
     def insert_authorization(self, row: dict[str, Any]) -> None:
         self.authorizations[row["code_hash"]] = dict(row)
 
+    def attach_vault_handoff(
+        self,
+        *,
+        authorization_id: str,
+        user_id: str,
+        handoff: dict[str, Any],
+        now_ms: int,
+    ) -> bool:
+        for row in self.authorizations.values():
+            if (
+                row["authorization_id"] == authorization_id
+                and row["user_id"] == user_id
+                and not row.get("consumed_at")
+                and row["expires_at"] > now_ms
+                and not row.get("vault_handoff")
+            ):
+                row["vault_handoff"] = dict(handoff)
+                return True
+        return False
+
     def consume_authorization(
         self, *, code_hash: str, code_challenge: str, now_ms: int
     ) -> dict[str, Any] | None:
@@ -211,6 +231,42 @@ def test_wrong_pkce_verifier_does_not_consume_code() -> None:
     with pytest.raises(TrustedDeviceError):
         service.exchange_authorization(code=code, code_verifier="b" * 43)
     assert service.exchange_authorization(code=code, code_verifier=verifier)["user_id"] == "user-1"
+
+
+def test_vault_handoff_is_attached_once_and_consumed_with_pkce() -> None:
+    store = MemoryStore()
+    service = TrustedDeviceService(store)
+    _private_key, public_key = _keypair()
+    verifier, challenge = _pkce()
+    authorization = service.create_authorization(
+        user_id="user-1",
+        redirect_uri="http://127.0.0.1:43119/callback",
+        code_challenge=challenge,
+        device_public_key=public_key,
+        device_name="Mac",
+        platform="macos",
+        state="s" * 32,
+    )
+    handoff = {
+        "vault_handoff_alg": "X25519-AES256-GCM",
+        "vault_handoff_wrapped_key": "ciphertext",
+    }
+    service.attach_vault_handoff(
+        authorization_id=authorization.authorization_id,
+        user_id="user-1",
+        handoff=handoff,
+    )
+    with pytest.raises(TrustedDeviceError, match="already attached"):
+        service.attach_vault_handoff(
+            authorization_id=authorization.authorization_id,
+            user_id="user-1",
+            handoff=handoff,
+        )
+
+    code = authorization.redirect_url.split("code=", 1)[1].split("&", 1)[0]
+    exchanged = service.exchange_authorization(code=code, code_verifier=verifier)
+    assert exchanged["authorization_id"] == authorization.authorization_id
+    assert exchanged["vault_handoff"] == handoff
 
 
 def test_reconnecting_replaces_only_the_active_device_for_the_same_account() -> None:

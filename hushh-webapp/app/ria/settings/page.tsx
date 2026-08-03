@@ -1,6 +1,6 @@
 import { ClientRedirect } from "@/components/navigation/client-redirect";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function RiaSettingsCompatibilityPage() {
-  return <ClientRedirect to={buildProfileRoute({ panel: "regulatory" })} />;
+  return <ClientRedirect to={ROUTES.RIA_PROFILE} />;
 }

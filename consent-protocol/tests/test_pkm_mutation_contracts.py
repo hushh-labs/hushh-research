@@ -49,7 +49,7 @@ def test_dynamic_domain_normalization_and_validation() -> None:
     assert is_valid_dynamic_top_level_domain("home_projects") is True
 
 
-@pytest.mark.parametrize("domain", ["vault", "pkm", "attr", "cap", "agent"])
+@pytest.mark.parametrize("domain", ["vault", "pkm", "attr", "cap", "agent", "__quarantine_v1"])
 def test_reserved_dynamic_domain_is_rejected(domain: str) -> None:
     with pytest.raises(ValueError, match="reserved_domain_slug"):
         validate_dynamic_top_level_domain(domain)

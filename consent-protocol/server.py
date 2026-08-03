@@ -62,8 +62,8 @@ REQUIRED_RUNTIME_TABLES = (
     "user_push_tokens",
     "internal_access_events",
     "runtime_persona_state",
-    "ria_pick_uploads",
-    "ria_pick_upload_rows",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
 )
 
 
@@ -805,17 +805,26 @@ async def startup_consent_revocation_worker() -> None:
         logger.info("startup.consent_revocation_worker_skipped reason=pod_mode")
         return
     try:
+        from hushh_mcp.services.connections_service import ConnectionsService
         from hushh_mcp.services.consent_db import ConsentDBService
         from hushh_mcp.services.revocation_worker import start_revocation_loop
 
         _db = ConsentDBService()
 
-        start_revocation_loop(
-            fetch_expired=_db.fetch_expired_consents,
-            revoke=_db.mark_consent_revoked,
-            interval_seconds=300,
+        async def expire_connection_capabilities() -> int:
+            # ConnectionsService is a synchronous SQLAlchemy adapter; preserve
+            # FastAPI's event loop while its atomic temporal projection runs.
+            return await asyncio.to_thread(ConnectionsService().expire_due_capabilities)
+
+        _track_startup_background_task(
+            start_revocation_loop(
+                fetch_expired=_db.fetch_expired_consents,
+                revoke=_db.mark_consent_revoked,
+                expire_capabilities=expire_connection_capabilities,
+                interval_seconds=300,
+            )
         )
-        logger.info("startup.consent_revocation_worker_registered interval_s=300")
+        logger.info("startup.temporal_revocation_worker_registered interval_s=300")
     except Exception as exc:
         # Non-fatal: log and continue — per-request token validation still
         # enforces expiry via validate_token(); the worker is a DB consistency aid.

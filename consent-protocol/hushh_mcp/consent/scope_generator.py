@@ -14,6 +14,7 @@ import logging
 from typing import Optional
 
 from db.db_client import get_db
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,11 @@ class DynamicScopeGenerator:
         """
         domain = domain.lower().strip()
         return f"{self.SCOPE_PREFIX}{domain}{self.WILDCARD_SUFFIX}"
+
+    @classmethod
+    def _is_exportable_scope(cls, *, domain: str, path: str | None = None) -> bool:
+        suffix = f".{path}" if path else ""
+        return not is_private_pkm_export_scope(f"{cls.SCOPE_PREFIX}{domain}{suffix}.*")
 
     def parse_scope(self, scope: str) -> tuple[Optional[str], Optional[str], bool]:
         """
@@ -414,7 +420,10 @@ class DynamicScopeGenerator:
             )
             manifest_result = (
                 self.db.table("pkm_manifests")
-                .select("domain,top_level_scope_paths,externalizable_paths,manifest_version")
+                .select(
+                    "domain,top_level_scope_paths,externalizable_paths,"
+                    "manifest_version,summary_projection"
+                )
                 .eq("user_id", user_id)
                 .execute()
             )
@@ -498,9 +507,38 @@ class DynamicScopeGenerator:
         registry_rows = registry_result.data or []
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
+        materialization_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
         enabled_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         all_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         known_domains = set(index_domains)
+        for row in manifest_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if not domain:
+                continue
+            summary_projection = self._coerce_json_dict(row.get("summary_projection"))
+            raw_materialization = summary_projection.get("scope_materialization")
+            if not isinstance(raw_materialization, dict):
+                continue
+            for raw_path, raw_entry in raw_materialization.items():
+                top_level_path = self._normalize_scope_path(raw_path)
+                if not top_level_path or "." in top_level_path or not isinstance(raw_entry, dict):
+                    continue
+                state = str(raw_entry.get("state") or "").strip().lower()
+                if state not in {"materialized", "empty", "unknown"}:
+                    continue
+                try:
+                    leaf_count = max(0, int(raw_entry.get("materialized_leaf_count") or 0))
+                except (TypeError, ValueError):
+                    continue
+                if (state == "materialized") != (leaf_count > 0):
+                    continue
+                materialization_by_top_level[(domain, top_level_path)] = {
+                    "materialization_state": state,
+                    "materialized_leaf_count": leaf_count,
+                    "source_manifest_revision": row.get("manifest_version"),
+                }
         for row in manifest_rows:
             if not isinstance(row, dict):
                 continue
@@ -530,11 +568,38 @@ class DynamicScopeGenerator:
                 or None,
             )
             top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
+            if domain and not self._is_exportable_scope(domain=domain, path=top_level_path or None):
+                continue
             if domain and top_level_path:
+                materialization = materialization_by_top_level.get((domain, top_level_path), {})
+                registry_state = (
+                    str(summary_projection.get("materialization_state") or "").strip().lower()
+                )
+                if registry_state in {"materialized", "empty", "unknown"}:
+                    try:
+                        registry_count = max(
+                            0,
+                            int(summary_projection.get("materialized_leaf_count") or 0),
+                        )
+                    except (TypeError, ValueError):
+                        registry_count = 0
+                    if (registry_state == "materialized") != (registry_count > 0):
+                        registry_state = "unknown"
+                        registry_count = 0
+                    materialization = {
+                        "materialization_state": registry_state,
+                        "materialized_leaf_count": registry_count,
+                        "source_manifest_revision": summary_projection.get(
+                            "source_manifest_revision"
+                        )
+                        or row.get("manifest_version"),
+                    }
+                    materialization_by_top_level[(domain, top_level_path)] = materialization
                 if (
                     visibility.get("consumer_visible") is not False
                     and visibility.get("internal_only") is not True
                     and visibility.get("visibility_posture") != "private"
+                    and materialization.get("materialization_state") != "empty"
                 ):
                     all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
                     if visibility.get("visibility_posture") != "private":
@@ -556,10 +621,13 @@ class DynamicScopeGenerator:
                     "internal_only": visibility.get("internal_only") is True,
                     "visibility_reason": visibility.get("visibility_reason"),
                     "top_level_scope_path": top_level_path,
+                    **materialization,
                 }
 
         for domain in sorted(known_domains):
             domain_internal = self._is_internal_only_domain(domain)
+            if not self._is_exportable_scope(domain=domain):
+                continue
             domain_top_levels = all_consumer_top_levels_by_domain.get(domain, set())
             enabled_top_levels = enabled_consumer_top_levels_by_domain.get(domain, set())
             if (
@@ -568,6 +636,19 @@ class DynamicScopeGenerator:
                 and enabled_top_levels != domain_top_levels
             ):
                 continue
+            domain_materialization = [
+                entry
+                for (entry_domain, _), entry in materialization_by_top_level.items()
+                if entry_domain == domain
+            ]
+            if domain_materialization and all(
+                entry.get("materialization_state") == "empty" for entry in domain_materialization
+            ):
+                continue
+            domain_leaf_count = sum(
+                int(entry.get("materialized_leaf_count") or 0) for entry in domain_materialization
+            )
+            domain_state = "materialized" if domain_leaf_count > 0 else "unknown"
             _upsert_scope_entry(
                 {
                     "scope": self.generate_domain_wildcard(domain),
@@ -588,6 +669,16 @@ class DynamicScopeGenerator:
                     "visibility_posture": "private" if domain_internal else "consent_required",
                     "default_projection_ready": False,
                     "default_projection_updated_at": None,
+                    "materialization_state": domain_state,
+                    "materialized_leaf_count": domain_leaf_count,
+                    "source_manifest_revision": max(
+                        (
+                            int(entry.get("source_manifest_revision") or 0)
+                            for entry in domain_materialization
+                        ),
+                        default=0,
+                    )
+                    or None,
                 }
             )
 
@@ -605,7 +696,12 @@ class DynamicScopeGenerator:
                 for path in (row.get("top_level_scope_paths") or [])
             ]
             for path in [path for path in top_level_paths if path]:
+                if not self._is_exportable_scope(domain=domain, path=path):
+                    continue
                 registry_meta = registry_by_top_level.get((domain, path), {})
+                materialization = materialization_by_top_level.get((domain, path), {})
+                if materialization.get("materialization_state") == "empty":
+                    continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
@@ -638,15 +734,21 @@ class DynamicScopeGenerator:
                         "default_projection_updated_at": registry_meta.get(
                             "default_projection_updated_at"
                         ),
+                        **materialization,
                     }
                 )
             for raw_path in row.get("externalizable_paths") or []:
                 path = self._normalize_scope_path(raw_path)
                 if not path:
                     continue
+                if not self._is_exportable_scope(domain=domain, path=path):
+                    continue
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
+                materialization = materialization_by_top_level.get((domain, top_level), {})
+                if materialization.get("materialization_state") == "empty":
+                    continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
@@ -679,6 +781,7 @@ class DynamicScopeGenerator:
                         "default_projection_updated_at": registry_meta.get(
                             "default_projection_updated_at"
                         ),
+                        **materialization,
                     }
                 )
 
@@ -691,9 +794,14 @@ class DynamicScopeGenerator:
             path = self._normalize_scope_path(row.get("json_path"))
             if not domain or not path:
                 continue
+            if not self._is_exportable_scope(domain=domain, path=path):
+                continue
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
+            materialization = materialization_by_top_level.get((domain, top_level), {})
+            if materialization.get("materialization_state") == "empty":
+                continue
             if registry_meta.get("visibility_posture") == "private":
                 continue
             _upsert_scope_entry(
@@ -728,6 +836,7 @@ class DynamicScopeGenerator:
                     "default_projection_updated_at": registry_meta.get(
                         "default_projection_updated_at"
                     ),
+                    **materialization,
                 }
             )
 
@@ -1018,7 +1127,10 @@ class DynamicScopeGenerator:
         Returns:
             Dict with display_name, domain, attribute, is_wildcard, icon_name, color_hex, description
         """
-        from hushh_mcp.services.domain_contracts import get_canonical_domain_metadata
+        from hushh_mcp.services.domain_contracts import (
+            get_canonical_domain_metadata,
+            get_canonical_subintent_metadata,
+        )
 
         domain, attribute_key, is_wildcard = self.parse_scope(scope)
 
@@ -1040,13 +1152,36 @@ class DynamicScopeGenerator:
         domain_display = metadata.display_name if metadata else domain.title()
         domain_description = metadata.description if metadata else None
 
-        if is_wildcard:
+        if attribute_key:
+            # A branch scope such as ``attr.financial.profile.*``. It grants one
+            # branch of a domain, NOT the whole domain, so its label must stay
+            # distinct from both the domain-wide wildcard and its sibling
+            # branches. Prefer the branch's authored subintent metadata (name,
+            # description, icon, colour); fall back to a composed label for
+            # domains that register no subintents (health, lifestyle, ...).
+            #
+            # Historically ``is_wildcard`` was checked first, so every
+            # branch-level wildcard collapsed to "All {domain} Data" — five
+            # financial and three health scopes rendered as two identical rows
+            # in the Connect scope picker. Checking ``attribute_key`` first keeps
+            # each branch legible.
+            subintent = get_canonical_subintent_metadata(f"{domain}.{attribute_key}")
+            if subintent:
+                display_name = subintent.display_name
+                description = subintent.description
+                icon_name = subintent.icon_name
+                color_hex = subintent.color_hex
+            else:
+                attr_display = attribute_key.replace("_", " ").title()
+                display_name = f"{domain_display} — {attr_display}"
+                if is_wildcard:
+                    description = f"All {attr_display.lower()} data within {domain_display}"
+                else:
+                    description = f"{attr_display} within {domain_display}"
+        elif is_wildcard:
+            # True domain-level wildcard (``attr.<domain>.*``): the whole domain.
             display_name = f"All {domain_display} Data"
             description = domain_description
-        elif attribute_key:
-            attr_display = attribute_key.replace("_", " ").title()
-            display_name = f"{domain_display} — {attr_display}"
-            description = f"{attr_display} within {domain_display}"
         else:
             display_name = domain_display
             description = domain_description
