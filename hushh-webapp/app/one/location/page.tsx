@@ -56,12 +56,14 @@ import {
   type ConnectionRequestResult,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
 import {
   addSavedLocation,
   DuplicateSavedLocationError,
-  loadSavedLocations,
   type SavedLocationCategory,
 } from "@/lib/one-location/saved-locations";
+
+
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
 
 import { Badge } from "@/components/ui/badge";
@@ -5663,9 +5665,14 @@ export function OneLocationAgentPageContent({
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
 
-  // Active setup replay always offers the saved-place step once per mounted
-  // journey. Workspace onboarding uses encrypted PKM as the saved-state
-  // authority and keeps only an explicit, non-sensitive skip outcome locally.
+  // The "Save this place" step must appear on EVERY Location onboarding run once
+  // access is ready — even if the owner discarded a previous onboarding or has
+  // already saved a place. We only guard against double-firing within a single
+  // mounted journey (savedLocationPromptedRef) and against concurrent captures
+  // (savedLocationPromptInFlightRef). The legacy "skipped"/existing-location
+  // suppression is deliberately retired: those localStorage markers are now only
+  // cleared, never read to hide the prompt, so a prior skip can never permanently
+  // suppress it.
   const promptSaveLocationDuringOnboarding =
     useCallback((): Promise<boolean> => {
       if (savedLocationPromptedRef.current) return Promise.resolve(true);
@@ -5686,50 +5693,19 @@ export function OneLocationAgentPageContent({
         userId,
       );
       const attempt = (async (): Promise<boolean> => {
-        if (mode !== "setup") {
-          let existingLocations;
+        // Retire any legacy suppression markers so the prompt keeps appearing on
+        // every onboarding, regardless of a previous skip or existing places.
+        if (typeof window !== "undefined") {
           try {
-            existingLocations = await loadSavedLocations({
-              userId,
-              vaultKey,
-              vaultOwnerToken,
-            });
+            window.localStorage.removeItem(legacyKey);
+            window.localStorage.removeItem(outcomeKey);
           } catch {
-            toast.error(
-              "Could not check your saved locations. Please try again.",
-            );
-            return false;
-          }
-
-          if (existingLocations.length > 0) {
-            if (typeof window !== "undefined") {
-              try {
-                window.localStorage.removeItem(legacyKey);
-                window.localStorage.removeItem(outcomeKey);
-              } catch {
-                // PKM remains authoritative if browser storage is unavailable.
-              }
-            }
-            savedLocationPromptedRef.current = true;
-            return true;
-          }
-
-          if (typeof window !== "undefined") {
-            try {
-              const outcome = window.localStorage.getItem(outcomeKey);
-              // An empty PKM read proves the old binary marker is ambiguous.
-              window.localStorage.removeItem(legacyKey);
-              if (outcome === "skipped") {
-                savedLocationPromptedRef.current = true;
-                return true;
-              }
-            } catch {
-              // Browser storage is optional; continue with the owner prompt.
-            }
+            // Encrypted PKM remains the saved-state authority.
           }
         }
 
         let point: PlainLocationPoint;
+
         try {
           point = await OneLocationService.captureCurrentPosition();
         } catch {
@@ -5790,7 +5766,8 @@ export function OneLocationAgentPageContent({
 
       savedLocationPromptInFlightRef.current = attempt;
       return attempt;
-    }, [auth.userId, mode, vaultKey, vaultOwnerToken]);
+    }, [auth.userId, vaultKey, vaultOwnerToken]);
+
 
   const handleSaveOnboardingLocation = useCallback(
     async (category: SavedLocationCategory, label: string) => {
@@ -5930,7 +5907,51 @@ export function OneLocationAgentPageContent({
     [saveLocationPoint, vaultOwnerToken],
   );
 
+  // Drag-to-pin confirm: adopt the precise coordinate + address the owner set
+  // on the map, replacing the coarse GPS fix. This is the accuracy fix (Task 2).
+  const handlePickExactSavedLocation = useCallback((picked: PickedLocation) => {
+    setSaveLocationPoint((current) => ({
+      latitude: picked.latitude,
+      longitude: picked.longitude,
+      accuracyM: null,
+      capturedAt: new Date().toISOString(),
+      sourcePlatform: current?.sourcePlatform ?? "web",
+    }));
+    savedLocationAddressResolutionIdRef.current += 1;
+    setSaveLocationAddress(picked.address);
+    setSaveLocationAddressLoading(false);
+  }, []);
+
+  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  const locateMeForSavedLocation = useCallback(async () => {
+    try {
+      const point = await OneLocationService.captureCurrentPosition();
+      return { latitude: point.latitude, longitude: point.longitude };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Reverse-geocode wrapper the map picker calls on every settle.
+  const reverseGeocodeForSavedLocation = useCallback(
+    async (lat: number, lng: number): Promise<string | null> => {
+      if (!vaultOwnerToken) return null;
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat,
+          lng,
+        });
+        return place.formattedAddress || place.name || null;
+      } catch {
+        return null;
+      }
+    },
+    [vaultOwnerToken],
+  );
+
   const handleLocationOnboardingPermission = useCallback(async () => {
+
     if (locationOnboardingBusy) return;
     setLocationOnboardingBusy(true);
     try {
@@ -6186,11 +6207,23 @@ export function OneLocationAgentPageContent({
           saving={saveLocationSaving}
           onSearchPlaces={searchOnboardingSavedPlaces}
           onSelectPlace={selectOnboardingSavedPlace}
+          mapInitial={
+            saveLocationPoint
+              ? {
+                  latitude: saveLocationPoint.latitude,
+                  longitude: saveLocationPoint.longitude,
+                }
+              : null
+          }
+          reverseGeocode={reverseGeocodeForSavedLocation}
+          onLocateMe={locateMeForSavedLocation}
+          onPickExactLocation={handlePickExactSavedLocation}
           onSave={(category, label) =>
             void handleSaveOnboardingLocation(category, label)
           }
           onSkip={handleSkipSaveOnboardingLocation}
         />
+
       </BodyPortal>
     );
   }

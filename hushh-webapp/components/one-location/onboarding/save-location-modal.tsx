@@ -6,6 +6,7 @@ import {
   Check,
   Home,
   Loader2,
+  Map as MapIcon,
   MapPin,
   Pencil,
   Search,
@@ -17,6 +18,10 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  LocationPickerMap,
+  type PickedLocation,
+} from "@/components/one-location/onboarding/location-picker-map";
 import { cn } from "@/lib/utils";
 import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 
@@ -38,6 +43,18 @@ export type SaveLocationModalProps = {
     input: string,
   ) => Promise<SavedLocationPlaceSuggestion[]>;
   onSelectPlace?: (placeId: string) => Promise<void>;
+  /**
+   * Current captured coordinate used to seed the drag-to-pin map picker. When
+   * provided together with `onPickExactLocation`, an "Adjust on map" action lets
+   * the owner place their EXACT spot instead of trusting the coarse GPS fix.
+   */
+  mapInitial?: { latitude: number; longitude: number } | null;
+  /** Server reverse-geocode so the picker keeps the address synced to the pin. */
+  reverseGeocode?: (lat: number, lng: number) => Promise<string | null>;
+  /** Recenter the picker on the live device GPS fix. */
+  onLocateMe?: () => Promise<{ latitude: number; longitude: number } | null>;
+  /** Commit the precise coordinate + address chosen on the map. */
+  onPickExactLocation?: (picked: PickedLocation) => void;
   onSave: (category: SavedLocationCategory, label: string) => void;
   onSkip: () => void;
 };
@@ -55,9 +72,10 @@ const CATEGORY_OPTIONS: {
 /**
  * SaveLocationModal — a focused, responsive prompt shown during Location
  * onboarding after access is ready. The owner can correct the captured place
- * before tagging it as Home / Work / Other. The shared dialog primitive owns
- * focus trapping, focus restoration, Escape handling, and screen-reader
- * semantics.
+ * before tagging it as Home / Work / Other. Because a coarse GPS fix rarely lands
+ * on the exact doorstep, the owner can open a drag-to-pin map picker (like other
+ * apps) to place their precise spot. The shared dialog primitive owns focus
+ * trapping, focus restoration, Escape handling, and screen-reader semantics.
  */
 export function SaveLocationModal({
   open,
@@ -66,12 +84,17 @@ export function SaveLocationModal({
   saving = false,
   onSearchPlaces,
   onSelectPlace,
+  mapInitial,
+  reverseGeocode,
+  onLocateMe,
+  onPickExactLocation,
   onSave,
   onSkip,
 }: SaveLocationModalProps) {
   const [category, setCategory] = useState<SavedLocationCategory | null>(null);
   const [customLabel, setCustomLabel] = useState("");
   const [editingPlace, setEditingPlace] = useState(false);
+  const [pickingOnMap, setPickingOnMap] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeSuggestions, setPlaceSuggestions] = useState<
     SavedLocationPlaceSuggestion[]
@@ -87,6 +110,7 @@ export function SaveLocationModal({
       setCategory(null);
       setCustomLabel("");
       setEditingPlace(false);
+      setPickingOnMap(false);
       setPlaceQuery("");
       setPlaceSuggestions([]);
       setPlaceSearching(false);
@@ -137,11 +161,18 @@ export function SaveLocationModal({
   const changingPlace = selectingPlaceId !== null;
   const interactionBusy = saving || changingPlace;
   const canEditPlace = Boolean(onSearchPlaces && onSelectPlace);
+  const canPickOnMap = Boolean(
+    onPickExactLocation &&
+      mapInitial &&
+      Number.isFinite(mapInitial.latitude) &&
+      Number.isFinite(mapInitial.longitude),
+  );
   const canSave =
     category !== null &&
     !saving &&
     !loadingAddress &&
     !editingPlace &&
+    !pickingOnMap &&
     !changingPlace;
 
   const handleSelectPlace = async (placeId: string) => {
@@ -158,6 +189,11 @@ export function SaveLocationModal({
     } finally {
       setSelectingPlaceId(null);
     }
+  };
+
+  const handleConfirmMapPick = (picked: PickedLocation) => {
+    onPickExactLocation?.(picked);
+    setPickingOnMap(false);
   };
 
   const handleSave = () => {
@@ -181,10 +217,10 @@ export function SaveLocationModal({
         aria-describedby={descriptionId}
         overlayClassName="z-[559] bg-black/45 backdrop-blur-[6px]"
         onEscapeKeyDown={(event) => {
-          if (interactionBusy) event.preventDefault();
+          if (interactionBusy || pickingOnMap) event.preventDefault();
         }}
         onPointerDownOutside={(event) => {
-          if (interactionBusy) event.preventDefault();
+          if (interactionBusy || pickingOnMap) event.preventDefault();
         }}
         className={cn(
           "z-[560] bottom-0 top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
@@ -194,229 +230,272 @@ export function SaveLocationModal({
           "dark:border-white/[0.08] dark:bg-[#141922]",
         )}
       >
-        <button
-          type="button"
-          onClick={onSkip}
-          disabled={interactionBusy}
-          aria-label="Close"
-          className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
-        >
-          <X className="h-4.5 w-4.5" strokeWidth={2.4} />
-        </button>
-
-        <header className="pr-8">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent,#087ff5)]">
-            <MapPin className="h-6 w-6" strokeWidth={2.2} />
-          </span>
-          <DialogTitle
-            className="mt-3.5 text-[22px] font-bold leading-[1.15] tracking-[-0.01em] text-[#0b1220] dark:text-[#f4f7fb]"
-          >
-            Save this place
-          </DialogTitle>
-          <p
-            id={descriptionId}
-            className="mt-1.5 text-[14px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]"
-          >
-            Tag where you are so One can personalise your experience. It stays
-            encrypted in your vault and is shared only when you approve
-            location access.
-          </p>
-        </header>
-
-        <div className="flex items-center gap-2.5 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-            <MapPin className="h-4 w-4" strokeWidth={2.4} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
-              Current location
+        {pickingOnMap && canPickOnMap ? (
+          <>
+            <DialogTitle className="sr-only">
+              Pin your exact location
+            </DialogTitle>
+            <p id={descriptionId} className="sr-only">
+              Drag the map so the centre pin sits on your exact spot, then
+              confirm.
             </p>
-            {loadingAddress ? (
-              <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding your
-                address…
-              </span>
-            ) : (
-              <p className="mt-0.5 truncate text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
-                {resolvedAddress || "Address unavailable"}
-              </p>
-            )}
-          </div>
-          {canEditPlace && !loadingAddress ? (
+            <LocationPickerMap
+              initialLatitude={mapInitial!.latitude}
+              initialLongitude={mapInitial!.longitude}
+              initialAddress={resolvedAddress}
+              reverseGeocode={reverseGeocode}
+              onLocateMe={onLocateMe}
+              onConfirm={handleConfirmMapPick}
+              onCancel={() => setPickingOnMap(false)}
+            />
+          </>
+        ) : (
+          <>
             <button
               type="button"
-              onClick={() => {
-                setEditingPlace(true);
-                setPlaceQuery("");
-                setPlaceSuggestions([]);
-                setPlaceSearchError(null);
-              }}
+              onClick={onSkip}
               disabled={interactionBusy}
-              className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#9bc7f5]"
-              aria-label="Change captured location"
+              aria-label="Close"
+              className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
             >
-              <Pencil className="h-3.5 w-3.5" aria-hidden />
-              Change
+              <X className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
-          ) : null}
-        </div>
 
-        {editingPlace ? (
-          <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
-            <label
-              htmlFor="saved-location-place-search"
-              className="block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
-            >
-              Search for another place
-            </label>
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b93a1]"
-                aria-hidden
-              />
-              <input
-                id="saved-location-place-search"
-                type="search"
-                value={placeQuery}
-                onChange={(event) => setPlaceQuery(event.target.value)}
-                disabled={interactionBusy}
-                autoComplete="off"
-                placeholder="Search address or place"
-                className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white pl-10 pr-10 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
-              />
-              {placeSearching || changingPlace ? (
-                <Loader2
-                  className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#8b93a1]"
-                  aria-label="Searching places"
-                />
+            <header className="pr-8">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent,#087ff5)]">
+                <MapPin className="h-6 w-6" strokeWidth={2.2} />
+              </span>
+              <DialogTitle className="mt-3.5 text-[22px] font-bold leading-[1.15] tracking-[-0.01em] text-[#0b1220] dark:text-[#f4f7fb]">
+                Save this place
+              </DialogTitle>
+              <p
+                id={descriptionId}
+                className="mt-1.5 text-[14px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]"
+              >
+                Tag where you are so One can personalise your experience. It stays
+                encrypted in your vault and is shared only when you approve
+                location access.
+              </p>
+            </header>
+
+            <div className="flex items-center gap-2.5 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
+                <MapPin className="h-4 w-4" strokeWidth={2.4} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
+                  Current location
+                </p>
+                {loadingAddress ? (
+                  <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding your
+                    address…
+                  </span>
+                ) : (
+                  <p className="mt-0.5 truncate text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
+                    {resolvedAddress || "Address unavailable"}
+                  </p>
+                )}
+              </div>
+              {canEditPlace && !loadingAddress ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPlace(true);
+                    setPlaceQuery("");
+                    setPlaceSuggestions([]);
+                    setPlaceSearchError(null);
+                  }}
+                  disabled={interactionBusy}
+                  className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#9bc7f5]"
+                  aria-label="Change captured location"
+                >
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  Change
+                </button>
               ) : null}
             </div>
 
-            {placeSuggestions.length > 0 ? (
-              <div
-                className="max-h-40 overflow-y-auto rounded-2xl border border-black/[0.08] bg-white p-1 shadow-sm dark:border-white/[0.1] dark:bg-[#1b2230]"
-                aria-label="Location suggestions"
+            {canPickOnMap && !loadingAddress ? (
+              <button
+                type="button"
+                onClick={() => setPickingOnMap(true)}
+                disabled={interactionBusy}
+                data-testid="save-location-adjust-on-map"
+                className="press-scale flex w-full items-center gap-3 rounded-2xl border border-dashed border-[color:var(--app-accent,#087ff5)]/40 bg-[color:var(--app-accent-tint,#e7f0fd)]/50 px-3.5 py-3 text-left transition-colors hover:bg-[color:var(--app-accent-tint,#e7f0fd)] disabled:opacity-45 dark:border-[color:var(--app-accent,#087ff5)]/30 dark:bg-[color:var(--app-accent,#087ff5)]/10"
               >
-                {placeSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.placeId}
-                    type="button"
-                    onClick={() => void handleSelectPlace(suggestion.placeId)}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
+                  <MapIcon className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
+                    Set exact location on map
+                  </span>
+                  <span className="block text-[12px] leading-[1.4] text-[#5b6472] dark:text-[#9aa6b6]">
+                    GPS can be off by a few meters — drag the pin to your door.
+                  </span>
+                </span>
+              </button>
+            ) : null}
+
+            {editingPlace ? (
+              <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
+                <label
+                  htmlFor="saved-location-place-search"
+                  className="block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                >
+                  Search for another place
+                </label>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b93a1]"
+                    aria-hidden
+                  />
+                  <input
+                    id="saved-location-place-search"
+                    type="search"
+                    value={placeQuery}
+                    onChange={(event) => setPlaceQuery(event.target.value)}
                     disabled={interactionBusy}
-                    className="flex min-h-11 w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium text-[#273142] hover:bg-black/[0.04] disabled:opacity-45 dark:text-[#dce5f2] dark:hover:bg-white/[0.06]"
-                  >
-                    <MapPin
-                      className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent,#087ff5)]"
-                      aria-hidden
+                    autoComplete="off"
+                    placeholder="Search address or place"
+                    className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white pl-10 pr-10 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                  />
+                  {placeSearching || changingPlace ? (
+                    <Loader2
+                      className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#8b93a1]"
+                      aria-label="Searching places"
                     />
-                    <span>{suggestion.text}</span>
-                  </button>
-                ))}
+                  ) : null}
+                </div>
+
+                {placeSuggestions.length > 0 ? (
+                  <div
+                    className="max-h-40 overflow-y-auto rounded-2xl border border-black/[0.08] bg-white p-1 shadow-sm dark:border-white/[0.1] dark:bg-[#1b2230]"
+                    aria-label="Location suggestions"
+                  >
+                    {placeSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.placeId}
+                        type="button"
+                        onClick={() => void handleSelectPlace(suggestion.placeId)}
+                        disabled={interactionBusy}
+                        className="flex min-h-11 w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium text-[#273142] hover:bg-black/[0.04] disabled:opacity-45 dark:text-[#dce5f2] dark:hover:bg-white/[0.06]"
+                      >
+                        <MapPin
+                          className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent,#087ff5)]"
+                          aria-hidden
+                        />
+                        <span>{suggestion.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {placeSearchError ? (
+                  <p
+                    role="alert"
+                    className="text-[12px] font-medium text-[#b42318] dark:text-[#ff9b91]"
+                  >
+                    {placeSearchError}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPlace(false);
+                    setPlaceQuery("");
+                    setPlaceSuggestions([]);
+                    setPlaceSearchError(null);
+                  }}
+                  disabled={interactionBusy}
+                  className="text-[13px] font-semibold text-[#5b6472] disabled:opacity-45 dark:text-[#9aa6b6]"
+                >
+                  Keep current location
+                </button>
               </div>
             ) : null}
 
-            {placeSearchError ? (
-              <p
-                role="alert"
-                className="text-[12px] font-medium text-[#b42318] dark:text-[#ff9b91]"
-              >
-                {placeSearchError}
+            <div>
+              <p className="mb-2 text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
+                What kind of place is this?
               </p>
+              <div className="grid grid-cols-3 gap-2.5">
+                {CATEGORY_OPTIONS.map(({ category: value, label, Icon }) => {
+                  const selected = category === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setCategory(value)}
+                      disabled={interactionBusy}
+                      className={cn(
+                        "press-scale flex flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-4 transition-colors disabled:opacity-45",
+                        selected
+                          ? "border-[color:var(--app-accent,#087ff5)] bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent-deep,#0b62c4)] dark:bg-[color:var(--app-accent,#087ff5)]/15"
+                          : "border-black/[0.08] bg-white text-[#4b5563] hover:border-black/20 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-[#aeb8c7]",
+                      )}
+                    >
+                      <Icon className="h-6 w-6" strokeWidth={2.1} />
+                      <span className="text-[13px] font-bold">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {category === "other" ? (
+              <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+                <label
+                  htmlFor="saved-location-custom-label"
+                  className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                >
+                  Give it a name
+                </label>
+                <input
+                  id="saved-location-custom-label"
+                  type="text"
+                  value={customLabel}
+                  onChange={(event) => setCustomLabel(event.target.value)}
+                  disabled={interactionBusy}
+                  maxLength={40}
+                  placeholder="e.g. Gym, Mom's house, Cafe"
+                  className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                />
+              </div>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => {
-                setEditingPlace(false);
-                setPlaceQuery("");
-                setPlaceSuggestions([]);
-                setPlaceSearchError(null);
-              }}
-              disabled={interactionBusy}
-              className="text-[13px] font-semibold text-[#5b6472] disabled:opacity-45 dark:text-[#9aa6b6]"
-            >
-              Keep current location
-            </button>
-          </div>
-        ) : null}
-
-        <div>
-          <p className="mb-2 text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
-            What kind of place is this?
-          </p>
-          <div className="grid grid-cols-3 gap-2.5">
-            {CATEGORY_OPTIONS.map(({ category: value, label, Icon }) => {
-              const selected = category === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setCategory(value)}
-                  disabled={interactionBusy}
-                  className={cn(
-                    "press-scale flex flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-4 transition-colors disabled:opacity-45",
-                    selected
-                      ? "border-[color:var(--app-accent,#087ff5)] bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent-deep,#0b62c4)] dark:bg-[color:var(--app-accent,#087ff5)]/15"
-                      : "border-black/[0.08] bg-white text-[#4b5563] hover:border-black/20 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-[#aeb8c7]",
-                  )}
-                >
-                  <Icon className="h-6 w-6" strokeWidth={2.1} />
-                  <span className="text-[13px] font-bold">{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {category === "other" ? (
-          <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-            <label
-              htmlFor="saved-location-custom-label"
-              className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
-            >
-              Give it a name
-            </label>
-            <input
-              id="saved-location-custom-label"
-              type="text"
-              value={customLabel}
-              onChange={(event) => setCustomLabel(event.target.value)}
-              disabled={interactionBusy}
-              maxLength={40}
-              placeholder="e.g. Gym, Mom's house, Cafe"
-              className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
-            />
-          </div>
-        ) : null}
-
-        <div className="mt-1 flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!canSave}
-            aria-busy={saving || undefined}
-            className={cn(
-              "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-              "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]",
-            )}
-          >
-            {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            ) : (
-              <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
-            )}
-            Save location
-          </button>
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={interactionBusy}
-            className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
-          >
-            Skip for now
-          </button>
-        </div>
+            <div className="mt-1 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!canSave}
+                aria-busy={saving || undefined}
+                className={cn(
+                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                  "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]",
+                )}
+              >
+                {saving ? (
+                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
+                )}
+                Save location
+              </button>
+              <button
+                type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
+              >
+                Skip for now
+              </button>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
