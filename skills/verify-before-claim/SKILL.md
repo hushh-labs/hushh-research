@@ -144,6 +144,34 @@ The same question applies to generated files — `.claude/agents/*.md` are gener
 `agents/*.toml`, so editing the generated copy is a change that silently disappears
 on the next sync.
 
+## 2d. What actually runs is a list someone maintains, not everything you wrote
+
+Adding a file does not add it to CI. `consent-protocol/scripts/test-ci.manifest.txt` is a
+**curated allow-list** — its own header says *"Keep this list small and stable"* — so a new
+test file passes locally, passes under your own `pytest` invocation, and never runs in CI at
+all. The gate still goes green, because it ran the same files it ran yesterday.
+
+This produced the worst kind of false claim made in this repo, and it recurred three times
+in a single session:
+
+> *"Verified: 14 new tests pass, protocol-check.sh exit 0 with 712 tests total."*
+
+Both halves are true. The conjunction is false, and false in exactly the direction a reader
+will take it — it invites the conclusion that the 14 are among the 712. They were not. The
+file was never in the manifest, so the second number was measured on a suite that had never
+seen the first.
+
+**The signal that caught it was the number that did not move.** 712 before, 712 after. Any
+time you add tests, checks, routes, or fixtures, the total is a free assertion: predict the
+delta *before* running the gate, and treat a count that stayed still as a finding to
+investigate rather than a suite that happens to be stable. (Registering the five files this
+session added moved it 712 → 794 — that delta is the evidence, not the exit code.)
+
+Generalise past this one file. Ask of any gate: **does it discover its work, or is it handed
+a list?** Enumerated inclusion hides in manifests, allow-lists, `include:` globs, workflow
+`paths:` filters, suite indexes, and route registries. Every one of them fails the same
+silent way — by succeeding.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
@@ -201,6 +229,12 @@ Every meaningful control lands behind a kill-switch that defaults to **off**.
   saying so immediately mattered more than looking consistent.
 - **Distinguish pre-existing from newly-introduced.** Always check whether a failure is
   yours — compare against a control (an untouched file, an existing page, `main`).
+- **Two true sentences can compose into a false claim.** *"The new tests pass"* and *"the
+  gate is green with 712 tests"* were each accurate; placed side by side they asserted a
+  link — that the new tests were in the 712 — which had not been verified and was not true.
+  Before reporting two facts together, ask what a reader will infer from the pair. If you
+  verified the link, say it explicitly; if you did not, say that instead. This is the
+  easiest way to mislead while believing you are being precise.
 - **Flag structural changes before making them**, not after. Merging to `main` to reach
   production was necessary and instructed, but it broke a stated invariant and should
   have been surfaced in the moment.
@@ -227,6 +261,7 @@ Run before reporting any coding work complete:
 [ ] Any failure label I am repeating, I traced to the code that emits it
 [ ] The gate I might trip, I reproduced locally at the CI-pinned version
 [ ] Tests pass — and I know which ones actually exercise my change
+[ ] New tests/checks are registered wherever CI enumerates them, and the total count moved
 [ ] CI is green on the exact pushed SHA (not "should be")
 [ ] Flag-off behavior is unchanged, and I tested that specifically
 [ ] Limitations are written in the file, in plain language
