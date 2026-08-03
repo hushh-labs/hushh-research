@@ -478,9 +478,9 @@ is required, not optional.
 
 #### The test that proves it stays dev-only
 
-Recreate as `consent-protocol/tests/test_pod_image_build_contract.py` and register it in
-`consent-protocol/scripts/test-ci.manifest.txt` — that file is a curated allow-list, not a
-directory scan, so an unregistered test never runs in CI. It must:
+Recreate as a new file, `test_pod_image_build_contract.py`, under `consent-protocol/tests/`,
+and register it in `consent-protocol/scripts/test-ci.manifest.txt` — that file is a curated
+allow-list, not a directory scan, so an unregistered test never runs in CI. It must:
 
 - Load the cloudbuild YAML and locate the `build-pod-image` step.
 - For each of `uat`, `prod`, `production`, `manual` and `""`, **execute the step's real
@@ -561,14 +561,84 @@ Additionally add, as new settings alongside the existing ones in `runtime_settin
 
 ### B4. Service account and IAM (verify before first live call)
 
-`gcp_backend.py:96-99` reads `HUSSH_ONE_POD_SERVICE_ACCOUNT`. Before flipping B2 live,
-confirm in `scripts/ops/` (search for existing service-account provisioning scripts
-following the pattern used for `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`,
-which is already used by the main dev deploy per `.github/workflows/deploy-dev.yml`) whether
-a pod-scoped SA already exists or must be created. The identity dispatching this workflow
-needs `roles/run.admin` and `roles/iam.serviceAccountUser` scoped to that SA — verify the
-current dev deploy SA's role bindings before assuming they're sufficient for creating a
-second class of Cloud Run service.
+**Correction: the identity that needs `run.admin` is the backend RUNTIME service account,
+not the deploy identity.** This section previously said "the identity dispatching this
+workflow". That is wrong, and getting it wrong means granting the roles to an account that
+never makes the call. Pods are not created at deploy time — `provision()` runs at *request*
+time, from the phone-verify hook inside the running backend service
+(`schedule_provision_personal_agent` → `PersonalAgentProvisioningService` →
+`GcpBackend.provision()`). The caller is therefore
+`consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`, the service's own runtime
+identity. The deploy path (Workload Identity Federation, `vars.GCP_DEPLOY_SERVICE_ACCOUNT`)
+is a different identity and needs nothing here.
+
+#### What the pod service account actually needs: almost nothing
+
+Verified from the code rather than assumed. `render_deploy_config()` puts **only identity
+values** in the pod container's env — `HUSSH_ID`, `HUSSH_SPACE_ID`, `HUSSH_REGION`,
+`HUSSH_RUNTIME_VERSION`, `HUSSH_PROMPT_VERSION` — and its docstring is explicit that BYOK
+keys and consent tokens arrive per-turn at runtime instead. `pod_server.py` reads only
+`HUSSH_POD_MODE`, `HUSSH_ID` and `HUSSH_SPACE_ID`. Ingress is `internal`.
+
+So the pod SA is a **zero-role identity**. That is not an oversight — it is the entire
+point. Without an explicit `serviceAccountName`, Cloud Run runs the service as the project's
+**default compute service account, which carries project Editor**. Creating an empty
+purpose-built SA is what takes a per-user pod from Editor-on-the-project down to nothing.
+Do not grant it roles "to be safe"; every role added here is a role every user's pod holds.
+
+#### The commands
+
+Run against `hushh-pda-dev` only, as an identity with `iam.serviceAccountAdmin` and
+`resourcemanager.projectIamAdmin` on that project.
+
+```bash
+PROJECT=hushh-pda-dev
+POD_SA="hussh-one-pod@${PROJECT}.iam.gserviceaccount.com"
+RUNTIME_SA="consent-protocol-runtime@${PROJECT}.iam.gserviceaccount.com"
+
+# 1. The pod's runtime identity. No role bindings, deliberately.
+gcloud iam service-accounts create hussh-one-pod \
+  --project="$PROJECT" \
+  --display-name="hussh One per-user pod runtime" \
+  --description="Least-privilege identity for per-user Agent One pods. Intentionally holds NO project roles."
+
+# 2. Let the backend create and tear down pods.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/run.admin"
+
+# 3. Let the backend assign the pod SA to the services it creates.
+#    Scoped to the ONE service account -- never granted project-wide.
+gcloud iam service-accounts add-iam-policy-binding "$POD_SA" \
+  --project="$PROJECT" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/iam.serviceAccountUser"
+
+# 4. Verify -- the pod SA must come back with NO project role bindings.
+gcloud projects get-iam-policy "$PROJECT" \
+  --flatten='bindings[].members' \
+  --filter="bindings.members:${POD_SA}" --format='value(bindings.role)'
+# expected: empty output
+```
+
+Then set `HUSSH_ONE_POD_SERVICE_ACCOUNT` to `$POD_SA` in the dev lane's env (alongside the
+`HUSSH_ONE_POD_IMAGE` wiring in [B1](#b1-build-and-push-the-pod-image)).
+
+`roles/run.admin` at project scope is broader than ideal — it lets the backend manage *any*
+Cloud Run service in the project, including itself. Narrowing it needs a custom role limited
+to `run.services.{create,get,delete,update}`; worth doing before this pattern is copied to
+uat, and not worth blocking the first dev pod on.
+
+#### Known gap: the first pod will come up only partially functional
+
+A pod mounts four routers (`pod_server.py`): `health`, the A2A well-known card, `a2a`, and
+`agent_prompt`. The last reads `agent_prompt_versions` from Postgres — but
+`render_deploy_config()` attaches **no `run.googleapis.com/cloudsql-instances` annotation
+and mounts no database secrets**. So a provisioned pod will serve `/health` and its agent
+card, and DB-backed routes will fail.
+
+That is a code gap in `render_deploy_config`, not an IAM one, and fixing it by handing the
+pod SA `cloudsql.client` plus DB credentials would undo the zero-role property above. The
+right shape is for the pod to reach records through the consent-gated hub rather than
+holding its own database credentials — decide that before adding a Cloud SQL attachment.
 
 ### B5. Cost-attribution labels
 
