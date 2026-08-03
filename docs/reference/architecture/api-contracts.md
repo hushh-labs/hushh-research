@@ -158,13 +158,14 @@ flowchart TB
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before a user confirms encrypted BYOK storage; distinguishes invalid credentials, exhausted quota/rate limits, billing blocks, unsupported model access, and temporary provider failure without logging or storing the key |
+| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
 
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
 managed Gemini or `byok_pending_vault`; a Gemini key is never accepted by this
-pre-vault contract. The key can only be validated and saved after setup through
-the existing vault-owner encrypted PKM mutation path.
+pre-vault contract. A selected setup credential is process-memory-only: it may
+be request-validated before the vault but is encrypted through the existing
+vault-owner PKM mutation path only at Finish setup.
 
 ### One Email KYC
 

@@ -22,6 +22,14 @@ export function PostAuthOnboardingSyncBridge() {
       return;
     }
 
+    // Finish setup owns the first durable commit. Running this background
+    // bridge while the setup hub is finalizing would create duplicate PKM
+    // revisions and could clear a volatile draft before the hub can report a
+    // retryable failure.
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/one/setup")) {
+      return;
+    }
+
     const signature = `${userId}:${vaultOwnerToken}`;
     if (lastSyncedSignatureRef.current === signature) {
       return;

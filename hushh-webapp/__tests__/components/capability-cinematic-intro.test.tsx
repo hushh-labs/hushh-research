@@ -80,7 +80,25 @@ describe("CapabilityCinematicIntroGate", () => {
     );
   });
 
-  it("uses the shared prologue for Connections without promoting it to a capability", () => {
+  it("animates and focuses the capability body through the shared step transition after Continue", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="finance">
+        <p>Finance preferences</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const body = document.querySelector(
+      '[data-capability-cinematic-body="finance"]',
+    );
+    expect(body).toBeTruthy();
+    expect(body?.classList.contains("motion-step-enter")).toBe(true);
+    expect(document.activeElement).toBe(body);
+    expect(screen.getByText("Finance preferences")).toBeTruthy();
+  });
+
+  it("uses the shared prologue for AI access without promoting it to a capability", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="connections">
         <p>Connections settings</p>
@@ -89,9 +107,14 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "Choose how One reaches Gemini.",
+        name: "Choose the intelligence behind your private agent.",
       }),
     ).toBeTruthy();
+    const providerLane = screen.getByRole("list", { name: "AI providers" });
+    expect(providerLane).toBeTruthy();
+    for (const provider of ["Google Gemini", "OpenAI", "Claude", "Grok", "Meta Muse Spark"]) {
+      expect(screen.getByLabelText(provider)).toBeTruthy();
+    }
     expect(screen.queryByText("Connections settings")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -130,6 +153,21 @@ describe("CapabilityCinematicIntroGate", () => {
       "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
     );
     expect(gateSource).not.toContain("overflow-hidden");
+  });
+
+  it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
+    const gateSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/onboarding/setup/capability-cinematic-intro.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(gateSource).toContain("data-runtime-provider-lane");
+    expect(gateSource).toContain('className="inline-flex h-12 w-12 items-center justify-center"');
+    expect(gateSource).not.toContain("bg-[color:var(--app-card-surface-compact)]");
+    expect(gateSource).not.toContain("shadow-[var(--shadow-xs)]");
   });
 
   it("keeps every authored setup journey on the shared, non-durable gate", () => {

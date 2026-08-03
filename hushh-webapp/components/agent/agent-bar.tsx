@@ -1348,20 +1348,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const focusedOnboardingVoiceOnly =
     isOneSetupRoute(pathname ?? "") ||
     (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
-  // Onboarding is intentionally neutral to a returning person's appearance
-  // preference. Normalize the bar once per onboarding mount so its toggle
-  // starts at System, but do not fight a deliberate toggle change afterward.
-  const onboardingThemeNormalizedRef = useRef(false);
-  const onboardingThemeScope = onboardingGreeterMode || focusedOnboardingVoiceOnly;
-  useEffect(() => {
-    if (!onboardingThemeScope) {
-      onboardingThemeNormalizedRef.current = false;
-      return;
-    }
-    if (onboardingThemeNormalizedRef.current) return;
-    onboardingThemeNormalizedRef.current = true;
-    if (theme !== "system") setTheme("system");
-  }, [onboardingThemeScope, setTheme, theme]);
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same

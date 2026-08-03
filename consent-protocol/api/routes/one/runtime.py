@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,8 @@ _ONE_RUNTIME_MODEL = (
     .name
 )
 _PROBE_TIMEOUT_SECONDS = 8.0
+_VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_VERTEX_LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
 
 
 class GeminiCredentialValidationRequest(BaseModel):
@@ -71,6 +74,13 @@ def _safe_failure_code(exc: Exception) -> str:
         return "quota_exhausted"
     if "billing" in message:
         return "billing_required"
+    if any(
+        token in message
+        for token in ("serviceusage", "api has not been used", "api is not enabled")
+    ):
+        return "api_not_enabled"
+    if any(token in message for token in ("permission denied", "forbidden", "403")):
+        return "permission_denied"
     if any(token in message for token in ("invalid", "api key", "unauth", "permission")):
         return "invalid_key"
     if "model" in message and any(
@@ -145,15 +155,17 @@ async def validate_gemini_credential(
     credential = body.credential.get_secret_value()
     project = (body.vertex_project or "").strip()
     location = (body.vertex_location or "").strip()
-    if body.transport == "vertex_api_key":
+    if body.transport == "vertex_api_key" and (
+        not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location)
+    ):
         raise HTTPException(
             status_code=422,
             detail={
-                "code": "GEMINI_BYOK_TRANSPORT_UNSUPPORTED",
-                "status": "vertex_api_key_disabled",
+                "code": "GEMINI_CREDENTIAL_VALIDATION_FAILED",
+                "status": "invalid_vertex_configuration",
             },
         )
-    elif project or location:
+    if body.transport == "developer_api" and (project or location):
         raise HTTPException(
             status_code=422,
             detail={

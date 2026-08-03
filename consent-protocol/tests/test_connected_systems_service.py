@@ -1079,12 +1079,52 @@ async def test_verified_profile_create_accepts_required_derived_full_name_when_s
         user_id="user_123",
         system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
         object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "firstName": "FirstName",
+            "lastName": "LastName",
+        },
     )
 
     stored = service.store.intents[intent["intentId"]]["request_payload"]
     assert stored["firstName"] == "John"
     assert stored["lastName"] == "Doe"
     assert "Name" not in stored
+
+
+def test_derived_full_name_satisfaction_does_not_bypass_other_required_crm_fields():
+    with pytest.raises(ConnectedSystemValidationError, match="Department") as captured:
+        ConnectedSystemsService._validated_schema_fields(
+            {
+                "FirstName": {
+                    "name": "FirstName",
+                    "label": "First Name",
+                    "required": False,
+                },
+                "LastName": {
+                    "name": "LastName",
+                    "label": "Last Name",
+                    "required": True,
+                },
+                "Name": {
+                    "name": "Name",
+                    "label": "Full Name",
+                    "required": True,
+                },
+                "Department": {
+                    "name": "Department",
+                    "label": "Department",
+                    "required": True,
+                },
+            },
+            {"FirstName": "John", "LastName": "Doe"},
+            action="create",
+            require_required_fields=True,
+            satisfied_required_fields={"Name"},
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_SCHEMA_REQUIRED_FIELDS"
 
 
 @pytest.mark.asyncio

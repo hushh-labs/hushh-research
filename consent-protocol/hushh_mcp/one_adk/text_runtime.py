@@ -134,6 +134,8 @@ def _runtime_model(
             model,
             credential,
             transport=runtime_credential_transport,
+            vertex_project=runtime_vertex_project,
+            vertex_location=runtime_vertex_location,
         )
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with

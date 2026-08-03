@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from google.genai.types import HttpOptionsDict
+
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
 
@@ -33,10 +35,27 @@ _PROJECT_ENV_NAMES = (
 GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
+_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 
 
 class GeminiByokTransportUnsupportedError(ValueError):
-    """Raised when a BYOK transport is not supported by the pinned SDK contract."""
+    """Raised when a caller names a Gemini transport outside the typed contract."""
+
+
+def _vertex_api_key_http_options(location: str) -> HttpOptionsDict:
+    """Bind a Vertex API-key request to its selected regional endpoint.
+
+    google-genai treats ``project``/``location`` and ``api_key`` as mutually
+    exclusive constructor inputs. Vertex API keys are already bound to their
+    Cloud project, so retain the project as validated user configuration while
+    selecting the regional endpoint through the supported HTTP option.
+    """
+    base_url = (
+        "https://aiplatform.googleapis.com/"
+        if location == "global"
+        else f"https://{location}-aiplatform.googleapis.com/"
+    )
+    return HttpOptionsDict(base_url=base_url)
 
 
 @dataclass(frozen=True)
@@ -249,9 +268,22 @@ def _gemini_client(
     if not managed:
         # BYOK is deliberately isolated from backend ADC and environment keys.
         if byok_transport == "vertex_api_key":
-            raise GeminiByokTransportUnsupportedError(
-                "Vertex API-key BYOK is disabled until the pinned google-genai "
-                "SDK accepts and passes the endpoint rehearsal"
+            project = str(vertex_project or "").strip()
+            location = str(vertex_location or "").strip()
+            if not _PROJECT_RE.fullmatch(project) or not location:
+                raise ValueError(
+                    "Vertex API-key BYOK requires a valid Google Cloud project and location"
+                )
+            if not _LOCATION_RE.fullmatch(location):
+                raise ValueError("Vertex API-key BYOK location is invalid")
+            # The API key itself is bound to the selected owner project. The
+            # SDK rejects project/location alongside an API key, so project is
+            # validated at the contract edge and location binds this endpoint.
+            del project
+            return genai.Client(
+                vertexai=True,
+                api_key=api_key,
+                http_options=_vertex_api_key_http_options(location),
             )
         return genai.Client(vertexai=False, api_key=api_key)
 
@@ -362,12 +394,14 @@ def build_gemini_byok_adk_model(
     api_key: str,
     *,
     transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
 ) -> Any:
     """Build a turn-local ADK BYOK model with an explicit endpoint.
 
     Developer API BYOK always pins ``vertexai=False`` so an ambient managed
-    Vertex environment cannot capture the user's key. Vertex API-key BYOK is
-    intentionally unavailable with the pinned SDK.
+    Vertex environment cannot capture the user's key. Vertex API-key BYOK
+    explicitly names the owner's project and location.
     """
     from google.adk.models import Gemini
 
@@ -378,8 +412,19 @@ def build_gemini_byok_adk_model(
     if not clean_key:
         raise ValueError("Gemini BYOK credential is required")
     if transport == "vertex_api_key":
-        raise GeminiByokTransportUnsupportedError(
-            "Vertex API-key BYOK is disabled until the pinned ADK/genai SDK rehearsal passes"
+        project = str(vertex_project or "").strip()
+        location = str(vertex_location or "").strip()
+        if not _PROJECT_RE.fullmatch(project) or not _LOCATION_RE.fullmatch(location):
+            raise ValueError(
+                "Vertex API-key BYOK requires a valid Google Cloud project and location"
+            )
+        return Gemini(
+            model=clean_model,
+            client_kwargs={
+                "vertexai": True,
+                "api_key": clean_key,
+                "http_options": _vertex_api_key_http_options(location),
+            },
         )
     return Gemini(
         model=clean_model,

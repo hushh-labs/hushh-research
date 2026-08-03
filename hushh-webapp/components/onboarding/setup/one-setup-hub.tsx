@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LockKeyhole, PlugZap } from "lucide-react";
 
@@ -47,6 +47,10 @@ import {
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
+import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
+import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -74,8 +78,10 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const [finalizationError, setFinalizationError] = useState<string | null>(null);
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const finalizationInFlightRef = useRef<Promise<void> | null>(null);
   const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
     userId: string | null;
     state: "loading" | "required" | "complete";
@@ -145,7 +151,7 @@ export function OneSetupHub() {
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
-  // count it as done. Connections is also a real, mandatory setup step and is
+  // count it as done. AI access is also a real, mandatory setup step and is
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
   const progressSteps = [
@@ -199,30 +205,98 @@ export function OneSetupHub() {
         ],
   });
 
-  const completeSetupAfterVault = () => {
+  const completeSetupAfterVault = useCallback(async (): Promise<void> => {
     if (!user?.uid) {
       router.replace(completionTarget);
       return;
     }
-    // This is intentionally delayed until vault unlock/creation succeeds.
-    // `acknowledgeOneSetupExit` synchronously primes the local gate and then
-    // mirrors it account-wide, so the next route transition is admitted.
-    void acknowledgeOneSetupExit({
-      userId: user.uid,
-      skipped: false,
-      isVaultUnlocked: true,
-      vaultKey,
-      vaultOwnerToken,
-    }).catch((error) => {
-      console.warn(
-        "[OneSetupHub] Durable setup-exit write failed; the local completion latch keeps you on home:",
-        error,
+    if (!vaultKey || !vaultOwnerToken) {
+      throw new Error("Your private vault is not ready yet. Try again.");
+    }
+    if (finalizationInFlightRef.current) {
+      return finalizationInFlightRef.current;
+    }
+
+    const finalize = (async () => {
+      setFinalizationError(null);
+      // This is the one durable boundary for sensitive setup input. Every
+      // pre-vault origin remains in memory until its owning encrypted write
+      // succeeds; neither a route change nor background warm-up can race it.
+      await PreVaultSensitiveDraftService.finalizeForVault({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await PostUnlockSyncService.run({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await FinanceSetupDraftService.finalizeForVault({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      notifyGeminiRuntimeConfigurationChanged(user.uid);
+
+      await acknowledgeOneSetupExit({
+        userId: user.uid,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      setVaultDialogOpen(false);
+      setVaultInvitationOpen(false);
+      // Finance source intents intentionally remain process-memory-only until
+      // this encryption boundary completes. Resume the canonical source flow
+      // once, now that it has a valid vault session.
+      router.replace(
+        PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+          ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+          : completionTarget,
       );
-    });
-    setVaultDialogOpen(false);
-    setVaultInvitationOpen(false);
-    router.replace(completionTarget);
-  };
+    })();
+    finalizationInFlightRef.current = finalize;
+    try {
+      await finalize;
+    } catch (error) {
+      setFinalizationError(
+        error instanceof Error
+          ? error.message
+          : "We could not protect your setup. Try again.",
+      );
+      throw error;
+    } finally {
+      if (finalizationInFlightRef.current === finalize) {
+        finalizationInFlightRef.current = null;
+      }
+    }
+  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (
+      !vaultInvitationOpen ||
+      !isVaultUnlocked ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !user?.uid ||
+      finalizationInFlightRef.current
+    ) {
+      return;
+    }
+    setDismissing(true);
+    void completeSetupAfterVault()
+      .catch(() => undefined)
+      .finally(() => setDismissing(false));
+  }, [
+    completeSetupAfterVault,
+    isVaultUnlocked,
+    vaultInvitationOpen,
+    vaultKey,
+    vaultOwnerToken,
+    user?.uid,
+  ]);
 
   const handleMasterAck = async () => {
     if (dismissing) {
@@ -237,7 +311,7 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      // Connections gate: a runtime choice is mandatory before leaving the hub.
+      // AI access gate: a runtime choice is mandatory before leaving the hub.
       // When the client already knows the choice is made (the footer stays
       // disabled until runtimeChoiceComplete) trust it and skip the network
       // round-trip. Only re-verify against fresh server state when the client
@@ -258,7 +332,7 @@ export function OneSetupHub() {
           });
         } catch (error) {
           console.warn(
-            "[OneSetupHub] Could not verify the Connections choice:",
+            "[OneSetupHub] Could not verify the AI access choice:",
             error,
           );
         }
@@ -266,7 +340,7 @@ export function OneSetupHub() {
       if (!runtimeChoiceConfirmed) {
         return {
           status: "blocked" as const,
-          summary: "Choose how One runs in Connections before continuing.",
+          summary: "Choose AI access before continuing.",
         };
       }
 
@@ -277,7 +351,7 @@ export function OneSetupHub() {
           summary: "Continue to set up your private vault.",
         };
       }
-      completeSetupAfterVault();
+      await completeSetupAfterVault();
       return {
         status: "succeeded" as const,
         summary: "Setup complete. Opening home.",
@@ -305,7 +379,7 @@ export function OneSetupHub() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="reading"
       className="relative isolate"
       nativeTest={{
         routeId: "/one/setup",
@@ -342,7 +416,7 @@ export function OneSetupHub() {
               disabled={dismissing || !runtimeChoiceComplete}
               title={
                 !runtimeChoiceComplete
-                  ? "Choose a Connections option before continuing."
+                  ? "Choose an AI access option before continuing."
                   : undefined
               }
               data-testid="one-setup-master-ack-mobile"
@@ -422,8 +496,8 @@ export function OneSetupHub() {
                 {!runtimeChoiceComplete ? (
                   <SetupNavigationTile
                     id="connections"
-                    title="Connections"
-                    description="Use Hushh managed Gemini or your own Google AI Studio key."
+                    title="AI access"
+                    description="Choose Hushh managed Gemini or your own Gemini access."
                     href={ROUTES.ONE_SETUP_CONNECTIONS}
                     voiceControlId="one_setup_tile_connections"
                     icon={lucideCapabilityIcon(PlugZap)}
@@ -458,8 +532,8 @@ export function OneSetupHub() {
                   {runtimeChoiceComplete ? (
                     <SetupNavigationTile
                       id="connections"
-                      title="Connections"
-                      description="Change how One runs."
+                      title="AI access"
+                      description="Change how One reaches Gemini."
                       href={ROUTES.ONE_SETUP_CONNECTIONS}
                       voiceControlId="one_setup_tile_connections"
                       icon={lucideCapabilityIcon(PlugZap)}
@@ -505,7 +579,7 @@ export function OneSetupHub() {
                 }
                 supportingText={
                   !runtimeChoiceComplete
-                    ? "Choose a Connections option before continuing."
+                    ? "Choose an AI access option before continuing."
                     : "Your vault is required. You can add more capabilities any time."
                 }
                 variant="blue-gradient"
@@ -514,6 +588,22 @@ export function OneSetupHub() {
             </div>
           </>
         )}
+        {finalizationError ? (
+          <div
+            role="alert"
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          >
+            <span>{finalizationError}</span>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              onClick={() => void handleMasterAck()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
       </AppPageContentRegion>
       {user ? (
         <VaultUnlockDialog
@@ -523,9 +613,7 @@ export function OneSetupHub() {
           dismissible={false}
           title="Set up your private vault"
           description="Create a private place for the details you choose to save."
-          onSuccess={() => {
-            completeSetupAfterVault();
-          }}
+          onSuccess={() => undefined}
         />
       ) : null}
     </AppPageShell>

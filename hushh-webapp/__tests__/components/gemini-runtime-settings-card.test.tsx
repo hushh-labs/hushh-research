@@ -6,12 +6,14 @@ import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runti
 const {
   validateGeminiRuntimeCredentialMock,
   loadRuntimeSecretMock,
+  removeRuntimeSecretMock,
   storeRuntimeSecretMock,
   toastErrorMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
   validateGeminiRuntimeCredentialMock: vi.fn(),
   loadRuntimeSecretMock: vi.fn(),
+  removeRuntimeSecretMock: vi.fn(),
   storeRuntimeSecretMock: vi.fn(),
   toastErrorMock: vi.fn(),
   toastSuccessMock: vi.fn(),
@@ -37,7 +39,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     loadRuntimeSecret: (...args: unknown[]) => loadRuntimeSecretMock(...args),
     storeRuntimeSecret: (...args: unknown[]) => storeRuntimeSecretMock(...args),
-    removeRuntimeSecret: vi.fn(),
+    removeRuntimeSecret: (...args: unknown[]) => removeRuntimeSecretMock(...args),
   },
 }));
 
@@ -46,6 +48,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     vi.clearAllMocks();
     loadRuntimeSecretMock.mockResolvedValue(null);
     storeRuntimeSecretMock.mockResolvedValue({ success: true });
+    removeRuntimeSecretMock.mockResolvedValue({ success: true });
     validateGeminiRuntimeCredentialMock.mockResolvedValue({ status: "ready" });
   });
 
@@ -66,6 +69,39 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     expect(screen.queryByText("Selected")).toBeNull();
+  });
+
+  it("keeps Gemini selectable and labels the other models as coming soon", () => {
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured={false}
+        onSelectionReadyChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Hushh managed Gemini")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
+    for (const provider of [
+      ["openai", "OpenAI"],
+      ["anthropic", "Claude"],
+      ["grok", "Grok"],
+      ["meta_muse_spark", "Meta Muse Spark"],
+    ] as const) {
+      const row = screen.getByTestId(`profile-coming-soon-${provider[0]}`);
+      expect(row).toHaveTextContent(provider[1]);
+      expect(row).toHaveTextContent("Coming soon");
+      expect(row).toHaveClass("cursor-not-allowed");
+      expect(screen.queryByRole("button", { name: provider[1] })).toBeNull();
+    }
   });
 
   it("commits the managed choice before reporting setup completion", async () => {
@@ -93,7 +129,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(onSelectionReadyChange).toHaveBeenCalledWith("hushh_managed_vertex");
   });
 
-  it("records a pending BYOK choice without opening a vault or writing a credential during setup", async () => {
+  it("keeps BYOK unselected until a key is validated and staged in memory during setup", async () => {
     const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
     const onRequestVaultCreation = vi.fn();
     render(
@@ -111,16 +147,51 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini API key/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
 
-    await waitFor(() =>
-      expect(onSelectionReadyChange).toHaveBeenCalledWith("byok_pending_vault"),
-    );
+    expect(onSelectionReadyChange).not.toHaveBeenCalled();
     expect(onRequestVaultCreation).not.toHaveBeenCalled();
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(/Your key has not been entered or saved/i),
-    ).toBeTruthy();
+    expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
+  });
+
+  it("stages a validated setup key without any durable runtime-secret write", async () => {
+    const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
+    const onPreVaultDraftStaged = vi.fn();
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured={false}
+        onSelectionReadyChange={onSelectionReadyChange}
+        onPreVaultDraftStaged={onPreVaultDraftStaged}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
+    fireEvent.change(screen.getByLabelText("Gemini API key"), {
+      target: { value: "test-gemini-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    await screen.findByText("Key is responding and ready to save.");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+
+    await waitFor(() =>
+      expect(onPreVaultDraftStaged).toHaveBeenCalledWith({
+        transport: "developer_api",
+        credential: "test-gemini-key",
+        vertexProject: null,
+        vertexLocation: null,
+      }),
+    );
+    expect(onSelectionReadyChange).toHaveBeenCalledWith("byok_pending_vault");
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
   });
 
   it("keeps the active provider when the encrypted mode write is rejected", async () => {
@@ -146,7 +217,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /Use my Gemini API key/i }),
+        screen.getByRole("button", { name: /Use my Gemini access/i }),
       ).toHaveAttribute("aria-pressed", "true"),
     );
     fireEvent.click(
@@ -159,7 +230,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: /Use my Gemini API key/i }),
+      screen.getByRole("button", { name: /Use my Gemini access/i }),
     ).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -180,7 +251,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini API key/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "test-gemini-key" } });
 
@@ -217,7 +288,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini API key/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "first-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
