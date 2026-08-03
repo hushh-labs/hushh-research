@@ -102,6 +102,25 @@ Fully automatable with the Admin-role App Store Connect key already in Secret Ma
 
 Reuses the existing ASC JWT client (`scripts/ci/submit-appstore-version.py:113,166-174` — ES256, `aud=appstoreconnect-v1`, exp+19min), the `::add-mask::` / `umask 077` / `chmod 600` hygiene, and the ephemeral venv pattern. **Operational risk is the ~1-year Pass Type ID certificate**, not WWDR — it needs monitored rotation.
 
+### 5.1 Pre-flight (before `--apply`)
+
+Run without `--apply` first. The dry run resolves the Pass Type ID, generates a throwaway keypair/CSR, and — importantly — asserts Secret Manager **write** access on every `--secret-project` before anything irreversible happens. It calls the Cloud Resource Manager `projects.testIamPermissions` REST endpoint directly; there is no `gcloud projects test-iam-permissions` subcommand (SDK 565.0.0 answers `Invalid choice`). `secretmanager.secrets.create` is demanded only when a Wallet secret is genuinely absent, so a rotation-scoped credential passes. Grants must be on the **project** — a grant on the individual secrets is invisible to a project-level check.
+
+### 5.2 Recovery from a partial publish (post-mint)
+
+Step 3 is irreversible and an Apple Pass Type ID account holds a small, finite number of certificate slots. If the mint succeeds but step 6 does not reach every project, the script exits non-zero and names the exact per-project state.
+
+**Do not re-run this command to repair it.** Every run reaches the mint — `--force-new-certificate` obviously, but a plain re-run does too, because a partially published fleet is not "fully provisioned" and falls through to the same call. Each attempt burns another slot.
+
+Repair by copying the material that already exists:
+
+1. Identify a project whose `WALLET_PASS_CERT_PEM` and `WALLET_PASS_KEY_PEM` correspond (the failure message says which ones do not).
+2. Read each of `WALLET_PASS_KEY_PEM`, `WALLET_PASS_CERT_PEM`, `WALLET_PASS_WWDR_PEM` from the healthy project and pipe it into the failed one via `scripts/ops/upsert_gcp_secret.py --stdin`. Never let the PEM become an argv entry, a shell variable, or a file on disk.
+3. Re-run **without** `--apply`; a converged fleet reports `already-provisioned` and exits 0.
+4. Keep `ONE_WALLET_CARD_ENABLED` OFF until step 3 is clean. The signing service returns 503 while material is absent or mixed, so the feature degrades rather than serving passes iOS would reject.
+
+Reads in the verification path retry (3×, backing off) exactly like writes: an unretried transient gcloud failure would otherwise be read as "absent" or "corrupt" and route an operator into this recovery when nothing was actually wrong.
+
 ## 6. Success metrics
 
 Repeat usage, not passes added: scans per active card, contact-save / portfolio-open actions per scan, share-scope edits, rotation/revocation usage, setup completion time (< 60s target), pass-generation failure rate, scanner-page load time on mobile networks.
