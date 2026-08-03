@@ -14,6 +14,8 @@ import {
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
@@ -77,9 +79,41 @@ export function SavedLocationsSection() {
   const [saveLocationAddressLoading, setSaveLocationAddressLoading] =
     useState(false);
   const [saveLocationSaving, setSaveLocationSaving] = useState(false);
+  const [rendererDisclosureAccepted, setRendererDisclosureAccepted] =
+    useState(false);
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
-  vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+  const addressResolutionIdRef = useRef(0);
+
+  // Keep a "latest session" ref so async callbacks can detect when the vault
+  // session changed mid-flight. Updated in an effect (not during render) to
+  // satisfy the react-hooks/refs rule.
+  useEffect(() => {
+    vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+  }, [userId, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRendererDisclosureAccepted(false);
+    if (!vaultOwnerToken) return () => undefined;
+
+    void OneLocationService.getMapState(vaultOwnerToken)
+      .then((state) => {
+        if (cancelled) return;
+        setRendererDisclosureAccepted(
+          state.preferences.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+        );
+      })
+      .catch(() => {
+        // Fail closed: show the disclosure again when canonical state cannot
+        // be read instead of assuming a prior acceptance.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultOwnerToken]);
 
   const hasVaultAccess = Boolean(
     isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -144,6 +178,7 @@ export function SavedLocationsSection() {
   useEffect(() => {
     if (hasVaultAccess) return;
     captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
     setLocations([]);
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
@@ -159,6 +194,7 @@ export function SavedLocationsSection() {
   useEffect(() => {
     if (!locationControl.paused) return;
     captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
     setCapturing(false);
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
@@ -178,6 +214,7 @@ export function SavedLocationsSection() {
       return;
     }
 
+    addressResolutionIdRef.current += 1;
     setCapturing(true);
     const captureRequestId = captureRequestIdRef.current + 1;
     captureRequestIdRef.current = captureRequestId;
@@ -195,6 +232,8 @@ export function SavedLocationsSection() {
       setSaveLocationAddress(null);
       setSaveLocationAddressLoading(true);
       setSaveLocationModalOpen(true);
+      const addressResolutionId = addressResolutionIdRef.current + 1;
+      addressResolutionIdRef.current = addressResolutionId;
 
       try {
         const place = await OneLocationService.reverseGeocode({
@@ -204,6 +243,7 @@ export function SavedLocationsSection() {
         });
         if (
           captureRequestIdRef.current !== captureRequestId ||
+          addressResolutionIdRef.current !== addressResolutionId ||
           !isCurrentVaultSession(session) ||
           readOneLocationControlState(userId).paused
         ) {
@@ -215,6 +255,7 @@ export function SavedLocationsSection() {
       } catch {
         if (
           captureRequestIdRef.current !== captureRequestId ||
+          addressResolutionIdRef.current !== addressResolutionId ||
           !isCurrentVaultSession(session)
         ) {
           return;
@@ -223,6 +264,7 @@ export function SavedLocationsSection() {
       } finally {
         if (
           captureRequestIdRef.current === captureRequestId &&
+          addressResolutionIdRef.current === addressResolutionId &&
           isCurrentVaultSession(session)
         ) {
           setSaveLocationAddressLoading(false);
@@ -257,12 +299,7 @@ export function SavedLocationsSection() {
 
   const handleSave = useCallback(
     async (category: SavedLocationCategory, label: string) => {
-      if (
-        !userId ||
-        !vaultKey ||
-        !vaultOwnerToken ||
-        !saveLocationPoint
-      ) {
+      if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
         toast.error("Unlock your vault and capture the location again.");
         return;
       }
@@ -290,6 +327,7 @@ export function SavedLocationsSection() {
           },
         });
         if (!isCurrentVaultSession(session)) return;
+        addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
@@ -340,13 +378,7 @@ export function SavedLocationsSection() {
         }
       }
     },
-    [
-      isCurrentVaultSession,
-      removingId,
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    ],
+    [isCurrentVaultSession, removingId, userId, vaultKey, vaultOwnerToken],
   );
 
   const handleRepairAddress = useCallback(
@@ -361,11 +393,7 @@ export function SavedLocationsSection() {
           lng: location.longitude,
         });
         if (!isCurrentVaultSession(session)) return;
-        const address = (
-          place.formattedAddress ||
-          place.name ||
-          ""
-        ).trim();
+        const address = (place.formattedAddress || place.name || "").trim();
         if (!address) {
           toast.error("No street address was found for this location.");
           return;
@@ -387,14 +415,64 @@ export function SavedLocationsSection() {
         }
       }
     },
-    [
-      isCurrentVaultSession,
-      repairingId,
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    ],
+    [isCurrentVaultSession, repairingId, userId, vaultKey, vaultOwnerToken],
   );
+
+  // Drag-to-pin confirm: adopt the owner-confirmed coordinate and address,
+  // replacing the coarse GPS fix for the Settings "Add place" flow.
+  const handlePickExactSavedLocation = useCallback((picked: PickedLocation) => {
+    addressResolutionIdRef.current += 1;
+    setSaveLocationPoint((current) => ({
+      latitude: picked.latitude,
+      longitude: picked.longitude,
+      accuracyM: null,
+      capturedAt: new Date().toISOString(),
+      sourcePlatform: current?.sourcePlatform ?? "web",
+    }));
+    setSaveLocationAddress(picked.address);
+    setSaveLocationAddressLoading(false);
+  }, []);
+
+  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  const locateMeForSavedLocation = useCallback(async () => {
+    try {
+      const point = await OneLocationService.captureCurrentPosition();
+      return { latitude: point.latitude, longitude: point.longitude };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Reverse-geocode wrapper the map picker calls on every settle.
+  const reverseGeocodeForSavedLocation = useCallback(
+    async (lat: number, lng: number): Promise<string | null> => {
+      if (!vaultOwnerToken) return null;
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat,
+          lng,
+        });
+        return place.formattedAddress || place.name || null;
+      } catch {
+        return null;
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const acceptSavedLocationMapRenderer = useCallback(async () => {
+    if (!vaultOwnerToken) {
+      throw new Error("Unlock your vault before opening Google Maps.");
+    }
+    const next = await OneLocationService.updateMapPreferences({
+      vaultOwnerToken,
+      rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    });
+    setRendererDisclosureAccepted(
+      next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    );
+  }, [vaultOwnerToken]);
 
   if (!userId || loadedUserId !== userId) return null;
 
@@ -522,10 +600,7 @@ export function SavedLocationsSection() {
                   {removingId === location.id ? (
                     <Loader2 className="h-[18px] w-[18px] animate-spin" />
                   ) : (
-                    <Trash2
-                      className="h-[18px] w-[18px]"
-                      strokeWidth={2}
-                    />
+                    <Trash2 className="h-[18px] w-[18px]" strokeWidth={2} />
                   )}
                 </button>
               </div>
@@ -546,11 +621,27 @@ export function SavedLocationsSection() {
         address={saveLocationAddress}
         loadingAddress={saveLocationAddressLoading}
         saving={saveLocationSaving}
+        mapInitial={
+          saveLocationPoint
+            ? {
+                latitude: saveLocationPoint.latitude,
+                longitude: saveLocationPoint.longitude,
+              }
+            : null
+        }
+        reverseGeocode={reverseGeocodeForSavedLocation}
+        onLocateMe={locateMeForSavedLocation}
+        onPickExactLocation={handlePickExactSavedLocation}
+        rendererDisclosureAccepted={rendererDisclosureAccepted}
+        onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
         onSave={(category, label) => void handleSave(category, label)}
         onSkip={() => {
           if (saveLocationSaving) return;
+          addressResolutionIdRef.current += 1;
           setSaveLocationModalOpen(false);
           setSaveLocationPoint(null);
+          setSaveLocationAddress(null);
+          setSaveLocationAddressLoading(false);
         }}
       />
     </>

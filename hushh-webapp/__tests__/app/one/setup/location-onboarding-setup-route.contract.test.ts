@@ -31,11 +31,23 @@ describe("Location setup route contract", () => {
   it("keeps Location setup vault-free until the root setup completion", () => {
     const locationPage = read("app/one/location/page.tsx");
 
-    expect(locationPage).toContain("mode !== \"setup\"");
+    expect(locationPage).toContain('mode !== "setup"');
     expect(locationPage).toContain(
       'Boolean(auth.userId && (mode === "setup" || vaultOwnerToken))',
     );
     expect(locationPage).toContain(
+      "onLocationReady={promptSaveLocationDuringOnboarding}",
+    );
+    expect(locationPage).toContain(
+      "PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input)",
+    );
+    expect(locationPage).toContain(
+      "deferredUntilVault={!vaultKey || !vaultOwnerToken}",
+    );
+    expect(locationPage).toContain(
+      "vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined",
+    );
+    expect(locationPage).not.toContain(
       'mode === "setup"\n              ? async () => true',
     );
   });
