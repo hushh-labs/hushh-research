@@ -2,6 +2,31 @@
 
 These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
 
+## Read this first — how the pieces map together
+
+This file is the **initial source context** for every agent on every platform. Read it before
+routing, before designing, before writing. Everything else in the repo either inherits it by
+pointer or refines it; nothing overrides it except a rule that is genuinely more specific.
+
+| Where | What lives there |
+|---|---|
+| `AGENTS.md` (this file) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
+| `skills/` | Canonical platform-neutral **skills**. Platform folders hold thin bridges that point here, never copies |
+| `agents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
+| `.codex/skills/`, `.codex/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
+| `docs/future/personal-agent/` | The live **architecture of record** for Private Agent One, including the parity matrix and divergence register |
+| `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
+| `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
+
+**Anti-drift rule.** When this kernel and an architecture document disagree, that is a
+**defect**, not a tolerable difference — and it must be closed in the same change that
+discovers it, in whichever direction is true. Doctrine that silently lags the architecture of
+record is worse than no doctrine, because agents keep enforcing a rule the system has already
+outgrown. This exact failure occurred once already: `ARCHITECTURE.md` §7a moved the pod to a
+persisted, per-pod-key-encrypted working copy on 2026-07-21, and the Agent Architecture
+Doctrine below still said agents hold "no memory of its own" eight days later, so every agent
+reading the kernel enforced a superseded rule. Treat a disagreement as a stop-and-fix.
+
 ## Project-Wide Principal Craft Kernel
 
 Parent and child agents operate as principal-level software engineers, systems architects, product-minded technical owners, and verification leads.
@@ -82,7 +107,12 @@ Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md
 
 These are the durable architecture principles for every Hussh product agent (One, Kai, Nav, KYC, and future specialists). They govern how agents are built, delegated to, and scaled. Repo skills and generated contracts refine them; they do not contradict them.
 
-1. Dumb agents by default. A Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). If an agent needs protected information, it arrives through a consent-gated channel; the agent never reaches out around the trust boundary.
+1. Agent statefulness is decided by runtime topology, not by a blanket rule. Isolation — an agent must never reach another owner's information — is permanent and non-negotiable. Statelessness was only ever a *consequence* of shared multi-tenancy, never a security property in its own right, and the two must not be conflated.
+   - **Shared multi-tenant runtime — dumb by default.** In the hub (`consent-protocol` serving every user from one process), a Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). Memory here would be cross-tenant leakage, so this half of the rule does not move.
+   - **Per-user pod — an intelligent private agent that holds its own memory.** Private Agent One runs on the owner's own compute, in a pod bound to exactly one owner, holding its own X25519 keypair and its own encrypted store. There, isolation is achieved by topology and cryptography rather than by amnesia, so memory is both safe and the thing that makes the agent genuinely personal. This is the model already committed in `docs/future/personal-agent/ARCHITECTURE.md` §7a (founder directive, 2026-07-21), which refines the earlier "ephemeral / no PKM persisted" language into the three-replica cloud-backup ⇄ pod-cache ⇄ device model while keeping zero-knowledge intact.
+   - **Two different substances, one authority each.** PKM is the *information* authority — the zero-knowledge vault, the system of record for what the owner knows and holds. Pod memory is the *agent-experience* layer — conversation history, learned preferences, working context, the accumulated sense of how to serve this particular owner well. Memory is not a second copy of PKM and must never become one, so the Bacterial Gate's prohibition on a second source of truth is preserved.
+   - **Invariants pod memory must not break** (each already enforced in code; cite by pointer, never restate): Hushh never holds the pod private key (`consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py`, public keys only); no plaintext private data at rest (migration `069_drop_kai_location_plaintext.sql`); exports carry no legacy key material (migration `062_consent_exports_export_key_guard.sql`, DB `CHECK`); the backend stores only ciphertext it cannot read (`api/routes/pkm_routes_shared.py`); no plaintext PII in logs (`hushh_mcp/consent/pii_sanitizer.py`); every pod read is owner-gated and receipted (`hushh_mcp/services/pod_access_audit.py`).
+   - **Memory-specific rules.** Memory never crosses a pod boundary — one pod, one owner, one key. Memory is encrypted under the pod's own key, so the control plane can neither read nor reconstruct it. Memory is inspectable and exportable by its owner and is destroyed with the account through the existing teardown and tombstone path. Recall is an explicit, receipted tool call, never ambient context.
 2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
 3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.

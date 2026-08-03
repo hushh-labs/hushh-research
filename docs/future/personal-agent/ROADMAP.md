@@ -72,7 +72,7 @@ is **0 behind `main`** after the 2026-07-20 sync.
   adapters render the real deploy artifact (Cloud Run service / AMC descriptor) + routing
   handle but make **no live cloud call**; live execution (`_execute`) is gated on
   credentials + founder go (GCP) and the written MuleSoft API/capacity confirmation (Anypoint).
-- **No remote agent transport.** One is a single **stateless multi-tenant** ADK service
+- **No remote agent transport.** The **hub** is a single **stateless multi-tenant** ADK service
   (one voice head + one text head); runners are process-wide/ephemeral singletons. The
   A2A surface (`a2a.py`) is preview-grade (`officialA2A:false`, a release blocker pending
   the official A2A SDK) and its `POST /message` still calls the **legacy orchestrator**,

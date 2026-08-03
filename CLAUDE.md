@@ -111,9 +111,13 @@ Format:
 
 ```
 ---
-**Used:** `verify-before-claim` (live-artifact verification) · `repo_operator` (deploy-lane evidence)
-**Evolved:** `verify-before-claim` — added the fallback-classification lesson
+**Subagents used:** `repo_operator` — deploy-lane evidence · `Explore` ×2 — ADK surface, audit scope
+**Skills used:** `verify-before-claim` — live-artifact verification of the deployed revision
+**Skills evolved:** `verify-before-claim` — added the fallback-classification lesson
 ```
+
+Omit a line entirely when that category is empty — an empty heading is noise. If a response
+used nothing, say so plainly or omit the block.
 
 Evolve the lanes as you use them: when a session teaches a durable lesson, fold it into
 the relevant skill or agent definition in the same change, grounded in real repository
