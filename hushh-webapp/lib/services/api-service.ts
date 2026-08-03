@@ -32,6 +32,7 @@ import {
   PORTFOLIO_STREAM_EVENT,
   KAI_STREAM_EVENT,
 } from "@/lib/capacitor/kai";
+import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
 import {
   isKaiStreamEnvelope,
@@ -481,6 +482,17 @@ async function apiFetch(
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
+    // Analytics-exempt routes are exempt for every request they make, not just
+    // their page view. A Wallet Profile visitor is a stranger holding someone
+    // else's QR; ObservabilityRouteObserver already bails for them, and letting
+    // api_request_completed through here would put the scanned card's route id
+    // into the dataLayer anyway.
+    if (
+      typeof window !== "undefined" &&
+      isAnalyticsExemptRoute(window.location.pathname)
+    ) {
+      return;
+    }
     trackApiRequestCompleted({
       path,
       httpMethod,

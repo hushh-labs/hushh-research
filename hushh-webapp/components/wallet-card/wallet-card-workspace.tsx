@@ -10,6 +10,7 @@ import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizePublicWalletCard,
@@ -97,6 +98,10 @@ export function WalletCardWorkspace() {
   const [previewOrigin, setPreviewOrigin] = useState<"setup" | "manage">("setup");
   const [saving, setSaving] = useState(false);
   const [busyAction, setBusyAction] = useState<WalletCardManageAction | null>(null);
+
+  // Every stage swaps in place on one pathname, so the shell's pathname-keyed
+  // reset never fires and the previous stage's scroll offset carries over.
+  useScrollReset(stage, { enabled: true, behavior: "auto" });
   const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
   const [applePassSupported, setApplePassSupported] = useState(false);
 

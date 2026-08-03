@@ -543,7 +543,7 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
         </Avatar>
 
         {card.fullName ? (
-          <h1 className="text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
+          <h1 className="break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
             {card.fullName}
           </h1>
         ) : (
@@ -551,7 +551,7 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
         )}
 
         {card.headline ? (
-          <p className="text-base leading-6 text-muted-foreground">
+          <p className="break-words text-base leading-6 text-muted-foreground">
             {card.headline}
           </p>
         ) : null}
@@ -618,7 +618,7 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
             About
           </h2>
           {card.summary ? (
-            <p className="text-sm leading-6 text-foreground/90">
+            <p className="break-words text-sm leading-6 text-foreground/90">
               {card.summary}
             </p>
           ) : null}

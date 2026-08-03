@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ChevronDown, ShieldCheck } from "lucide-react";
 
 import {
@@ -124,6 +124,17 @@ export function WalletCardSetup({
   onCancel: () => void;
 }) {
   const [optionalOpen, setOptionalOpen] = useState(false);
+
+  // The optional fields are unmounted while collapsed, so an error on one of
+  // them would render nowhere and Save would look dead. Open the disclosure so
+  // the message the owner has to act on is actually on screen.
+  const hasCollapsedOptionalError = WALLET_CARD_OPTIONAL_FIELDS.some(
+    (definition) => Boolean(errors[definition.key]),
+  );
+  useEffect(() => {
+    if (hasCollapsedOptionalError) setOptionalOpen(true);
+  }, [hasCollapsedOptionalError]);
+
   const shared = describeSharedFields(draft);
   const preferredOption = WALLET_CARD_PREFERRED_CONTACT_OPTIONS.find(
     (option) => option.value === draft.preferredContact,
@@ -188,6 +199,11 @@ export function WalletCardSetup({
               <div className="pt-1">
                 <Input
                   value={draft[preferredOption.field]}
+                  // `type` (not `inputMode`) is what drives the shared Input's
+                  // iOS autocapitalize/autocorrect suppression, and what lets
+                  // AutoFill offer the owner their own address or number.
+                  type={preferredOption.value === "phone" ? "tel" : "email"}
+                  autoComplete={preferredOption.value === "phone" ? "tel" : "email"}
                   inputMode={preferredOption.value === "phone" ? "tel" : "email"}
                   maxLength={WALLET_CARD_FIELD_LIMITS[preferredOption.field]}
                   placeholder={
