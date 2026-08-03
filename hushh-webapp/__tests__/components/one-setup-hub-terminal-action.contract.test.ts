@@ -4,15 +4,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
-  it("keeps completed capabilities replayable while the setup hub is active", () => {
+  it("routes completed rows through their canonical setup entry", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
     expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
+    // The route coordinator owns durable completion. The hub must not invent a
+    // second target that would diverge for taps, voice navigation, or deep links.
     expect(source).not.toContain(
-      "resolveCompletedSetupCapabilityTarget(item.id)",
+      "resolveCompletedSetupCapabilityEntry(item.id)",
     );
   });
 
@@ -154,7 +156,9 @@ describe("One setup hub terminal action contract", () => {
     expect(emailSetup).toContain("settlementBlocked: saving");
     expect(coordinator).toContain("if (pending) return");
     expect(coordinator).toContain("disabled={pending}");
-    expect(coordinator).toContain("enabled: enabled && !settlementBlocked");
+    expect(coordinator).toMatch(
+      /enabled:\s*enabled && routeReady && !settlementBlocked && !isAlreadyComplete/,
+    );
   });
 
   it("never sends the master exit back onto a setup surface", () => {
