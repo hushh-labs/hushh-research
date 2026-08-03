@@ -94,9 +94,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon: Sparkles,
         domainLabel: "Private agent",
-        label: "Your private agent is being created",
-        description:
-          "We reserved your own private agent. Nothing for you to do — we will let you know when it is ready.",
+        label: "Your private agent is on the way",
+        description: "We reserved your own private agent. Nothing for you to do.",
         href: null,
       };
     case "personal_agent_provisioning":
@@ -104,7 +103,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: Sparkles,
         domainLabel: "Private agent",
         label: "Setting up your private agent",
-        description: "Your private agent is being set up for you in the background.",
+        description: "Your private agent is being set up in the background.",
         href: null,
       };
     case "personal_agent_ready":
@@ -112,22 +111,22 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: Sparkles,
         domainLabel: "Private agent",
         label: "Your private agent is ready",
-        description: "Your own private agent is set up and ready when you are.",
+        description: "It is set up and ready whenever you are.",
         href: ROUTES.AGENT,
       };
     case "personal_agent_failed": {
       // The backend only ever writes a closed vocabulary of user-safe reason
       // codes here — never an exception message — so an unknown code falls back
-      // to the plain line rather than being rendered raw.
+      // to the plain line rather than rendering anything raw.
       const reason = metadataString(item.metadata, "reason");
       return {
         icon: AlertTriangle,
         domainLabel: "Private agent",
-        label: "Your private agent is not set up yet",
+        label: "Your private agent is not ready yet",
         description:
           reason === "invalid_details"
-            ? "We could not finish setting up your private agent — some details did not check out."
-            : "We could not finish setting up your private agent yet. Nothing was lost.",
+            ? "Some details did not check out, so setup could not finish."
+            : "We could not finish setting it up yet. Nothing was lost.",
         href: null,
       };
     }
