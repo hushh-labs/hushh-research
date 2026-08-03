@@ -429,13 +429,17 @@ second class of Cloud Run service.
 
 ### B5. Cost-attribution labels
 
-`gcp_backend.py:163-168` already sets `app`, `hushh-space-id`, `hushh-tier` labels on every
-created service. Extend that dict (same call site) with:
+`gcp_backend.py` already sets `app`, `hussh-space-id`, `hussh-tier` labels on every created
+service. Extend that dict (same call site) with `hussh-env` and `hussh-purpose`.
 
-```python
-"hushh-env": "dev",
-"hushh-purpose": "dev-validation",
-```
+**Shipped, with two corrections to what this section originally said.** The prefix is
+`hussh-`, not `hushh-` — a mixed prefix would make any cost query filtering `hussh-*`
+silently miss the new labels, which is a reporting gap that looks like a zero rather than
+an error. And `hussh-env` must **not** be read from `ENVIRONMENT`: the dev lane deploys
+with `_DEPLOY_ENV=dev` but deliberately runs with `ENVIRONMENT=uat` so behaviour gates
+replicate UAT, so reading `ENVIRONMENT` would bill every dev pod to `uat`. The value is
+derived `HUSHH_DEPLOY_ENV` → `ENVIRONMENT` → `"unknown"`, matching the precedence in
+`runtime_providers/factory.py`.
 
 Do not add a per-user label containing PII (email, raw phone) directly on the GCP resource
 — `hushh-space-id` already exists as the non-PII identifier; use it for cost attribution
@@ -465,7 +469,7 @@ gcloud artifacts docker images list <registry-path-from-B1> --project hushh-pda-
 
 # 2. Sign in as a real dev user in the dev webapp, verify phone
 # 3. Confirm exactly one Cloud Run service was created, with the correct labels
-gcloud run services list --project hushh-pda-dev --filter="labels.hushh-env=dev" --format=json
+gcloud run services list --project hushh-pda-dev --filter="labels.hussh-env=dev" --format=json
 
 # 4. Confirm the registry row
 psql "$DEV_DB_URL" -c "select user_id, hushh_id, status, anypoint_agent_id, a2a_route from personal_agent_registry order by provisioned_at desc limit 5;"

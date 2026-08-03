@@ -130,6 +130,29 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: null,
       };
     }
+    case "personal_agent_provisioning_capped":
+      // The fleet cap is our constraint, not a mistake the person made, and it is
+      // temporary — the registry row stays pending and the reconcile sweep picks it
+      // up. So this reads as a queue, not a failure, and does not offer an action
+      // the person cannot take.
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is in the queue",
+        description: "We are at capacity right now. Yours is saved and starts automatically.",
+        href: null,
+      };
+    case "personal_agent_reaped":
+      // Only the compute is torn down; the registry row and identity survive, and
+      // the next thing the person does re-provisions it. Saying "deleted" would be
+      // false, and saying nothing would make the next cold start look like a fault.
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is resting",
+        description: "It was idle for a while, so we powered it down. It wakes when you need it.",
+        href: ROUTES.AGENT,
+      };
     case "location_share_created":
       return {
         icon,

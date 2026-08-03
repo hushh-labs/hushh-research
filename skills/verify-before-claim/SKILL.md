@@ -129,6 +129,12 @@ traps, each of which cost us real time:
 - **Green on the run is not green on the thing.** The workflow reporting success and the
   service actually serving your code are two different claims. Verify deployed revision,
   response *content*, and that flag-gated surfaces are still dark.
+- **The worst failure signal is no signal.** A hang has no label to misread. Bumping
+  `DB_VERSION` on our IndexedDB service would have blocked forever, because `openDb()`
+  never closed its connections and an upgrade waits on every open handle — the promise
+  simply never settles. Anything that waits on a resource being released (schema upgrades,
+  advisory locks, connection pools, file handles) fails this way. When something is *slow*
+  rather than *wrong*, ask what it is waiting for and who was supposed to let go.
 
 ## 2c. Unversioned interfaces between config and code
 
@@ -182,6 +188,12 @@ Design decisions made from assumption get thrown away.
   it was invisible from the outside.
 - Reading `migrate.py` proved it resolves migrations from the manifest, not a directory
   scan — which made relocating parked migrations provably safe rather than hopeful.
+
+**Know what crosses a serialization boundary.** IndexedDB structured-clones what you
+store, so a value read back is never the object you wrote — a `toBe` identity assertion
+there tests the boundary, not your code, and tells you nothing either way. The same holds
+for JSON round-trips, ORM hydration, and anything that survives a process restart. Assert
+on the *behaviour* or the *stored bytes*, not on object identity.
 
 **Before writing code:** find the thing you're extending, read it, and read one
 existing example of the pattern you're about to follow.
