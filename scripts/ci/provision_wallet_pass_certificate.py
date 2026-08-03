@@ -56,6 +56,7 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 from typing import NoReturn
@@ -352,17 +353,32 @@ def certificate_pem_from_content(content: str) -> tuple[str, object]:
     return pem, certificate
 
 
-def assert_certificate_matches_key(certificate: object, key: object) -> None:
-    """Fail closed if Apple returned a certificate for a different keypair."""
+def _public_key_der(public_key: object) -> bytes:
     from cryptography.hazmat.primitives import serialization
 
-    def public_der(public_key: object) -> bytes:
-        return public_key.public_bytes(  # type: ignore[attr-defined]
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
+    return public_key.public_bytes(  # type: ignore[attr-defined]
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
 
-    if public_der(certificate.public_key()) != public_der(key.public_key()):  # type: ignore[attr-defined]
+
+def certificate_matches_key(certificate: object, key: object) -> bool:
+    """True iff the certificate's public key corresponds to the private key.
+
+    This is the invariant the signer actually depends on: a cert and key that do
+    not correspond produce a PKCS#7 signature iOS silently refuses to install.
+    """
+    try:
+        return _public_key_der(certificate.public_key()) == _public_key_der(  # type: ignore[attr-defined]
+            key.public_key()  # type: ignore[attr-defined]
+        )
+    except Exception:
+        return False
+
+
+def assert_certificate_matches_key(certificate: object, key: object) -> None:
+    """Fail closed if Apple returned a certificate for a different keypair."""
+    if not certificate_matches_key(certificate, key):
         die(
             "issued certificate does not match the generated private key; "
             "refusing to publish signing material"
@@ -479,100 +495,285 @@ def verify_wwdr_g4(certificate: object) -> None:
 # --------------------------------------------------------------------------- #
 # Secret Manager (writes go through upsert_gcp_secret.py over stdin only)
 # --------------------------------------------------------------------------- #
-def assert_project_access(project: str) -> None:
-    """Fail closed *before* minting if a target project is not writable."""
-    result = subprocess.run(
-        [
-            "gcloud",
-            "secrets",
-            "list",
-            "--project",
-            project,
-            "--limit",
-            "1",
-            "--format=value(name)",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if result.returncode != 0:
+# Secret Manager permissions this run exercises on EVERY invocation. The
+# post-mint path does not only write: it GETs (presence checks) and ACCESSes
+# (reads the stored material back for the correspondence guard), so a write-only
+# credential would pass a narrower gate and still strand after the irreversible
+# Apple mint. A read/viewer credential fails all three.
+BASE_PROVISIONING_PERMISSIONS = (
+    "secretmanager.secrets.get",  # secret_exists() presence checks
+    "secretmanager.versions.add",  # add a new version on every rotation
+    "secretmanager.versions.access",  # read stored material for the correspondence guard
+)
+# Exercised only when a secret does not exist yet: upsert_gcp_secret.py skips
+# `secrets create` for an existing secret, so demanding this unconditionally
+# would reject a legitimately rotation-scoped credential. Required conditionally.
+CREATE_SECRET_PERMISSION = "secretmanager.secrets.create"
+REQUIRED_PROVISIONING_PERMISSIONS = BASE_PROVISIONING_PERMISSIONS + (CREATE_SECRET_PERMISSION,)
+
+# Cloud Resource Manager exposes testIamPermissions over REST only — the gcloud
+# CLI has no `projects test-iam-permissions` subcommand (SDK 565.0.0 answers
+# "Invalid choice", and there is no such surface on alpha or beta either).
+# Calling the API directly also returns JSON, so the granted set is parsed
+# structurally instead of guessing how gcloud renders a list value.
+CRM_TEST_IAM_PERMISSIONS_URL = (
+    "https://cloudresourcemanager.googleapis.com/v1/projects/{project}:testIamPermissions"
+)
+
+SECRET_READ_ATTEMPTS = 3
+SECRET_READ_RETRY_SECONDS = 2
+
+
+def _run_gcloud(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """Run a gcloud command, returning None if the binary cannot be executed.
+
+    Callers run inside the post-mint guard, where an escaping ``OSError`` would
+    bypass the die() that carries the "already minted, do NOT re-mint"
+    instruction. Swallowing it here keeps every reader fail-closed.
+    """
+    try:
+        return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as exc:
+        log(f"gcloud could not be executed ({exc}); treating the result as unavailable")
+        return None
+
+
+def _is_not_found(detail: str) -> bool:
+    """True when gcloud reported a genuinely absent resource (never transient)."""
+    return "NOT_FOUND" in detail.upper() or "was not found" in detail
+
+
+def gcloud_access_token() -> str:
+    """Return an OAuth access token for the active gcloud credential.
+
+    The token is a bearer credential: it is returned for immediate in-memory use
+    and is never logged, written to disk, or placed in argv.
+    """
+    result = _run_gcloud(["gcloud", "auth", "print-access-token"])
+    if result is None:
+        die(f"gcloud is not available, so project access cannot be verified. See {RUNBOOK}.")
+    if result.returncode != 0 or not result.stdout.strip():
         die(
-            f"cannot list Secret Manager secrets in project '{project}'. The "
-            "provisioning credential needs roles/secretmanager.admin there. "
-            f"See {RUNBOOK}."
+            "could not obtain a Google access token: "
+            f"{result.stderr.strip() or 'gcloud auth print-access-token failed'}. "
+            f"Authenticate the provisioning credential first. See {RUNBOOK}."
+        )
+    return result.stdout.strip()
+
+
+def granted_project_permissions(project: str, token: str) -> set[str]:
+    """Return the subset of the queried permissions the credential holds."""
+    url = CRM_TEST_IAM_PERMISSIONS_URL.format(project=urllib.parse.quote(project, safe=""))
+    status, payload, detail = _try_request(
+        "POST", url, token, {"permissions": list(REQUIRED_PROVISIONING_PERMISSIONS)}
+    )
+    if status == 0 or status >= 400:
+        die(
+            f"cannot check Secret Manager access in project '{project}': "
+            f"testIamPermissions returned {status or 'no response'} "
+            f"{detail.strip()[:400]}. Confirm the project id and that the Cloud "
+            f"Resource Manager API is enabled. See {RUNBOOK}."
+        )
+    return {str(item) for item in (payload.get("permissions") or [])}
+
+
+def assert_project_access(project: str, token: str) -> None:
+    """Fail closed *before* minting if a target project is not **writable**.
+
+    ``testIamPermissions`` returns the subset of the queried permissions the
+    caller actually holds; requiring the full run set proves the credential can
+    complete the run rather than merely read it.
+
+    ``secretmanager.secrets.create`` is demanded only when a Wallet secret is
+    actually absent, so a credential scoped to rotation alone still passes.
+    """
+    granted = granted_project_permissions(project, token)
+    lacking = [perm for perm in BASE_PROVISIONING_PERMISSIONS if perm not in granted]
+    if lacking:
+        die(
+            f"provisioning credential lacks Secret Manager access in project "
+            f"'{project}': missing {', '.join(lacking)}. A read-only credential "
+            "would pass a list check and then strand this environment after the "
+            "irreversible Apple mint. Grant roles/secretmanager.admin on the "
+            "project (a grant made on the individual secrets is not visible to "
+            f"this project-level check). See {RUNBOOK}."
+        )
+    if CREATE_SECRET_PERMISSION not in granted:
+        absent = [name for name in GCP_PEM_NAMES if not secret_exists(project, name)]
+        if absent:
+            die(
+                f"project '{project}' is missing {', '.join(absent)} and the "
+                f"credential lacks {CREATE_SECRET_PERMISSION}, so those secrets "
+                "could not be created after the irreversible Apple mint. Grant "
+                f"roles/secretmanager.admin on the project. See {RUNBOOK}."
+            )
+        log(
+            f"project {project}: rotation-scoped credential (no "
+            f"{CREATE_SECRET_PERMISSION}); every Wallet secret already exists"
         )
     log(f"Secret Manager access confirmed for project {project}")
 
 
 def secret_exists(project: str, name: str) -> bool:
-    result = subprocess.run(
-        [
-            "gcloud",
-            "secrets",
-            "describe",
-            name,
-            "--project",
-            project,
-            "--format=value(name)",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-    return result.returncode == 0 and bool(result.stdout.strip())
+    """True if the secret exists in the project.
+
+    Retried: a transient gcloud failure misread as "absent" routes the caller
+    into an unnecessary irreversible mint. A genuine NOT_FOUND short-circuits,
+    so first-time provisioning does not pay the retry delay.
+    """
+    argv = [
+        "gcloud",
+        "secrets",
+        "describe",
+        name,
+        "--project",
+        project,
+        "--format=value(name)",
+    ]
+    for attempt in range(1, SECRET_READ_ATTEMPTS + 1):
+        result = _run_gcloud(argv)
+        if result is not None and result.returncode == 0:
+            return bool(result.stdout.strip())
+        # gcloud diagnostics only — a describe never echoes the payload.
+        detail = "" if result is None else result.stderr.strip()
+        if detail and _is_not_found(detail):
+            return False
+        if attempt < SECRET_READ_ATTEMPTS:
+            log(
+                f"presence check for {name} in project {project} failed "
+                f"(attempt {attempt}/{SECRET_READ_ATTEMPTS}); retrying"
+            )
+            time.sleep(SECRET_READ_RETRY_SECONDS * attempt)
+        else:
+            log(
+                f"presence check for {name} in project {project} failed after "
+                f"{SECRET_READ_ATTEMPTS} attempts: {detail or 'no diagnostic'}"
+            )
+    return False
 
 
 def read_secret(project: str, name: str) -> str | None:
-    """Read a secret payload for an in-memory check. The value is never printed."""
-    result = subprocess.run(
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            "--secret",
-            name,
-            "--project",
-            project,
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-    if result.returncode != 0:
-        return None
-    return result.stdout
+    """Read a secret payload for an in-memory check. The value is never printed.
+
+    Retried like a write: to the correspondence predicate a transient access
+    failure is indistinguishable from corrupt material, and that predicate gates
+    an irreversible mint. The final diagnostic is surfaced so an operator can
+    tell "could not read" from "genuinely mixed state".
+    """
+    argv = [
+        "gcloud",
+        "secrets",
+        "versions",
+        "access",
+        "latest",
+        "--secret",
+        name,
+        "--project",
+        project,
+    ]
+    for attempt in range(1, SECRET_READ_ATTEMPTS + 1):
+        result = _run_gcloud(argv)
+        if result is not None and result.returncode == 0:
+            return result.stdout
+        # gcloud writes the payload to stdout; stderr carries diagnostics only.
+        detail = "" if result is None else result.stderr.strip()
+        if detail and _is_not_found(detail):
+            log(f"{name} does not exist in project {project}")
+            return None
+        if attempt < SECRET_READ_ATTEMPTS:
+            log(
+                f"read of {name} from project {project} failed "
+                f"(attempt {attempt}/{SECRET_READ_ATTEMPTS}); retrying"
+            )
+            time.sleep(SECRET_READ_RETRY_SECONDS * attempt)
+        else:
+            log(
+                f"read of {name} from project {project} failed after "
+                f"{SECRET_READ_ATTEMPTS} attempts: {detail or 'no diagnostic'}"
+            )
+    return None
 
 
-def write_secret(project: str, name: str, payload: str, upsert_script: str) -> None:
+SECRET_WRITE_ATTEMPTS = 3
+SECRET_WRITE_RETRY_SECONDS = 2
+
+
+def write_secret(project: str, name: str, payload: str, upsert_script: str) -> bool:
     """Add a new version of ``name`` in ``project`` with ``payload`` via stdin.
 
     The payload is piped straight into ``upsert_gcp_secret.py --stdin``: it never
     becomes a shell variable, an argv entry, or a file on disk, so it cannot leak
     through ``set -x``, the process table, or a stray artifact upload.
+
+    Returns True on success. Deliberately does **not** ``die()``: a mid-rotation
+    abort would skip the post-write correspondence guard and leave the project
+    holding a freshly written key beside the previous, non-corresponding
+    certificate. The caller keeps going, verifies every project, and reports the
+    exact mixed state instead. Transient failures are retried first.
     """
-    result = subprocess.run(
-        [
-            sys.executable,
-            upsert_script,
-            "--project",
-            project,
-            "--secret",
-            name,
-            "--stdin",
-        ],
-        input=payload,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    last_diagnostic = ""
+    for attempt in range(1, SECRET_WRITE_ATTEMPTS + 1):
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    upsert_script,
+                    "--project",
+                    project,
+                    "--secret",
+                    name,
+                    "--stdin",
+                ],
+                input=payload,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except OSError as exc:
+            # Must not escape: this runs inside the post-mint guard, where an
+            # unhandled exception would skip the "already minted" instruction.
+            last_diagnostic = f"could not launch the upsert helper: {exc}"
+            result = None
+        if result is not None and result.returncode == 0:
+            log(f"wrote {name} to project {project}")
+            return True
+        if result is not None:
+            # stderr from the upsert script is gcloud diagnostics, never the payload.
+            last_diagnostic = result.stderr.strip() or result.stdout.strip()
+        if attempt < SECRET_WRITE_ATTEMPTS:
+            log(
+                f"write of {name} to project {project} failed "
+                f"(attempt {attempt}/{SECRET_WRITE_ATTEMPTS}); retrying"
+            )
+            time.sleep(SECRET_WRITE_RETRY_SECONDS * attempt)
+
+    log(last_diagnostic)
+    log(f"failed to write {name} to project {project} after {SECRET_WRITE_ATTEMPTS} attempts")
+    return False
+
+
+def inconsistent_publication_message(details: list[str]) -> str:
+    """Operator guidance after the mint succeeded but publication did not.
+
+    Deliberately recommends **no** re-run of this script. By this point the Apple
+    certificate exists and an Apple Pass Type ID account holds a small, finite
+    number of slots. Every re-run reaches the mint — ``--force-new-certificate``
+    obviously so, but a plain re-run does too, because the partially published
+    fleet is not "fully provisioned" and falls through to the same call. The only
+    non-destructive repair is to copy the material that already exists in a
+    healthy project into the failed one.
+    """
+    return (
+        "signing material was not published consistently to every project. "
+        + "; ".join(details)
+        + ". The Apple certificate was ALREADY MINTED. Do NOT re-run this command "
+        "to repair it: every run reaches the mint and consumes another Apple "
+        "certificate slot, with or without --force-new-certificate. Recover by "
+        f"copying {', '.join(GCP_PEM_NAMES)} from a project that holds correct "
+        "material into the failed one with scripts/ops/upsert_gcp_secret.py, then "
+        "re-run WITHOUT --apply to confirm the fleet reports already-provisioned. "
+        f"Keep the feature flag OFF until it clears. See {RUNBOOK}."
     )
-    if result.returncode != 0:
-        # stderr from the upsert script is gcloud diagnostics, never the payload.
-        log(result.stderr.strip() or result.stdout.strip())
-        die(f"failed to write {name} to project {project}")
-    log(f"wrote {name} to project {project}")
 
 
 # --------------------------------------------------------------------------- #
@@ -592,12 +793,69 @@ def existing_material_state(projects: list[str]) -> dict[str, list[str]]:
 
 
 def stored_certificate_expiry(project: str) -> tuple[datetime, str] | None:
-    """Return (notAfter, serial hex) of the stored cert, or None if unreadable."""
+    """Return (notAfter, serial hex) of the stored cert, or None if unreadable.
+
+    Uses the non-fatal loader so the documented "or None if unreadable" contract
+    actually holds: corrupt stored material must route into the re-provisioning
+    path, not terminate the run from inside an inspection helper.
+    """
     pem = read_secret(project, GCP_CERT_PEM_NAME)
     if not pem or not pem.strip():
         return None
-    certificate = load_certificate_pem(pem)
+    certificate = try_load_certificate_pem(pem)
+    if certificate is None:
+        return None
     return not_after_utc(certificate), format(certificate.serial_number, "x")  # type: ignore[attr-defined]
+
+
+def load_private_key_pem(pem: str) -> object | None:
+    """Parse a stored private-key PEM; return None if it is unreadable."""
+    from cryptography.hazmat.primitives import serialization
+
+    try:
+        return serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
+    except Exception:
+        return None
+
+
+def try_load_certificate_pem(pem: str) -> object | None:
+    """Parse a stored certificate PEM; return None if it is unreadable.
+
+    Deliberately separate from :func:`load_certificate_pem`, which calls ``die()``
+    on bad input. ``die()`` raises ``SystemExit`` — a ``BaseException`` that slips
+    straight through ``except Exception`` — so calling it from a predicate turns a
+    "this stored material is corrupt, re-provision it" signal into a hard crash.
+    """
+    from cryptography import x509
+
+    try:
+        return x509.load_pem_x509_certificate(pem.encode("utf-8"))
+    except Exception:
+        return None
+
+
+def stored_material_corresponds(project: str) -> bool:
+    """True only if the project holds a cert and key whose public keys match.
+
+    Presence is not enough for idempotency: a partially-completed rotation can
+    leave a new certificate beside an old key (or the reverse). Both secrets are
+    present, so a presence-only check reports "already provisioned" while the
+    signer is silently broken. This re-checks the real cert<->key invariant.
+
+    Fails closed on every unreadable input (missing, blank, or corrupt PEM) by
+    returning False, which routes the caller to re-provision.
+    """
+    cert_pem = read_secret(project, GCP_CERT_PEM_NAME)
+    key_pem = read_secret(project, GCP_KEY_PEM_NAME)
+    if not cert_pem or not cert_pem.strip() or not key_pem or not key_pem.strip():
+        return False
+    key = load_private_key_pem(key_pem)
+    if key is None:
+        return False
+    certificate = try_load_certificate_pem(cert_pem)
+    if certificate is None:
+        return False
+    return certificate_matches_key(certificate, key)
 
 
 # --------------------------------------------------------------------------- #
@@ -775,6 +1033,216 @@ def run_self_test() -> int:
     assert days_until(not_after_utc(decoded_cert)) > 300, "expiry maths wrong"
     assert load_certificate_pem(decoded_pem).serial_number == leaf.serial_number
 
+    # 3b. The correspondence check that drives idempotency and the post-write
+    #     guard: it accepts a matched cert/key and rejects a cert paired with a
+    #     DIFFERENT key (the partial-rotation state that presence checks miss).
+    assert certificate_matches_key(decoded_cert, key), "matched keypair must pass"
+    other_key, other_key_pem, _ = generate_key_and_csr(
+        DEFAULT_PASS_TYPE_IDENTIFIER, DEFAULT_CSR_ORGANISATION, DEFAULT_CSR_COUNTRY
+    )
+    assert not certificate_matches_key(decoded_cert, other_key), (
+        "cert paired with a foreign key must be rejected"
+    )
+    assert load_private_key_pem(other_key_pem) is not None, "valid key PEM must load"
+    assert load_private_key_pem("not a pem") is None, "garbage key PEM must be None"
+
+    # 3c. The correspondence predicate must FAIL CLOSED on a corrupt stored
+    #     certificate, not crash. load_certificate_pem() dies (SystemExit, a
+    #     BaseException that slips through `except Exception`), so the predicate
+    #     path uses try_load_certificate_pem instead. Regression guard: a corrupt
+    #     PEM must return None rather than terminate the run.
+    assert try_load_certificate_pem(decoded_pem) is not None, "valid cert PEM must load"
+    try:
+        assert try_load_certificate_pem("-----BEGIN CERTIFICATE-----\nnope\n") is None, (
+            "corrupt cert PEM must return None"
+        )
+        assert try_load_certificate_pem("") is None, "empty cert PEM must return None"
+    except SystemExit:  # pragma: no cover - regression guard
+        die("try_load_certificate_pem must not exit on corrupt input")
+
+    # 3d. The pre-mint permission gate must be able to RUN. A previous iteration
+    #     shelled out to `gcloud projects test-iam-permissions`, which does not
+    #     exist on any channel (SDK 565.0.0 answers "Invalid choice"), so the gate
+    #     died for every credential — including a fully-authorised one — while a
+    #     self-test that only checked output parsing still reported green. Assert
+    #     the wiring, not a hypothesised rendering of the output.
+    probe_url = CRM_TEST_IAM_PERMISSIONS_URL.format(project="hushh-pda-uat")
+    assert probe_url.startswith("https://"), "the permission gate must use TLS"
+    assert probe_url.endswith(":testIamPermissions"), "gate must call testIamPermissions"
+    assert "{project}" not in probe_url, "the project placeholder must interpolate"
+    # The gate must demand the read permissions the post-mint path really uses.
+    for required in ("secretmanager.secrets.get", "secretmanager.versions.access"):
+        assert required in BASE_PROVISIONING_PERMISSIONS, (
+            f"{required} is exercised after the mint and must be gated before it"
+        )
+    assert CREATE_SECRET_PERMISSION not in BASE_PROVISIONING_PERMISSIONS, (
+        "secrets.create is only needed for an absent secret; demanding it "
+        "unconditionally rejects a legitimate rotation-scoped credential"
+    )
+    assert CREATE_SECRET_PERMISSION in REQUIRED_PROVISIONING_PERMISSIONS, (
+        "secrets.create must still be queried so the conditional check can see it"
+    )
+    if shutil.which("gcloud"):
+        cli_probe = subprocess.run(
+            ["gcloud", "auth", "print-access-token", "--help"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert cli_probe.returncode == 0, (
+            "the gate's gcloud invocation does not resolve on this SDK: "
+            f"{cli_probe.stderr.strip()[:200]}"
+        )
+    else:
+        log("self-test: gcloud is not on PATH; skipped the CLI resolution probe")
+
+    # 3e. write_secret must REPORT failure, never die() mid-rotation: an abort
+    #     there skips the correspondence guard and leaves a fresh key beside the
+    #     previous certificate. Retries must also be bounded.
+    write_attempts: list[int] = []
+
+    def _always_failing_run(*_args, **_kwargs):
+        write_attempts.append(1)
+        return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="boom")
+
+    real_run = subprocess.run
+    real_sleep = time.sleep
+    subprocess.run = _always_failing_run  # type: ignore[assignment]
+    time.sleep = lambda _seconds: None  # type: ignore[assignment]
+    write_exited = False
+    write_outcome: bool | None = None
+    try:
+        write_outcome = write_secret("proj", GCP_KEY_PEM_NAME, "payload", "/nonexistent/upsert.py")
+    except SystemExit:  # pragma: no cover - regression guard
+        write_exited = True
+    finally:
+        subprocess.run = real_run  # type: ignore[assignment]
+        time.sleep = real_sleep  # type: ignore[assignment]
+    if write_exited:
+        die("write_secret must return False on failure, never exit mid-rotation")
+    assert write_outcome is False, "a permanently failing write must return False"
+    assert len(write_attempts) == SECRET_WRITE_ATTEMPTS, (
+        f"expected {SECRET_WRITE_ATTEMPTS} bounded write attempts, got {len(write_attempts)}"
+    )
+
+    # 3f. The correspondence PREDICATE — not merely its leaf helper — must fail
+    #     closed. Reverting its cert parse to the dying loader used to reproduce
+    #     the original defect while 3c still passed, so exercise the real
+    #     predicate through a stubbed reader.
+    module = sys.modules[__name__]
+    real_read_secret = module.read_secret
+
+    def _stub_reader(cases: dict[str, str | None]):
+        def _read(_project: str, name: str) -> str | None:
+            return cases.get(name)
+
+        return _read
+
+    predicate_cases: tuple[tuple[str, dict[str, str | None], bool], ...] = (
+        (
+            "matching pair",
+            {GCP_CERT_PEM_NAME: decoded_pem, GCP_KEY_PEM_NAME: key_pem},
+            True,
+        ),
+        (
+            "corrupt certificate",
+            {
+                GCP_CERT_PEM_NAME: "-----BEGIN CERTIFICATE-----\nnope\n",
+                GCP_KEY_PEM_NAME: key_pem,
+            },
+            False,
+        ),
+        (
+            "foreign private key",
+            {GCP_CERT_PEM_NAME: decoded_pem, GCP_KEY_PEM_NAME: other_key_pem},
+            False,
+        ),
+        (
+            "unreadable certificate",
+            {GCP_CERT_PEM_NAME: None, GCP_KEY_PEM_NAME: key_pem},
+            False,
+        ),
+        (
+            "unreadable private key",
+            {GCP_CERT_PEM_NAME: decoded_pem, GCP_KEY_PEM_NAME: None},
+            False,
+        ),
+    )
+    for label, cases, expected in predicate_cases:
+        module.read_secret = _stub_reader(cases)  # type: ignore[assignment]
+        predicate_failed = ""
+        actual: bool | None = None
+        try:
+            actual = stored_material_corresponds("proj")
+        except SystemExit:  # pragma: no cover - regression guard
+            predicate_failed = f"stored_material_corresponds exited on '{label}'"
+        except Exception as exc:  # pragma: no cover - regression guard
+            predicate_failed = f"stored_material_corresponds raised on '{label}': {exc!r}"
+        finally:
+            module.read_secret = real_read_secret  # type: ignore[assignment]
+        if predicate_failed:
+            die(predicate_failed + " — it gates an irreversible mint and must fail closed")
+        assert actual is expected, f"{label}: expected {expected}, got {actual}"
+
+    # 3g. The post-mint remediation text must never steer an operator into
+    #     burning another irreversible Apple certificate slot. Both a plain
+    #     re-run and --force-new-certificate reach the mint, so neither may be
+    #     offered as the repair.
+    remediation = inconsistent_publication_message(["proj-b: failed to write WALLET_PASS_KEY_PEM"])
+    assert "--force-new-certificate" not in remediation.split("with or without")[0], (
+        "remediation must not recommend the re-mint flag as a repair"
+    )
+    assert "upsert_gcp_secret.py" in remediation, (
+        "remediation must give the copy-from-healthy-project recovery"
+    )
+    assert "proj-b: failed to write WALLET_PASS_KEY_PEM" in remediation, (
+        "remediation must name the exact per-project failure"
+    )
+
+    # 3h. Verification READS must retry like writes. An unretried transient blip
+    #     is read as "absent" or "corrupt", which manufactures a false mixed
+    #     state and hands the operator post-mint recovery they do not need. A
+    #     genuine NOT_FOUND must still short-circuit so first-time provisioning
+    #     does not pay the retry delay.
+    # Pin the floor with a literal: asserting only `calls == SECRET_READ_ATTEMPTS`
+    # is tautological — dropping the constant to 1 would satisfy it.
+    assert SECRET_READ_ATTEMPTS >= 3, (
+        "verification reads must retry at least 3 times; an unretried transient "
+        "failure is misread as absent/corrupt and manufactures a false mixed state"
+    )
+    assert SECRET_WRITE_ATTEMPTS >= 3, "secret writes must retry at least 3 times"
+
+    def _scripted_run(outcomes: list[tuple[int, str]], seen: list[int]):
+        def _run(*_args, **_kwargs):
+            index = min(len(seen), len(outcomes) - 1)
+            seen.append(1)
+            code, err = outcomes[index]
+            return subprocess.CompletedProcess(args=[], returncode=code, stdout="", stderr=err)
+
+        return _run
+
+    transient = [(1, "503 backend error")]
+    not_found = [(1, "ERROR: (gcloud.secrets.describe) NOT_FOUND: Secret [x] not found.")]
+    read_cases: tuple[tuple[str, object, list[tuple[int, str]], object, int], ...] = (
+        ("read_secret transient", read_secret, transient, None, SECRET_READ_ATTEMPTS),
+        ("read_secret not-found", read_secret, not_found, None, 1),
+        ("secret_exists transient", secret_exists, transient, False, SECRET_READ_ATTEMPTS),
+        ("secret_exists not-found", secret_exists, not_found, False, 1),
+    )
+    for label, func, outcomes, expected_result, expected_calls in read_cases:
+        calls: list[int] = []
+        subprocess.run = _scripted_run(outcomes, calls)  # type: ignore[assignment]
+        time.sleep = lambda _seconds: None  # type: ignore[assignment]
+        try:
+            observed = func("proj", GCP_CERT_PEM_NAME)  # type: ignore[operator]
+        finally:
+            subprocess.run = real_run  # type: ignore[assignment]
+            time.sleep = real_sleep  # type: ignore[assignment]
+        assert observed is expected_result, f"{label}: expected {expected_result}, got {observed}"
+        assert len(calls) == expected_calls, (
+            f"{label}: expected {expected_calls} gcloud call(s), got {len(calls)}"
+        )
+
     # 4. WWDR pinning fails closed on a plausible-but-wrong intermediate.
     wrong = (
         x509.CertificateBuilder()
@@ -849,11 +1317,26 @@ def main(argv: list[str]) -> int:
     # happens: a certificate is minted once, so a project discovered to be
     # unwritable afterwards would strand that environment without signing
     # material and burn an Apple certificate slot.
+    gcp_token = gcloud_access_token()
     for project in projects:
-        assert_project_access(project)
+        assert_project_access(project, gcp_token)
 
     missing_by_project = existing_material_state(projects)
-    fully_provisioned = all(not absent for absent in missing_by_project.values())
+    all_present = all(not absent for absent in missing_by_project.values())
+
+    # Presence is necessary but not sufficient. Every project must also hold a
+    # certificate whose public key matches its stored private key, or a past
+    # partial write has left a silently-broken signer that only a re-mint repairs.
+    fully_provisioned = all_present
+    if all_present:
+        for project in projects:
+            if not stored_material_corresponds(project):
+                log(
+                    f"project {project} holds signing secrets whose certificate "
+                    "and private key do not correspond (partial rotation?); a "
+                    "replacement will be minted"
+                )
+                fully_provisioned = False
 
     metadata: dict[str, object] = {
         "mode": mode,
@@ -864,15 +1347,22 @@ def main(argv: list[str]) -> int:
     }
 
     if fully_provisioned and not args.force_new_certificate:
-        stored = stored_certificate_expiry(projects[0])
-        if stored is None:
+        # Inspect EVERY project, not just the first: rotate on the soonest expiry
+        # and never declare the fleet provisioned while projects disagree on which
+        # certificate they hold.
+        stored_by_project = {p: stored_certificate_expiry(p) for p in projects}
+        if any(value is None for value in stored_by_project.values()):
             log(
-                "stored certificate could not be read for an expiry check; "
+                "a stored certificate could not be read for an expiry check; "
                 "treating it as needing renewal"
             )
         else:
-            expiry, serial = stored
+            soonest_project, (expiry, serial) = min(
+                stored_by_project.items(),
+                key=lambda item: item[1][0],  # type: ignore[index]
+            )
             remaining = days_until(expiry)
+            serials = {value[1] for value in stored_by_project.values()}  # type: ignore[index]
             metadata.update(
                 {
                     "certificate_serial": serial,
@@ -880,19 +1370,26 @@ def main(argv: list[str]) -> int:
                     "days_until_expiry": remaining,
                 }
             )
-            if remaining > args.renew_within_days:
+            if len(serials) > 1:
+                log(
+                    "target projects disagree on the stored certificate serial "
+                    f"({', '.join(sorted(serials))}); provisioning to converge them"
+                )
+            elif remaining > args.renew_within_days:
                 metadata["mode"] = "already-provisioned"
                 metadata["action"] = "none"
                 log(
-                    f"all secrets present and the stored certificate is valid for "
-                    f"{remaining} more day(s); nothing to do"
+                    "all secrets present, cert<->key correspond, and the stored "
+                    f"certificate is valid for {remaining} more day(s); nothing to do"
                 )
                 emit(metadata, args.metadata_path)
                 return 0
-            log(
-                f"stored certificate expires in {remaining} day(s) (<= "
-                f"{args.renew_within_days}); provisioning a replacement"
-            )
+            else:
+                log(
+                    f"stored certificate (soonest in {soonest_project}) expires in "
+                    f"{remaining} day(s) (<= {args.renew_within_days}); provisioning "
+                    "a replacement"
+                )
 
     token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
     pass_type_id, created_pass_type = ensure_pass_type_id(
@@ -939,19 +1436,60 @@ def main(argv: list[str]) -> int:
     wwdr_pem = wwdr_certificate.public_bytes(serialization.Encoding.PEM).decode("utf-8")  # type: ignore[attr-defined]
 
     expiry = not_after_utc(certificate)
+    # Write the private KEY first, then the CERT, then WWDR. Secret Manager has no
+    # multi-secret transaction, so on FIRST provisioning this order leaves the new
+    # key without a matching cert (the signer reports material-incomplete and
+    # degrades to 503) rather than a new cert beside a mismatched key (which signs
+    # passes iOS silently rejects). On ROTATION both secrets already exist, so no
+    # ordering is safe on its own — that case is handled by writing every payload
+    # even after a failure (so the pair still converges) and by always running the
+    # correspondence guard below, which is the real protection.
     payloads = (
-        (GCP_CERT_PEM_NAME, cert_pem),
         (GCP_KEY_PEM_NAME, key_pem),
+        (GCP_CERT_PEM_NAME, cert_pem),
         (GCP_WWDR_PEM_NAME, wwdr_pem),
     )
+    write_failures: dict[str, list[str]] = {}
     for project in projects:
-        for name, payload in payloads:
-            write_secret(project, name, payload, args.upsert_script)
+        log(f"writing signing material to project {project}")
+        failed = [
+            name
+            for name, payload in payloads
+            if not write_secret(project, name, payload, args.upsert_script)
+        ]
+        if failed:
+            # Keep going rather than aborting: the remaining projects still need
+            # their material, and every project must reach the guard below.
+            write_failures[project] = failed
 
+    # Verify the invariant the signer depends on, per project: not just that all
+    # three secrets are present, but that the stored cert and key actually
+    # correspond. A green presence check on a mixed-state project is exactly the
+    # silent failure this whole rotation path exists to prevent. This runs even
+    # when a write failed, so a partial rotation is always diagnosed rather than
+    # left behind unreported.
+    mixed_state: list[str] = []
+    still_missing: dict[str, list[str]] = {}
     for project in projects:
         absent = [name for name in GCP_PEM_NAMES if not secret_exists(project, name)]
         if absent:
-            die(f"project {project} is still missing after write: {', '.join(absent)}")
+            still_missing[project] = absent
+            continue
+        if not stored_material_corresponds(project):
+            mixed_state.append(project)
+
+    if write_failures or still_missing or mixed_state:
+        details: list[str] = []
+        for project, names in sorted(write_failures.items()):
+            details.append(f"{project}: failed to write {', '.join(names)}")
+        for project, names in sorted(still_missing.items()):
+            details.append(f"{project}: still missing {', '.join(names)}")
+        for project in sorted(mixed_state):
+            details.append(
+                f"{project}: stored certificate and private key DO NOT correspond "
+                "(mixed state — passes signed here would be rejected by iOS)"
+            )
+        die(inconsistent_publication_message(details))
 
     metadata.update(
         {
