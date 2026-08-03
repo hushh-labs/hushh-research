@@ -27,6 +27,10 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('actionId="setup.hub_master_ack"');
     expect(source).toContain('variant="blue-gradient"');
     expect(source).toContain('effect="fill"');
+    expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
+    expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
+      source.indexOf("await acknowledgeOneSetupExit"),
+    );
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -62,23 +66,23 @@ describe("One setup hub terminal action contract", () => {
     expect(styles).not.toContain("--app-bottom-inset");
   });
 
-  it("keeps Connections with the remaining setup work instead of a separate private configuration section", () => {
+  it("keeps AI access with the remaining setup work instead of a separate private configuration section", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
     expect(source).toContain('title="Remaining"');
-    expect(source).toContain('title="Connections"');
+    expect(source).toContain('title="AI access"');
     expect(source).toContain("<SetupNavigationTile");
     expect(source).toContain('voiceControlId="one_setup_tile_connections"');
     expect(source).not.toContain("Private configuration");
-    expect(source.indexOf('title="Connections"')).toBeLessThan(
+    expect(source.indexOf('title="AI access"')).toBeLessThan(
       source.indexOf("remainingItems.map"),
     );
   });
 
-  it("counts the mandatory Connections choice in the same progress projection as capability rows", () => {
+  it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
@@ -185,7 +189,7 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain("setVaultInvitationOpen(true);");
-    expect(source).toContain("const completeSetupAfterVault = () => {");
+    expect(source).toContain("const completeSetupAfterVault = useCallback(async ()");
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain('data-testid="one-setup-vault-invitation"');
@@ -194,8 +198,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("one-setup-vault-invitation-later");
     expect(source).toContain("<VaultUnlockDialog");
     expect(source).toContain("dismissible={false}");
-    expect(source).toContain("onSuccess={() => {");
-    expect(source).toContain("completeSetupAfterVault();");
+    expect(source).toContain("PreVaultSensitiveDraftService.finalizeForVault");
+    expect(source).toContain("PostUnlockSyncService.run");
+    expect(source).toContain("onSuccess={() => undefined}");
   });
 
   it("does not allow a setup route to create a first vault before Finish setup", () => {

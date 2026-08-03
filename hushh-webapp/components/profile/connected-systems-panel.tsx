@@ -213,18 +213,18 @@ export function ConnectedSystemLogo({
 }) {
   const logo = resolveCrmLogoAsset(system);
   const label = system?.customerDisplayName || system?.target || "CRM system";
+  // A registry mark is optional presentation metadata. Its absence must not
+  // change the row geometry: every system occupies the same fixed logo frame.
   const dimensions =
-    logo && size === "hero"
+    size === "hero"
       ? "h-14 w-28 rounded-[18px] p-2"
-      : logo
-        ? "h-11 w-[4.75rem] rounded-[14px] p-2"
-        : size === "hero"
-          ? "h-12 w-12 rounded-[14px] p-2.5"
-          : "h-10 w-10 rounded-[12px] p-2";
+      : "h-11 w-[4.75rem] rounded-[14px] p-2";
 
   return (
     <span
-      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)] ${logo ? "!bg-white dark:!bg-white" : ""}`}
+      data-logo-kind={logo ? "brand" : "fallback"}
+      data-slot="connected-system-logo"
+      className={`${dimensions} inline-flex shrink-0 items-center justify-center overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)] ${logo ? "!bg-white dark:!bg-white" : "text-muted-foreground"}`}
     >
       {logo ? (
         <Image

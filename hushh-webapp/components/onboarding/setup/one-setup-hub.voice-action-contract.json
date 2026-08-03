@@ -16,15 +16,15 @@
   "actions": [
     {
       "action_id": "setup.open_connections",
-      "label": "Set up Connections",
-      "meaning": "Opens Connections setup so the person can choose Hushh managed Gemini or validate and save their own Gemini key.",
+      "label": "Set up AI access",
+      "meaning": "Opens AI access setup so the person can choose Hushh managed Gemini or validate and protect their own Gemini access.",
       "aliases": [
-        "set up connections",
+        "set up AI access",
         "choose gemini",
         "configure one",
         "use my gemini key"
       ],
-      "search_keywords": ["connections", "gemini", "runtime", "key", "setup"],
+      "search_keywords": ["AI access", "gemini", "runtime", "key", "setup"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -189,7 +189,7 @@
     {
       "action_id": "setup.hub_master_ack",
       "label": "Finish setup",
-      "meaning": "Validates the Connections choice, then requires the private vault to be created or unlocked before One opens home.",
+      "meaning": "Validates the AI access choice, then requires the private vault to be created or unlocked before One opens home.",
       "aliases": [
         "i'm done setting up",
         "finish setup",

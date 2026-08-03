@@ -155,7 +155,7 @@ export function OnboardingCapabilityStep({
   return (
     <AppPageShell
       as="main"
-      width="content"
+      width="reading"
       className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-inset)+1.5rem)] sm:px-6"
       nativeTest={{
         routeId: "/one/setup/[capability]",

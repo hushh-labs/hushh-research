@@ -125,7 +125,8 @@ registry — add or extend an `OnboardingDefinition` instead.**
 Note on routes: `/one/setup` is the hub and resolves the **master** account
 gate only after its Finish setup action and successful private-vault creation
 or unlock. The action remains disabled until the person explicitly selects
-Hussh-managed Gemini or BYOK at `/one/setup/connections`. Connections is a
+Hussh-managed Gemini or BYOK at `/one/setup/connections`. The visible surface
+is named AI access; `connections` remains the route/action compatibility ID. AI access is a
 root prerequisite, not an agent capability: it does not change the capability
 count or publish a generated voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
@@ -154,12 +155,27 @@ completion authority or executable controls.
 The One root resolves completion from one durable authority plus local mirrors:
 
 1. **Server pre‑vault state** (`PreVaultUserStateService`) — authoritative for
-   users with no vault or a locked vault. `setupCompleted === true` (persisted
-   as the `setup_completed` column) means the One gate is satisfied.
-2. **Local Preferences + localStorage** (`PreVaultOnboardingService`) —
-   offline / native bridge; mirrored up to the server when connectivity returns.
-3. **Session hint** (`sessionStorage`) — per‑tab fast‑path cache only; never
-   authoritative.
+   non-sensitive progress, selected runtime method, and resume metadata only.
+   `setupCompleted === true` (persisted as the `setup_completed` column) means
+   the One gate is satisfied.
+2. **Volatile setup drafts** (`PreVaultSensitiveDraftService` plus the owning
+   KYC/Finance draft services) — credentials, identity details, a selected
+   statement file, and connector intents live only in this browser process.
+   Refresh, lock, sign-out, and deletion discard them. Gemini credentials,
+   OAuth artifacts, vault keys, and raw statement files never enter browser
+   persistence before a vault exists.
+3. **Reviewed Finance staging** (`FinanceSetupDraftService`) — after a person
+   confirms a reviewed sample portfolio during setup, the bounded structured
+   portfolio record (never raw PDFs, Plaid tokens, credentials, or vault
+   material) is retained in their user-scoped IndexedDB resource cache for at
+   most seven days. The master Finish setup action commits it to the encrypted
+   Financial PKM domain, then erases the staged origin. A failed commit keeps
+   the draft for an explicit retry; sign-out and account deletion erase it.
+4. **Legacy Preferences + localStorage** (`PreVaultOnboardingService`) —
+   compatibility-read and post-encrypted-receipt cleanup only; fresh setup
+   values are never written there.
+5. **Session hint** (`sessionStorage`) — per-tab fast-path cache only; never
+   authoritative or sensitive.
 
 The encrypted Kai profile describes Finance preferences. It does not resolve root
 setup and does not prove Finance reached its portfolio-source and terminal finish.
@@ -192,7 +208,7 @@ never acknowledges root setup. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
 Root acknowledgement never writes Finance completion into the Kai profile.
-The Connections setup preface writes only the bounded `connections` marker in
+The AI access setup preface writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
 
@@ -228,8 +244,14 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
 - **KYC** reuses the email workspace; it becomes finishable after a verified
   identity and initialized client connector. Sending a draft remains optional.
 - **Finance** uses `/one/setup/finance` for preferences and
-  `/one/setup/finance/import` for Plaid, statement, or an explicit later
-  choice. Preferences alone never finish Finance.
+  `/one/setup/finance/import` for Plaid, statement, sample brokerage, or an
+  explicit later choice. Sample brokerage information loads and can be
+  reviewed immediately without a vault. Its confirmed structured portfolio is
+  staged for the master Finish setup transaction, which encrypts it into the
+  Financial PKM before root setup exits. Statement parsing, Plaid Link,
+  background snapshots, and their external persistence remain after that vault
+  boundary; raw files and connection credentials are never staged in IndexedDB.
+  Preferences alone never finish Finance.
 - **RIA** reuses the advisor flow and becomes finishable only after a
   non-rejected profile submission.
 - **Linked Systems** reuses the CRM panel and remains optional. The CRM list is

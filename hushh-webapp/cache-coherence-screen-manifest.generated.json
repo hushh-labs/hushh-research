@@ -3452,7 +3452,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/preferences/gemini",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3468,9 +3468,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/preferences/kai",
@@ -5209,5 +5207,5 @@
       ]
     }
   ],
-  "content_sha256": "e362c8b56f0bb0f290a0983da0a9c05e3be0cc5d10af23a593e6da7f9581447c"
+  "content_sha256": "acfb31173b2e98a6da34fb9d8fb9a6eeadc0e6a88d108bafac2071f28560e7b6"
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_setup_connections",
-  "surface_title": "Connections Setup",
+  "surface_title": "AI access setup",
   "defaults": {
     "reachability": {
       "active_personas": ["investor", "ria"]
@@ -12,15 +12,15 @@
   "actions": [
     {
       "action_id": "setup.finish_connections",
-      "label": "Finish Connections setup",
+      "label": "Finish AI access setup",
       "meaning": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
       "aliases": [
-        "finish connections setup",
-        "finish connections",
+        "finish AI access setup",
+        "finish AI access",
         "keep this gemini option",
         "continue with this runtime"
       ],
-      "search_keywords": ["finish", "connections", "gemini", "runtime"],
+      "search_keywords": ["finish", "AI access", "gemini", "runtime"],
       "reachability": {
         "routes": ["/one/setup/connections"],
         "screens": ["one_setup_connections"],

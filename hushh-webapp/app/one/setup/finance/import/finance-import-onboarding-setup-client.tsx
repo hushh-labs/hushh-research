@@ -92,6 +92,7 @@ export function FinanceImportOnboardingSetupClient() {
             expectedCallbackAttemptId: callbackAttemptId,
           });
         }}
+        deferSensitiveActionsUntilSetupFinalized
         voicePublisherRole="chrome"
       />
       <SetupCapabilityTerminalFooter

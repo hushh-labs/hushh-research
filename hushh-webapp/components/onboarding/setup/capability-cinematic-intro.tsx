@@ -1,9 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
+import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   getCapabilitySetupCopy,
@@ -14,7 +15,7 @@ import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids
 const INTRO_SESSION_KEY_PREFIX = "one_capability_intro_seen_v1";
 
 /**
- * Connections is a root setup prerequisite, not an agent capability. It uses
+ * AI access is a root setup prerequisite, not an agent capability. It uses
  * the same presentational prologue without entering the capability catalog or
  * generated action registry.
  */
@@ -60,15 +61,14 @@ function fallbackCopy(
   if (capabilityId === "connections") {
     return {
       id: capabilityId,
-      title: "Connections",
+      title: "AI access",
       setupTitle: "Choose how One reaches Gemini",
-      setupBlurb: "Use Hushh managed Gemini now, or add your own key privately after setup.",
+      setupBlurb: "Start with Gemini today. More models are on the way.",
       actionLabel: "Continue",
       resumeActionLabel: "Continue",
       href: "/one/setup/connections",
-      introPremise: "Choose how One reaches Gemini.",
-      introPromise:
-        "Use Hushh managed Gemini now, or bring your own key to encrypt privately after setup.",
+      introPremise: "Choose the intelligence behind your private agent.",
+      introPromise: "Gemini is ready today. More models are coming soon.",
     };
   }
 
@@ -103,6 +103,9 @@ export function CapabilityCinematicIntroGate({
   embedded?: boolean;
 }) {
   const [showIntro, setShowIntro] = useState(true);
+  const [shouldFocusCapabilityBody, setShouldFocusCapabilityBody] =
+    useState(false);
+  const capabilityBodyRef = useRef<HTMLDivElement>(null);
   const copy =
     getCapabilitySetupCopy(capabilityId) ?? fallbackCopy(capabilityId);
 
@@ -113,7 +116,44 @@ export function CapabilityCinematicIntroGate({
     setShowIntro(!hasSeenCapabilityIntro(capabilityId));
   }, [capabilityId]);
 
-  if (!showIntro) return <>{children}</>;
+  // Continue removes the focused intro button. Move focus to the incoming
+  // semantic screen only for that explicit handoff, without stealing focus
+  // from a session-latched OAuth callback or a capability body's own control.
+  useLayoutEffect(() => {
+    if (showIntro || !shouldFocusCapabilityBody) return;
+    const capabilityBody = capabilityBodyRef.current;
+    const activeElement = document.activeElement;
+    // A capability can claim an authored focus target during the same commit.
+    // The shared container is only the fallback when focus would otherwise be
+    // stranded on the removed Continue button or the document itself.
+    if (
+      capabilityBody &&
+      (!activeElement ||
+        activeElement === document.body ||
+        activeElement === document.documentElement ||
+        !capabilityBody.contains(activeElement))
+    ) {
+      capabilityBody.focus({ preventScroll: true });
+    }
+    setShouldFocusCapabilityBody(false);
+  }, [showIntro, shouldFocusCapabilityBody]);
+
+  // The prologue and the real capability body are two semantic screens inside
+  // one route. Give the incoming body the same canonical in-route enter that
+  // every controlled setup step uses; returning a raw fragment here made
+  // Continue feel like a hard cut even though the intro itself revealed.
+  if (!showIntro) {
+    return (
+      <div
+        ref={capabilityBodyRef}
+        className="motion-step-enter w-full"
+        data-capability-cinematic-body={capabilityId}
+        tabIndex={-1}
+      >
+        {children}
+      </div>
+    );
+  }
 
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
@@ -129,7 +169,34 @@ export function CapabilityCinematicIntroGate({
       data-capability-cinematic-intro={capabilityId}
     >
       {capabilityId === "connections" ? (
-        <GeminiLogo className="mb-5 h-12 w-12" />
+        <ul
+          className="mb-5 flex flex-wrap items-center gap-2"
+          aria-label="AI providers"
+          data-runtime-provider-lane
+        >
+          {RUNTIME_PROVIDER_CATALOG.map((provider) => (
+            <li key={provider.id} className="relative">
+              <span
+                className="inline-flex h-12 w-12 items-center justify-center"
+                title={
+                  provider.availability === "available"
+                    ? `${provider.name} is available now`
+                    : `${provider.name} is coming soon`
+                }
+              >
+                <RuntimeProviderMark
+                  provider={provider}
+                  className={provider.id === "gemini" ? "h-12 w-12" : undefined}
+                />
+              </span>
+              <span className="sr-only">
+                {provider.availability === "available"
+                  ? `${provider.name} is available now.`
+                  : `${provider.name} is coming soon.`}
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
       <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
       <h1
@@ -151,6 +218,7 @@ export function CapabilityCinematicIntroGate({
           className="min-h-14 justify-center text-center"
           onClick={() => {
             markCapabilityIntroSeen(capabilityId);
+            setShouldFocusCapabilityBody(true);
             setShowIntro(false);
           }}
           data-capability-intro-continue={capabilityId}
