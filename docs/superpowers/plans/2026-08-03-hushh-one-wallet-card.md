@@ -3,6 +3,33 @@
 Base commit: `58bc866ea` (origin/main). Branch: `feat/hushh-one-wallet-card`.
 Discovery: 8 parallel evidence lanes (product, projection backend, frontend, iOS/Capacitor, secrets/CI, security, Apple PassKit research, market benchmarks).
 
+## Visual Map
+
+End-to-end flow. The scanner path (right) is fully unauthenticated and never touches the owner's vault.
+
+```
+        OWNER (signed in)                          VISITOR (no app, no account)
+        ─────────────────                          ────────────────────────────
+   /one/profile → "Wallet Profile"                        scans QR on the pass
+              │                                                   │
+              ▼                                                   ▼
+   POST /api/one/wallet-card                          GET /c/{share_token}   (web page)
+   create · edit · pause · rotate · revoke                        │
+              │                                                   ▼
+              ▼                                    GET /api/one/wallet-card/public/{token}
+        one_wallet_cards                                          │
+   pass_serial (stable)  ─────────────────────────────────────────┤ SHA-256(token) lookup
+   share_token_hash (rotatable, hash only)                        │
+   card_payload (server-validated allowlist)                      ▼
+              │                                        projection builder (shared)
+              ▼                                     active → 200 · paused/unknown → 404
+   GET …/pass/{token}.pkpass                        revoked → 410 · expired → 410
+   sign with Pass Type ID cert ──► Apple Wallet
+   (503 when signing material absent)
+```
+
+Preview-as-visitor calls the same projection builder as the public route, so the owner's preview is byte-identical to a stranger's view.
+
 ---
 
 ## 1. Problem statement
@@ -58,7 +85,7 @@ NFC and Personalization are separately approval-gated (loyalty/transit/access-co
 
 WKWebView **will not** import a `.pkpass` — an in-WebView pass response is a silent no-op. But Capacitor's `decidePolicyFor navigationAction` opens *any* top-level navigation whose URL is off-origin via `UIApplication.shared.open`. The app origin is `App://localhost` with no `server.url` and no `allowNavigation`, so an `https://` pass URL is handed to Safari — which imports `.pkpass` natively. The webapp already ships the helper: `openExternalUrl()` at [lib/utils/browser-navigation.ts:32](hushh-webapp/lib/utils/browser-navigation.ts).
 
-Pass *signing* is server-side and needs no app entitlement; `com.apple.developer.pass-type-identifiers` is only for apps that read/manage passes they own. A custom plugin would also trip `scripts/native/verify-native-plugin-contracts.mjs`, which enforces iOS↔Android method parity — and Android has no PassKit.
+Pass *signing* is server-side and needs no app entitlement; `com.apple.developer.pass-type-identifiers` is only for apps that read/manage passes they own. A custom plugin would also trip `hushh-webapp/scripts/native/verify-native-plugin-contracts.mjs`, which enforces iOS↔Android method parity — and Android has no PassKit.
 
 **Consequence: this feature is web + backend only.** No TestFlight or App Store release is required.
 
@@ -100,7 +127,7 @@ Fully automatable with the Admin-role App Store Connect key already in Secret Ma
 6. `scripts/ops/upsert_gcp_secret.py` writes cert + private key to Secret Manager via **stdin only**
 7. Cloud Run receives them as `--set-secrets` env refs from `deploy/backend.cloudbuild.yaml`, read through `runtime_settings.py`
 
-Reuses the existing ASC JWT client (`scripts/ci/submit-appstore-version.py:113,166-174` — ES256, `aud=appstoreconnect-v1`, exp+19min), the `::add-mask::` / `umask 077` / `chmod 600` hygiene, and the ephemeral venv pattern. **Operational risk is the ~1-year Pass Type ID certificate**, not WWDR — it needs monitored rotation.
+Reuses the existing ASC JWT client (`scripts/ci/submit-appstore-version.py`, lines 113 and 166-174 — ES256, `aud=appstoreconnect-v1`, exp+19min), the `::add-mask::` / `umask 077` / `chmod 600` hygiene, and the ephemeral venv pattern. **Operational risk is the ~1-year Pass Type ID certificate**, not WWDR — it needs monitored rotation.
 
 ### 5.1 Pre-flight (before `--apply`)
 
