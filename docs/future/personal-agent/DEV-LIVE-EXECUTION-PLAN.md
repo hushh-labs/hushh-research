@@ -83,7 +83,16 @@ There is no way to add these tables to the release manifest without moving UAT/p
 expected schema forward. **Workstream A therefore builds a second, dev-only migration
 manifest and applier — additive to the existing tooling, not a replacement.**
 
-### 2.2 No pod image exists anywhere (verified — confirmed absent)
+### 2.2 No pod image exists anywhere — and the stated cause was wrong
+
+> **Correction (2026-08-03).** The observation below is accurate: nothing builds the pod
+> image. The *conclusion* drawn from it — that fixing this needs a maintainer change on
+> `main` — is not. The fix belongs in `deploy/backend.cloudbuild.yaml`, which is read from
+> the **deployed SHA**, so it ships with the branch that needs it. The full ready-to-apply
+> change, already written and tested, is in [B1](#b1-build-and-push-the-pod-image) below.
+> It is not yet committed: the commit is blocked by a local permission control on
+> `deploy/`, not by anything in this repository's own governance.
+
 
 `consent-protocol/Dockerfile.pod` and `consent-protocol/pod_server.py` exist as source, but
 `grep -rln "Dockerfile.pod\|pod-image\|hushh-pod" .github/workflows/ deploy/ scripts/`
@@ -364,17 +373,151 @@ production — per `CLAUDE.md`, both with founder sign-off.
 `hushh-pda-dev`, attributed to the shared billing account, labeled for cost tracking, with
 a hard fleet ceiling so a test loop cannot run away.
 
-### B1. Build and push the pod image (the confirmed blocker — do this first)
+### B1. Build and push the pod image
 
-No existing workflow does this. Add a new step or a new small workflow
-(`.github/workflows/deploy-dev.yml` extension is simplest, to keep it in the same
-governed dispatch path) that builds `consent-protocol/Dockerfile.pod` and pushes to the
-same Artifact Registry repo the main backend image already uses in
-`deploy/backend.cloudbuild.yaml` (read that file first to match its exact registry path,
-tagging convention, and build-arg pattern rather than inventing a new one). Tag the pushed
-image with the deploying SHA, mirroring how the main backend image is tagged.
+**Status: written and verified, not committed.** The change below was authored, tested
+(17 tests), and mutation-tested. It is reproduced in full because the commit is blocked by
+a local permission control on `deploy/` — a sandbox restriction, not a repository rule.
+`scripts/ci/verify-protected-pipeline-edits.py` was run both ways and *permits* it: exit 0
+for a `protected_pipeline_edit_users` member, exit 1 for anyone else. Reapplying is a
+copy-paste.
 
-Set `HUSSH_ONE_POD_IMAGE` in `deploy-dev.yml`'s env block to the resulting image URI.
+#### Why it goes in `deploy/backend.cloudbuild.yaml` and not in the workflow
+
+The original instruction here — extend `deploy-dev.yml` — would not have worked, for the
+same reason that produced the one-second argparse failure earlier in this workstream. The
+dev workflow checks out `main` for the workflow definition, then does
+`git checkout --detach <resolved SHA>` **before** it runs
+`gcloud builds submit --config=deploy/backend.cloudbuild.yaml`. So the cloudbuild template
+comes from the **deployed SHA**, while the workflow comes from `main`. The skew guard
+immediately above that call says so outright, describing substitutions "the train SHA's
+cloudbuild template doesn't declare".
+
+Two consequences, both good:
+
+- The build ships with the branch that needs it. `main` is untouched until this merges.
+- **Blast radius is exactly "dev deploys of this SHA."** Every other branch deploys its own
+  copy of this template and builds no pod, so this cannot disturb the shared dev lane.
+
+#### The change — three edits to `deploy/backend.cloudbuild.yaml`
+
+**1. New build step, immediately after `id: "build-backend-image"`:**
+
+```yaml
+  # Step 2: Build + push the SLIM POD image (dev only).
+  #
+  # Two independent conditions, both exact-equality (never a prefix/substring test —
+  # a `startswith` on env names is the class of bug that fires in production):
+  #   _DEPLOY_ENV == dev       -> uat/prod pass a different value and cannot reach this
+  #   _BUILD_POD_IMAGE == true -> the kill-switch, so the step can be turned off
+  #                               without reverting the file
+  #
+  # The image shares requirements.txt and the python:3.13-slim base with the hub
+  # image above; what differs is the runtime surface (pod_server:app mounts an
+  # allowlist of routers, no fleet workers) and HUSSH_POD_MODE=1. See Dockerfile.pod.
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_DEPLOY_ENV}" != "dev" ]]; then
+          echo "pod image: skipped (deploy env '${_DEPLOY_ENV}' is not 'dev')"
+          exit 0
+        fi
+        if [[ "${_BUILD_POD_IMAGE}" != "true" ]]; then
+          echo "pod image: skipped (_BUILD_POD_IMAGE='${_BUILD_POD_IMAGE}')"
+          exit 0
+        fi
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol-pod:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol-pod:buildcache,mode=max \
+          --tag gcr.io/$PROJECT_ID/consent-protocol-pod:latest \
+          --tag gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG} \
+          --file consent-protocol/Dockerfile.pod \
+          --push \
+          consent-protocol
+    id: "build-pod-image"
+```
+
+**2. In the deploy step, immediately after the last `append_optional_env` call:**
+
+```bash
+        # Slim pod image reference, dev only. GcpBackend reads HUSSH_ONE_POD_IMAGE and
+        # until now it resolved to empty in every environment, so a real provision call
+        # had no image to deploy. The URI is recomputed rather than passed between steps
+        # because Cloud Build steps are separate containers with no shared shell state;
+        # the conditions are repeated verbatim so the env var can never point at an image
+        # this build did not push.
+        pod_image=""
+        if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
+          pod_image="gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG}"
+        fi
+        append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
+```
+
+`append_optional_env` skips empty values, so outside dev the variable is never set and
+behaviour is byte-identical to today — the same pattern `_KAI_ANALYZE_DURABLE_RUN_STORE`
+already uses in this file.
+
+**3. In the `substitutions:` block:**
+
+```yaml
+  # Slim per-user pod image (Dockerfile.pod). "true" builds and wires it on DEV
+  # deploys of the SHA carrying this file; any other value skips both the build step
+  # and the HUSSH_ONE_POD_IMAGE env var. The _DEPLOY_ENV == dev guard is independent
+  # of this switch, so setting it "true" still cannot produce a pod image in uat or prod.
+  _BUILD_POD_IMAGE: "true"
+```
+
+An undeclared substitution makes `gcloud builds submit` reject the build, so this default
+is required, not optional.
+
+#### The test that proves it stays dev-only
+
+Recreate as `consent-protocol/tests/test_pod_image_build_contract.py` and register it in
+`consent-protocol/scripts/test-ci.manifest.txt` — that file is a curated allow-list, not a
+directory scan, so an unregistered test never runs in CI. It must:
+
+- Load the cloudbuild YAML and locate the `build-pod-image` step.
+- For each of `uat`, `prod`, `production`, `manual` and `""`, **execute the step's real
+  script under `bash`** with the Cloud Build substitutions textually expanded (that is what
+  Cloud Build itself does), truncated at `gcloud auth configure-docker` and terminated with
+  an `echo` marker. Assert the marker is never reached and the output says `skipped`.
+  Executing the guard matters: a guard that is merely *present* is not a guard that *holds*.
+- Assert `dev` + switch on reaches the build, and `dev` + switch off does not.
+- Assert the guard text uses `!= "dev"` and contains no `=~`, glob, or `startswith` form.
+- Assert `append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"` is present, and that
+  the `pod_image` assignment yields empty for every non-dev value.
+- Assert `_BUILD_POD_IMAGE` has a declared default.
+- Assert the pod tags use `consent-protocol-pod:` and never `/consent-protocol:` — pushing
+  the pod over the hub image tag would take down the control plane.
+- Assert `Dockerfile.pod` exists.
+
+Ruff's `S603` fires on the `subprocess.run` calls; annotate with the repo convention
+(`# noqa: S603 - <reason>`), which is how every other in-repo subprocess test does it.
+
+#### What was and was not verified
+
+- **Verified:** 17 tests pass; mutation-testing the dev guard fails 6 of them including all
+  five non-dev environments; the YAML parses and all four steps pass `bash -n`;
+  `python -m compileall` over the build context exits 0 (the layer most likely to fail, and
+  `.dockerignore` excludes `tests/` and `docs/`).
+- **Not verified:** the image was never actually built — docker is installed in the agent
+  sandbox but has no daemon. The first dev deploy is the real test.
+
+#### Deliberately not done: turning provisioning on
+
+`PERSONAL_AGENT_ENABLED`, `PERSONAL_AGENT_BACKEND` and `HUSSH_GCP_BACKEND_LIVE` are left
+untouched. Enabling them requires `HUSSH_ONE_POD_SERVICE_ACCOUNT` to name a real service
+account holding `roles/run.admin` and `roles/iam.serviceAccountUser` (see B4), which cannot
+be verified from a sandbox. Turning them on blind gives every developer who signs in a
+failed-provision feed event. Note also that **none of these three appear in any deploy
+config today** — they are unset, therefore already off, so "flip it to 0 to roll back" is
+not a lever that exists; turning it on means adding it in two places first.
 
 ### B2. Flip the three gates, dev-only
 
