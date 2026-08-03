@@ -4,6 +4,34 @@ Every implementer MUST conform to this file exactly. Do not invent alternative n
 
 Brand/voice: public prose says **Hussh**; internal identifiers keep legacy `hushh`. One is "the private agent". Prefer "information" over "data" in user-facing copy. Code/API/route/schema identifiers stay exact as written here.
 
+## Visual Map
+
+Layers this contract binds, and the one table they all resolve through.
+
+```
+  hushh-webapp/app/one/profile/…        hushh-webapp/app/c/[token]/…
+  owner surface (authenticated)         public page (no auth)
+             │                                     │
+             ▼                                     ▼
+  lib/services/wallet-card-service.ts    server-side fetch of the public route
+  (only layer allowed to call fetch)               │
+             │                                     │
+             ▼                                     ▼
+  /api/one/wallet-card/*                 /api/one/wallet-card/public/{share_token}
+  create · edit · pause · rotate · revoke · preview
+             │                                     │
+             └──────────────┬──────────────────────┘
+                            ▼
+              one_wallet_card_service.py
+              share token → SHA-256 → one_wallet_cards
+                            │
+                            ▼
+              /api/one/wallet-card/pass/{share_token}.pkpass
+              PassKit signing (Pass Type ID cert → WWDR G4)
+```
+
+Status mapping is normative: `active` → 200; `paused` and unknown → 404 with the *same* generic body; `revoked` → 410 `{status:revoked}`; expired → 410 `{status:expired}`.
+
 ---
 
 ## 1. Naming
@@ -135,7 +163,7 @@ Omit `webServiceURL` and `authenticationToken` entirely (D2 — no web service).
 
 ## 8. Frontend
 
-- **Never call `fetch()` from `app/**` or `components/**`** — `scripts/architecture/verify-service-layer-boundary.mjs` enforces this with a literal regex. All network access goes through `lib/services/wallet-card-service.ts` using `ApiService.apiFetch` / `apiJson`.
+- **Never call `fetch()` from `app/**` or `components/**`** — `hushh-webapp/scripts/architecture/verify-service-layer-boundary.mjs` enforces this with a literal regex. All network access goes through `lib/services/wallet-card-service.ts` using `ApiService.apiFetch` / `apiJson`.
 - Public page `/c/[token]` must render for a logged-out stranger: register in `isPublicRoute()`, ensure `OneAuthGate`/`VaultLockGuard` are bypassed, and suppress chrome via `mode: "hidden"` in `lib/navigation/app-route-layout.contract.json`. Precedent to copy: `app/one/location/request/[token]`.
 - The public page must emit **no analytics** and must be added to the robots disallow prefixes.
 - Owner screens live under `app/one/wallet-card/`.
