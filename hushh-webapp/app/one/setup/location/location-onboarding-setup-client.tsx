@@ -84,14 +84,14 @@ export function LocationOnboardingCompletedScreen({
         <p className="mt-4 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
           Everything is ready. You can manage Location anytime from One.
         </p>
-        <div className="mt-8 w-full max-w-[22rem]">
+        <div className="mt-8 w-full max-w-[30rem]">
           <Button
             type="button"
             variant="blue-gradient"
             effect="fill"
             size="lg"
             fullWidth
-            className="h-12 text-base"
+            className="min-h-14 justify-center text-center"
             onClick={returnOnce}
             data-testid="location-onboarding-completed-return"
             data-voice-control-id="one_setup_location_complete_return"

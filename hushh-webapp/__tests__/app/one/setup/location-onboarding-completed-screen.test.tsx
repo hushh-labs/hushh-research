@@ -77,6 +77,17 @@ describe("completed Location onboarding re-entry", () => {
         name: "Your Location onboarding is complete",
       }),
     ).toBeTruthy();
+    const completedScreen = screen.getByTestId(
+      "location-onboarding-completed",
+    );
+    expect(
+      completedScreen.getAttribute("data-fullscreen-flow-shell-width"),
+    ).toBe("reading");
+    const returnButton = screen.getByRole("button", {
+      name: "Back to setup",
+    });
+    expect(returnButton.className).toContain("min-h-14");
+    expect(returnButton.parentElement?.className).toContain("max-w-[30rem]");
     expect(screen.queryByTestId("location-cinematic-intro")).toBeNull();
     expect(screen.queryByTestId("location-onboarding-journey")).toBeNull();
 
