@@ -35,6 +35,54 @@ steps:
           consent-protocol
     id: "build-backend-image"
 
+  # Step 2: Build + push the SLIM POD image (dev only).
+  #
+  # Why this lives here and not in the workflow: the workflow definition runs from
+  # `main`, but `gcloud builds submit --config=deploy/backend.cloudbuild.yaml` reads
+  # THIS file from the deployed SHA (the workflow detaches to it before this step).
+  # That is the same skew the substitution guard in deploy-dev.yml exists for. So a
+  # pod-image build added here ships with the branch that needs it, and `main` is
+  # unaffected until this file is merged.
+  #
+  # Blast radius is therefore exactly "dev deploys of the SHA carrying this file".
+  # Other branches deploy their own copy of this template and never build a pod.
+  #
+  # Two independent conditions, both exact-equality (never a prefix/substring test —
+  # a `startswith` on env names is the class of bug that fires in production):
+  #   _DEPLOY_ENV == dev      -> uat/prod pass a different value and cannot reach this
+  #   _BUILD_POD_IMAGE == true -> the kill-switch, so the step can be turned off
+  #                               without reverting the file
+  #
+  # The image shares requirements.txt and the python:3.13-slim base with the hub
+  # image above; what differs is the runtime surface (pod_server:app mounts an
+  # allowlist of routers, no fleet workers) and HUSSH_POD_MODE=1. See Dockerfile.pod.
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_DEPLOY_ENV}" != "dev" ]]; then
+          echo "pod image: skipped (deploy env '${_DEPLOY_ENV}' is not 'dev')"
+          exit 0
+        fi
+        if [[ "${_BUILD_POD_IMAGE}" != "true" ]]; then
+          echo "pod image: skipped (_BUILD_POD_IMAGE='${_BUILD_POD_IMAGE}')"
+          exit 0
+        fi
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol-pod:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol-pod:buildcache,mode=max \
+          --tag gcr.io/$PROJECT_ID/consent-protocol-pod:latest \
+          --tag gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG} \
+          --file consent-protocol/Dockerfile.pod \
+          --push \
+          consent-protocol
+    id: "build-pod-image"
+
   # Step 3: Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
@@ -215,6 +263,27 @@ steps:
         append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 
+        # Slim pod image reference, dev only. GcpBackend reads HUSSH_ONE_POD_IMAGE
+        # (gcp_backend.py) and until now it resolved to empty in every environment,
+        # so a real provision call had no image to deploy. The URI is recomputed
+        # rather than passed between steps because Cloud Build steps are separate
+        # containers with no shared shell state; it is deterministic from the same
+        # two inputs the build step used, and the conditions are repeated verbatim so
+        # the env var can never point at an image this build did not push.
+        pod_image=""
+        if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
+          pod_image="gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG}"
+        fi
+        append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
+        # The pod's own runtime identity. Created in hushh-pda-dev holding NO project
+        # roles: without it Cloud Run would run each pod as the default compute account,
+        # which carries project Editor. Empty outside dev, so append_optional_env skips it.
+        pod_sa=""
+        if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+          pod_sa="hussh-one-pod@${PROJECT_ID}.iam.gserviceaccount.com"
+        fi
+        append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"
+
         # Join with '|' (not ',') so env VALUES may themselves contain commas.
         # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
@@ -369,6 +438,12 @@ substitutions:
   _DEPLOY_SOURCE: manual
   _DEPLOY_SHA: unknown
   _GITHUB_RUN_ID: unknown
+  # Slim per-user pod image (Dockerfile.pod). "true" builds and wires it on DEV
+  # deploys of the SHA carrying this file; any other value skips both the build step
+  # and the HUSSH_ONE_POD_IMAGE env var, leaving behaviour byte-identical to before.
+  # The _DEPLOY_ENV == dev guard is independent of this switch, so setting it "true"
+  # still cannot produce a pod image in uat or production.
+  _BUILD_POD_IMAGE: "true"
   _RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS: "65"
   _RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS: "75"
 
