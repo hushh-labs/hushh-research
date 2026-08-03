@@ -1,4 +1,4 @@
-# Hushh One Wallet Card — reconciled Product / UX / Engineering plan
+# Hussh One Wallet Card — reconciled Product / UX / Engineering plan
 
 Base commit: `58bc866ea` (origin/main). Branch: `feat/hushh-one-wallet-card`.
 Discovery: 8 parallel evidence lanes (product, projection backend, frontend, iOS/Capacitor, secrets/CI, security, Apple PassKit research, market benchmarks).
