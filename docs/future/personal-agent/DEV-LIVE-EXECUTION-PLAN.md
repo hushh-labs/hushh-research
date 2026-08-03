@@ -13,7 +13,7 @@ context — every file path, env var, and command below was read from the live r
   lives there per the docs-governance gate; this file adds `## Visual Context` linking back).
 - Kernel: `AGENTS.md` (Principal Craft Kernel + Bacterial Software Architecture Gate) —
   every workstream below inherits it by pointer, not by restatement.
-- Standing practice: `.claude/skills/verify-before-claim/SKILL.md`.
+- Standing practice: `skills/verify-before-claim/SKILL.md` (canonical skill center).
 
 ## Visual Context
 
