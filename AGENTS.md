@@ -147,6 +147,53 @@ prove.
 
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 
+## Canonical skill center
+
+`skills/` at the repository root is the **single source of truth for platform-neutral
+skills**. A skill lives there once. Every AI platform — Claude Code, Codex, or anything
+adopted later — reaches it through a thin **bridge** inside that platform's own directory.
+
+**Bridges carry routing metadata; the canonical file carries behaviour.** Instructions are
+never copied into a platform folder. Two copies of an instruction file drift the moment one
+is edited, and that drift is invisible: nothing fails, the platforms simply start behaving
+differently. Centralising behaviour makes the divergence impossible rather than merely
+discouraged.
+
+### The contract
+
+```
+skills/<skill-name>/SKILL.md    # required: YAML frontmatter (name, description) + body
+skills/<skill-name>/references/ # optional supporting docs
+skills/<skill-name>/scripts/    # optional executable helpers
+```
+
+`name` must equal the directory name. Write `description` to carry both explicit trigger
+phrases and the situations the skill owns, so a platform matching on keywords and one
+matching on intent both resolve it.
+
+### Building a bridge for any platform
+
+1. **Copy the canonical frontmatter verbatim** into a skill file in the platform's own
+   directory. This is the only permitted duplication — it is that platform's index entry,
+   not behaviour. Where a platform's manifest format differs, translate the frontmatter into
+   that shape.
+2. **The bridge body points at the canonical path and stops.** It must not restate the
+   skill; its first instruction is to read `skills/<skill-name>/SKILL.md` and follow it.
+3. **Never edit a bridge to change behaviour.** Edit the canonical file; every platform
+   picks the change up on its next invocation with no sync step.
+
+Reference implementation: `.claude/skills/verify-before-claim/SKILL.md`. The contract that
+must hold is only this — **discovery may be platform-specific; behaviour must be canonical.**
+
+### Boundary with `.codex/skills/`
+
+`.codex/skills/` is not "Codex's copy" of anything. It is the governed routing brain: each
+skill carries a `skill.json` declaring `owned_paths`, `required_reads`, `required_commands`,
+`verification_bundles`, and `risk_tags`, validated by `skill_lint.py` and the orchestration
+checks, with manifests that reference `.codex/skills/...` paths directly. It stays where it
+is and remains the routing source of truth described in the next section. Skills carrying a
+governed manifest do not move; skills that are pure practice belong in `skills/`.
+
 ## Project-Wide Routing Gate
 
 Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.

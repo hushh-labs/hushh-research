@@ -127,3 +127,6 @@ cite `AGENTS.md` rather than copying its doctrine into a skill prompt.
 - Preview a branch → dev fast lane: `docs/reference/operations/dev-fast-lane.md`
 - iOS / mobile → `run-ios-sim`, `mobile-bug-log` skills
 - How we work (Dean / Karpathy method, verification discipline) → `verify-before-claim` skill
+- Canonical skill center (platform-neutral skills + the bridge contract) → `skills/README.md`
+  and `AGENTS.md` § *Canonical skill center*
+- Returning after time away → `context-refresh` skill
