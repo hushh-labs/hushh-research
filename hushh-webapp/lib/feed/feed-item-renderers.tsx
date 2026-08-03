@@ -1,9 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangle,
   Database,
   MapPin,
   Newspaper,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   UserRound,
   Users,
@@ -80,6 +82,55 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: scope ? `${scope} was revoked.` : "A consent was revoked.",
         href: buildConsentCenterHref("previous"),
       };
+    /**
+     * Personal agent lifecycle. Provisioning is fire-and-forget in the backend
+     * and invisible everywhere else, so these rows are the only place a person
+     * watches their own private agent being created. They ride the `consent`
+     * source domain (the agent's authority is a standing consent grant, and
+     * feed_events.source_domain is CHECK-constrained), so the domain label is
+     * overridden here rather than reading "Consent".
+     */
+    case "personal_agent_reserved":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is being created",
+        description:
+          "We reserved your own private agent. Nothing for you to do — we will let you know when it is ready.",
+        href: null,
+      };
+    case "personal_agent_provisioning":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Setting up your private agent",
+        description: "Your private agent is being set up for you in the background.",
+        href: null,
+      };
+    case "personal_agent_ready":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is ready",
+        description: "Your own private agent is set up and ready when you are.",
+        href: ROUTES.AGENT,
+      };
+    case "personal_agent_failed": {
+      // The backend only ever writes a closed vocabulary of user-safe reason
+      // codes here — never an exception message — so an unknown code falls back
+      // to the plain line rather than being rendered raw.
+      const reason = metadataString(item.metadata, "reason");
+      return {
+        icon: AlertTriangle,
+        domainLabel: "Private agent",
+        label: "Your private agent is not set up yet",
+        description:
+          reason === "invalid_details"
+            ? "We could not finish setting up your private agent — some details did not check out."
+            : "We could not finish setting up your private agent yet. Nothing was lost.",
+        href: null,
+      };
+    }
     case "location_share_created":
       return {
         icon,
