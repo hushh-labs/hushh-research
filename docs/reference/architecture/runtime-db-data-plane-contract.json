@@ -740,7 +740,7 @@
       "id": "consent_audit_receipts",
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "exact_tables": [
         "consent_audit_receipts"
       ],
@@ -770,7 +770,7 @@
       "id": "personal_agent_registry",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "exact_tables": [
         "personal_agent_registry",
         "personal_agent_deletion_tombstones"
@@ -786,7 +786,7 @@
       "id": "agent_prompt_registry",
       "owner": "backend-agents-operons",
       "data_class": "reference",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "exact_tables": [
         "agent_prompt_versions"
       ],
@@ -801,7 +801,7 @@
       "id": "webauthn_authenticators",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "exact_tables": [
         "webauthn_credentials"
       ],
@@ -816,7 +816,7 @@
       "id": "webauthn_ceremony_state",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
-      "lifecycle_status": "planned",
+      "lifecycle_status": "dev_only",
       "exact_tables": [
         "webauthn_challenges"
       ],

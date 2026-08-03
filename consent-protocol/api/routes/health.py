@@ -86,6 +86,88 @@ def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
     return runtime_dependency_evidence()
 
 
+# ── Pod-fleet signal (optional; off unless POD_FLEET_HEALTH_SIGNAL_ENABLED) ──
+# Terminal statuses meaning the fleet gave up standing a pod up. NOTHING writes
+# ``provisioning_failed`` yet: it is declared ahead of its writer in the read-side
+# status map in api/routes/one/personal_agent.py, and
+# hushh_mcp/services/personal_agent_provisioning_service.py still only ever writes
+# pending / provisioning / provisioned. So on its own this set would count zero
+# forever -- a check that reports green because it measures nothing. It is listed
+# anyway to match that declared contract (the reconcile sweep already treats it as
+# a stalled status), so the write side lands without a second edit here.
+POD_FLEET_FAILED_STATUSES = ("provisioning_failed",)
+
+# The failure signature that is real TODAY: a row left wedged in ``provisioning``.
+# ``provision()`` records that status before minting the standing read and re-raises
+# on failure without clearing it, so a stalled provision is visible as an old
+# ``provisioning`` row. Caveat, stated where it lives rather than in a runbook:
+# personal_agent_registry.updated_at has no ON UPDATE trigger and
+# personal_agent_registry_repo.py never sets it, so it is effectively the row's
+# creation time -- meaning a RE-provision of an old row looks wedged for the few
+# seconds it is in flight. Accepted, because this signal is reported, never gating.
+POD_FLEET_STALE_PROVISIONING_SECONDS = 900
+
+POD_FLEET_FAILED_COUNT_SQL = """
+SELECT count(*)
+  FROM personal_agent_registry
+ WHERE status = ANY($1::text[])
+    OR (status = 'provisioning'
+        AND updated_at < now() - make_interval(secs => $2::double precision))
+"""
+
+
+async def _pod_fleet_check() -> str | None:
+    """Count pods the fleet failed to stand up. ``None`` when the signal is off.
+
+    FAIL-SAFE by construction. Every failure mode -- signal off, missing table
+    (``personal_agent_registry`` ships as a dev-only parked migration and does not
+    exist in UAT or production), slow query, unavailable pool -- resolves to a
+    reported string or ``None``, never to ``ready = False``. A broken fleet check is
+    not a broken service.
+
+    That is also why a breached threshold reports ``degraded`` instead of gating:
+    the pods are separate hosts, so a fleet-wide pod outage that pulled every
+    control-plane instance out of rotation at once would convert a partial failure
+    into a total one (AGENTS.md: a component's failure degrades the system rather
+    than breaking it). The caller records this result and leaves ``ready`` alone.
+
+    Cost when enabled: one extra pool acquisition and one bounded (<=2s) count
+    query per readiness probe. That budget is the reason the signal ships dark.
+    """
+    # Deferred import, matching _one_runtime_dependency_evidence above: the probe
+    # pulls in no personal-agent settings surface until this is actually called.
+    from hushh_mcp.runtime_settings import (
+        pod_fleet_failed_threshold,
+        pod_fleet_health_signal_enabled,
+    )
+
+    if not pod_fleet_health_signal_enabled():
+        return None
+
+    try:
+        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
+        async with pool.acquire() as conn:
+            raw = await asyncio.wait_for(
+                conn.fetchval(
+                    POD_FLEET_FAILED_COUNT_SQL,
+                    list(POD_FLEET_FAILED_STATUSES),
+                    float(POD_FLEET_STALE_PROVISIONING_SECONDS),
+                ),
+                timeout=2.0,
+            )
+        failed = int(raw or 0)
+    except Exception as exc:
+        # Includes UndefinedTableError wherever the parked migration is unapplied.
+        logger.warning("health_ready.pod_fleet_unavailable error=%s", type(exc).__name__)
+        return "unknown"
+
+    threshold = pod_fleet_failed_threshold()
+    if failed > threshold:
+        logger.warning("health_ready.pod_fleet_degraded failed=%s threshold=%s", failed, threshold)
+        return "degraded"
+    return "ok"
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -115,6 +197,9 @@ async def health_ready():
     DB-down instance is pulled from rotation instead of accepting traffic it
     cannot honor. The DB is a hard gate everywhere; Firebase Admin is a hard gate
     only in production (auth cannot work without it), and reported otherwise.
+    The optional pod-fleet signal is a third tier: reported everywhere, gating
+    nowhere (see :func:`_pod_fleet_check`), and absent from the body entirely
+    unless ``POD_FLEET_HEALTH_SIGNAL_ENABLED`` is on.
     """
     checks: dict[str, str] = {}
     ready = True
@@ -144,6 +229,13 @@ async def health_ready():
         if _is_production_runtime():
             ready = False
         logger.warning("health_ready.firebase_check_failed error=%s", type(exc).__name__)
+
+    # Pod fleet: optional and OFF by default. When off this adds no key and issues
+    # no query, so the body stays byte-identical to the pre-signal contract. When
+    # on it only ever adds a key -- ``ready`` is deliberately never touched here.
+    pod_fleet = await _pod_fleet_check()
+    if pod_fleet is not None:
+        checks["pod_fleet"] = pod_fleet
 
     body = {"status": "ready" if ready else "not_ready", "checks": checks}
     return JSONResponse(

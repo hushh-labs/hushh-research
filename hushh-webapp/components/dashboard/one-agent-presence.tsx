@@ -7,14 +7,27 @@ import { apiJson } from "@/lib/services/api-client";
 /**
  * "Your Agent One" — the first place a human SEES their own sovereign agent.
  *
- * Honest by construction. Until the always-on per-user pod is activated the state
- * is "reserved" (their agent identity is reserved and ready to activate); it
- * becomes "live" once a pod is provisioned. It reads the flag-safe status endpoint
+ * Honest by construction. It reads the flag-safe status endpoint
  * (GET /api/one/personal-agent/status), which never 404s and never claims more
  * than is true, and it fails safe to "reserved" so it can never break the home.
+ *
+ * Provisioning has real intermediate states, so this renders all five the endpoint
+ * can report — "reserved" while the agent identity is held and ready to activate,
+ * "provisioning" and "connecting" while it is being stood up, "active" once the pod
+ * is live, "failed" when setup did not finish. Anything else — an older or newer
+ * backend, a garbled payload, a network error — lands on "reserved", which is the
+ * only state that is safe to assert without evidence.
  */
 
-type AgentState = "reserved" | "active";
+const AGENT_STATES = [
+  "reserved",
+  "provisioning",
+  "connecting",
+  "active",
+  "failed",
+] as const;
+
+type AgentState = (typeof AGENT_STATES)[number];
 
 type StatusResponse = {
   state?: string;
@@ -22,6 +35,11 @@ type StatusResponse = {
   hushhId?: string;
 };
 
+/**
+ * One idea per line: the badge names the state, the body says the one thing the
+ * badge does not — matching the feed's provisioning copy, which deliberately never
+ * repeats "your private agent" in both halves.
+ */
 const COPY: Record<
   AgentState,
   { badge: string; body: string; dotClass: string }
@@ -31,12 +49,40 @@ const COPY: Record<
     body: "Reserved and ready to activate — your private agent, isolated to you alone.",
     dotClass: "bg-amber-500",
   },
+  provisioning: {
+    badge: "Setting up",
+    body: "Being set up in the background. Nothing for you to do.",
+    dotClass: "bg-amber-500",
+  },
+  connecting: {
+    badge: "Connecting",
+    body: "Almost there — coming online now.",
+    dotClass: "bg-amber-500",
+  },
   active: {
     badge: "Live",
     body: "Live and yours — always on, isolated to you alone.",
     dotClass: "bg-emerald-500",
   },
+  failed: {
+    // Calm, not alarming: there is nothing here for the person to fix, and the
+    // activity feed already carries the detail.
+    badge: "Not ready",
+    body: "Setup did not finish. Nothing was lost, and we will try again.",
+    dotClass: "bg-amber-500",
+  },
 };
+
+/**
+ * Narrow an untrusted payload to a state this build renders. Uses an explicit list
+ * rather than `in COPY`, so an inherited key ("toString") can never be mistaken for
+ * a state and render an empty card.
+ */
+function toAgentState(value: unknown): AgentState {
+  return (AGENT_STATES as readonly string[]).includes(value as string)
+    ? (value as AgentState)
+    : "reserved";
+}
 
 export function OneAgentPresence() {
   const [state, setState] = useState<AgentState>("reserved");
@@ -46,7 +92,7 @@ export function OneAgentPresence() {
     apiJson<StatusResponse>("/api/one/personal-agent/status")
       .then((res) => {
         if (cancelled) return;
-        setState(res?.state === "active" ? "active" : "reserved");
+        setState(toAgentState(res?.state));
       })
       .catch(() => {
         // Fail safe: keep the honest "reserved" state; never break the home.

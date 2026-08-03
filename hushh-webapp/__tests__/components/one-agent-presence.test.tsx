@@ -37,4 +37,31 @@ describe("OneAgentPresence", () => {
     render(<OneAgentPresence />);
     await waitFor(() => expect(screen.getByText("Reserved")).toBeTruthy());
   });
+
+  // The endpoint now reports the real intermediate states. Rendering "Reserved"
+  // through them told the person their agent was idle while it was mid-flight.
+  it.each([
+    ["provisioning", "Setting up"],
+    ["connecting", "Connecting"],
+    ["failed", "Not ready"],
+  ])("renders the '%s' state as '%s'", async (state, badge) => {
+    mockApiJson.mockResolvedValue({ state });
+    render(<OneAgentPresence />);
+    expect(await screen.findByText(badge)).toBeTruthy();
+    // Never claims a live pod while one is still being stood up.
+    expect(screen.queryByText("Live")).toBeNull();
+  });
+
+  it.each([
+    ["a state this build has never heard of", { state: "quantum_entangling" }],
+    ["an inherited object key", { state: "toString" }],
+    ["a non-string state", { state: 7 }],
+    ["no state at all", {}],
+    ["a null payload", null],
+  ])("degrades %s to 'Reserved'", async (_label, payload) => {
+    mockApiJson.mockResolvedValue(payload);
+    render(<OneAgentPresence />);
+    await waitFor(() => expect(screen.getByText("Reserved")).toBeTruthy());
+    expect(screen.getByText(/Reserved and ready to activate/)).toBeTruthy();
+  });
 });
