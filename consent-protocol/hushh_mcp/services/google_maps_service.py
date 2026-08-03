@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
@@ -23,14 +23,116 @@ _PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
-_NEARBY_CHECK_IN_RESULT_LIMIT = 8
+_NEARBY_CHECK_IN_RESULT_LIMIT = 20
+
+NearbyPlaceCategory = Literal[
+    "all",
+    "food_drink",
+    "health",
+    "shopping_services",
+    "hotels_stays",
+    "education",
+    "outdoors_landmarks",
+    "transit",
+]
+
+# One foreground request is used for the default list. Category filters are
+# explicit follow-up requests so opening the drawer never fans out into several
+# billable provider calls. These are broad Table A types from Places API (New):
+# Google includes matching specialized subtypes (for example an Indian
+# restaurant when `restaurant` is requested).
+_NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
+    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
+    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
+    "shopping_services": (
+        "store",
+        "shopping_mall",
+        "supermarket",
+        "convenience_store",
+        "beauty_salon",
+        "hair_salon",
+        "barber_shop",
+        "laundry",
+    ),
+    "hotels_stays": (
+        "hotel",
+        "lodging",
+        "motel",
+        "hostel",
+        "bed_and_breakfast",
+        "campground",
+    ),
+    "education": (
+        "school",
+        "university",
+        "preschool",
+        "library",
+        "educational_institution",
+    ),
+    "outdoors_landmarks": (
+        "park",
+        "tourist_attraction",
+        "museum",
+        "art_gallery",
+        "historical_landmark",
+        "beach",
+        "garden",
+        "plaza",
+    ),
+    "transit": (
+        "transit_station",
+        "bus_stop",
+        "train_station",
+        "subway_station",
+        "airport",
+        "parking",
+        "gas_station",
+    ),
+}
+
+# Search Nearby can return geographical/address records when no category filter
+# is supplied. They are useful for geocoding but are not places a person can
+# meaningfully check in to.
+_NON_CHECK_IN_PRIMARY_TYPES = frozenset(
+    {
+        "colloquial_area",
+        "continent",
+        "country",
+        "geocode",
+        "intersection",
+        "locality",
+        "neighborhood",
+        "political",
+        "plus_code",
+        "postal_town",
+        "premise",
+        "route",
+        "room",
+        "school_district",
+        "street_address",
+        "street_number",
+        "subpremise",
+    }
+)
+_NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
+    "administrative_area_level_",
+    "postal_code",
+    "sublocality",
+)
 
 
 class GoogleMapsError(RuntimeError):
     """Raised for a missing key (503) or an upstream Maps failure (502)."""
 
-    def __init__(self, message: str, *, status_code: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        code: str = "ONE_LOCATION_MAPS_FAILED",
+    ) -> None:
         self.status_code = status_code
+        self.code = code
         super().__init__(message)
 
 
@@ -108,6 +210,64 @@ def _distance_meters(
     return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
 
 
+def _valid_coordinates(*, lat: float, lng: float) -> bool:
+    return (
+        math.isfinite(lat)
+        and math.isfinite(lng)
+        and -90.0 <= lat <= 90.0
+        and -180.0 <= lng <= 180.0
+    )
+
+
+def _provider_object(response: httpx.Response, operation: str) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise GoogleMapsError(
+            f"{operation} returned an invalid response.",
+            status_code=502,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise GoogleMapsError(
+            f"{operation} returned an invalid response.",
+            status_code=502,
+        )
+    return payload
+
+
+def _check_in_place_identity(place: dict[str, Any]) -> tuple[str, str] | None:
+    """Return the display name/type only for a physical, usable check-in place."""
+
+    business_status = str(place.get("businessStatus") or "").strip().upper()
+    if business_status and business_status != "OPERATIONAL":
+        return None
+    pure_service_area = place.get("pureServiceAreaBusiness")
+    if pure_service_area is True or (
+        pure_service_area is not None and not isinstance(pure_service_area, bool)
+    ):
+        return None
+    raw_primary_type = place.get("primaryType")
+    if not isinstance(raw_primary_type, str):
+        return None
+    primary_type = raw_primary_type.strip()[:80]
+    if (
+        not primary_type
+        or primary_type in _NON_CHECK_IN_PRIMARY_TYPES
+        or primary_type.startswith(_NON_CHECK_IN_PRIMARY_TYPE_PREFIXES)
+    ):
+        return None
+    display_name = place.get("displayName") or {}
+    if not isinstance(display_name, dict):
+        return None
+    raw_display = display_name.get("text")
+    if not isinstance(raw_display, str):
+        return None
+    display = raw_display.strip()[:160]
+    if not display:
+        return None
+    return display, primary_type
+
+
 class GoogleMapsService:
     async def _nearest_place_address(
         self,
@@ -179,21 +339,28 @@ class GoogleMapsService:
         session_token: str | None = None,
         lat: float | None = None,
         lng: float | None = None,
+        nearby_only: bool = False,
     ) -> list[dict[str, Any]]:
         key = _require_key()
         body: dict[str, Any] = {"input": input_text}
         if session_token:
             body["sessionToken"] = session_token
         if lat is not None and lng is not None:
-            body["locationBias"] = {
+            location_area = {
                 "circle": {
                     "center": {
                         "latitude": float(lat),
                         "longitude": float(lng),
                     },
-                    "radius": 2_000.0,
+                    "radius": (_NEARBY_CHECK_IN_RADIUS_METERS if nearby_only else 2_000.0),
                 }
             }
+            body["locationRestriction" if nearby_only else "locationBias"] = location_area
+            if nearby_only:
+                body["origin"] = {
+                    "latitude": float(lat),
+                    "longitude": float(lng),
+                }
         async with _async_client() as client:
             try:
                 response = await client.post(
@@ -211,14 +378,48 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.autocomplete upstream %s", response.status_code)
             raise GoogleMapsError("Places autocomplete failed.", status_code=502)
-        data = response.json()
+        data = _provider_object(response, "Places autocomplete")
+        provider_suggestions = data.get("suggestions") or []
+        if not isinstance(provider_suggestions, list):
+            raise GoogleMapsError(
+                "Places autocomplete returned an invalid response.",
+                status_code=502,
+            )
         results: list[dict[str, Any]] = []
-        for suggestion in data.get("suggestions", []):
+        for suggestion in provider_suggestions[:20]:
+            if not isinstance(suggestion, dict):
+                continue
             prediction = suggestion.get("placePrediction") or {}
+            if not isinstance(prediction, dict):
+                continue
             place_id = prediction.get("placeId")
-            text = (prediction.get("text") or {}).get("text")
-            if place_id and text:
-                results.append({"placeId": str(place_id), "text": str(text)})
+            prediction_text = prediction.get("text") or {}
+            if not isinstance(prediction_text, dict):
+                prediction_text = {}
+            text = prediction_text.get("text")
+            normalized_place_id = str(place_id or "").strip()
+            normalized_text = str(text or "").strip()[:500]
+            if normalized_place_id and len(normalized_place_id) <= 300 and normalized_text:
+                distance = prediction.get("distanceMeters")
+                if nearby_only and isinstance(distance, (int, float)):
+                    normalized_distance = float(distance)
+                    if (
+                        not math.isfinite(normalized_distance)
+                        or normalized_distance < 0
+                        or normalized_distance > _NEARBY_CHECK_IN_RADIUS_METERS
+                    ):
+                        continue
+                results.append(
+                    {
+                        "placeId": normalized_place_id,
+                        "text": normalized_text,
+                        **(
+                            {"distanceMeters": int(round(float(distance)))}
+                            if nearby_only and isinstance(distance, (int, float))
+                            else {}
+                        ),
+                    }
+                )
         return results
 
     async def nearby_places(
@@ -226,6 +427,7 @@ class GoogleMapsService:
         *,
         lat: float,
         lng: float,
+        category: NearbyPlaceCategory = "all",
     ) -> list[dict[str, Any]]:
         """Return a bounded nearest-place picker for explicit check-in.
 
@@ -235,6 +437,22 @@ class GoogleMapsService:
         """
 
         key = _require_key()
+        category_types = _NEARBY_PLACE_CATEGORY_TYPES.get(category)
+        body: dict[str, Any] = {
+            "maxResultCount": _NEARBY_CHECK_IN_RESULT_LIMIT,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {
+                        "latitude": float(lat),
+                        "longitude": float(lng),
+                    },
+                    "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
+                }
+            },
+        }
+        if category_types:
+            body["includedTypes"] = list(category_types)
         async with _async_client() as client:
             try:
                 response = await client.post(
@@ -243,22 +461,13 @@ class GoogleMapsService:
                         "Content-Type": "application/json",
                         "X-Goog-Api-Key": key,
                         "X-Goog-FieldMask": (
-                            "places.id,places.displayName,places.formattedAddress,places.location"
+                            "places.id,places.displayName,places.shortFormattedAddress,"
+                            "places.formattedAddress,places.location,places.primaryType,"
+                            "places.primaryTypeDisplayName,places.businessStatus,"
+                            "places.pureServiceAreaBusiness"
                         ),
                     },
-                    json={
-                        "maxResultCount": _NEARBY_CHECK_IN_RESULT_LIMIT,
-                        "rankPreference": "DISTANCE",
-                        "locationRestriction": {
-                            "circle": {
-                                "center": {
-                                    "latitude": float(lat),
-                                    "longitude": float(lng),
-                                },
-                                "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
-                            }
-                        },
-                    },
+                    json=body,
                 )
             except httpx.HTTPError as exc:
                 raise GoogleMapsError(
@@ -269,41 +478,90 @@ class GoogleMapsService:
             logger.warning("maps.nearby_places upstream %s", response.status_code)
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
 
+        payload = _provider_object(response, "Nearby places lookup")
+        provider_places = payload.get("places") or []
+        if not isinstance(provider_places, list):
+            raise GoogleMapsError(
+                "Nearby places lookup returned an invalid response.",
+                status_code=502,
+            )
+
         results: list[dict[str, Any]] = []
-        for place in (response.json().get("places") or [])[:_NEARBY_CHECK_IN_RESULT_LIMIT]:
+        seen_place_ids: set[str] = set()
+        for source_index, place in enumerate(provider_places[:_NEARBY_CHECK_IN_RESULT_LIMIT]):
+            if not isinstance(place, dict):
+                continue
             place_id = str(place.get("id") or "").strip()
             location = place.get("location") or {}
+            if not isinstance(location, dict):
+                continue
             try:
                 place_lat = float(location.get("latitude"))
                 place_lng = float(location.get("longitude"))
             except (TypeError, ValueError):
                 continue
-            if not place_id:
+            if not _valid_coordinates(lat=place_lat, lng=place_lng):
                 continue
-            display = str((place.get("displayName") or {}).get("text") or "").strip()
-            address = str(place.get("formattedAddress") or "").strip()
+            if not place_id or len(place_id) > 300 or place_id in seen_place_ids:
+                continue
+            identity = _check_in_place_identity(place)
+            if identity is None:
+                continue
+            display, primary_type = identity
+            address = str(
+                place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
+            ).strip()[:300]
             text = ", ".join(part for part in (display, address) if part)
             if not text:
                 continue
+            raw_distance_meters = _distance_meters(
+                origin_lat=float(lat),
+                origin_lng=float(lng),
+                destination_lat=place_lat,
+                destination_lng=place_lng,
+            )
+            if (
+                not math.isfinite(raw_distance_meters)
+                or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
+            ):
+                continue
+            distance_meters = int(round(raw_distance_meters))
+            primary_type_display = place.get("primaryTypeDisplayName") or {}
+            if not isinstance(primary_type_display, dict):
+                primary_type_display = {}
+            category_label = str(primary_type_display.get("text") or "").strip()[:80]
+            if not category_label and primary_type:
+                category_label = primary_type.replace("_", " ").title()
+            seen_place_ids.add(place_id)
             results.append(
                 {
                     "placeId": place_id,
+                    "name": display,
+                    "address": address or None,
                     "text": text,
-                    "distanceMeters": int(
-                        round(
-                            _distance_meters(
-                                origin_lat=float(lat),
-                                origin_lng=float(lng),
-                                destination_lat=place_lat,
-                                destination_lng=place_lng,
-                            )
-                        )
-                    ),
+                    "distanceMeters": distance_meters,
+                    "primaryType": primary_type or None,
+                    "category": category_label or "Place",
+                    "_sourceIndex": source_index,
                 }
             )
-        return results
+        results.sort(
+            key=lambda item: (
+                int(item["distanceMeters"]),
+                int(item["_sourceIndex"]),
+                str(item["name"]).casefold(),
+            )
+        )
+        for item in results:
+            item.pop("_sourceIndex", None)
+        return results[:_NEARBY_CHECK_IN_RESULT_LIMIT]
 
-    async def place_details(self, place_id: str) -> dict[str, Any]:
+    async def place_details(
+        self,
+        place_id: str,
+        *,
+        require_check_inable: bool = False,
+    ) -> dict[str, Any]:
         key = _require_key()
         async with _async_client() as client:
             try:
@@ -311,7 +569,10 @@ class GoogleMapsService:
                     f"{_PLACES_BASE}/v1/places/{quote(place_id, safe='')}",
                     headers={
                         "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": "id,location,displayName,formattedAddress",
+                        "X-Goog-FieldMask": (
+                            "id,location,displayName,formattedAddress,primaryType,"
+                            "businessStatus,pureServiceAreaBusiness"
+                        ),
                     },
                 )
             except httpx.HTTPError as exc:
@@ -319,16 +580,43 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.place_details upstream %s", response.status_code)
             raise GoogleMapsError("Place details failed.", status_code=502)
-        data = response.json()
+        data = _provider_object(response, "Place details lookup")
         location = data.get("location") or {}
-        display = (data.get("displayName") or {}).get("text") or ""
-        address = data.get("formattedAddress") or ""
+        if not isinstance(location, dict):
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            )
+        try:
+            latitude = float(location.get("latitude"))
+            longitude = float(location.get("longitude"))
+        except (TypeError, ValueError) as exc:
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            ) from exc
+        if not _valid_coordinates(lat=latitude, lng=longitude):
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            )
+        if require_check_inable and _check_in_place_identity(data) is None:
+            raise GoogleMapsError(
+                "The selected place is not available for check-in.",
+                status_code=422,
+                code="ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+            )
+        display_name = data.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        display = str(display_name.get("text") or "").strip()[:160]
+        address = str(data.get("formattedAddress") or "").strip()[:300]
         label = ", ".join(part for part in (display, address) if part) or display or address
         return {
             "placeId": str(data.get("id") or place_id),
             "label": label,
-            "latitude": float(location.get("latitude", 0.0)),
-            "longitude": float(location.get("longitude", 0.0)),
+            "latitude": latitude,
+            "longitude": longitude,
         }
 
     async def reverse_geocode(self, *, lat: float, lng: float) -> dict[str, Any]:

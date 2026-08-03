@@ -15,6 +15,7 @@ import type {
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
+  OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   OneLocationGrant,
@@ -518,6 +519,7 @@ export class OneLocationService {
     message: string;
     retryLocation: boolean;
     openAppSettings: boolean;
+    retryPlaces?: boolean;
   } {
     const code = apiErrorCode(error);
     if (code === "NEARBY_PRESENCE_LOCATION_TOO_COARSE") {
@@ -536,9 +538,20 @@ export class OneLocationService {
     }
     if (code === "NEARBY_PRESENCE_OUTSIDE_RADIUS") {
       return {
-        message: "That place is too far away. Choose a closer place.",
+        message:
+          "You moved outside that place's range. Choose a nearby place again.",
         retryLocation: false,
         openAppSettings: false,
+        retryPlaces: true,
+      };
+    }
+    if (code === "ONE_LOCATION_PLACE_NOT_CHECK_INABLE") {
+      return {
+        message:
+          "This place is no longer available. Choose another nearby place.",
+        retryLocation: false,
+        openAppSettings: false,
+        retryPlaces: true,
       };
     }
     if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
@@ -575,6 +588,7 @@ export class OneLocationService {
     sessionToken?: string;
     lat?: number;
     lng?: number;
+    nearbyOnly?: boolean;
   }): Promise<OneLocationNearbyPlaceSuggestion[]> {
     const response = await apiJson<{
       suggestions: OneLocationNearbyPlaceSuggestion[];
@@ -586,6 +600,7 @@ export class OneLocationService {
         ...(params.sessionToken ? { sessionToken: params.sessionToken } : {}),
         ...(typeof params.lat === "number" ? { lat: params.lat } : {}),
         ...(typeof params.lng === "number" ? { lng: params.lng } : {}),
+        ...(params.nearbyOnly ? { nearbyOnly: true } : {}),
       }),
     });
     return response.suggestions ?? [];
@@ -595,13 +610,18 @@ export class OneLocationService {
     vaultOwnerToken: string;
     lat: number;
     lng: number;
+    category?: OneLocationNearbyPlaceCategory;
   }): Promise<OneLocationNearbyPlaceSuggestion[]> {
     const response = await apiJson<{
       suggestions: OneLocationNearbyPlaceSuggestion[];
     }>("/api/one/location/maps/nearby-places", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({ lat: params.lat, lng: params.lng }),
+      body: JSON.stringify({
+        lat: params.lat,
+        lng: params.lng,
+        category: params.category ?? "all",
+      }),
     });
     return response.suggestions ?? [];
   }
