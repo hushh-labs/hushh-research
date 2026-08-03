@@ -31,10 +31,18 @@ no DB. The concrete DB-backed registry adapter (``personal_agent_registry_repo``
 and the owner-authorized route (``api/routes/one/personal_agent.py``) are wired
 but flag-gated: the route returns 404 and this module does no work until
 ``PERSONAL_AGENT_ENABLED`` is on.
+
+Provisioning is fire-and-forget off the phone-verify seam, so the only place a
+human can watch their agent being stood up is the One activity feed. Each state
+transition is mirrored, FAIL-SAFE, into the existing ``feed_events`` projection
+(:func:`record_provisioning_feed_event_safe`) -- see that function for the
+contract: the registry row stays the authority for provisioning state, and a
+feed-write failure can never block or break provisioning.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional, Protocol
 
@@ -64,6 +72,83 @@ logger = logging.getLogger(__name__)
 # be tombstoned thousands of times to approach this; the cap only prevents an
 # unbounded loop on a pathological/corrupt tombstone table.
 _MAX_HUSHH_ID_GENERATIONS = 4096
+
+# ---------------------------------------------------------------------------
+# One Feed projection of the provisioning lifecycle
+# ---------------------------------------------------------------------------
+# One row per state transition, so the user watches their private agent being
+# created instead of nothing happening. snake_case event_type, matching the
+# existing vocabulary (``consent_requested``, ``location_share_created``).
+FEED_EVENT_RESERVED = "personal_agent_reserved"
+FEED_EVENT_PROVISIONING = "personal_agent_provisioning"
+FEED_EVENT_READY = "personal_agent_ready"
+FEED_EVENT_FAILED = "personal_agent_failed"
+
+_FEED_EVENT_TYPES = frozenset(
+    {FEED_EVENT_RESERVED, FEED_EVENT_PROVISIONING, FEED_EVENT_READY, FEED_EVENT_FAILED}
+)
+
+# ``feed_events.source_domain`` is CHECK-constrained (migration 117) and
+# allowlisted in FeedService to six domains. The personal agent's lifecycle
+# terminates in the standing, Nav-governed ``pkm.read`` consent grant, so it
+# projects under ``consent`` -- no new domain, no migration. The human-facing
+# label lives in the webapp renderer, where all feed wording lives.
+_FEED_SOURCE_DOMAIN = "consent"
+_FEED_ACTOR_LABEL = "Private agent"
+
+# Closed vocabulary of user-safe failure reasons. NEVER put an exception message,
+# stack detail, phone number, HusshID, or key material in a feed row: feed_events
+# is explicitly a bounded, non-sensitive presentation table and the row is
+# rendered straight back to the user.
+FEED_REASON_INVALID_DETAILS = "invalid_details"
+FEED_REASON_TEMPORARY = "temporary_issue"
+
+
+def user_safe_failure_reason(exc: BaseException) -> str:
+    """Coarse reason code for a failed transition -- never derived from the message."""
+    return FEED_REASON_INVALID_DETAILS if isinstance(exc, ValueError) else FEED_REASON_TEMPORARY
+
+
+async def record_provisioning_feed_event_safe(
+    *,
+    user_id: str,
+    event_type: str,
+    reason: str | None = None,
+) -> None:
+    """Flag-gated, FAIL-SAFE mirror of one provisioning transition into the One feed.
+
+    Same contract as ``append_consent_receipt_safe`` for the consent ledger: does
+    nothing unless ``PERSONAL_AGENT_ENABLED`` is on, and a projection failure is
+    logged and swallowed so it can NEVER break or block provisioning -- which runs
+    fire-and-forget off the phone-verify path, where a raised feed error would be
+    an invisible, unretried break. ``feed_events`` is presentation only; the
+    registry row remains the authority for provisioning state, so a dropped row
+    costs a missing feed line and nothing else.
+
+    ``FeedService.record_event`` is a blocking DB write, so it is offloaded to a
+    worker thread (mirroring ``api/routes/kai/run_manager.py``) rather than
+    stalling the event loop.
+    """
+    if not user_id or event_type not in _FEED_EVENT_TYPES or not personal_agent_enabled():
+        return
+    try:
+        # Deferred import: no feed/DB dependency at module import time, and nothing
+        # is loaded at all on the flag-off path.
+        from hushh_mcp.services.feed_service import FeedService
+
+        metadata: dict[str, Any] = {}
+        if reason:
+            metadata["reason"] = reason
+        await asyncio.to_thread(
+            FeedService().record_event,
+            user_id=user_id,
+            source_domain=_FEED_SOURCE_DOMAIN,
+            event_type=event_type,
+            actor_label=_FEED_ACTOR_LABEL,
+            metadata=metadata,
+        )
+    except Exception:  # noqa: BLE001 -- fail-safe: the feed projection must never break provisioning
+        logger.exception("personal_agent.feed_projection_failed event_type=%s", event_type)
 
 
 class _Registry(Protocol):
@@ -148,6 +233,11 @@ class PersonalAgentProvisioningService:
         reconcile sweep. Re-provision is safe: a new grant supersedes any prior one
         (``is_token_active`` is latest-wins + token_id-matched), so live standing
         tokens cannot accumulate.
+
+        Each transition also projects a fail-safe One-feed row
+        (``personal_agent_provisioning`` -> ``personal_agent_ready``, or
+        ``personal_agent_failed``); the projection never alters what this raises or
+        returns.
         """
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
@@ -156,57 +246,72 @@ class PersonalAgentProvisioningService:
         if not user_id:
             raise ValueError("user_id is required")
 
-        # Recycled-phone rotation (SECURITY-REVIEW.md L1): a reassigned phone must
-        # not re-derive a prior owner's HusshID. Pick the first generation whose
-        # HusshID has no deletion tombstone. A fresh phone lands on generation 0.
-        generation = await self._next_free_generation(phone_e164)
-        hushh_id = mint_hushh_id(phone_e164, generation)
-        phone_hash = hash_phone_e164(phone_e164)
-        pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+        try:
+            # Recycled-phone rotation (SECURITY-REVIEW.md L1): a reassigned phone must
+            # not re-derive a prior owner's HusshID. Pick the first generation whose
+            # HusshID has no deletion tombstone. A fresh phone lands on generation 0.
+            generation = await self._next_free_generation(phone_e164)
+            hushh_id = mint_hushh_id(phone_e164, generation)
+            phone_hash = hash_phone_e164(phone_e164)
+            pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
 
-        async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
-            fields: dict[str, Any] = dict(
-                user_id=user_id,
+            async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
+                fields: dict[str, Any] = dict(
+                    user_id=user_id,
+                    hushh_id=hushh_id,
+                    phone_e164_hash=phone_hash,
+                    pod_pubkey=pod_key.public_key_b64,
+                    pod_key_id=pod_key.key_id,
+                    pod_key_wrapping_alg=pod_key.wrapping_alg,
+                    status=status,
+                )
+                if handle is not None:
+                    # None handle fields are dropped by the repo, so NullBackend (all-None)
+                    # leaves the row's host columns at their schema NULLs -- behavior
+                    # identical to the pre-threading Phase-0 stamp.
+                    fields.update(
+                        external_agent_id=handle.external_agent_id,
+                        a2a_route=handle.a2a_route,
+                        backend=handle.backend,
+                        backend_metadata=handle.backend_metadata,
+                        attestation_ref=handle.attestation_ref,
+                    )
+                await self._registry.upsert(**fields)
+
+            # Record the mapping BEFORE any host or token side effect: a registry failure
+            # can never orphan a live host or a live standing grant (SECURITY-REVIEW.md M3).
+            await _record("provisioning")
+            await record_provisioning_feed_event_safe(
+                user_id=user_id, event_type=FEED_EVENT_PROVISIONING
+            )
+            # Stand the host up on the selected compute backend. Inert for NullBackend
+            # (default) and for the gcp/anypoint adapters in plan mode; a real host only
+            # materializes when a backend is enabled live. Done BEFORE the mint so a host
+            # failure leaves the row visibly stuck in ``provisioning`` for reconcile,
+            # never a live grant with no host.
+            spec = PodSpec(
                 hushh_id=hushh_id,
                 phone_e164_hash=phone_hash,
                 pod_pubkey=pod_key.public_key_b64,
-                pod_key_id=pod_key.key_id,
-                pod_key_wrapping_alg=pod_key.wrapping_alg,
-                status=status,
             )
-            if handle is not None:
-                # None handle fields are dropped by the repo, so NullBackend (all-None)
-                # leaves the row's host columns at their schema NULLs -- behavior
-                # identical to the pre-threading Phase-0 stamp.
-                fields.update(
-                    external_agent_id=handle.external_agent_id,
-                    a2a_route=handle.a2a_route,
-                    backend=handle.backend,
-                    backend_metadata=handle.backend_metadata,
-                    attestation_ref=handle.attestation_ref,
-                )
-            await self._registry.upsert(**fields)
+            handle = await self._backend.provision(spec)
+            await _record("provisioning", handle=handle)
+            # Mint only after the row + host exist.
+            grant = await self._grant.issue_standing_pkm_read(user_id, ledger=ledger)
+            # Flip to provisioned now that the read authority is live.
+            await _record("provisioned", handle=handle)
+        except Exception as exc:
+            # Surface the stall to the user, then re-raise UNCHANGED: the feed is a
+            # projection, never an error handler. The row stays visibly stuck in
+            # ``provisioning`` for the reconcile sweep exactly as before.
+            await record_provisioning_feed_event_safe(
+                user_id=user_id,
+                event_type=FEED_EVENT_FAILED,
+                reason=user_safe_failure_reason(exc),
+            )
+            raise
 
-        # Record the mapping BEFORE any host or token side effect: a registry failure
-        # can never orphan a live host or a live standing grant (SECURITY-REVIEW.md M3).
-        await _record("provisioning")
-        # Stand the host up on the selected compute backend. Inert for NullBackend
-        # (default) and for the gcp/anypoint adapters in plan mode; a real host only
-        # materializes when a backend is enabled live. Done BEFORE the mint so a host
-        # failure leaves the row visibly stuck in ``provisioning`` for reconcile,
-        # never a live grant with no host.
-        spec = PodSpec(
-            hushh_id=hushh_id,
-            phone_e164_hash=phone_hash,
-            pod_pubkey=pod_key.public_key_b64,
-        )
-        handle = await self._backend.provision(spec)
-        await _record("provisioning", handle=handle)
-        # Mint only after the row + host exist.
-        grant = await self._grant.issue_standing_pkm_read(user_id, ledger=ledger)
-        # Flip to provisioned now that the read authority is live.
-        await _record("provisioned", handle=handle)
-
+        await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
         logger.info(
             "personal_agent.provisioned hushh_id_present=%s backend=%s",
             bool(hushh_id),
@@ -232,6 +337,9 @@ class PersonalAgentProvisioningService:
         Idempotent and non-destructive: if a row already exists (pending OR a fully
         provisioned agent), it is returned unchanged -- a re-fired phone-verify
         never downgrades a provisioned agent back to pending. Flag-gated.
+
+        A first reservation projects a fail-safe ``personal_agent_reserved`` feed
+        row (an unchanged existing row projects nothing, since nothing changed).
         """
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
@@ -242,17 +350,31 @@ class PersonalAgentProvisioningService:
 
         existing = await self._registry.get(user_id)
         if existing is not None:
+            # No state transition -> no feed row: a re-fired phone-verify must not
+            # replay "your agent is being set up" into the user's activity feed.
             return {"hushhId": existing.get("hushh_id"), "status": existing.get("status")}
 
-        generation = await self._next_free_generation(phone_e164)
-        hushh_id = mint_hushh_id(phone_e164, generation)
-        phone_hash = hash_phone_e164(phone_e164)
-        await self._registry.upsert(
-            user_id=user_id,
-            hushh_id=hushh_id,
-            phone_e164_hash=phone_hash,
-            status="pending",
-        )
+        try:
+            generation = await self._next_free_generation(phone_e164)
+            hushh_id = mint_hushh_id(phone_e164, generation)
+            phone_hash = hash_phone_e164(phone_e164)
+            await self._registry.upsert(
+                user_id=user_id,
+                hushh_id=hushh_id,
+                phone_e164_hash=phone_hash,
+                status="pending",
+            )
+        except Exception as exc:
+            # This runs fire-and-forget off phone-verify, so the feed row is the only
+            # signal the user would ever get. Re-raised unchanged for the caller's log.
+            await record_provisioning_feed_event_safe(
+                user_id=user_id,
+                event_type=FEED_EVENT_FAILED,
+                reason=user_safe_failure_reason(exc),
+            )
+            raise
+
+        await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_RESERVED)
         logger.info("personal_agent.registered_pending hushh_id_present=%s", bool(hushh_id))
         return {"hushhId": hushh_id, "status": "pending"}
 

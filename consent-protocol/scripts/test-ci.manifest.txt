@@ -65,3 +65,5 @@ tests/test_firebase_auth_contract.py
 tests/test_pod_memory_service.py
 tests/test_one_memory_service.py
 tests/test_webauthn_repo.py
+tests/test_dev_migration_lane.py
+tests/test_personal_agent_feed_events.py

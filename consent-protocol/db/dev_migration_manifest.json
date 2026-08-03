@@ -1,0 +1,23 @@
+{
+  "manifest_name": "dev_only_parked_migrations",
+  "purpose": "Dev-only lane that applies the parked 900-band migrations so pod provisioning has its tables in hushh-pda-dev. Never applied in UAT or production.",
+  "target_gcp_project_id": "hushh-pda-dev",
+  "migrations_subdir": "parked",
+  "contract_note": "These files MUST stay under db/migrations/parked/ and MUST NOT be added to release_migration_manifest.json. Both scripts/ops/verify_release_migration_contract.py and scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with Path.is_file(), so the parked subdirectory is invisible to the repo-head and contract-version checks. Moving or manifesting these files would push the repo head from 131 to 904 and break the UAT and production schema contracts.",
+  "ordering_note": "Numeric order is load-bearing: 902 creates an index on personal_agent_deletion_tombstones, which 900 creates.",
+  "tables": [
+    "personal_agent_registry",
+    "personal_agent_deletion_tombstones",
+    "agent_prompt_versions",
+    "webauthn_credentials",
+    "webauthn_challenges",
+    "consent_audit_receipts"
+  ],
+  "ordered_migrations": [
+    "900_personal_agent_registry.sql",
+    "901_agent_prompt_versions.sql",
+    "902_personal_agent_tombstone_hushh_id_index.sql",
+    "903_webauthn_credentials.sql",
+    "904_consent_audit_receipts.sql"
+  ]
+}
