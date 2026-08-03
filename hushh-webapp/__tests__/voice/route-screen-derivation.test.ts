@@ -141,6 +141,16 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_security_panel",
       subview: "vault",
     });
+    expect(deriveVoiceRouteScreen("/one/profile/security/devices")).toEqual({
+      screen: "profile_security_devices",
+      subview: null,
+    });
+    expect(
+      deriveVoiceRouteScreen("/one/profile/security/devices/authorize"),
+    ).toEqual({
+      screen: "app",
+      subview: "trusted-device-authorization",
+    });
     expect(deriveVoiceRouteScreen("/one/profile/regulatory")).toEqual({
       screen: "profile_regulatory",
       subview: null,
@@ -165,7 +175,7 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/one/profile", "panel=regulatory")).toEqual({
-      screen: "profile_regulatory",
+      screen: "profile_account",
       subview: null,
     });
   });

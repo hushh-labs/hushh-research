@@ -214,7 +214,7 @@ ALTER TABLE pkm_events
       'manifest_refresh', 'decision_projection', 'attribute_inference',
       'segment_repartition', 'legacy_cutover', 'scope_exposure_update',
       'default_projection_publish', 'default_projection_revoke',
-      'upgrade_commit', 'upgrade_rollback'
+      'upgrade_commit', 'upgrade_rollback', 'domain_delete'
     )
   );
 

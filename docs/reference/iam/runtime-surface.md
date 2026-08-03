@@ -128,8 +128,10 @@ Consent-manager surface rules:
 8. `consent_scope_templates`
 9. `relationship_share_grants`
 10. `relationship_share_events`
-11. `marketplace_public_profiles`
-12. `runtime_persona_state` (transitional compatibility only)
+11. `connection_scope_proposals`
+12. `connection_scope_proposal_events`
+13. `marketplace_public_profiles`
+14. `runtime_persona_state` (transitional compatibility only)
 
 ## Persona State Ownership
 
@@ -139,20 +141,27 @@ Consent-manager surface rules:
 
 ## Consent Integration
 
-1. RIA request creation writes `REQUESTED` rows into `consent_audit` with actor metadata.
-2. Consent approve/deny/cancel/revoke actions synchronize relationship lifecycle.
-3. Workspace access is blocked unless relationship is approved and consent is active/non-expired.
-4. Approved RIA relationships implicitly materialize `ria_active_picks_feed_v1`, which lets Kai surface the advisor's active picks feed to the investor without a second prompt.
-5. Relationship-share grants are tracked outside `consent_audit` because advisor picks are advisor-authored relationship content, not investor PKM.
-6. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+1. RIA requests for investor information write `REQUESTED` rows into `consent_audit` with actor metadata. They are independent of connection capabilities.
+2. A generic `attr.*` consent decision never activates an advisor relationship or an advisor-picks source.
+3. A connection can be accepted with zero scopes. `connection_scope_proposals` is the only authority for One-to-One capabilities: the owner approves requested scopes and the recipient explicitly opts into offered scopes.
+4. `ria_active_picks_feed_v1` activates only through its current proposal → relationship-share grant → artifact lineage. The grant and each immutable share lifecycle event store the request and proposal identifiers for auditability.
+5. The RIA workspace may use a generic active RIA consent capability. Market, preview, and Debate require the exact active Picks lineage; revocation, expiry, or disconnect removes new Picks access immediately.
+6. Relationship-share grants are tracked outside `consent_audit` because advisor picks are advisor-authored relationship information, not investor PKM. Legacy implicit grants are retired and cannot authorize access.
+7. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+
+## Legacy Picks Retirement
+
+1. Migration `129_ria_pick_legacy_retirement.sql` deliberately retires the obsolete `ria_pick_uploads` and `ria_pick_upload_rows` tables. Legacy Picks are not imported into encrypted PKM; owners start with an empty encrypted `ria.advisor_package`.
+2. `ria_pick_legacy_retirements` retains only the retired upload identifier, owner/profile identifiers, aggregate row count, timestamp, and product-authorized reason. It contains no Pick values, package metadata, PKM material, or access authority.
+3. The reset revokes every active legacy Picks grant/artifact that lacks explicit proposal lineage before dropping the tables. Historical proposal/share events remain immutable.
 
 ## Relationship Share Integration
 
-1. Investor private data flowing to an RIA stays on the shared `/one/consent` lane and `consent_audit`.
-2. Advisor-authored content flowing back to the investor uses `relationship_share_grants` plus append-only `relationship_share_events`.
-3. The initial implicit share is `ria_active_picks_feed_v1`.
-4. Kai only exposes `ria:*` pick sources when both the relationship is approved and the picks-share grant is active.
-5. Active uploads continue to update the entitled feed without requiring a fresh investor prompt.
+1. Investor private information flowing to an RIA stays on the shared `/one/consent` lane and `consent_audit`.
+2. Advisor-authored content flowing back to the investor uses `connection_scope_proposals`, `relationship_share_grants`, and append-only proposal/share event histories.
+3. The reserved capability is `ria_active_picks_feed_v1`; connection acceptance alone never enables it.
+4. Kai only exposes `ria:*` pick sources when the relationship, proposal, grant, and artifact are all active and refer to the same approved capability.
+5. Active encrypted Picks syncs update the entitled artifact without requiring a new request. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
 
 ## MCP Read-Only Tools
 

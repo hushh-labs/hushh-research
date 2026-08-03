@@ -1131,6 +1131,24 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
     assert state["onboardingActiveCapability"] is None
 
 
+def test_pre_vault_serialization_keeps_only_strict_non_secret_runtime_choices():
+    valid = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-runtime-choice",
+            "one_runtime_setup_choice": "byok_pending_vault",
+        }
+    )
+    invalid = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-runtime-choice-invalid",
+            "one_runtime_setup_choice": "a-gemini-key-must-never-be-here",
+        }
+    )
+
+    assert valid["oneRuntimeSetupChoice"] == "byok_pending_vault"
+    assert invalid["oneRuntimeSetupChoice"] is None
+
+
 @pytest.mark.asyncio
 async def test_pre_vault_update_rejects_retired_active_capability():
     fake = _FakeDb()
@@ -1142,6 +1160,19 @@ async def test_pre_vault_update_rejects_retired_active_capability():
             user_id="user-retired-capability",
             onboarding_phase="capability_setup",
             onboarding_active_capability="pkm",
+        )
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_rejects_unknown_runtime_choice():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    with pytest.raises(ValueError, match="invalid one runtime setup choice"):
+        await service.update_pre_vault_state(
+            user_id="user-invalid-runtime-choice",
+            one_runtime_setup_choice="not-a-runtime-choice",
         )
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
@@ -44,7 +44,7 @@ function ProgressStatusIcon({ status }: { status: AppStreamProgressStatus }) {
   return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong" />;
 }
 
-export function AppStreamEventList({
+export const AppStreamEventList = memo(function AppStreamEventList({
   items,
   emptyLabel,
   ariaLabel,
@@ -88,11 +88,12 @@ export function AppStreamEventList({
       })}
     </ol>
   );
-}
+});
 
 export type AppStreamSectionProps = {
   title: string;
   items: AppStreamProgressItem[];
+  content?: ReactNode;
   icon?: LucideIcon;
   count?: number;
   defaultOpen?: boolean;
@@ -114,6 +115,7 @@ export function AppStreamSection({
   emptyLabel,
   className,
   bodyClassName,
+  content,
 }: AppStreamSectionProps) {
   return (
     <Collapsible open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
@@ -142,11 +144,13 @@ export function AppStreamSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className={cn("border-t border-border/50 px-3 py-2", bodyClassName)}>
-            <AppStreamEventList
-              items={items}
-              emptyLabel={emptyLabel}
-              ariaLabel={`${title} events`}
-            />
+            {content ?? (
+              <AppStreamEventList
+                items={items}
+                emptyLabel={emptyLabel}
+                ariaLabel={`${title} events`}
+              />
+            )}
           </div>
         </CollapsibleContent>
       </div>
@@ -161,8 +165,14 @@ export type AppStreamPanelProps = {
   statusMessage?: string;
   progressItems?: AppStreamProgressItem[];
   thinkingItems?: AppStreamProgressItem[];
+  thinkingContent?: ReactNode;
+  thinkingTitle?: string;
+  evidenceItems?: AppStreamProgressItem[];
+  evidenceTitle?: string;
   response?: ReactNode;
   responseText?: string;
+  /** App-owned state shown while the model has not emitted response text yet. */
+  responsePendingLabel?: string;
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
@@ -176,8 +186,13 @@ export function AppStreamPanel({
   statusMessage,
   progressItems = [],
   thinkingItems = [],
+  thinkingContent,
+  thinkingTitle = "Working notes",
+  evidenceItems = [],
+  evidenceTitle = "Consulted specialists",
   response,
   responseText = "",
+  responsePendingLabel,
   isStreaming = false,
   isError = false,
   opportunities,
@@ -185,6 +200,9 @@ export function AppStreamPanel({
 }: AppStreamPanelProps) {
   const hasResponseText = responseText.trim().length > 0;
   const hasResponse = Boolean(response) || hasResponseText;
+  const showResponsePending = Boolean(
+    responsePendingLabel && isStreaming && !hasResponse && !isError,
+  );
   const showProgressMeter =
     progressIndeterminate || (typeof progressValue === "number" && Number.isFinite(progressValue));
 
@@ -225,16 +243,39 @@ export function AppStreamPanel({
           </div>
         ) : null}
 
-        {thinkingItems.length > 0 ? (
+        {thinkingItems.length > 0 || thinkingContent ? (
           <AppStreamSection
             // Auto-open while reasoning streams and no answer has begun; remount
             // collapsed once the answer arrives so it never covers the response.
             key={hasResponse ? "thinking-collapsed" : "thinking-open"}
-            title="Thinking"
+            title={thinkingTitle}
             items={thinkingItems}
-            count={thinkingItems.length}
+            count={thinkingContent ? undefined : thinkingItems.length}
             defaultOpen={isStreaming && !hasResponse}
+            bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
+            content={thinkingContent}
           />
+        ) : null}
+
+        {evidenceItems.length > 0 ? (
+          <AppStreamSection
+            title={evidenceTitle}
+            items={evidenceItems}
+            count={evidenceItems.length}
+            defaultOpen={false}
+            bodyClassName="px-3 py-2.5"
+          />
+        ) : null}
+
+        {showResponsePending ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/55 px-3 py-2 text-sm text-muted-foreground"
+          >
+            <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
+            <span>{responsePendingLabel}</span>
+          </div>
         ) : null}
 
         {hasResponse ? (
@@ -255,10 +296,6 @@ export function AppStreamPanel({
               />
             ) : null}
           </div>
-        ) : isStreaming ? (
-          <p className="text-xs text-muted-foreground" aria-live="polite">
-            Waiting for response tokens.
-          </p>
         ) : null}
       </div>
     </section>

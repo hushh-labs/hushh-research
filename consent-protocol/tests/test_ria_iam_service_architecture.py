@@ -802,7 +802,7 @@ def test_renaissance_service_exposes_generic_security_list_descriptors():
     assert "renaissance_screening_criteria" in ids
 
 
-def test_relationship_share_summary_describes_implicit_picks_benefit():
+def test_relationship_share_summary_describes_explicit_picks_capability():
     summary = RIAIAMService._relationship_share_summary("ria_active_picks_feed_v1")
 
     assert "advisor's active picks list" in summary.lower()
@@ -843,7 +843,7 @@ def test_picks_feed_status_reflects_relationship_and_upload_state():
     )
 
 
-def test_consent_center_outgoing_request_preserves_additional_access_summary():
+def test_consent_center_generic_ria_consent_is_not_a_connection_request():
     entry = ConsentCenterService()._normalize_outgoing(
         {
             "request_id": "req_1",
@@ -855,15 +855,14 @@ def test_consent_center_outgoing_request_preserves_additional_access_summary():
             "subject_display_name": "Taylor",
             "metadata": {
                 "reason": "Need advisory context",
-                "additional_access_summary": "Approving this relationship also unlocks the advisor picks feed.",
+                "additional_access_summary": "Scope details are reviewed separately.",
             },
         }
     )
 
-    assert (
-        entry["additional_access_summary"]
-        == "Approving this relationship also unlocks the advisor picks feed."
-    )
+    assert entry["kind"] == "outgoing_request"
+    assert not ConsentCenterService._is_connection_entry(entry, actor="ria")
+    assert entry["additional_access_summary"] == "Scope details are reviewed separately."
 
 
 def test_consent_center_pending_surface_excludes_duplicate_developer_entries():
@@ -1327,43 +1326,36 @@ async def test_consent_center_list_preview_top_caps_page_and_limit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypatch):
+@pytest.mark.parametrize(
+    ("status", "surface"),
+    [("pending", "pending"), ("accepted", "active"), ("rejected", "previous")],
+)
+async def test_consent_center_connection_mode_uses_explicit_proposal_status(
+    monkeypatch,
+    status,
+    surface,
+):
     service = ConsentCenterService()
 
-    async def _ria_active(
-        _user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
-    ):
-        assert query == "taylor"
-        assert page == 2
-        assert limit == 20
-        return {
-            "page": page,
-            "limit": limit,
-            "total": 21,
-            "has_more": False,
-            "items": [
-                {
-                    "id": "relationship_1",
-                    "kind": "active_grant",
-                    "status": "active",
-                    "counterpart_label": "Taylor",
-                    "scope": "attr.financial.*",
-                }
-            ],
-        }
-
     async def _connection_entries(_user_id: str, *, actor: str):
+        assert actor == "ria"
         return [
             {
-                "id": f"rel_{i}",
-                "kind": "active_grant",
-                "status": "active",
-                "relationship_state": "approved",
-                "counterpart_label": "Taylor" if i == 0 else f"Client {i}",
-                "counterpart_id": f"investor_{i}",
-                "scope": "attr.financial.*",
+                "id": "connection_1",
+                "kind": "connection_request",
+                "status": status,
+                "relationship_state": status,
+                "counterpart_label": "Taylor",
+                "counterpart_id": "investor_1",
+                "metadata": {
+                    "scope_proposals": [
+                        {
+                            "handle": "opaque_scope_handle",
+                            "status": "pending" if status == "pending" else "active",
+                        }
+                    ]
+                },
             }
-            for i in range(21)
         ]
 
     monkeypatch.setattr(service, "_load_connection_entries_for_actor", _connection_entries)
@@ -1371,7 +1363,7 @@ async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypat
     payload = await service.list_center(
         "ria_user_1",
         actor="ria",
-        surface="active",
+        surface=surface,
         mode="connections",
         query="taylor",
         page=1,
@@ -1379,10 +1371,11 @@ async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypat
     )
 
     assert payload["actor"] == "ria"
-    assert payload["surface"] == "active"
+    assert payload["surface"] == surface
     assert payload["mode"] == "connections"
-    assert payload["total"] >= 1
-    assert any(item.get("counterpart_label") == "Taylor" for item in payload["items"])
+    assert payload["total"] == 1
+    assert payload["items"][0]["kind"] == "connection_request"
+    assert payload["items"][0]["status"] == status
 
 
 @pytest.mark.asyncio
@@ -1400,7 +1393,7 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
                     "source_data_version": 7,
                     "share_status": "active",
                     "share_granted_at": "2026-03-24T00:00:00Z",
-                    "share_metadata": {"share_origin": "relationship_implicit"},
+                    "share_metadata": {"share_origin": "connection_scope_proposal"},
                 }
             ]
 
@@ -1427,7 +1420,7 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
     assert items[0]["artifact_updated_at"] == "2026-04-02T12:34:56Z"
     assert items[0]["source_data_version"] == 7
     assert items[0]["share_status"] == "active"
-    assert items[0]["share_origin"] == "relationship_implicit"
+    assert items[0]["share_origin"] == "connection_scope_proposal"
 
 
 @pytest.mark.asyncio
@@ -1510,117 +1503,6 @@ async def test_get_pick_rows_for_source_prefers_active_share_artifact(monkeypatc
 
     assert len(rows) == 1
     assert rows[0]["ticker"] == "AAPL"
-
-
-@pytest.mark.asyncio
-async def test_sync_relationship_from_consent_action_uses_active_tokens_over_latest_requested_row(
-    monkeypatch,
-):
-    updates: list[tuple[str, str]] = []
-    materialized: list[dict] = []
-
-    class _FakeTransaction:
-        async def __aenter__(self):
-            return None
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    class _FakeConn:
-        def transaction(self):
-            return _FakeTransaction()
-
-        async def fetchrow(self, query: str, *args):
-            if "FROM consent_audit" in query and "action = 'REQUESTED'" in query:
-                return {
-                    "request_id": "req_1",
-                    "user_id": "investor_1",
-                    "agent_id": "ria:profile_1",
-                    "scope": "attr.financial.*",
-                    "metadata": {
-                        "requester_actor_type": "ria",
-                        "requester_entity_id": "11111111-1111-1111-1111-111111111111",
-                    },
-                }
-            if "FROM advisor_investor_relationships rel" in query:
-                return {
-                    "id": "relationship_1",
-                    "ria_user_id": "ria_user_1",
-                }
-            raise AssertionError(f"Unexpected fetchrow query: {query}")
-
-        async def fetch(self, query: str, *args):
-            if "FROM consent_audit" in query:
-                return [
-                    {
-                        "scope": "attr.financial.*",
-                        "action": "REQUESTED",
-                        "expires_at": 9999999999999,
-                        "issued_at": 200,
-                    },
-                    {
-                        "scope": "attr.financial.*",
-                        "action": "CONSENT_GRANTED",
-                        "expires_at": 9999999999999,
-                        "issued_at": 100,
-                    },
-                ]
-            raise AssertionError(f"Unexpected fetch query: {query}")
-
-        async def execute(self, query: str, *args):
-            if "UPDATE advisor_investor_relationships" in query:
-                updates.append((args[0], args[1]))
-                return None
-            raise AssertionError(f"Unexpected execute query: {query}")
-
-        async def close(self):
-            return None
-
-    class _FakeConsentDBService:
-        async def get_active_tokens(self, user_id: str, agent_id: str | None = None, scope=None):
-            assert user_id == "investor_1"
-            assert agent_id == "ria:profile_1"
-            assert scope is None
-            return [
-                {
-                    "scope": "attr.financial.*",
-                    "token_id": "existing_token",
-                    "expires_at": 9999999999999,
-                }
-            ]
-
-    service = RIAIAMService()
-
-    async def _fake_conn():
-        return _FakeConn()
-
-    async def _fake_schema_ready(_conn):
-        return True
-
-    async def _fake_materialize(self, conn, **kwargs):  # noqa: ANN001
-        _ = conn
-        materialized.append(kwargs)
-
-    monkeypatch.setattr(service, "_conn", _fake_conn)
-    monkeypatch.setattr(service, "_is_iam_schema_ready", _fake_schema_ready)
-    monkeypatch.setattr(
-        "hushh_mcp.services.ria_iam_service.ConsentDBService",
-        _FakeConsentDBService,
-    )
-    monkeypatch.setattr(
-        RIAIAMService,
-        "_materialize_relationship_share_grant",
-        _fake_materialize,
-    )
-
-    await service.sync_relationship_from_consent_action(
-        user_id="investor_1",
-        request_id="req_1",
-        action="CONSENT_GRANTED",
-    )
-
-    assert updates == [("relationship_1", "approved")]
-    assert materialized and materialized[0]["relationship_id"] == "relationship_1"
 
 
 @pytest.mark.asyncio

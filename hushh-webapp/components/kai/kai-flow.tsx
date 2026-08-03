@@ -2900,7 +2900,7 @@ export function KaiFlow({
 
         // Check if we got portfolio data
         if (!parsedPortfolio) {
-          throw new Error("No portfolio data was detected in this file.");
+          throw new Error("No portfolio information was detected in this file.");
         }
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         trackImportTerminalTelemetry("success");
@@ -3614,10 +3614,10 @@ export function KaiFlow({
       }));
       setState("reviewing");
       setError(null);
-      toast.success("Sample brokerage data loaded. Review and save to Vault.");
+      toast.success("Sample brokerage information loaded. Review and save to Vault.");
     } catch (preloadError) {
       console.error("[KaiFlow] Failed to preload schema data:", preloadError);
-      toast.error("Could not load sample data. Please try again.");
+      toast.error("Could not load sample information. Please try again.");
     } finally {
       setPendingSchemaPreload(false);
       setIsPreloadingSchema(false);
@@ -3696,6 +3696,7 @@ export function KaiFlow({
           plaidLocalDualEnvironmentEnabled={
             plaidStatus?.local_dual_environment_enabled ?? false
           }
+          showSkip={mode !== "import"}
         />
       )}
 

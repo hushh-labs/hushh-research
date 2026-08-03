@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 122,
+  "expected_migration_version": 131,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -22,6 +22,7 @@
     "commit_pkm_domain_mutation_v4",
     "rollback_pkm_domain_revision_v1",
     "delete_pkm_domain_v2",
+    "delete_pkm_domain_v3",
     "prune_expired_pkm_domain_revisions_v1",
     "prune_expired_pkm_recovery_for_user_v1"
   ],
@@ -35,6 +36,7 @@
       "recovery_encrypted_vault_key",
       "recovery_salt",
       "recovery_iv",
+      "one_runtime_setup_choice",
       "onboarding_journey_version",
       "onboarding_phase",
       "onboarding_active_capability",
@@ -448,6 +450,8 @@
       "grant_key",
       "provider_user_id",
       "receiver_user_id",
+      "connection_request_id",
+      "connection_scope_proposal_id",
       "status",
       "granted_at",
       "revoked_at",
@@ -463,21 +467,40 @@
       "event_type",
       "provider_user_id",
       "receiver_user_id",
+      "connection_request_id",
+      "connection_scope_proposal_id",
       "metadata",
       "created_at"
     ],
-    "ria_pick_uploads": [
+    "connection_scope_proposals": [
       "id",
-      "ria_profile_id",
-      "uploaded_by_user_id",
-      "label",
+      "connection_request_id",
+      "scope_handle",
+      "capability_key",
+      "direction",
+      "owner_user_id",
+      "receiver_user_id",
       "status",
-      "row_count",
-      "template_version",
-      "activated_at",
-      "package_metadata",
       "created_at",
-      "updated_at"
+      "expires_at",
+      "resolved_at",
+      "metadata"
+    ],
+    "connection_scope_proposal_events": [
+      "id",
+      "connection_scope_proposal_id",
+      "event_type",
+      "actor_user_id",
+      "reason",
+      "created_at"
+    ],
+    "ria_pick_legacy_retirements": [
+      "legacy_upload_id",
+      "ria_profile_id",
+      "owner_user_id",
+      "top_pick_count",
+      "retired_at",
+      "reason"
     ],
     "ria_pick_share_artifacts": [
       "id",
@@ -535,6 +558,20 @@
       "payload_json",
       "occurred_at",
       "created_at"
+    ],
+    "kai_analyze_runs": [
+      "run_id",
+      "user_id",
+      "debate_session_id",
+      "ticker",
+      "risk_profile",
+      "status",
+      "terminal_event",
+      "terminal_payload",
+      "started_at_iso",
+      "completed_at_iso",
+      "created_at",
+      "expires_at"
     ],
     "one_email_mailbox_state": [
       "mailbox_email",
@@ -708,6 +745,29 @@
       "user_id",
       "presence_mode",
       "renderer_consent_version",
+      "created_at",
+      "updated_at"
+    ],
+    "one_location_nearby_presences": [
+      "id",
+      "owner_user_id",
+      "participant_alias",
+      "status",
+      "audience",
+      "allow_connection_requests",
+      "consent_version",
+      "radius_meters",
+      "anchor_ciphertext",
+      "anchor_iv",
+      "anchor_tag",
+      "anchor_algorithm",
+      "anchor_key_id",
+      "anchor_cell_epoch",
+      "anchor_cell_token",
+      "checked_in_at",
+      "expires_at",
+      "checked_out_at",
+      "version",
       "created_at",
       "updated_at"
     ],
@@ -1045,6 +1105,8 @@
       "device_name",
       "platform",
       "replaces_device_id",
+      "oauth_state",
+      "vault_handoff",
       "created_at",
       "expires_at",
       "consumed_at"

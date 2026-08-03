@@ -19,14 +19,22 @@ describe("canonical workspace hierarchy", () => {
     expect(stack).not.toContain("<AppPageShell");
   });
 
-  it("uses one concise Consent Center route header at the reading measure", () => {
+  it("lets the shared top shell own the Consent Center title and tabs", () => {
     const consent = read("components/consent/consent-center-page.tsx");
+    const topShellTabs = read("lib/navigation/top-shell-tabs.ts");
 
     expect(consent).toContain('<AppPageShell as="main" width="reading"');
-    expect(consent).toContain('title="Consent Center"');
-    expect(consent).toContain('description={pageDescription}');
-    expect(consent).not.toContain("pageEyebrow");
-    expect((consent.match(/<PageHeader/g) ?? [])).toHaveLength(1);
+    expect(consent).toContain("TOP_SHELL_TAB_REGISTRY.consent");
+    expect(consent).not.toContain("<PageHeader");
+    expect(topShellTabs).toContain('label: "Consent Center"');
+    expect(topShellTabs).toContain('label: "Requests"');
+    expect(topShellTabs).toContain('label: "Active"');
+    expect(topShellTabs).toContain('label: "History"');
+    expect(topShellTabs).toContain('label: "Connections"');
+    expect(consent).not.toContain('title="Your decision"');
+    expect(consent).not.toContain(
+      "Shares a one-time copy; later changes are not included.",
+    );
   });
 
   it("keeps every Finance swipe panel inside the Profile reading gutter", () => {

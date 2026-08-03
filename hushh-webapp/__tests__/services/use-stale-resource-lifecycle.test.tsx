@@ -49,7 +49,7 @@ describe("useStaleResource lifecycle", () => {
       () =>
         new Promise<typeof payload>((resolve) => {
           resolveLoad = resolve;
-        })
+        }),
     );
 
     const { result } = renderHook(() =>
@@ -57,7 +57,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "cold-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Before the promise resolves, the hook should be loading
@@ -90,7 +90,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "warm-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Data available immediately from cache snapshot – no loading
@@ -98,8 +98,8 @@ describe("useStaleResource lifecycle", () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 3 – Cache invalidation triggers refetch
-  it("triggers refetch after cache.invalidate(key)", async () => {
+  // 3 – Default cache invalidation clears the rendered value.
+  it("clears data after cache.invalidate(key) by default", async () => {
     const initial = { version: 1 };
     const updated = { version: 2 };
     let callCount = 0;
@@ -116,7 +116,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "inv-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Wait for initial load
@@ -136,6 +136,40 @@ describe("useStaleResource lifecycle", () => {
     });
   });
 
+  it("keeps an opted-in stale value visible while a mutation refreshes it", async () => {
+    const initial = { version: 1 };
+    getCache().set("retained-key", initial);
+    let resolveLoad!: (value: typeof initial) => void;
+
+    const { result } = renderHook(() =>
+      useStaleResource({
+        cacheKey: "retained-key",
+        enabled: true,
+        retainOnInvalidate: true,
+        load: vi.fn(
+          () =>
+            new Promise<typeof initial>((resolve) => {
+              resolveLoad = resolve;
+            }),
+        ),
+      }),
+    );
+
+    expect(result.current.data).toEqual(initial);
+    act(() => {
+      getCache().invalidate("retained-key");
+    });
+    void result.current.refresh({ force: true });
+
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(true);
+    });
+    expect(result.current.data).toEqual(initial);
+    await act(async () => {
+      resolveLoad(initial);
+    });
+  });
+
   // 4 – Dedup: two hooks with same cacheKey result in load called only once
   it("deduplicates concurrent loads for the same cacheKey", async () => {
     let resolveLoad!: (value: string) => void;
@@ -143,7 +177,7 @@ describe("useStaleResource lifecycle", () => {
       () =>
         new Promise<string>((resolve) => {
           resolveLoad = resolve;
-        })
+        }),
     );
 
     const makeProps = () => ({
@@ -196,7 +230,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "err-key",
         enabled: true,
         load: failingLoad,
-      })
+      }),
     );
 
     // Initially the hook should pick up cached (stale) data via peek
@@ -220,7 +254,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "disabled-key",
         enabled: false,
         load,
-      })
+      }),
     );
 
     // Give it a tick to ensure nothing fires
@@ -253,7 +287,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "recover-key",
         enabled: true,
         load: failingLoad,
-      })
+      }),
     );
 
     // Error is set by the failed load.

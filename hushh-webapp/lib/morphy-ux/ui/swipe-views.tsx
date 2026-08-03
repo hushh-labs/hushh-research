@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
 import {
@@ -32,6 +33,17 @@ function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
   );
 }
 
+function isNestedSwipeViewsTarget(
+  target: EventTarget | null,
+  rootNode: HTMLElement,
+): boolean {
+  if (!(target instanceof Element)) return false;
+  const closestSwipeViewsRoot = target.closest<HTMLElement>(
+    "[data-swipe-views-root='true']",
+  );
+  return Boolean(closestSwipeViewsRoot && closestSwipeViewsRoot !== rootNode);
+}
+
 interface SwipeViewsProps {
   children: React.ReactNode;
   options: readonly { label: string; value: string }[];
@@ -47,6 +59,12 @@ interface SwipeViewsProps {
   onSelectionCommit?: (value: string) => void;
   /** Keeps route content and surface shadows inside the canonical page gutter. */
   panelInset?: "none" | "page";
+  /**
+   * Opt into a parent-owned vertical viewport. Workspace managers use this
+   * when their toolbar and pagination live outside the scrollable row rail.
+   */
+  viewportMinHeight?: string;
+  className?: string;
 }
 
 export function SwipeViews({
@@ -57,10 +75,13 @@ export function SwipeViews({
   onSelectionChange,
   onSelectionCommit,
   panelInset = "none",
+  viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
+  className,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
-    (_emblaApi: unknown, event: Event) =>
-      !isNestedHorizontalScrollTarget(event.target),
+    (emblaApi: EmblaCarouselType, event: Event) =>
+      !isNestedHorizontalScrollTarget(event.target) &&
+      !isNestedSwipeViewsTarget(event.target, emblaApi.rootNode()),
     [],
   );
   const [emblaRef, emblaApi] = useEmblaCarousel({
@@ -117,10 +138,7 @@ export function SwipeViews({
     if (targetIdx !== -1 && targetIdx !== emblaApi.selectedScrollSnap()) {
       emblaApi.scrollTo(targetIdx);
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
-    } else if (
-      !isDraggingRef.current &&
-      !hasMovedSincePointerDownRef.current
-    ) {
+    } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
     }
     lastReportedValueRef.current = activeValue;
@@ -257,9 +275,9 @@ export function SwipeViews({
     <div
       data-swipe-views-root="true"
       data-no-auto-fade="true"
-      className="w-full min-h-0 overflow-hidden"
+      className={cn("w-full min-h-0 overflow-hidden", className)}
       ref={emblaRef}
-      style={{ minHeight: SWIPE_VIEWPORT_MIN_HEIGHT }}
+      style={{ minHeight: viewportMinHeight }}
     >
       <div
         className="flex w-full min-h-0 touch-pan-y transform-gpu will-change-transform"
@@ -278,7 +296,7 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                "h-full flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}

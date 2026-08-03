@@ -210,22 +210,24 @@ export function OnboardingShell({
 
         {!hideTerminal ? (
           <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+1rem)]">
-            <Button
-              type="button"
-              onClick={onContinue}
-              loading={saving}
-              disabled={continueDisabled}
-              variant="blue-gradient"
-              effect="fill"
-              size="lg"
-              fullWidth
-              className="mx-auto h-12 text-base sm:max-w-[22rem]"
-              data-voice-control-id="ria-onboarding-continue"
-              data-voice-label="Continue"
-              data-voice-purpose="Advance to the next RIA setup step"
-            >
-              Continue
-            </Button>
+            <div className="mx-auto w-full sm:max-w-[22rem]">
+              <Button
+                type="button"
+                onClick={onContinue}
+                loading={saving}
+                disabled={continueDisabled}
+                variant="blue-gradient"
+                effect="fill"
+                size="lg"
+                fullWidth
+                className="h-12 text-base"
+                data-voice-control-id="ria-onboarding-continue"
+                data-voice-label="Continue"
+                data-voice-purpose="Advance to the next RIA setup step"
+              >
+                Continue
+              </Button>
+            </div>
             {onSkip ? (
               <button
                 type="button"

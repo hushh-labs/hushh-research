@@ -343,12 +343,14 @@ def _sanitize_read_records(
     records_path = _contract_path(contract, "recordsPath")
     raw_records = _value_at_contract_path(result, records_path) if records_path else None
     if not isinstance(raw_records, list):
-        # Compatibility-only fallback for the in-code adapter. Registry-backed
-        # connectors cannot reach this branch because their contract is checked
-        # before the outbound call.
-        raw_records = (
-            _records_from_payload(_ensure_dict(result.get("payload"))) if not contract else []
-        )
+        if contract:
+            raise ConnectedSystemConfigurationError(
+                "The connected system returned an invalid record collection.",
+                code="CONNECTED_SYSTEM_READ_RESPONSE_INVALID",
+                status_code=502,
+            )
+        # Compatibility-only fallback for the deterministic in-code adapter.
+        raw_records = _records_from_payload(_ensure_dict(result.get("payload")))
     allowed = [str(field) for field in dict.fromkeys(allowed_fields) if str(field).strip()]
     sanitized: list[dict[str, Any]] = []
     for record in raw_records:
@@ -1347,6 +1349,17 @@ class ConnectedSystemIntentStore:
     ) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    def mark_binding_disconnected(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str,
+        record_id: str,
+    ) -> dict[str, Any] | None:
+        """Retire a stale local pointer without deleting the remote record."""
+        raise NotImplementedError
+
 
 class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
     """Test and local fallback store."""
@@ -1446,6 +1459,29 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
             **binding,
             "status": "deleted",
             "last_intent_id": last_intent_id or binding.get("last_intent_id"),
+            "updated_at": _now_iso(),
+            "deleted_at": _now_iso(),
+        }
+        self.bindings[key] = next_binding
+        return _deepcopy_json(next_binding)
+
+    def mark_binding_disconnected(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str,
+        record_id: str,
+    ) -> dict[str, Any] | None:
+        key = (user_id, system_id, object_type)
+        binding = self.bindings.get(key)
+        if not binding or binding.get("record_id") != record_id:
+            return None
+        if binding.get("status") != "active":
+            return _deepcopy_json(binding)
+        next_binding = {
+            **binding,
+            "status": "disconnected",
             "updated_at": _now_iso(),
             "deleted_at": _now_iso(),
         }
@@ -1737,6 +1773,36 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
                 "object_type": object_type,
                 "record_id": record_id,
                 "last_intent_id": last_intent_id,
+            },
+        ).data
+        return _binding_from_db_row(rows[0]) if rows else None
+
+    def mark_binding_disconnected(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str,
+        record_id: str,
+    ) -> dict[str, Any] | None:
+        rows = self.db.execute_raw(
+            """
+            UPDATE connected_system_record_bindings
+            SET status = 'disconnected',
+                updated_at = NOW(),
+                deleted_at = NOW()
+            WHERE user_id = :user_id
+              AND system_id = :system_id
+              AND object_type = :object_type
+              AND record_id = :record_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "user_id": user_id,
+                "system_id": system_id,
+                "object_type": object_type,
+                "record_id": record_id,
             },
         ).data
         return _binding_from_db_row(rows[0]) if rows else None
@@ -2143,6 +2209,26 @@ class ConnectedSystemsService:
             )
         return bound_record_id
 
+    def _require_unbound_for_create(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str,
+    ) -> None:
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type,
+        )
+        if binding:
+            raise ConnectedSystemBlockedError(
+                "Disconnect the existing CRM record before creating another one.",
+                code="CONNECTED_SYSTEM_RECORD_ALREADY_BOUND",
+                status_code=409,
+            )
+
     async def get_schema(
         self,
         *,
@@ -2319,12 +2405,18 @@ class ConnectedSystemsService:
         values: dict[str, Any] | None,
         *,
         action: str,
+        locked_field_names: set[str] | None = None,
         require_required_fields: bool = False,
         satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(values, dict) or not values:
             raise ConnectedSystemValidationError(f"recordFields is required for {action}.")
         normalized: dict[str, Any] = {}
+        locked_tokens = {
+            str(name).strip().casefold()
+            for name in (locked_field_names or set())
+            if str(name).strip()
+        }
         for raw_name, value in values.items():
             key = _clean_text(raw_name, max_length=80)
             field = fields.get(key)
@@ -2337,6 +2429,8 @@ class ConnectedSystemsService:
                 field.get("immutable") is True
                 or field.get("identityField") is True
                 or field.get("updateable") is False
+                or str(field.get("key") or "").strip().casefold() in locked_tokens
+                or str(field.get("name") or "").strip().casefold() in locked_tokens
             ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be updated: {key}",
@@ -2395,6 +2489,11 @@ class ConnectedSystemsService:
             satisfied_required_fields=satisfied_required_fields,
         )
         object_type_value = str(schema["objectType"])
+        self._require_unbound_for_create(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
         payload: dict[str, Any] = {
             "target": system.target,
             "objectType": object_type_value,
@@ -2526,6 +2625,7 @@ class ConnectedSystemsService:
         record_id: str | None,
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
+        locked_field_names: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "update")
@@ -2541,7 +2641,23 @@ class ConnectedSystemsService:
         )
         self._require_schema_action(schema, "update")
         fields = {str(field["key"]): field for field in schema["fields"]}
-        normalized = self._validated_schema_fields(fields, record_fields, action="update")
+        # Verified profile mappings are the field names used to create and
+        # re-find this owner's record. They are binding keys, not profile
+        # preferences, so updates must reject them even when a partner schema
+        # has omitted its own identity/immutable metadata.
+        protected_fields = set(locked_field_names or set())
+        if not protected_fields:
+            protected_fields.update(
+                str(name)
+                for name in _ensure_dict(schema.get("profileFieldMappings")).values()
+                if str(name).strip()
+            )
+        normalized = self._validated_schema_fields(
+            fields,
+            record_fields,
+            action="update",
+            locked_field_names=protected_fields,
+        )
         object_type_value = str(schema["objectType"])
         payload: dict[str, Any] = {
             "target": system.target,
@@ -2773,7 +2889,7 @@ class ConnectedSystemsService:
             system_id=system_id,
             object_type=object_type_value,
         )
-        return await self.read_record(
+        result = await self.read_record(
             user_id=user_id,
             system_id=system_id,
             object_type=object_type_value,
@@ -2782,6 +2898,93 @@ class ConnectedSystemsService:
             return_fields=return_fields,
             record_id=record_id,
         )
+        records = _ensure_list(result.get("records"))
+        if result.get("resultClass") == "succeeded" and records:
+            returned_ids = {
+                _clean_text(record.get("recordId"), max_length=128)
+                for record in records
+                if isinstance(record, dict)
+            }
+            if returned_ids != {record_id}:
+                raise ConnectedSystemConfigurationError(
+                    "The connected system returned a different record than the active binding.",
+                    code="CONNECTED_SYSTEM_BOUND_RECORD_MISMATCH",
+                    status_code=502,
+                )
+        if result.get("resultClass") != "succeeded" or records:
+            return result
+
+        # A successful, contract-normalized read by the exact bound id that
+        # returns no rows is authoritative evidence that the remote record is
+        # missing. Keep the active pointer until the owner explicitly confirms
+        # recovery; transient MCP, auth, timeout, and malformed responses never
+        # reach this state.
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
+        return {
+            **result,
+            "recordId": None,
+            "bindingStatus": "remote_record_missing",
+            "binding": self._public_binding(binding),
+            "recoveryAction": "create_or_relink",
+        }
+
+    def disconnect_record_binding(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+    ) -> dict[str, Any]:
+        """Idempotently retire the owner's current local CRM pointer."""
+        system = self.get_system(system_id)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
+        if not binding:
+            return {
+                "systemId": system_id,
+                "target": system.target,
+                "objectType": object_type_value,
+                "status": "unbound",
+                "binding": None,
+            }
+        record_id = _clean_text(binding.get("record_id"), max_length=128)
+        disconnected = self._store_call(
+            self.store.mark_binding_disconnected,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+            record_id=record_id,
+        )
+        if disconnected:
+            self._audit(
+                user_id=user_id,
+                system_id=system_id,
+                action="disconnect",
+                object_type=object_type_value,
+                record_id=record_id,
+                field_names=[],
+                mcp_result_class=None,
+                readback_result_class=None,
+                status="succeeded",
+                metadata={"reason": "owner_confirmed_recovery"},
+            )
+        return {
+            "systemId": system_id,
+            "target": system.target,
+            "objectType": object_type_value,
+            "status": "disconnected" if disconnected else "unbound",
+            "binding": self._public_binding(disconnected),
+        }
 
     async def search_verified_record(
         self,
@@ -2948,6 +3151,11 @@ class ConnectedSystemsService:
                 code="CONNECTED_SYSTEM_SCHEMA_FIELDS_REQUIRED",
             )
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        self._require_unbound_for_create(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
         email_value = _clean_text(email, max_length=320)
         phone_value = _normalize_crm_phone_for_mcp(phone)
         last_name_value = _clean_text(last_name, max_length=80)
@@ -3124,6 +3332,14 @@ class ConnectedSystemsService:
                     system_id=system_id,
                     object_type=str(intent["object_type"]),
                     supplied_record_id=str(intent.get("record_id") or ""),
+                )
+            elif intent["action"] == "create":
+                # Re-check at execution time so another session cannot relink
+                # the user after intent preparation and then approve a duplicate.
+                self._require_unbound_for_create(
+                    user_id=user_id,
+                    system_id=system_id,
+                    object_type=str(intent["object_type"]),
                 )
             if system.registry_source == "enterprise_crm_registry":
                 schema = await self.get_schema(

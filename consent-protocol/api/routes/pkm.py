@@ -24,11 +24,13 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.pkm_routes_shared import (
+    DeleteDomainRequest,
     DeleteDomainResponse,
     DomainDataResponse,
     DomainManifestResponse,
     DomainRegistryResponse,
     PersonalKnowledgeModelMetadataResponse,
+    PkmDeviceSyncResponse,
     PkmUpgradeStatusResponse,
     ReconcilePkmResponse,
     StartOrResumeUpgradeRequest,
@@ -48,7 +50,13 @@ from api.routes.pkm_routes_shared import (
     delete_domain_data as _delete_domain_data,
 )
 from api.routes.pkm_routes_shared import (
+    delete_domain_data_confirmed as _delete_domain_data_confirmed,
+)
+from api.routes.pkm_routes_shared import (
     fail_upgrade_run as _fail_upgrade_run,
+)
+from api.routes.pkm_routes_shared import (
+    get_device_sync_events as _get_device_sync_events,
 )
 from api.routes.pkm_routes_shared import (
     get_domain_data as _get_domain_data,
@@ -273,6 +281,29 @@ async def delete_domain_data(
     return await _delete_domain_data(user_id, domain, token_data)
 
 
+@router.post("/delete-domain", response_model=DeleteDomainResponse)
+async def delete_domain_data_confirmed(
+    request: DeleteDomainRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _delete_domain_data_confirmed(request, token_data)
+
+
+@router.get("/device-sync/{user_id}", response_model=PkmDeviceSyncResponse)
+async def get_device_sync_events(
+    user_id: str = Path(..., max_length=128),
+    after_cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _get_device_sync_events(
+        user_id,
+        after_cursor,
+        limit,
+        token_data,
+    )
+
+
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
 async def reconcile_pkm_index(
     user_id: str,
@@ -430,6 +461,13 @@ async def _generate_pkm_memory_proposals(
                 },
             ) from exc
         card["sharing_impact"] = sharing_impact
+        if (
+            card.get("write_mode") == "can_save"
+            and int(sharing_impact.get("active_recipient_count") or 0) > 0
+        ):
+            card["write_mode"] = "confirm_first"
+            card["requires_confirmation"] = True
+            card.setdefault("validation_hints", []).append("auto_save_blocked_by_active_recipients")
         total_active_recipients += int(sharing_impact.get("active_recipient_count") or 0)
     payload["preview_cards"] = preview_cards
     payload["preview_summary"] = {

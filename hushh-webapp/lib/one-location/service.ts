@@ -1,5 +1,9 @@
 import { HushhLocation } from "@/lib/capacitor";
-import { ApiError, apiJson } from "@/lib/services/api-client";
+import {
+  ApiError,
+  apiErrorCode,
+  apiJson,
+} from "@/lib/services/api-client";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -10,6 +14,9 @@ import type {
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
   OneLocationEncryptedPrivateKey,
+  OneLocationNearbyAttendee,
+  OneLocationNearbyPlaceSuggestion,
+  OneLocationNearbyPresenceState,
   OneLocationGrant,
   OneLocationMapPreferences,
   OneLocationMapState,
@@ -420,6 +427,45 @@ export class OneLocationService {
     return response.grant;
   }
 
+  /**
+   * Create/replace a private share and persist its first encrypted point as one
+   * idempotent backend mutation. Safe to retry with the same operation id.
+   */
+  static async createGrantWithEnvelope(params: {
+    vaultOwnerToken: string;
+    recipientUserId: string;
+    recipientKeyId: string;
+    durationHours: number;
+    clientOperationId: string;
+    confirmedAt: string;
+    envelope: OneLocationEncryptedEnvelope;
+    reason?: string;
+    shareKind?: string;
+  }): Promise<{
+    grant: OneLocationGrant;
+    envelope: OneLocationEncryptedEnvelope;
+    idempotentReplay: boolean;
+  }> {
+    return apiJsonWithRetry(
+      "/api/one/location/grants/with-envelope",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          recipientUserId: params.recipientUserId,
+          recipientKeyId: params.recipientKeyId,
+          durationHours: params.durationHours,
+          clientOperationId: params.clientOperationId,
+          confirmedAt: params.confirmedAt,
+          envelope: params.envelope,
+          ...(params.reason ? { reason: params.reason } : {}),
+          ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+        }),
+      },
+      1,
+    );
+  }
+
   static async storeEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
@@ -468,23 +514,161 @@ export class OneLocationService {
     return "Couldn't search places. Check your connection.";
   }
 
-  static async placesAutocomplete(params: {
+  static nearbyCheckInErrorDetails(error: unknown): {
+    message: string;
+    retryLocation: boolean;
+    openAppSettings: boolean;
+  } {
+    const code = apiErrorCode(error);
+    if (code === "NEARBY_PRESENCE_LOCATION_TOO_COARSE") {
+      return {
+        message: "Turn on precise location, then try again.",
+        retryLocation: true,
+        openAppSettings: true,
+      };
+    }
+    if (code === "NEARBY_PRESENCE_LOCATION_STALE") {
+      return {
+        message: "Your location reading expired. Refresh it and try again.",
+        retryLocation: true,
+        openAppSettings: false,
+      };
+    }
+    if (code === "NEARBY_PRESENCE_OUTSIDE_RADIUS") {
+      return {
+        message: "That place is too far away. Choose a closer place.",
+        retryLocation: false,
+        openAppSettings: false,
+      };
+    }
+    if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
+      return {
+        message: "Verify your phone number before checking in nearby.",
+        retryLocation: false,
+        openAppSettings: false,
+      };
+    }
+    if (code === "NEARBY_PRESENCE_UNAVAILABLE") {
+      return {
+        message: "Nearby check-in is not available in this environment.",
+        retryLocation: false,
+        openAppSettings: false,
+      };
+    }
+    if (error instanceof ApiError && error.status === 429) {
+      return {
+        message: "Too many check-in attempts. Wait a moment and try again.",
+        retryLocation: false,
+        openAppSettings: false,
+      };
+    }
+    return {
+      message: "Check-in didn't complete. Your location is not visible.",
+      retryLocation: false,
+      openAppSettings: false,
+    };
+  }
 
+  static async placesAutocomplete(params: {
     vaultOwnerToken: string;
     input: string;
     sessionToken?: string;
-  }): Promise<{ placeId: string; text: string }[]> {
+    lat?: number;
+    lng?: number;
+  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
     const response = await apiJson<{
-      suggestions: { placeId: string; text: string }[];
+      suggestions: OneLocationNearbyPlaceSuggestion[];
     }>("/api/one/location/maps/autocomplete", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({
         input: params.input,
         ...(params.sessionToken ? { sessionToken: params.sessionToken } : {}),
+        ...(typeof params.lat === "number" ? { lat: params.lat } : {}),
+        ...(typeof params.lng === "number" ? { lng: params.lng } : {}),
       }),
     });
     return response.suggestions ?? [];
+  }
+
+  static async nearbyPlaces(params: {
+    vaultOwnerToken: string;
+    lat: number;
+    lng: number;
+  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
+    const response = await apiJson<{
+      suggestions: OneLocationNearbyPlaceSuggestion[];
+    }>("/api/one/location/maps/nearby-places", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ lat: params.lat, lng: params.lng }),
+    });
+    return response.suggestions ?? [];
+  }
+
+  static async getNearbyPresence(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence",
+      {
+        method: "GET",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async checkInNearby(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+    point: PlainLocationPoint;
+    durationMinutes: 30 | 60 | 120;
+    consentAccepted: boolean;
+    allowConnectionRequests: boolean;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence/check-in",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          placeId: params.placeId,
+          currentLat: params.point.latitude,
+          currentLng: params.point.longitude,
+          accuracyM: params.point.accuracyM ?? null,
+          capturedAt: params.point.capturedAt,
+          durationMinutes: params.durationMinutes,
+          consentAccepted: params.consentAccepted,
+          allowConnectionRequests: params.allowConnectionRequests,
+        }),
+      },
+    );
+  }
+
+  static async checkoutNearby(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationNearbyPresenceState> {
+    return apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence",
+      {
+        method: "DELETE",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async requestNearbyConnection(params: {
+    vaultOwnerToken: string;
+    participantAlias: string;
+  }): Promise<{ relationship: OneLocationNearbyAttendee["relationship"] }> {
+    return apiJson<{ relationship: OneLocationNearbyAttendee["relationship"] }>(
+      "/api/one/location/nearby-presence/connection-request",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ participantAlias: params.participantAlias }),
+      },
+    );
   }
 
   static async placeDetails(params: {

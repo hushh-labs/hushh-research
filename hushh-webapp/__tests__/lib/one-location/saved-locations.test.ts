@@ -23,9 +23,12 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 import {
   addSavedLocation,
   defaultLabelForCategory,
+  DuplicateSavedLocationError,
+  findDuplicateSavedLocation,
   loadSavedLocations,
   LOCATION_PKM_DOMAIN,
   removeSavedLocation,
+  SAVED_LOCATION_DUPLICATE_RADIUS_METERS,
   sortSavedLocationsForDisplay,
   updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
@@ -158,11 +161,13 @@ describe("encrypted saved-locations PKM store", () => {
       input: { category: "home", latitude: 2, longitude: 2 },
     });
 
-    expect(locations.filter((location) => location.category === "home")).toHaveLength(1);
+    expect(
+      locations.filter((location) => location.category === "home"),
+    ).toHaveLength(1);
     expect(locations[0]?.latitude).toBe(2);
   });
 
-  it("keeps distinct Other places and de-duplicates a matching one", async () => {
+  it("keeps distinct Other places and rejects a repeated physical place", async () => {
     await addSavedLocation({
       context: CONTEXT,
       input: {
@@ -181,21 +186,315 @@ describe("encrypted saved-locations PKM store", () => {
         longitude: 20,
       },
     });
-    const locations = await addSavedLocation({
+    await addSavedLocation({
       context: CONTEXT,
       input: {
         category: "other",
         label: "Gym",
-        latitude: 10,
-        longitude: 10,
+        latitude: 30,
+        longitude: 30,
       },
     });
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "other",
+          label: "Library",
+          latitude: 10,
+          longitude: 10,
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "DuplicateSavedLocationError",
+      code: "duplicate_saved_location",
+      existingCategory: "other",
+      existingLabel: "Gym (Other)",
+    });
 
-    expect(locations.filter((location) => location.category === "other")).toHaveLength(2);
+    const locations = await loadSavedLocations(CONTEXT);
+    expect(
+      locations.filter((location) => location.category === "other"),
+    ).toHaveLength(3);
     expect(locations.map((location) => location.label).sort()).toEqual([
       "Cafe",
       "Gym",
+      "Gym",
     ]);
+  });
+
+  it("rejects the same physical place across Home, Work, and Other", async () => {
+    await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "home",
+        latitude: 12.9763,
+        longitude: 77.5929,
+      },
+    });
+
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "work",
+          latitude: 12.9764,
+          longitude: 77.593,
+        },
+      }),
+    ).rejects.toThrow(
+      "This place is already saved as Home. Choose a different place or remove it first.",
+    );
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "other",
+          label: "Parents",
+          latitude: 12.9763,
+          longitude: 77.5929,
+        },
+      }),
+    ).rejects.toBeInstanceOf(DuplicateSavedLocationError);
+
+    expect(await loadSavedLocations(CONTEXT)).toEqual([
+      expect.objectContaining({ category: "home" }),
+    ]);
+  });
+
+  it("allows distinct places beyond the duplicate radius", async () => {
+    await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "home",
+        latitude: 0,
+        longitude: 0,
+        address: "Same display address",
+      },
+    });
+    const locations = await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "work",
+        latitude: 0.0003,
+        longitude: 0,
+        address: "Same display address",
+      },
+    });
+
+    expect(locations.map((location) => location.category).sort()).toEqual([
+      "home",
+      "work",
+    ]);
+  });
+
+  it("uses the physical-distance threshold at its boundary", () => {
+    const existing = [
+      {
+        id: "home",
+        category: "home" as const,
+        label: "Home",
+        latitude: 0,
+        longitude: 0,
+        savedAt: "2026-07-31T00:00:00.000Z",
+      },
+    ];
+    const latitudeDegreesPerMetre = 180 / (Math.PI * 6_371_000);
+
+    expect(
+      findDuplicateSavedLocation(existing, {
+        latitude:
+          (SAVED_LOCATION_DUPLICATE_RADIUS_METERS - 0.01) *
+          latitudeDegreesPerMetre,
+        longitude: 0,
+      }),
+    ).toBe(existing[0]);
+    expect(
+      findDuplicateSavedLocation(existing, {
+        latitude:
+          (SAVED_LOCATION_DUPLICATE_RADIUS_METERS + 0.01) *
+          latitudeDegreesPerMetre,
+        longitude: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it("recognizes the same place across the antimeridian", () => {
+    const existing = [
+      {
+        id: "home",
+        category: "home" as const,
+        label: "Home",
+        latitude: 0,
+        longitude: 179.99995,
+        savedAt: "2026-07-31T00:00:00.000Z",
+      },
+    ];
+
+    expect(
+      findDuplicateSavedLocation(existing, {
+        latitude: 0,
+        longitude: -179.99995,
+      }),
+    ).toBe(existing[0]);
+  });
+
+  it("does not rewrite an existing record when the same category is resaved", async () => {
+    await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "home",
+        latitude: 12.9763,
+        longitude: 77.5929,
+        address: "Original address",
+      },
+    });
+    const before = await loadSavedLocations(CONTEXT);
+
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "home",
+          latitude: 12.9763,
+          longitude: 77.5929,
+          address: "Replacement address",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "duplicate_saved_location" });
+
+    expect(await loadSavedLocations(CONTEXT)).toEqual(before);
+  });
+
+  it("reports a deterministic category for legacy duplicate records", () => {
+    const samePoint = { latitude: 12.9763, longitude: 77.5929 };
+    const legacyDuplicates = [
+      {
+        id: "other-gym",
+        category: "other" as const,
+        label: "Gym",
+        ...samePoint,
+        savedAt: "2026-07-31T00:00:00.000Z",
+      },
+      {
+        id: "work",
+        category: "work" as const,
+        label: "Work",
+        ...samePoint,
+        savedAt: "2026-07-31T00:00:00.000Z",
+      },
+      {
+        id: "home",
+        category: "home" as const,
+        label: "Home",
+        ...samePoint,
+        savedAt: "2026-07-31T00:00:00.000Z",
+      },
+    ];
+
+    expect(findDuplicateSavedLocation(legacyDuplicates, samePoint)?.category).toBe(
+      "home",
+    );
+    expect(legacyDuplicates.map((location) => location.category)).toEqual([
+      "other",
+      "work",
+      "home",
+    ]);
+  });
+
+  it("rechecks the latest encrypted state after a concurrent write", async () => {
+    const concurrentlySavedHome = {
+      id: "home",
+      category: "home" as const,
+      label: "Home",
+      latitude: 12.9763,
+      longitude: 77.5929,
+      savedAt: "2026-07-31T00:00:00.000Z",
+    };
+    pkm.saveMergedDomain.mockImplementationOnce(
+      async (rawParams: Record<string, unknown>) => {
+        const build = rawParams.build as (context: {
+          currentDomainData: Record<string, unknown>;
+          currentManifest: null;
+        }) => Record<string, unknown>;
+        await build({ currentDomainData: {}, currentManifest: null });
+        const currentDomainData = {
+          saved_places: {
+            schema_version: 1,
+            locations: [concurrentlySavedHome],
+            updated_at: "2026-07-31T00:00:00.000Z",
+          },
+        };
+        const plan = await build({ currentDomainData, currentManifest: null });
+        pkm.domainData = plan.domainData as Record<string, unknown>;
+        return {
+          success: true,
+          saveState: "saved",
+          fullBlob: { [LOCATION_PKM_DOMAIN]: pkm.domainData },
+        };
+      },
+    );
+
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "work",
+          latitude: 12.9763,
+          longitude: 77.5929,
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "duplicate_saved_location",
+      existingCategory: "home",
+    });
+    expect(await loadSavedLocations(CONTEXT)).toEqual([concurrentlySavedHome]);
+  });
+
+  it("uses the final retry when a concurrent duplicate is removed", async () => {
+    const concurrentlyRemovedHome = {
+      id: "home",
+      category: "home" as const,
+      label: "Home",
+      latitude: 12.9763,
+      longitude: 77.5929,
+      savedAt: "2026-07-31T00:00:00.000Z",
+    };
+    pkm.saveMergedDomain.mockImplementationOnce(
+      async (rawParams: Record<string, unknown>) => {
+        const build = rawParams.build as (context: {
+          currentDomainData: Record<string, unknown>;
+          currentManifest: null;
+        }) => Record<string, unknown>;
+        await build({
+          currentDomainData: {
+            saved_places: {
+              schema_version: 1,
+              locations: [concurrentlyRemovedHome],
+              updated_at: "2026-07-31T00:00:00.000Z",
+            },
+          },
+          currentManifest: null,
+        });
+        const plan = await build({ currentDomainData: {}, currentManifest: null });
+        pkm.domainData = plan.domainData as Record<string, unknown>;
+        return {
+          success: true,
+          saveState: "saved",
+          fullBlob: { [LOCATION_PKM_DOMAIN]: pkm.domainData },
+        };
+      },
+    );
+
+    const locations = await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "work",
+        latitude: 12.9763,
+        longitude: 77.5929,
+      },
+    });
+    expect(locations).toEqual([expect.objectContaining({ category: "work" })]);
   });
 
   it("rejects invalid coordinates before any PKM write", async () => {

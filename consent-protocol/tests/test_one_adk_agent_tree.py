@@ -258,6 +258,38 @@ class TestAgentTreeShape:
         assert "list_app_actions only to retrieve bounded candidates" in instruction
         assert "genuinely ambiguous" in instruction
 
+    def test_finance_instruction_distinguishes_an_unlocked_empty_portfolio(self):
+        token = "owner-token-must-never-reach-the-model"
+        instruction = _tree._finance_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_CONSENT_TOKEN: token,
+                    STATE_VOICE_CONTEXT: {
+                        "vault_ready": True,
+                        "portfolio_ready": False,
+                    },
+                }
+            )
+        )
+
+        assert "no portfolio has been configured or imported" in instruction
+        assert "Do not ask the user to unlock" in instruction
+        assert token not in instruction
+
+    def test_finance_instruction_requires_unlock_only_when_runtime_reports_locked(self):
+        instruction = _tree._finance_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "vault_ready": False,
+                        "portfolio_ready": False,
+                    }
+                }
+            )
+        )
+
+        assert "unlocking is required for protected information" in instruction
+
     def test_onboarding_tool_accepts_typed_assessment_not_raw_request(self):
         signature = inspect.signature(_tree.resolve_onboarding_goal)
         assert "request" not in signature.parameters

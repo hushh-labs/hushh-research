@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import pytest
@@ -316,6 +317,53 @@ async def test_browser_firebase_session_can_approve_device_enrollment(
     )
 
     assert await account._verify_browser_enrollment_identity("Bearer firebase-id-token") == "user-1"
+
+
+def test_trusted_device_authorization_accepts_only_x25519_handoff_public_keys() -> None:
+    valid = base64.b64encode(b"k" * 32).decode("ascii")
+    request = account.TrustedDeviceAuthorizationRequest(
+        redirect_uri="http://127.0.0.1:49152/callback",
+        code_challenge="c" * 43,
+        device_public_key=base64.b64encode(b"d" * 96).decode("ascii"),
+        device_name="Hermes on Mac",
+        platform="macos",
+        state="s" * 32,
+        vault_handoff_public_key=valid,
+    )
+    assert request.vault_handoff_public_key == valid
+
+    with pytest.raises(ValueError, match="32-byte X25519"):
+        account.TrustedDeviceAuthorizationRequest(
+            redirect_uri="http://127.0.0.1:49152/callback",
+            code_challenge="c" * 43,
+            device_public_key=base64.b64encode(b"d" * 96).decode("ascii"),
+            device_name="Hermes on Mac",
+            platform="macos",
+            state="s" * 32,
+            vault_handoff_public_key=base64.b64encode(b"k" * 31).decode("ascii"),
+        )
+
+
+def test_trusted_device_vault_handoff_accepts_only_bounded_ciphertext() -> None:
+    request = account.TrustedDeviceVaultHandoffRequest(
+        vault_handoff_wrapped_key=base64.b64encode(b"c" * 32).decode("ascii"),
+        vault_handoff_iv=base64.b64encode(b"i" * 12).decode("ascii"),
+        vault_handoff_tag=base64.b64encode(b"t" * 16).decode("ascii"),
+        vault_handoff_sender_public_key=base64.b64encode(b"k" * 32).decode("ascii"),
+        vault_handoff_alg="X25519-AES256-GCM",
+        vault_handoff_vault_key_hash="a" * 64,
+        vault_handoff_wrapper_id="wrapper-1",
+        vault_handoff_rp_id="uat.one.hushh.ai",
+    )
+    assert request.vault_handoff_vault_key_hash == "a" * 64
+
+    with pytest.raises(ValueError, match="invalid byte length"):
+        account.TrustedDeviceVaultHandoffRequest(
+            **{
+                **request.model_dump(),
+                "vault_handoff_wrapped_key": base64.b64encode(b"c" * 31).decode("ascii"),
+            }
+        )
 
 
 @pytest.mark.asyncio

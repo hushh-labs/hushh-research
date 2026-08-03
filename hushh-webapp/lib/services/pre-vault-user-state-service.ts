@@ -17,6 +17,14 @@ import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completi
 
 export type VaultStatus = "placeholder" | "active";
 
+/**
+ * A resumable setup preference only. It deliberately never contains a Gemini
+ * key, a credential reference, vault material, or an access token.
+ */
+export type OneRuntimeSetupChoice =
+  | "hushh_managed_vertex"
+  | "byok_pending_vault";
+
 export type PreVaultUserState = {
   userId: string;
   hasVault: boolean;
@@ -36,6 +44,7 @@ export type PreVaultUserState = {
   setupCapabilityIds: string[];
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
+  oneRuntimeSetupChoice: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion: number | null;
   onboardingPhase:
     | "anonymous_auth"
@@ -67,6 +76,7 @@ type PreVaultStateUpdatePayload = {
   navSetupCompletedAt?: number | null;
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
+  oneRuntimeSetupChoice?: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion?: 1;
   onboardingPhase?: PreVaultUserState["onboardingPhase"];
   onboardingActiveCapability?: string | null;
@@ -87,6 +97,14 @@ function toMillis(value: unknown): number | null {
 
 function normalizeOnboardingJourneyVersion(value: unknown): 1 | null {
   return Number(value) === 1 ? 1 : null;
+}
+
+function normalizeOneRuntimeSetupChoice(
+  value: unknown,
+): OneRuntimeSetupChoice | null {
+  return value === "hushh_managed_vertex" || value === "byok_pending_vault"
+    ? value
+    : null;
 }
 
 function toStringArray(value: unknown): string[] {
@@ -132,6 +150,9 @@ function normalizeResponse(
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
+    oneRuntimeSetupChoice: normalizeOneRuntimeSetupChoice(
+      payload.oneRuntimeSetupChoice,
+    ),
     onboardingJourneyVersion: normalizeOnboardingJourneyVersion(
       payload.onboardingJourneyVersion,
     ),
@@ -403,15 +424,30 @@ export class PreVaultUserStateService {
    * root-setup prerequisite. The selected BYOK credential remains encrypted in
    * the vault; this marker only records that the person made a choice.
    */
-  static async markOneRuntimeChoice(userId: string): Promise<PreVaultUserState> {
+  static async markOneRuntimeChoice(
+    userId: string,
+    choice: OneRuntimeSetupChoice,
+  ): Promise<PreVaultUserState> {
     const current =
       this.getCachedBootstrapState(userId) ??
       (await this.bootstrapState(userId));
-    if (this.hasOneRuntimeChoice(current)) return current;
-    return this.syncSetupCapabilities(userId, [
-      ...current.setupCapabilityIds,
-      ONE_RUNTIME_SETUP_PREREQUISITE_ID,
-    ]);
+    const setupCapabilityIds = this.hasOneRuntimeChoice(current)
+      ? current.setupCapabilityIds
+      : [...current.setupCapabilityIds, ONE_RUNTIME_SETUP_PREREQUISITE_ID];
+
+    // A user can reconsider managed Gemini versus BYOK before finishing setup.
+    // Keep that choice resumable without ever placing a credential in pre-vault
+    // state. `byok_pending_vault` means no key has been entered or stored.
+    if (
+      this.hasOneRuntimeChoice(current) &&
+      current.oneRuntimeSetupChoice === choice
+    ) {
+      return current;
+    }
+    return this.updatePreVaultState(userId, {
+      setupCapabilityIds: toStringArray(setupCapabilityIds),
+      oneRuntimeSetupChoice: choice,
+    });
   }
 
   /** Persist the minimal resumable goal; never a transcript or private content. */

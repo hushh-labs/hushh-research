@@ -6,7 +6,6 @@ This folder owns the shared consent center experience and all consent launchers.
 
 - `consent-sheet-controller.tsx`: compatibility launcher that redirects older sheet entrypoints into the page route.
 - `consent-center-page.tsx`: canonical standalone consent center page surface.
-- `consent-center-view.tsx`: legacy embedded consent surface kept for compatibility.
 - `notification-provider.tsx`: push/toast delivery and one-time pending hydration; not the primary source of truth for consent counts.
 
 ## Rules

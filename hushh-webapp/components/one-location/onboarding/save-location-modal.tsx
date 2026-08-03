@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Briefcase, Check, Home, Loader2, MapPin, X } from "lucide-react";
+import {
+  Briefcase,
+  Check,
+  Home,
+  Loader2,
+  MapPin,
+  Pencil,
+  Search,
+  X,
+} from "lucide-react";
 
 import {
   Dialog,
@@ -11,6 +20,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 
+export type SavedLocationPlaceSuggestion = {
+  placeId: string;
+  text: string;
+};
+
 export type SaveLocationModalProps = {
   open: boolean;
   /** Reverse-geocoded address for display. */
@@ -19,6 +33,11 @@ export type SaveLocationModalProps = {
   loadingAddress?: boolean;
   /** True while a save is in flight. */
   saving?: boolean;
+  /** Authenticated Maps search; selected place details replace point + copy. */
+  onSearchPlaces?: (
+    input: string,
+  ) => Promise<SavedLocationPlaceSuggestion[]>;
+  onSelectPlace?: (placeId: string) => Promise<void>;
   onSave: (category: SavedLocationCategory, label: string) => void;
   onSkip: () => void;
 };
@@ -34,21 +53,32 @@ const CATEGORY_OPTIONS: {
 ];
 
 /**
- * SaveLocationModal — a focused, responsive prompt shown once during Location
- * onboarding, right after the user grants access, asking them to tag the place
- * they're at (Home / Work / Other). The shared dialog primitive owns focus
- * trapping, focus restoration, Escape handling, and screen-reader semantics.
+ * SaveLocationModal — a focused, responsive prompt shown during Location
+ * onboarding after access is ready. The owner can correct the captured place
+ * before tagging it as Home / Work / Other. The shared dialog primitive owns
+ * focus trapping, focus restoration, Escape handling, and screen-reader
+ * semantics.
  */
 export function SaveLocationModal({
   open,
   address,
   loadingAddress = false,
   saving = false,
+  onSearchPlaces,
+  onSelectPlace,
   onSave,
   onSkip,
 }: SaveLocationModalProps) {
   const [category, setCategory] = useState<SavedLocationCategory | null>(null);
   const [customLabel, setCustomLabel] = useState("");
+  const [editingPlace, setEditingPlace] = useState(false);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeSuggestions, setPlaceSuggestions] = useState<
+    SavedLocationPlaceSuggestion[]
+  >([]);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [placeSearchError, setPlaceSearchError] = useState<string | null>(null);
+  const [selectingPlaceId, setSelectingPlaceId] = useState<string | null>(null);
   const descriptionId = useId();
 
   // Reset internal selection each time the modal (re)opens.
@@ -56,14 +86,82 @@ export function SaveLocationModal({
     if (open) {
       setCategory(null);
       setCustomLabel("");
+      setEditingPlace(false);
+      setPlaceQuery("");
+      setPlaceSuggestions([]);
+      setPlaceSearching(false);
+      setPlaceSearchError(null);
+      setSelectingPlaceId(null);
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !editingPlace || !onSearchPlaces) return;
+    const input = placeQuery.trim();
+    if (input.length < 2) {
+      setPlaceSuggestions([]);
+      setPlaceSearching(false);
+      setPlaceSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setPlaceSearching(true);
+      setPlaceSearchError(null);
+      void onSearchPlaces(input)
+        .then((suggestions) => {
+          if (cancelled) return;
+          setPlaceSuggestions(suggestions);
+          if (suggestions.length === 0) {
+            setPlaceSearchError("No matching places found.");
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setPlaceSuggestions([]);
+          setPlaceSearchError("Could not search places. Please try again.");
+        })
+        .finally(() => {
+          if (!cancelled) setPlaceSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingPlace, onSearchPlaces, open, placeQuery]);
+
   const resolvedAddress = (address && address.trim()) || null;
-  const canSave = category !== null && !saving && !loadingAddress;
+  const changingPlace = selectingPlaceId !== null;
+  const interactionBusy = saving || changingPlace;
+  const canEditPlace = Boolean(onSearchPlaces && onSelectPlace);
+  const canSave =
+    category !== null &&
+    !saving &&
+    !loadingAddress &&
+    !editingPlace &&
+    !changingPlace;
+
+  const handleSelectPlace = async (placeId: string) => {
+    if (!onSelectPlace || changingPlace) return;
+    setSelectingPlaceId(placeId);
+    setPlaceSearchError(null);
+    try {
+      await onSelectPlace(placeId);
+      setEditingPlace(false);
+      setPlaceQuery("");
+      setPlaceSuggestions([]);
+    } catch {
+      setPlaceSearchError("Could not update this place. Please try again.");
+    } finally {
+      setSelectingPlaceId(null);
+    }
+  };
 
   const handleSave = () => {
-    if (!category || saving) return;
+    if (!category || !canSave) return;
     const label =
       category === "other" ? customLabel.trim() || "Other" : undefined;
     onSave(category, label ?? "");
@@ -74,7 +172,7 @@ export function SaveLocationModal({
       open={open}
       modal
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && !saving) onSkip();
+        if (!nextOpen && !interactionBusy) onSkip();
       }}
     >
       <DialogContent
@@ -83,13 +181,13 @@ export function SaveLocationModal({
         aria-describedby={descriptionId}
         overlayClassName="z-[559] bg-black/45 backdrop-blur-[6px]"
         onEscapeKeyDown={(event) => {
-          if (saving) event.preventDefault();
+          if (interactionBusy) event.preventDefault();
         }}
         onPointerDownOutside={(event) => {
-          if (saving) event.preventDefault();
+          if (interactionBusy) event.preventDefault();
         }}
         className={cn(
-          "z-[560] bottom-0 top-auto w-full max-w-[420px] translate-y-0 gap-5",
+          "z-[560] bottom-0 top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
           "rounded-b-none rounded-t-[28px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[24px]",
           "border border-black/[0.06] bg-white p-6 pb-[calc(env(safe-area-inset-bottom,0px)+22px)] sm:pb-6",
           "shadow-[0_-8px_40px_rgba(16,24,40,0.18)] sm:shadow-[0_20px_60px_rgba(16,24,40,0.24)]",
@@ -99,7 +197,7 @@ export function SaveLocationModal({
         <button
           type="button"
           onClick={onSkip}
-          disabled={saving}
+          disabled={interactionBusy}
           aria-label="Close"
           className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
         >
@@ -144,7 +242,103 @@ export function SaveLocationModal({
               </p>
             )}
           </div>
+          {canEditPlace && !loadingAddress ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingPlace(true);
+                setPlaceQuery("");
+                setPlaceSuggestions([]);
+                setPlaceSearchError(null);
+              }}
+              disabled={interactionBusy}
+              className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#9bc7f5]"
+              aria-label="Change captured location"
+            >
+              <Pencil className="h-3.5 w-3.5" aria-hidden />
+              Change
+            </button>
+          ) : null}
         </div>
+
+        {editingPlace ? (
+          <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
+            <label
+              htmlFor="saved-location-place-search"
+              className="block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+            >
+              Search for another place
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b93a1]"
+                aria-hidden
+              />
+              <input
+                id="saved-location-place-search"
+                type="search"
+                value={placeQuery}
+                onChange={(event) => setPlaceQuery(event.target.value)}
+                disabled={interactionBusy}
+                autoComplete="off"
+                placeholder="Search address or place"
+                className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white pl-10 pr-10 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+              />
+              {placeSearching || changingPlace ? (
+                <Loader2
+                  className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#8b93a1]"
+                  aria-label="Searching places"
+                />
+              ) : null}
+            </div>
+
+            {placeSuggestions.length > 0 ? (
+              <div
+                className="max-h-40 overflow-y-auto rounded-2xl border border-black/[0.08] bg-white p-1 shadow-sm dark:border-white/[0.1] dark:bg-[#1b2230]"
+                aria-label="Location suggestions"
+              >
+                {placeSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.placeId}
+                    type="button"
+                    onClick={() => void handleSelectPlace(suggestion.placeId)}
+                    disabled={interactionBusy}
+                    className="flex min-h-11 w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium text-[#273142] hover:bg-black/[0.04] disabled:opacity-45 dark:text-[#dce5f2] dark:hover:bg-white/[0.06]"
+                  >
+                    <MapPin
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent,#087ff5)]"
+                      aria-hidden
+                    />
+                    <span>{suggestion.text}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {placeSearchError ? (
+              <p
+                role="alert"
+                className="text-[12px] font-medium text-[#b42318] dark:text-[#ff9b91]"
+              >
+                {placeSearchError}
+              </p>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingPlace(false);
+                setPlaceQuery("");
+                setPlaceSuggestions([]);
+                setPlaceSearchError(null);
+              }}
+              disabled={interactionBusy}
+              className="text-[13px] font-semibold text-[#5b6472] disabled:opacity-45 dark:text-[#9aa6b6]"
+            >
+              Keep current location
+            </button>
+          </div>
+        ) : null}
 
         <div>
           <p className="mb-2 text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
@@ -159,7 +353,7 @@ export function SaveLocationModal({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setCategory(value)}
-                  disabled={saving}
+                  disabled={interactionBusy}
                   className={cn(
                     "press-scale flex flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-4 transition-colors disabled:opacity-45",
                     selected
@@ -188,7 +382,7 @@ export function SaveLocationModal({
               type="text"
               value={customLabel}
               onChange={(event) => setCustomLabel(event.target.value)}
-              disabled={saving}
+              disabled={interactionBusy}
               maxLength={40}
               placeholder="e.g. Gym, Mom's house, Cafe"
               className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
@@ -217,7 +411,7 @@ export function SaveLocationModal({
           <button
             type="button"
             onClick={onSkip}
-            disabled={saving}
+            disabled={interactionBusy}
             className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
           >
             Skip for now

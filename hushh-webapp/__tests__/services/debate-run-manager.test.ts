@@ -130,7 +130,14 @@ describe("DebateRunManagerService start gate", () => {
   it("blocks on a verified backend active debate without starting a second run", async () => {
     const manager = await loadManager([persistedTask("local-run")]);
     apiMocks.getActiveKaiDebateRun.mockResolvedValueOnce(
-      response(200, { run: runPayload("server-run") }),
+      response(200, {
+        run: {
+          ...runPayload("server-run"),
+          pick_source: "ria:advisor-1:package-2",
+          pick_source_label: "Advisor picks",
+          pick_source_kind: "ria",
+        },
+      }),
     );
 
     const result = await manager.ensureRun({
@@ -141,7 +148,11 @@ describe("DebateRunManagerService start gate", () => {
 
     expect(result.kind).toBe("blocked");
     expect(result.task.runId).toBe("server-run");
-    expect(result.task.pickSource).toBe("search");
+    // The active run retains its server-authorized source snapshot. A new
+    // browser selection must never relabel a run that is already in progress.
+    expect(result.task.pickSource).toBe("ria:advisor-1:package-2");
+    expect(result.task.pickSourceLabel).toBe("Advisor picks");
+    expect(result.task.pickSourceKind).toBe("ria");
     expect(apiMocks.startKaiDebateRun).not.toHaveBeenCalled();
   });
 
@@ -157,12 +168,10 @@ describe("DebateRunManagerService start gate", () => {
     const first = manager.ensureRun({
       ...ensureParams,
       pickSource: "default",
-      pickSourceLabel: "Default list",
     });
     const second = manager.ensureRun({
       ...ensureParams,
       pickSource: "default",
-      pickSourceLabel: "Default list",
     });
 
     await Promise.resolve();

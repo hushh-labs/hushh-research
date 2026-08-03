@@ -396,7 +396,8 @@ export async function registerWithPrf(
 export async function authenticateWithPrf(
   userId: string,
   prfSalt: string,
-  credentialId?: string
+  credentialId?: string,
+  rpIdOverride?: string,
 ): Promise<{
   vaultKeyHex: string;
   credentialId: string;
@@ -404,7 +405,7 @@ export async function authenticateWithPrf(
   const prfSaltBytes = base64ToBytes(prfSalt);
   const prfInput = new TextEncoder().encode(`hushh-vault-prf-${userId}`);
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const rpId = getRpId();
+  const rpId = rpIdOverride?.trim() || getRpId();
 
   console.log("🔓 Authenticating with PRF...");
   console.log("  RP ID:", rpId);

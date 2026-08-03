@@ -12,10 +12,13 @@ Two modes:
 * **default (prepare-only, fully automatable, safe)** -- resolve the app for the
   bundle id, ensure an editable App Store version exists for the marketing
   version with ``releaseType = MANUAL`` (so an approved app never auto-releases
-  to the public without a human pressing "Release"), wait for the uploaded build
-  to finish processing, and attach that build to the version. This performs every
-  automatable step *up to but not including* the irreversible "submit for review"
-  action, then stops.
+  to the public without a human pressing "Release"), set the required
+  "What's New in This Version" release notes (``--whats-new``) on every
+  localization, wait for the uploaded build to finish processing, and attach that
+  build to the version. This performs every automatable step *up to but not
+  including* the irreversible "submit for review" action, then stops. Setting
+  whatsNew here is what lets a later one-click submit clear Apple's
+  "What's New in This Version - This field is required" gate.
 
 * ``--submit`` (opt-in, gated, IRREVERSIBLE) -- additionally create a review
   submission, add the version to it, and mark it submitted. This is the action
@@ -64,6 +67,11 @@ EDITABLE_VERSION_STATES = {
 BUILD_STATE_VALID = "VALID"
 BUILD_STATE_PROCESSING = "PROCESSING"
 BUILD_TERMINAL_BAD = {"FAILED", "INVALID"}
+# AppStoreVersionLocalization.whatsNew is capped at 4000 characters by Apple.
+WHATS_NEW_MAX = 4000
+# A review submission that has not been submitted yet can still take items /
+# be submitted; anything past this is already with Apple and must not be reused.
+REVIEW_SUBMISSION_OPEN_STATE = "READY_FOR_REVIEW"
 
 
 def log(message: str) -> None:
@@ -337,55 +345,182 @@ def attach_build(token: str, version_id: str, build_id: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# "What's New in This Version" (required metadata; empty value blocks review)
+# --------------------------------------------------------------------------- #
+def _clamp_whats_new(text: str) -> str:
+    """Trim to Apple's 4000-char limit (pure; unit-tested by --self-test)."""
+    text = text.strip()
+    if len(text) <= WHATS_NEW_MAX:
+        return text
+    log(
+        f"whatsNew is {len(text)} chars; truncating to Apple's "
+        f"{WHATS_NEW_MAX}-char limit"
+    )
+    return text[:WHATS_NEW_MAX]
+
+
+def set_whats_new(token: str, version_id: str, whats_new: str) -> int:
+    """Set whatsNew on every localization of the version.
+
+    "What's New in This Version" is required by Apple for each new version (the
+    first version uses the app description instead). An empty whatsNew is exactly
+    what makes App Store Connect reject "Add for Review" with
+    "What's New in This Version - This field is required", so populating it is the
+    load-bearing step that lets a one-click submit go through. Returns the number
+    of localizations updated.
+    """
+    whats_new = _clamp_whats_new(whats_new)
+    url = (
+        f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}"
+        "/appStoreVersionLocalizations"
+    )
+    locs = asc_get(url, token).get("data") or []
+    if not locs:
+        # A freshly created version can start with no localizations; create the
+        # primary en-US one so the required field is present.
+        log("no appStoreVersionLocalizations found; creating en-US")
+        created = asc_post(
+            f"{ASC_API_ROOT}/v1/appStoreVersionLocalizations",
+            token,
+            {
+                "data": {
+                    "type": "appStoreVersionLocalizations",
+                    "attributes": {"locale": "en-US", "whatsNew": whats_new},
+                    "relationships": {
+                        "appStoreVersion": {
+                            "data": {
+                                "type": "appStoreVersions",
+                                "id": version_id,
+                            }
+                        }
+                    },
+                }
+            },
+        ).get("data")
+        if created:
+            log(f"created localization {created['id']} (en-US) with whatsNew")
+            return 1
+        return 0
+
+    updated = 0
+    for loc in locs:
+        loc_id = loc["id"]
+        locale = (loc.get("attributes") or {}).get("locale")
+        asc_patch(
+            f"{ASC_API_ROOT}/v1/appStoreVersionLocalizations/{loc_id}",
+            token,
+            {
+                "data": {
+                    "type": "appStoreVersionLocalizations",
+                    "id": loc_id,
+                    "attributes": {"whatsNew": whats_new},
+                }
+            },
+        )
+        updated += 1
+        log(f"set whatsNew on localization {loc_id} ({locale})")
+    return updated
+
+
+# --------------------------------------------------------------------------- #
 # Gated public submission (IRREVERSIBLE)
 # --------------------------------------------------------------------------- #
+def find_open_review_submission(
+    token: str, app_id: str, platform: str
+) -> dict | None:
+    """Return an existing not-yet-submitted review submission, if any.
+
+    Apple allows only one open review submission per app at a time; a prior
+    attempt (including a click on 'Add for Review' in the ASC UI) can leave one
+    in ``READY_FOR_REVIEW``. Reusing it avoids a 409 on create.
+    """
+    query = urllib.parse.urlencode(
+        {
+            "filter[app]": app_id,
+            "filter[state]": REVIEW_SUBMISSION_OPEN_STATE,
+            "limit": "20",
+        }
+    )
+    url = f"{ASC_API_ROOT}/v1/reviewSubmissions?{query}"
+    data = asc_get(url, token).get("data") or []
+    for submission in data:
+        if (submission.get("attributes") or {}).get("platform") == platform:
+            return submission
+    return data[0] if data else None
+
+
+def review_submission_has_version(
+    token: str, submission_id: str, version_id: str
+) -> bool:
+    """True if the version is already an item on the submission (avoid a dup)."""
+    url = (
+        f"{ASC_API_ROOT}/v1/reviewSubmissions/{submission_id}/items"
+        "?include=appStoreVersion&limit=50"
+    )
+    for item in asc_get(url, token).get("data") or []:
+        rel = ((item.get("relationships") or {}).get("appStoreVersion") or {}).get(
+            "data"
+        ) or {}
+        if rel.get("id") == version_id:
+            return True
+    return False
+
+
 def submit_for_review(
     token: str, app_id: str, version_id: str, platform: str
 ) -> str:
-    """Create + submit a review submission. IRREVERSIBLE public-release action."""
-    log("creating review submission (IRREVERSIBLE public App Store submission)")
-    submission = asc_post(
-        f"{ASC_API_ROOT}/v1/reviewSubmissions",
-        token,
-        {
-            "data": {
-                "type": "reviewSubmissions",
-                "attributes": {"platform": platform},
-                "relationships": {
-                    "app": {"data": {"type": "apps", "id": app_id}}
-                },
-            }
-        },
-    ).get("data")
-    if not submission:
-        die("review submission creation returned no data")
-    submission_id = submission["id"]
-    log(f"review submission id = {submission_id}")
+    """Create/reuse + submit a review submission. IRREVERSIBLE public release."""
+    submission = find_open_review_submission(token, app_id, platform)
+    if submission is not None:
+        submission_id = submission["id"]
+        log(f"reusing existing open review submission {submission_id}")
+    else:
+        log("creating review submission (IRREVERSIBLE public App Store submission)")
+        submission = asc_post(
+            f"{ASC_API_ROOT}/v1/reviewSubmissions",
+            token,
+            {
+                "data": {
+                    "type": "reviewSubmissions",
+                    "attributes": {"platform": platform},
+                    "relationships": {
+                        "app": {"data": {"type": "apps", "id": app_id}}
+                    },
+                }
+            },
+        ).get("data")
+        if not submission:
+            die("review submission creation returned no data")
+        submission_id = submission["id"]
+        log(f"review submission id = {submission_id}")
 
-    log("adding App Store version to review submission")
-    asc_post(
-        f"{ASC_API_ROOT}/v1/reviewSubmissionItems",
-        token,
-        {
-            "data": {
-                "type": "reviewSubmissionItems",
-                "relationships": {
-                    "reviewSubmission": {
-                        "data": {
-                            "type": "reviewSubmissions",
-                            "id": submission_id,
-                        }
+    if review_submission_has_version(token, submission_id, version_id):
+        log("App Store version already attached to the review submission")
+    else:
+        log("adding App Store version to review submission")
+        asc_post(
+            f"{ASC_API_ROOT}/v1/reviewSubmissionItems",
+            token,
+            {
+                "data": {
+                    "type": "reviewSubmissionItems",
+                    "relationships": {
+                        "reviewSubmission": {
+                            "data": {
+                                "type": "reviewSubmissions",
+                                "id": submission_id,
+                            }
+                        },
+                        "appStoreVersion": {
+                            "data": {
+                                "type": "appStoreVersions",
+                                "id": version_id,
+                            }
+                        },
                     },
-                    "appStoreVersion": {
-                        "data": {
-                            "type": "appStoreVersions",
-                            "id": version_id,
-                        }
-                    },
-                },
-            }
-        },
-    )
+                }
+            },
+        )
 
     log("marking review submission as submitted")
     asc_patch(
@@ -444,6 +579,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=os.environ.get("IOS_ASC_RELEASE_TYPE", "MANUAL"),
         choices=["MANUAL", "AFTER_APPROVAL", "SCHEDULED"],
         help="App Store release type (default MANUAL: never auto-release).",
+    )
+    parser.add_argument(
+        "--whats-new",
+        default=os.environ.get("IOS_WHATS_NEW"),
+        help=(
+            "'What's New in This Version' release notes, set on every "
+            "localization. Required by Apple for each new version; leaving it "
+            "empty is what blocks 'Add for Review'. Truncated to 4000 chars."
+        ),
     )
     parser.add_argument(
         "--wait-timeout",
@@ -512,16 +656,28 @@ def run_self_test() -> int:
         os.unlink(p8_path)
 
     # Argument parsing must accept the documented shape without a real key.
-    parse_args(
+    ns = parse_args(
         [
             "--p8-path", "/dev/null",
             "--key-id", "K",
             "--issuer-id", "I",
             "--marketing-version", "1.3.5",
             "--build-number", "57",
+            "--whats-new", "Bug fixes and improvements.",
+            "--submit",
         ]
     )
-    log("self-test OK: JWT mint/verify + arg parsing succeeded (offline)")
+    assert ns.whats_new == "Bug fixes and improvements.", "whats-new not parsed"
+    assert ns.submit is True, "submit flag not parsed"
+
+    # whatsNew clamping is pure and load-bearing (empty/overlong values are what
+    # break a one-click submit), so exercise it offline.
+    assert _clamp_whats_new("  hi  ") == "hi", "clamp should strip"
+    long_note = "x" * (WHATS_NEW_MAX + 50)
+    clamped = _clamp_whats_new(long_note)
+    assert len(clamped) == WHATS_NEW_MAX, "clamp should cap at WHATS_NEW_MAX"
+
+    log("self-test OK: JWT mint/verify + arg parsing + whatsNew clamp (offline)")
     return 0
 
 
@@ -557,6 +713,15 @@ def main(argv: list[str]) -> int:
         token, app_id, marketing_version, args.platform, args.release_type
     )
     version_id = version["id"]
+
+    # Populate the required "What's New in This Version" field before anything
+    # else so a prepare-only run still leaves the version submittable, and a
+    # one-click submit does not trip Apple's "This field is required" gate.
+    if args.whats_new and args.whats_new.strip():
+        count = set_whats_new(token, version_id, args.whats_new)
+        log(f"whatsNew set on {count} localization(s)")
+    else:
+        log("no --whats-new provided; leaving existing release notes untouched")
 
     build = wait_for_build(
         token,

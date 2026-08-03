@@ -315,6 +315,27 @@ async def get_connected_system_record_binding(
         _raise_connected_system_error(error)
 
 
+@router.delete("/{system_id}/record-binding")
+async def disconnect_connected_system_record_binding(
+    system_id: str = Path(..., min_length=1, max_length=128),
+    object_type: str | None = Query(
+        default=None,
+        alias="objectType",
+        max_length=80,
+    ),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    service = get_connected_systems_service()
+    try:
+        return service.disconnect_record_binding(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=object_type,
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
 @router.post("/{system_id}/records/search")
 async def search_connected_system_record(
     body: CrmSearchRequest,
@@ -402,7 +423,7 @@ async def update_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        await _require_schema_mapping(
+        mapping = await _require_schema_mapping(
             service=service, system_id=system_id, object_type=body.object_type
         )
         return await service.update_record_intent_from_fields(
@@ -418,6 +439,7 @@ async def update_connected_system_record_intent(
                 else dict(body.additional_fields or {})
             ),
             readback_locator=None,
+            locked_field_names=set(mapping.values()),
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)

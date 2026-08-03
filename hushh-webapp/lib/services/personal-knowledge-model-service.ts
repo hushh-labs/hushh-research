@@ -43,6 +43,9 @@ import {
   type PkmMutationPlanV2,
   type PkmUserConfirmation,
 } from "@/lib/personal-knowledge-model/mutation-plan";
+import {
+  runRuntimeSecretCommitWithRetry,
+} from "@/lib/personal-knowledge-model/runtime-secret-retry";
 
 // ==================== Types ====================
 
@@ -1355,6 +1358,12 @@ export class PersonalKnowledgeModelService {
         summaryKey: "has_openai_api_key",
         consentLabel: "OpenAI API key",
       },
+      {
+        provider: "agent_memory",
+        jsonPath: "agent_memory.auto_save_policy",
+        summaryKey: "has_agent_memory_auto_save_policy",
+        consentLabel: "Private agent memory auto-save preference",
+      },
     ] as const;
     const providerPresence = providerDescriptors.map((descriptor) => ({
       ...descriptor,
@@ -1366,7 +1375,7 @@ export class PersonalKnowledgeModelService {
         ? credentialMode
         : "byok";
     const configuredProviders = providerPresence
-      .filter((descriptor) => descriptor.configured)
+      .filter((descriptor) => descriptor.configured && descriptor.provider !== "agent_memory")
       .map((descriptor) => descriptor.provider);
     const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
     const paths: PathDescriptor[] = [
@@ -1384,13 +1393,17 @@ export class PersonalKnowledgeModelService {
       ...providerDescriptors.map(
         (descriptor): PathDescriptor => ({
           json_path: descriptor.jsonPath,
-          parent_path: "llm",
+          parent_path: descriptor.jsonPath.startsWith("agent_memory.")
+            ? "agent_memory"
+            : "llm",
           path_type: "leaf",
           exposure_eligibility: false,
           consent_label: descriptor.consentLabel,
           sensitivity_label: "restricted",
-          segment_id: "llm",
-          scope_handle: "runtime_secrets.llm",
+          segment_id: descriptor.jsonPath.startsWith("agent_memory.") ? "agent_memory" : "llm",
+          scope_handle: descriptor.jsonPath.startsWith("agent_memory.")
+            ? "runtime_secrets.agent_memory"
+            : "runtime_secrets.llm",
           source_agent: "runtime_secret_settings",
         }),
       ),
@@ -1403,6 +1416,17 @@ export class PersonalKnowledgeModelService {
         sensitivity_label: "restricted",
         segment_id: "llm",
         scope_handle: "runtime_secrets.llm",
+        source_agent: "runtime_secret_settings",
+      },
+      {
+        json_path: "agent_memory",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Private agent memory preferences",
+        sensitivity_label: "restricted",
+        segment_id: "agent_memory",
+        scope_handle: "runtime_secrets.agent_memory",
         source_agent: "runtime_secret_settings",
       },
     ];
@@ -1430,7 +1454,7 @@ export class PersonalKnowledgeModelService {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
       json_paths: paths.map((path) => path.json_path),
-      top_level_scope_paths: ["llm"],
+      top_level_scope_paths: ["llm", "agent_memory"],
       externalizable_paths: [],
       summary_projection: summary,
       sensitivity_labels: {
@@ -1439,6 +1463,8 @@ export class PersonalKnowledgeModelService {
           providerDescriptors.map((descriptor) => [descriptor.jsonPath, "restricted"]),
         ),
         "llm.credential_mode": "restricted",
+        agent_memory: "restricted",
+        "agent_memory.auto_save_policy": "restricted",
       },
       confidence: 1,
       source_agent: "runtime_secret_settings",
@@ -1454,9 +1480,9 @@ export class PersonalKnowledgeModelService {
       upgraded_at: nowIso,
       structure_decision: structureDecision,
       summary_projection: summary,
-      top_level_scope_paths: ["llm"],
+      top_level_scope_paths: ["llm", "agent_memory"],
       externalizable_paths: [],
-      segment_ids: ["llm"],
+      segment_ids: ["llm", "agent_memory"],
       path_count: paths.length,
       externalizable_path_count: 0,
       last_structured_at: nowIso,
@@ -1478,6 +1504,24 @@ export class PersonalKnowledgeModelService {
             consumer_visible: false,
             internal_only: true,
             visibility_reason: "User-owned BYOK credentials stay private.",
+            storage_mode: "encrypted_domain",
+          },
+        },
+        {
+          scope_handle: "runtime_secrets.agent_memory",
+          scope_label: "Private agent memory preferences",
+          segment_ids: ["agent_memory"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "agent_memory",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "Private agent memory preferences stay private.",
             storage_mode: "encrypted_domain",
           },
         },
@@ -3762,24 +3806,28 @@ export class PersonalKnowledgeModelService {
       throw new Error("Runtime secret is required.");
     }
 
+    const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
+      this.setValueAtNestedPath(next, parsed.keys, secret);
+      return next;
+    };
+
     const existingData = await this.loadDomainData({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
     }).catch(() => null);
-    const domainData = this.isPlainObject(existingData)
-      ? this.cloneRecord(existingData)
-      : {};
-    this.setValueAtNestedPath(domainData, parsed.keys, secret);
 
-    return this.storeRuntimeSecretsDomain({
+    return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
-      domainData,
+      scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
+      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      applyMutation,
     });
   }
 
@@ -3795,39 +3843,56 @@ export class PersonalKnowledgeModelService {
       throw new Error("Invalid PKM credential reference.");
     }
 
+    const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
+      this.deleteValueAtNestedPath(next, parsed.keys);
+      return next;
+    };
+
     const existingData = await this.loadDomainData({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
     }).catch(() => null);
-    const domainData = this.isPlainObject(existingData)
-      ? this.cloneRecord(existingData)
-      : {};
-    this.deleteValueAtNestedPath(domainData, parsed.keys);
 
-    return this.storeRuntimeSecretsDomain({
+    return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
-      domainData,
+      scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
+      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      applyMutation,
     });
   }
 
-  private static async storeRuntimeSecretsDomain(params: {
+  /**
+   * Build the exact `storeDomainData` payload for a runtime-secret commit:
+   * read the manifest (force a fresh read after a conflict), encrypt the domain,
+   * derive the summary/structure/manifest artifacts, and mint the mutation plan.
+   *
+   * Because the mutation plan id is random per build, each call yields a fresh
+   * server commit id. Callers must therefore build ONCE for a given attempt and
+   * reuse the returned payload for any transient replay; only a genuine conflict
+   * should trigger a rebuild.
+   */
+  private static async buildRuntimeSecretsCommit(params: {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
     domain: string;
     domainData: Record<string, unknown>;
+    scopePath: string;
     confirmation: PkmUserConfirmation;
-  }): Promise<StoreDomainDataResult> {
+    forceManifestReload?: boolean;
+  }): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> {
     const previousManifest = await this.getDomainManifest(
       params.userId,
       params.domain,
-      params.vaultOwnerToken
+      params.vaultOwnerToken,
+      params.forceManifestReload === true
     ).catch(() => null);
     const encryptedBlob = await this.encryptDomainForStorage({
       vaultKey: params.vaultKey,
@@ -3843,12 +3908,13 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       currentManifest: previousManifest,
       targetManifest: artifacts.manifest,
+      scopePath: params.scopePath,
       operation: previousManifest ? "update" : "create",
       explanation: "The owner confirmed this encrypted runtime credential change.",
       confirmation: params.confirmation,
     });
 
-    return this.storeDomainData({
+    return {
       userId: params.userId,
       domain: params.domain,
       encryptedBlob,
@@ -3858,6 +3924,69 @@ export class PersonalKnowledgeModelService {
       mutationPlan,
       domainData: params.domainData,
       vaultOwnerToken: params.vaultOwnerToken,
+    };
+  }
+
+  /**
+   * Commit a runtime-secret domain mutation with a bounded, idempotent retry.
+   *
+   * Transient throws (5xx/429/408/network) replay the identical built artifacts
+   * — the deterministic commit id makes this a safe server-side replay. A
+   * genuine version conflict re-reads the domain fresh (cache-busted), re-applies
+   * the leaf mutation, and rebuilds with a new plan id. The call resolves to a
+   * successful result or throws; it never returns `{ success: false }`.
+   */
+  private static async commitRuntimeSecretsDomainWithRetry(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    domain: string;
+    scopePath: string;
+    confirmation: PkmUserConfirmation;
+    initialDomainData: Record<string, unknown>;
+    applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+  }): Promise<StoreDomainDataResult> {
+    let built = await this.buildRuntimeSecretsCommit({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      domain: params.domain,
+      domainData: params.initialDomainData,
+      scopePath: params.scopePath,
+      confirmation: params.confirmation,
+    });
+
+    return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
+      send: () => this.storeDomainData(built),
+      rebuildAfterConflict: async () => {
+        // A genuine version conflict: another writer advanced this domain. Drop
+        // the cached copies, re-read the domain fresh, re-apply the leaf, and
+        // rebuild with a new plan id + bumped manifest version.
+        const cache = CacheService.getInstance();
+        cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, params.domain));
+        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, params.domain));
+        const freshData = await this.loadDomainData({
+          userId: params.userId,
+          domain: params.domain,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+        }).catch(() => null);
+        const domainData = params.applyMutation(
+          this.isPlainObject(freshData) ? freshData : {}
+        );
+        built = await this.buildRuntimeSecretsCommit({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          domain: params.domain,
+          domainData,
+          scopePath: params.scopePath,
+          confirmation: params.confirmation,
+          forceManifestReload: true,
+        });
+      },
+      pause: (ms) => this.pause(ms),
+      now: () => Date.now(),
     });
   }
 

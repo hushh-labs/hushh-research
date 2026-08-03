@@ -55,6 +55,11 @@ export function KeyboardInsetManager() {
     // Firewall: desktop / laptop binds nothing and stays inert.
     if (!isNative && !mobileWeb) return;
 
+    // Full-screen mobile-web surfaces already shrink with `dvh` when the
+    // keyboard opens. Mark only Capacitor runtimes as needing a composer lift,
+    // so those surfaces do not reserve the visual-viewport overlap twice.
+    document.documentElement.classList.toggle("native-keyboard-inset", isNative);
+
     let disposed = false;
     let rafId = 0;
     const cleanups: Array<() => void> = [];
@@ -71,6 +76,10 @@ export function KeyboardInsetManager() {
         el.tagName === "TEXTAREA" ||
         el.isContentEditable;
       if (!editable) return;
+      // Fixed keyboard-anchored layers already track visualViewport through
+      // --kb-height. Scrolling their autofocus target feeds viewport movement
+      // back into that same measurement and makes the command palette jump.
+      if (el.closest('[data-keyboard-anchor="bottom"]')) return;
       cancelAnimationFrame(rafId);
       // Defer past the layout that --kb-height triggers, then center.
       rafId = requestAnimationFrame(() => {
@@ -143,7 +152,10 @@ export function KeyboardInsetManager() {
     }
 
     // Always reset the inset on unmount.
-    cleanups.push(() => setKeyboardHeight(0));
+    cleanups.push(() => {
+      setKeyboardHeight(0);
+      document.documentElement.classList.remove("native-keyboard-inset");
+    });
 
     return () => {
       disposed = true;

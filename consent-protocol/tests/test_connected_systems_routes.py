@@ -23,6 +23,7 @@ class FakeConnectedSystemsService:
         self.deleted_payload = None
         self.binding_payload = None
         self.search_payload = None
+        self.disconnected_payload = None
         self.schema_calls = 0
 
     def list_systems(self):
@@ -95,6 +96,21 @@ class FakeConnectedSystemsService:
             "objectType": kwargs["object_type"],
             "status": "unbound",
             "binding": None,
+        }
+
+    def disconnect_record_binding(self, **kwargs):
+        self.disconnected_payload = kwargs
+        return {
+            "systemId": kwargs["system_id"],
+            "target": "Macys",
+            "objectType": kwargs["object_type"],
+            "status": "disconnected",
+            "binding": {
+                "systemId": kwargs["system_id"],
+                "objectType": kwargs["object_type"],
+                "recordId": "003gK00000demoQAA",
+                "status": "disconnected",
+            },
         }
 
     async def search_verified_record(self, **kwargs):
@@ -348,6 +364,25 @@ def test_record_binding_route_returns_authenticated_user_binding(monkeypatch):
     }
 
 
+def test_disconnect_binding_route_is_owner_scoped_and_record_id_free(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+
+    response = client.delete(
+        "/api/connected-systems/salesforce-fsc-customer0/record-binding?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "disconnected"
+    assert service.disconnected_payload == {
+        "user_id": "user_123",
+        "system_id": "salesforce-fsc-customer0",
+        "object_type": "Contact",
+    }
+
+
 def test_batch_record_binding_statuses_are_owner_scoped_and_identifier_free(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
@@ -415,6 +450,7 @@ def test_update_intent_route_resolves_bound_record_id(monkeypatch):
         "record_id": None,
         "record_fields": {"MailingCity": "New York"},
         "readback_locator": None,
+        "locked_field_names": {"Email", "Phone", "FirstName", "LastName"},
     }
 
 

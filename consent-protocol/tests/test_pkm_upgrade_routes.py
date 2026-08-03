@@ -54,6 +54,13 @@ def _confirmed_mutation_plan_payload(
     }
 
 
+def _confirmed_delete_plan_payload() -> dict:
+    payload = _confirmed_mutation_plan_payload()
+    payload["operation"] = "delete"
+    payload["source_scope_handle"] = payload.pop("target_scope_handle")
+    return payload
+
+
 def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(pkm_routes_shared.router)
@@ -210,6 +217,92 @@ def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
             "payload": {"decisions": []},
         }
     ]
+
+
+def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "summary": "No active recipients are affected.",
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def delete_domain_data(self, user_id, domain, **kwargs):
+            captured.update(
+                {
+                    "user_id": user_id,
+                    "domain": domain,
+                    **kwargs,
+                }
+            )
+            return {
+                "success": True,
+                "conflict": False,
+                "deleted": True,
+                "data_version": 8,
+                "updated_at": "2026-07-28T12:00:00Z",
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    response = TestClient(_build_app()).post(
+        "/api/pkm/delete-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "financial",
+            "expected_data_version": 7,
+            "mutation_plan": _confirmed_delete_plan_payload(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data_version"] == 8
+    assert response.json()["deleted"] is True
+    assert captured["expected_data_version"] == 7
+    assert captured["return_result"] is True
+    assert captured["mutation_plan"]["operation"] == "delete"
+
+
+def test_device_sync_feed_is_owner_bound(monkeypatch):
+    class _FakePkmService:
+        async def list_device_sync_events(self, **kwargs):
+            assert kwargs == {
+                "user_id": "user_123",
+                "after_cursor": 4,
+                "limit": 25,
+            }
+            return {
+                "events": [
+                    {
+                        "cursor": 5,
+                        "domain": "financial",
+                        "operation": "delete",
+                        "content_revision": 8,
+                        "manifest_revision": None,
+                        "created_at": "2026-07-28T12:00:00Z",
+                    }
+                ],
+                "next_cursor": 5,
+                "has_more": False,
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/pkm/device-sync/user_123",
+        params={"after_cursor": 4, "limit": 25},
+    )
+    assert response.status_code == 200
+    assert response.json()["events"][0]["operation"] == "delete"
+
+    forbidden = client.get("/api/pkm/device-sync/another_user")
+    assert forbidden.status_code == 403
 
 
 def test_store_domain_rechecks_v7_kill_switch_before_commit(monkeypatch):
@@ -525,6 +618,28 @@ def test_scope_exposure_route_forwards_payload(monkeypatch):
         ],
         "revoke_matching_active_grants": True,
     }
+
+
+def test_scope_exposure_route_rejects_an_unavailable_bundle_atomically(monkeypatch):
+    class _FakePkmService:
+        async def update_scope_exposure(self, **_kwargs):
+            return {
+                "success": False,
+                "code": "invalid_scope_target",
+                "message": "One or more sharing bundles are unavailable or contain no saved information.",
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    response = TestClient(_build_app()).post(
+        "/api/pkm/domains/financial/scope-exposure",
+        json={
+            "user_id": "user_123",
+            "changes": [{"top_level_scope_path": "reserved_empty_scope", "exposure_enabled": True}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "PKM_SCOPE_NOT_MUTABLE"
 
 
 def test_manifest_route_serializes_datetime_fields(monkeypatch):

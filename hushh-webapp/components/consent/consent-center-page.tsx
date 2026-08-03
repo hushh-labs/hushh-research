@@ -1,6 +1,5 @@
 "use client";
 
-import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -16,31 +15,28 @@ import {
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Building2,
+  Code2,
   ExternalLink,
+  Landmark,
   RefreshCcw,
   Search,
   UserRound,
 } from "lucide-react";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
-import { SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
-} from "@/components/profile/settings-ui";
+} from "@/components/app-ui/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -121,6 +117,44 @@ type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
 type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
 type ConsentTrailEvent = NonNullable<ConsentTrail["events"]>[number];
+type ConnectionScopeProposalPresentation = {
+  scopeHandle: string;
+  direction: "requested" | "offered";
+  label: string;
+  description: string;
+  status: string;
+};
+
+function connectionScopeProposals(
+  entry: ConsentCenterEntry | null,
+): ConnectionScopeProposalPresentation[] {
+  const raw = entry?.metadata?.scope_proposals;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const proposal = item as Partial<ConnectionScopeProposalPresentation>;
+    if (
+      typeof proposal.scopeHandle !== "string" ||
+      (proposal.direction !== "requested" && proposal.direction !== "offered")
+    ) {
+      return [];
+    }
+    return [
+      {
+        scopeHandle: proposal.scopeHandle,
+        direction: proposal.direction,
+        label:
+          typeof proposal.label === "string"
+            ? proposal.label
+            : "Connection capability",
+        description:
+          typeof proposal.description === "string" ? proposal.description : "",
+        status:
+          typeof proposal.status === "string" ? proposal.status : "pending",
+      },
+    ];
+  });
+}
 
 const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
@@ -498,77 +532,13 @@ function relationshipSortValue(entry: ConsentCenterEntry) {
   return candidates.length > 0 ? Math.max(...candidates) : 0;
 }
 
-function relationshipPriority(entry: ConsentCenterEntry) {
-  if (
-    entry.kind === "active_grant" ||
-    entry.status === "active" ||
-    entry.status === "approved"
-  ) {
-    return 3;
-  }
-  if (
-    entry.kind === "incoming_request" ||
-    entry.kind === "outgoing_request" ||
-    entry.status === "pending" ||
-    entry.status === "request_pending"
-  ) {
-    return 2;
-  }
-  if (entry.kind === "invite") {
-    return 1;
-  }
-  return 0;
-}
-
 function buildConnectionEntries(
   center: ConsentCenterResponse | null,
 ): ConsentCenterEntry[] {
   if (!center) return [];
-
-  const grouped = new Map<string, ConsentCenterEntry[]>();
-  const sourceEntries = [
-    ...center.incoming_requests,
-    ...center.outgoing_requests,
-    ...center.active_grants,
-    ...center.history,
-    ...center.invites,
-  ];
-
-  for (const entry of sourceEntries) {
-    const counterpartKey = `${entry.counterpart_type}:${entry.counterpart_id || entry.counterpart_email || entry.counterpart_label || entry.id}`;
-    const bucket = grouped.get(counterpartKey) || [];
-    bucket.push(entry);
-    grouped.set(counterpartKey, bucket);
-  }
-
-  const resolved: ConsentCenterEntry[] = [];
-  for (const [key, entries] of grouped.entries()) {
-    const sorted = [...entries].sort((left, right) => {
-      const priorityDelta =
-        relationshipPriority(right) - relationshipPriority(left);
-      if (priorityDelta !== 0) return priorityDelta;
-      return relationshipSortValue(right) - relationshipSortValue(left);
-    });
-    const primary = sorted[0];
-    if (!primary) continue;
-    const scopeLabels = Array.from(
-      new Set(
-        entries
-          .map((entry) => entry.scope_description || entry.scope)
-          .filter(Boolean),
-      ),
-    );
-    resolved.push({
-      ...primary,
-      id: `connection:${key}`,
-      additional_access_summary:
-        scopeLabels.length > 0
-          ? `${scopeLabels.length} scope${scopeLabels.length === 1 ? "" : "s"} shared in this connection`
-          : primary.additional_access_summary,
-    });
-  }
-
-  return resolved.sort(
+  // Relationship metadata and ordinary consent rows must never become a
+  // connection review. The backend returns only explicit proposal envelopes.
+  return [...(center.connection_requests || [])].sort(
     (left, right) => relationshipSortValue(right) - relationshipSortValue(left),
   );
 }
@@ -683,7 +653,8 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
       : entry.counterpart_type === "developer"
         ? "developer"
         : "investor";
-  const Icon = kind === "ria" ? Building2 : UserRound;
+  const Icon =
+    kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
   const label = resolveCounterpartLabel(entry);
   const initials = label
     .split(/\s+/)
@@ -691,23 +662,33 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
+  const identityTone =
+    kind === "ria"
+      ? "border-accent-border bg-accent-surface text-accent-strong"
+      : kind === "developer"
+        ? "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:border-sky-300/20 dark:bg-sky-300/10 dark:text-sky-200"
+        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200";
+
   return (
-    <div
+    <Avatar
+      size="lg"
       className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
-        kind === "ria"
-          ? "border-accent-border bg-accent-surface text-accent-strong"
-          : kind === "developer"
-            ? "border-violet-500/15 bg-violet-500/6 text-violet-700"
-            : "border-emerald-500/15 bg-emerald-500/6 text-emerald-700",
+        "h-10 w-10 rounded-[14px] border shadow-[0_1px_0_rgba(255,255,255,0.35)_inset]",
+        identityTone,
       )}
     >
-      {initials ? (
-        <span className="text-xs font-semibold">{initials}</span>
-      ) : (
-        <Icon className="h-4 w-4" />
-      )}
-    </div>
+      <AvatarImage src={entry.counterpart_image_url || undefined} alt="" />
+      <AvatarFallback className="rounded-[13px] bg-transparent text-current">
+        <span className="relative flex h-full w-full items-center justify-center">
+          <Icon className="h-[18px] w-[18px] opacity-80" aria-hidden="true" />
+          {initials ? (
+            <span className="absolute bottom-0.5 right-0.5 rounded-md bg-[color:var(--app-card-surface-default-solid)] px-1 text-[9px] font-semibold leading-4 text-foreground shadow-sm">
+              {initials}
+            </span>
+          ) : null}
+        </span>
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -727,72 +708,36 @@ function ConsentEntryRow({
   const scopeLabel = entry.scope
     ? entry.scope_description || humanizeConsentScope(entry.scope)
     : null;
+  const supportingCopy = isIdentifierHistory
+    ? entrySummary(entry)
+    : scopeLabel || entrySummary(entry);
 
   return (
-    <button
-      type="button"
+    <SettingsRow
       data-testid="consent-entry-row"
       onClick={onSelect}
-      aria-current={selected ? "true" : undefined}
-      className={cn(
-        "relative w-full overflow-hidden px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
-        selected
-          ? "bg-accent-surface"
-          : "bg-transparent hover:bg-[color:var(--app-card-surface-compact)]/70",
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <ConsentCounterpartAvatar entry={entry} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-semibold text-foreground">
-              {resolveCounterpartLabel(entry)}
-            </p>
-            <Badge
-              className={cn(
-                "shrink-0 capitalize",
-                badgeClassName(entry.status),
-              )}
-            >
-              {formatStatus(entry.status)}
-            </Badge>
-          </div>
+      leading={<ConsentCounterpartAvatar entry={entry} />}
+      title={resolveCounterpartLabel(entry)}
+      description={
+        <span className="line-clamp-2">
+          <span>{supportingCopy}</span>
           {counterpartSubtitle ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {counterpartSubtitle}
-            </p>
+            <>
+              <span aria-hidden="true"> · </span>
+              <span>{counterpartSubtitle}</span>
+            </>
           ) : null}
-        </div>
-      </div>
-      {isIdentifierHistory ? (
-        <>
-          <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/80">
-            {entrySummary(entry)}
-          </p>
-          {entry.issued_at ? (
-            <div className="mt-2 text-xs text-muted-foreground">
-              Latest {formatDate(entry.issued_at)}
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/80">
-            {entrySummary(entry)}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {scopeLabel ? <span>{scopeLabel}</span> : null}
-            {entry.expires_at ? (
-              <span>{formatRelative(entry.expires_at)}</span>
-            ) : null}
-            {entry.issued_at ? (
-              <span>{formatDate(entry.issued_at)}</span>
-            ) : null}
-          </div>
-        </>
-      )}
-      <MaterialRipple variant="none" effect="fade" className="z-0" />
-    </button>
+        </span>
+      }
+      trailing={
+        <Badge
+          className={cn("shrink-0 capitalize", badgeClassName(entry.status))}
+        >
+          {formatStatus(entry.status)}
+        </Badge>
+      }
+      className={selected ? "bg-accent-surface" : undefined}
+    />
   );
 }
 
@@ -934,7 +879,14 @@ function ConsentEntryDetail({
 }: {
   actor: ConsentCenterActor;
   entry: ConsentCenterEntry | null;
-  onApprove: (entry: ConsentCenterEntry, durationHours?: number) => void;
+  onApprove: (
+    entry: ConsentCenterEntry,
+    durationHours?: number,
+    scopeSelection?: {
+      requestedScopeHandles: string[];
+      offeredScopeHandles: string[];
+    },
+  ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
   onRevokeScope: (scope: string) => void;
@@ -960,6 +912,33 @@ function ConsentEntryDetail({
   useEffect(() => {
     setSelectedDuration(defaultDuration);
   }, [defaultDuration, entry?.id]);
+  const proposals = connectionScopeProposals(entry);
+  const requestedProposals = proposals.filter(
+    (proposal) =>
+      proposal.direction === "requested" && proposal.status === "pending",
+  );
+  const offeredProposals = proposals.filter(
+    (proposal) =>
+      proposal.direction === "offered" && proposal.status === "pending",
+  );
+  const [selectedRequestedScopes, setSelectedRequestedScopes] = useState<
+    string[]
+  >([]);
+  const [selectedOfferedScopes, setSelectedOfferedScopes] = useState<string[]>(
+    [],
+  );
+  const requestedProposalKey = requestedProposals
+    .map((proposal) => proposal.scopeHandle)
+    .sort()
+    .join("|");
+  useEffect(() => {
+    // Information owners' requested scopes are selected by default; offers
+    // demand a deliberate recipient opt-in.
+    setSelectedRequestedScopes(
+      requestedProposalKey ? requestedProposalKey.split("|") : [],
+    );
+    setSelectedOfferedScopes([]);
+  }, [entry?.id, requestedProposalKey]);
 
   if (!entry) {
     return (
@@ -1033,10 +1012,6 @@ function ConsentEntryDetail({
             }
           : null;
 
-  const refreshPolicy =
-    entry.metadata?.refresh_policy === "continuous_until_expiry"
-      ? "continuous_until_expiry"
-      : "snapshot";
   const hasGroupedHistory =
     entry.kind === "history" && Boolean(entry.consent_trails?.length);
   const entryRequestId = entry.request_id || entry.id;
@@ -1083,11 +1058,6 @@ function ConsentEntryDetail({
     (requestedDurationDays
       ? formatDurationHours(Number(requestedDurationDays) * 24)
       : "");
-  const updatesDescription = entry.scope?.startsWith("attr.")
-    ? refreshPolicy === "continuous_until_expiry"
-      ? "Includes approved updates until access ends."
-      : "Shares a one-time copy; later changes are not included."
-    : null;
   const isReceivedLocationGrant =
     isLocationEntry && entry.metadata?.section === "shared";
   const canRevokeActive =
@@ -1099,20 +1069,6 @@ function ConsentEntryDetail({
       : isRevocableConsentStatus(entry.status));
   const requestDeadline =
     entry.approval_timeout_at || (isPendingDecision ? entry.expires_at : null);
-  const detailGroupTitle = isConnectionDecision
-    ? "Connection request"
-    : entry.kind === "active_grant"
-      ? "Active access"
-      : entry.kind === "history"
-        ? "History details"
-        : "Request details";
-  const detailGroupDescription = isConnectionDecision
-    ? "Who wants to connect with you and why."
-    : entry.kind === "active_grant"
-      ? "What is currently shared and when access ends."
-      : entry.kind === "history"
-        ? "The recorded outcome and how this access changed over time."
-        : "What is being requested and when you need to decide.";
   const activityDateLabel =
     entry.kind === "active_grant"
       ? "Granted"
@@ -1173,114 +1129,167 @@ function ConsentEntryDetail({
   return (
     <div className="space-y-4">
       {!hasGroupedHistory ? (
-        <SettingsGroup
-          embedded
-          title={detailGroupTitle}
-          description={detailGroupDescription}
-        >
-          <div className="grid gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)] sm:grid-cols-2">
-            {detailItems.map(([label, value]) => (
-              <div key={label} className="min-w-0 space-y-1">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  {label}
-                </div>
-                <div className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
-                  {value}
-                </div>
-              </div>
-            ))}
-          </div>
-        </SettingsGroup>
+        <dl className="grid gap-x-6 gap-y-4 px-1 py-1 sm:grid-cols-2">
+          {detailItems.map(([label, value]) => (
+            <div key={label} className="min-w-0 space-y-1">
+              <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {label}
+              </dt>
+              <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {isConnectionDecision && proposals.length > 0 ? (
+        <div className="space-y-3">
+          {requestedProposals.length > 0 ? (
+            <SettingsGroup embedded title="They’re requesting">
+              {requestedProposals.map((proposal) => {
+                const checked = selectedRequestedScopes.includes(
+                  proposal.scopeHandle,
+                );
+                return (
+                  <SettingsRow
+                    key={proposal.scopeHandle}
+                    title={proposal.label}
+                    description={proposal.description}
+                    trailing={
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) =>
+                          setSelectedRequestedScopes((current) =>
+                            next
+                              ? Array.from(
+                                  new Set([...current, proposal.scopeHandle]),
+                                )
+                              : current.filter(
+                                  (handle) => handle !== proposal.scopeHandle,
+                                ),
+                          )
+                        }
+                        aria-label={`Share ${proposal.label}`}
+                      />
+                    }
+                  />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+          {offeredProposals.length > 0 ? (
+            <SettingsGroup embedded title="They’ve offered">
+              {offeredProposals.map((proposal) => {
+                const checked = selectedOfferedScopes.includes(
+                  proposal.scopeHandle,
+                );
+                return (
+                  <SettingsRow
+                    key={proposal.scopeHandle}
+                    title={proposal.label}
+                    description={proposal.description}
+                    trailing={
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) =>
+                          setSelectedOfferedScopes((current) =>
+                            next
+                              ? Array.from(
+                                  new Set([...current, proposal.scopeHandle]),
+                                )
+                              : current.filter(
+                                  (handle) => handle !== proposal.scopeHandle,
+                                ),
+                          )
+                        }
+                        aria-label={`Accept ${proposal.label}`}
+                      />
+                    }
+                  />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+        </div>
       ) : null}
 
       {isPendingDecision ? (
-        <SettingsGroup
-          embedded
-          title="Your decision"
-          description={
-            isConnectionDecision
-              ? "Accept or decline this trusted-connection request."
-              : updatesDescription || undefined
-          }
+        <section
+          className="flex flex-wrap items-center justify-end gap-2 pt-1"
+          aria-label="Consent decision"
         >
           {showDurationChoice ? (
-            <SettingsRow
-              title="Access duration"
-              description={
-                requestedDurationLabel
-                  ? `Requested for ${requestedDurationLabel}. You can choose a shorter window.`
-                  : isLocationEntry
-                    ? "Choose how long location sharing should stay active."
-                    : "Choose how long this access should stay active."
-              }
-              trailing={
-                <Select
-                  value={selectedDuration}
-                  onValueChange={setSelectedDuration}
-                  disabled={requestBusy}
+            <div className="min-w-[150px]">
+              <Select
+                value={selectedDuration}
+                onValueChange={setSelectedDuration}
+                disabled={requestBusy}
+              >
+                <SelectTrigger
+                  className="w-[150px]"
+                  aria-label="Access duration"
                 >
-                  <SelectTrigger
-                    className="w-[150px]"
-                    aria-label="Access duration"
-                  >
-                    <SelectValue placeholder="Duration" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {durationOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              }
-              stackTrailingOnMobile
-            />
+                  <SelectValue placeholder="Duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {durationOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           ) : null}
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--app-card-border-standard)]/45 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            <Button
-              variant="blue-gradient"
-              effect="fill"
-              size="sm"
-              className="min-h-11"
-              disabled={requestBusy}
-              onClick={() =>
-                onApprove(
-                  entry,
-                  isConnectionDecision || isMarketplaceDecision
-                    ? undefined
-                    : effectiveDurationHours,
-                )
-              }
-              data-voice-control-id="consent_approve"
-            >
-              {approveBusy
-                ? isConnectionDecision
-                  ? "Accepting..."
-                  : "Allowing..."
-                : isConnectionDecision
-                  ? "Accept"
-                  : "Allow"}
-            </Button>
-            <Button
-              variant="none"
-              effect="fade"
-              size="sm"
-              className="min-h-11"
-              disabled={requestBusy}
-              onClick={() => onDeny(entry)}
-              data-voice-control-id="consent_deny"
-            >
-              {denyBusy
-                ? isConnectionDecision
-                  ? "Declining..."
-                  : "Rejecting..."
-                : isConnectionDecision
-                  ? "Decline"
-                  : "Don't allow"}
-            </Button>
-          </div>
-        </SettingsGroup>
+          <Button
+            variant="blue-gradient"
+            effect="fill"
+            size="sm"
+            className="min-h-11"
+            disabled={requestBusy}
+            onClick={() =>
+              onApprove(
+                entry,
+                isConnectionDecision || isMarketplaceDecision
+                  ? undefined
+                  : effectiveDurationHours,
+                isConnectionDecision
+                  ? {
+                      requestedScopeHandles: selectedRequestedScopes,
+                      offeredScopeHandles: selectedOfferedScopes,
+                    }
+                  : undefined,
+              )
+            }
+            data-voice-control-id="consent_approve"
+          >
+            {approveBusy
+              ? isConnectionDecision
+                ? "Accepting..."
+                : "Allowing..."
+              : isConnectionDecision
+                ? "Accept"
+                : "Allow"}
+          </Button>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            className="min-h-11"
+            disabled={requestBusy}
+            onClick={() => onDeny(entry)}
+            data-voice-control-id="consent_deny"
+          >
+            {denyBusy
+              ? isConnectionDecision
+                ? "Declining..."
+                : "Rejecting..."
+              : isConnectionDecision
+                ? "Decline"
+                : "Don't allow"}
+          </Button>
+        </section>
       ) : null}
 
       {canRevokeActive ? (
@@ -1428,55 +1437,58 @@ function ConsentSurfaceListSection({
   } | null;
 }) {
   return (
-    <div className="space-y-2 px-2 py-2">
-      {loading && items.length === 0 ? (
-        <div className="px-3 py-6 text-sm text-muted-foreground">
-          Loading consent entries…
-        </div>
-      ) : null}
-      {!loading && items.length === 0 ? (
-        <div className="px-3 py-8 text-sm text-muted-foreground">
-          {emptyMessage}
-        </div>
-      ) : null}
-      {items.map((entry, index) => (
-        <ConsentEntryRow
-          key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-          entry={entry}
-          selected={
-            // Bug: when nothing is selected, selectedEntry is null,
-            // so selectedEntry?.id and selectedEntry?.request_id are
-            // both undefined. Entries without their own request_id
-            // (e.g. one_location_grant rows) also have
-            // entry.request_id === undefined, so
-            // "undefined === undefined" was true and falsely
-            // highlighted that row as selected on every render -
-            // this is the row that appeared to randomly "jump" to
-            // a different entry on every tab switch. Require a
-            // real selectedEntry (or a matching selectedId) before
-            // comparing ids at all.
-            Boolean(
-              selectedEntry &&
-              (selectedEntry.id === entry.id ||
-                (selectedEntry.request_id &&
-                  selectedEntry.request_id === entry.request_id)),
-            ) ||
-            Boolean(
-              selectedId && consentEntryMatchesSelectedId(entry, selectedId),
-            )
-          }
-          onSelect={() => onSelectEntry(entry)}
-        />
-      ))}
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        data-consent-list-scroll="true"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+      >
+        {loading && items.length === 0 ? (
+          <SettingsRow title="Loading consent entries" />
+        ) : null}
+        {!loading && items.length === 0 ? (
+          <SettingsRow title={emptyMessage} />
+        ) : null}
+        {items.map((entry, index) => (
+          <ConsentEntryRow
+            key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+            entry={entry}
+            selected={
+              // Bug: when nothing is selected, selectedEntry is null,
+              // so selectedEntry?.id and selectedEntry?.request_id are
+              // both undefined. Entries without their own request_id
+              // (e.g. one_location_grant rows) also have
+              // entry.request_id === undefined, so
+              // "undefined === undefined" was true and falsely
+              // highlighted that row as selected on every render -
+              // this is the row that appeared to randomly "jump" to
+              // a different entry on every tab switch. Require a
+              // real selectedEntry (or a matching selectedId) before
+              // comparing ids at all.
+              Boolean(
+                selectedEntry &&
+                (selectedEntry.id === entry.id ||
+                  (selectedEntry.request_id &&
+                    selectedEntry.request_id === entry.request_id)),
+              ) ||
+              Boolean(
+                selectedId && consentEntryMatchesSelectedId(entry, selectedId),
+              )
+            }
+            onSelect={() => onSelectEntry(entry)}
+          />
+        ))}
+      </div>
       {pagination ? (
-        <PaginatedListFooter
-          page={pagination.page}
-          limit={pagination.limit}
-          total={pagination.total}
-          hasMore={pagination.hasMore}
-          onPrevious={pagination.onPrevious}
-          onNext={pagination.onNext}
-        />
+        <div className="shrink-0">
+          <PaginatedListFooter
+            page={pagination.page}
+            limit={pagination.limit}
+            total={pagination.total}
+            hasMore={pagination.hasMore}
+            onPrevious={pagination.onPrevious}
+            onNext={pagination.onNext}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -1602,7 +1614,6 @@ export function ConsentCenterPage() {
   const [locallyRevokedScopes, setLocallyRevokedScopes] = useState<Set<string>>(
     () => new Set(),
   );
-
   useEffect(() => {
     if (routeQuery !== searchValue) {
       setSearchValue(routeQuery);
@@ -1750,7 +1761,14 @@ export function ConsentCenterPage() {
     [],
   );
   const approveEntry = useCallback(
-    (entry: ConsentCenterEntry, durationHours?: number) => {
+    (
+      entry: ConsentCenterEntry,
+      durationHours?: number,
+      scopeSelection?: {
+        requestedScopeHandles: string[];
+        offeredScopeHandles: string[];
+      },
+    ) => {
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1759,8 +1777,11 @@ export function ConsentCenterPage() {
             await ConnectionsService.accept({
               idToken,
               requestId: entry.request_id || entry.id,
+              selectedRequestedScopeHandles:
+                scopeSelection?.requestedScopeHandles,
+              selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
-            CacheSyncService.onConsentMutated(user.uid);
+            CacheSyncService.onConnectionCapabilityMutated(user.uid);
             window.dispatchEvent(
               new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
             );
@@ -1803,7 +1824,7 @@ export function ConsentCenterPage() {
               idToken,
               requestId: entry.request_id || entry.id,
             });
-            CacheSyncService.onConsentMutated(user.uid);
+            CacheSyncService.onConnectionCapabilityMutated(user.uid);
             window.dispatchEvent(
               new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
             );
@@ -1862,6 +1883,7 @@ export function ConsentCenterPage() {
     cacheKey: summaryCacheKey,
     refreshKey: `${consentScopeKey}:${mode}`,
     enabled: Boolean(user?.uid),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1883,6 +1905,7 @@ export function ConsentCenterPage() {
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1915,6 +1938,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_pending",
     refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1946,6 +1970,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_active",
     refreshKey: `${consentScopeKey}:${mode}:active:${deferredQuery}:${activePage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("active"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1977,6 +2002,7 @@ export function ConsentCenterPage() {
       : "consent_center_list_guest_previous",
     refreshKey: `${consentScopeKey}:${mode}:previous:${deferredQuery}:${previousPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("history"),
+    retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -2017,13 +2043,13 @@ export function ConsentCenterPage() {
     if (!user?.uid || tab === "connections") return;
     if (
       !listResource ||
-      listResource.data ||
+      (!listResource.invalidated && listResource.data) ||
       listResource.loading ||
       listResource.refreshing
     ) {
       return;
     }
-    void listResource.refresh();
+    void listResource.refresh({ force: listResource.invalidated });
     // This is intentionally a tab-entry effect. Watching the resource's
     // transition-backed data/loading fields can observe the brief state where
     // loading has settled before React commits data, causing a redundant fetch
@@ -2648,16 +2674,6 @@ export function ConsentCenterPage() {
     setPanelCloseRequested(false);
   }, [selectedId, selectedBundleId]);
 
-  const pageDescription =
-    managerView === "outgoing" && tab === "requests"
-      ? "Review access requests you sent and see what still needs a response."
-      : tab === "requests"
-        ? "Decide who can access specific information and for how long."
-        : tab === "active"
-          ? "Review current access and stop sharing when it is no longer needed."
-          : tab === "history"
-            ? "See what was allowed, denied, expired, cancelled, or revoked."
-            : "Review the people and services connected to your private agent.";
   const searchPlaceholder =
     tab === "requests"
       ? "Search requests"
@@ -2724,101 +2740,93 @@ export function ConsentCenterPage() {
   );
   return (
     <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
-      <CapabilityExploreCard capabilityId="consent" />
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="Consent Center"
-          description={pageDescription}
-          accent="consent"
-        />
-      </AppPageHeaderRegion>
-
       <AppPageContentRegion>
-        <SurfaceStack>
-          <section className="space-y-4" data-testid="consent-manager-primary">
-            <section data-testid="consent-manager-list">
-              <SettingsGroup embedded>
-                <div className="flex items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-3">
-                  <div className="relative min-w-0 flex-1">
-                    <Search
-                      aria-hidden="true"
-                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      value={searchValue}
-                      onChange={(event) => {
-                        setSearchValue(event.target.value);
-                      }}
-                      aria-label={searchPlaceholder}
-                      placeholder={searchPlaceholder}
-                      className="pl-9"
-                      data-voice-control-id="consent_search"
+        <section
+          data-testid="consent-manager-primary"
+          className="h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--bottom-chrome-full-height,0px)-0.5rem)] min-h-0"
+        >
+          <section data-testid="consent-manager-list">
+            <SettingsGroup
+              embedded
+              separatorInset
+              className="h-full"
+              shellClassName="flex h-full min-h-0 flex-col"
+              contentClassName="flex min-h-0 flex-1 flex-col"
+            >
+              <div className="flex items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-3">
+                <div className="relative min-w-0 flex-1">
+                  <Search
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={searchValue}
+                    onChange={(event) => {
+                      setSearchValue(event.target.value);
+                    }}
+                    aria-label={searchPlaceholder}
+                    placeholder={searchPlaceholder}
+                    className="pl-9"
+                    data-voice-control-id="consent_search"
+                  />
+                </div>
+                {visibleSnapshot && activeListError && items.length > 0 ? (
+                  <div className="hidden sm:block">
+                    <StaleCacheTimestamp
+                      updatedAt={visibleSnapshot.timestamp}
+                      stale
                     />
                   </div>
-                  {visibleSnapshot && activeListError && items.length > 0 ? (
-                    <div className="hidden sm:block">
-                      <StaleCacheTimestamp
-                        updatedAt={visibleSnapshot.timestamp}
-                        stale
-                      />
-                    </div>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    onClick={retryConsentCenter}
-                    aria-label="Refresh consent entries"
-                    disabled={isConsentActionRefreshing}
-                  >
-                    <RefreshCcw
-                      className={cn(
-                        "h-4 w-4 sm:mr-2",
-                        isConsentActionRefreshing && "animate-spin",
-                      )}
-                    />
-                    <span className="hidden sm:inline">Refresh</span>
-                  </Button>
-                </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={retryConsentCenter}
+                  aria-label="Refresh consent entries"
+                  disabled={isConsentActionRefreshing}
+                >
+                  <RefreshCcw
+                    className={cn(
+                      "h-4 w-4 sm:mr-2",
+                      isConsentActionRefreshing && "animate-spin",
+                    )}
+                  />
+                  <span className="hidden sm:inline">Refresh</span>
+                </Button>
+              </div>
 
-                <AccessibilityStatusAnnouncer
-                  message={accessibilityStatusMessage}
+              <AccessibilityStatusAnnouncer
+                message={accessibilityStatusMessage}
+              />
+
+              {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+
+              {showCompactRetryState ? (
+                <ApiRetryState
+                  variant="compact"
+                  title="Showing saved consent information"
+                  description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
+                  onRetry={retryConsentCenter}
+                  showRetryAction={false}
                 />
+              ) : null}
 
-                {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+              {showFullRetryState && !showSessionRecovery ? (
+                <ApiRetryState
+                  title="Consent service is unavailable"
+                  description={
+                    consentLoadError
+                      ? `The consent service did not return the latest access state. ${consentLoadError}`
+                      : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
+                  }
+                  onRetry={retryConsentCenter}
+                  showRetryAction={false}
+                />
+              ) : null}
 
-                {isConsentActionRefreshing && items.length > 0 ? (
-                  <AsyncActionStatus
-                    state="loading"
-                    label="Refreshing consent state..."
-                    compact
-                  />
-                ) : null}
-
-                {showCompactRetryState ? (
-                  <ApiRetryState
-                    variant="compact"
-                    title="Showing saved consent information"
-                    description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
-                    onRetry={retryConsentCenter}
-                    showRetryAction={false}
-                  />
-                ) : null}
-
-                {showFullRetryState && !showSessionRecovery ? (
-                  <ApiRetryState
-                    title="Consent service is unavailable"
-                    description={
-                      consentLoadError
-                        ? `The consent service did not return the latest access state. ${consentLoadError}`
-                        : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
-                    }
-                    onRetry={retryConsentCenter}
-                    showRetryAction={false}
-                  />
-                ) : null}
-
+              <div className="min-h-0 flex-1">
                 <SwipeViews
                   tabSetId={TOP_SHELL_TAB_REGISTRY.consent.id}
                   activeValue={visibleTab}
@@ -2830,6 +2838,8 @@ export function ConsentCenterPage() {
                     commitConsentTab(value as ConsentTab)
                   }
                   panelInset="none"
+                  viewportMinHeight="0px"
+                  className="h-full"
                 >
                   <ConsentSurfaceListSection
                     loading={pendingResource.loading}
@@ -2892,10 +2902,10 @@ export function ConsentCenterPage() {
                     pagination={null}
                   />
                 </SwipeViews>
-              </SettingsGroup>
-            </section>
+              </div>
+            </SettingsGroup>
           </section>
-        </SurfaceStack>
+        </section>
       </AppPageContentRegion>
 
       <SettingsDetailPanel
@@ -2923,6 +2933,8 @@ export function ConsentCenterPage() {
               ? "Resolving the selected consent request."
               : "Choose a consent entry from the list to review details and next actions."
         }
+        mobilePresentation="sheet"
+        showCloseButton={false}
       >
         {notificationAction && selectedEntry?.status === "pending" ? (
           <div
@@ -2985,11 +2997,11 @@ export function ConsentCenterPage() {
           <ConsentEntryDetail
             actor={actor}
             entry={selectedEntry}
-            onApprove={(entry, durationHours) => {
+            onApprove={(entry, durationHours, scopeSelection) => {
               // Dismiss the panel immediately; the list already optimistically
               // removes the row and any failure surfaces via toast.
               closeDetailPanel();
-              approveEntry(entry, durationHours);
+              approveEntry(entry, durationHours, scopeSelection);
             }}
             onDeny={(entry) => {
               closeDetailPanel();

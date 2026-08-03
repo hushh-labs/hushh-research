@@ -72,6 +72,7 @@ export const ROUTES = {
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",
   PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
+  PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
@@ -139,6 +140,7 @@ export const ROUTES = {
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
   LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
+  /** Compatibility redirect only; new RIA entry points use the profile tab. */
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -266,10 +268,23 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
-/** Completed Location setup is one-time and reopens its product workspace. */
-export function resolveCompletedSetupCapabilityTarget(
-  capabilityId: string,
-): string | null {
+/**
+ * Completed Location setup reopens its product workspace only after the root
+ * setup journey is resolved. While `/one/setup` is still active, the authored
+ * setup route remains replayable just like every other capability.
+ */
+export function resolveCompletedSetupCapabilityTarget({
+  capabilityId,
+  completedCapabilityIds,
+  rootSetupResolved,
+}: {
+  capabilityId: string;
+  completedCapabilityIds: readonly string[];
+  rootSetupResolved: boolean;
+}): string | null {
+  if (!rootSetupResolved || !completedCapabilityIds.includes(capabilityId)) {
+    return null;
+  }
   return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
 }
 
@@ -423,13 +438,12 @@ export function buildConnectedSystemRoute(
 ) {
   const normalized = String(systemId ?? "").trim();
   if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
-  // Connected systems are runtime-configured. Keep their selection on the
-  // statically exported workspace route so every registered CRM works in
-  // Capacitor without a cold navigation to an unbuilt dynamic path.
-  return withQuery(ROUTES.CONNECTED_SYSTEMS, {
-    system: normalized,
-    agentActionId: entries?.agentActionId,
-  });
+  return withQuery(
+    `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`,
+    {
+      agentActionId: entries?.agentActionId,
+    },
+  );
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(

@@ -5,6 +5,7 @@ export type PkmMutationOperation = "create" | "update" | "move" | "merge" | "del
 
 export type PkmUserConfirmation = {
   confirmedByUser: true;
+  authorizationMode?: never;
   surface: "chat" | "voice" | "web" | "ios" | "android" | "import";
   source: string;
   confirmedAt?: string;
@@ -18,6 +19,32 @@ export type PkmUserConfirmation = {
     affectedExportIds: string[];
   };
 };
+
+/**
+ * A per-vault policy that the owner explicitly enabled in Memory. This is
+ * deliberately distinct from a review-button confirmation in the receipt so
+ * audits never claim that the owner reviewed an individual automatic write.
+ */
+export type PkmOwnerAutoSaveAuthorization = {
+  authorizationMode: "owner_auto_save_policy";
+  confirmedByUser?: never;
+  surface: "chat" | "voice";
+  source: string;
+  autoSavePolicyVersion: 1;
+  autoSavePolicyEnabledAt: string;
+};
+
+export type PkmWriteAuthorization = PkmUserConfirmation | PkmOwnerAutoSaveAuthorization;
+
+export function isOwnerAutoSaveAuthorization(
+  authorization: PkmWriteAuthorization
+): authorization is PkmOwnerAutoSaveAuthorization {
+  return Boolean(
+    authorization &&
+      "authorizationMode" in authorization &&
+      authorization.authorizationMode === "owner_auto_save_policy"
+  );
+}
 
 export type PkmMutationPlanV2 = {
   version: 2;
@@ -53,6 +80,9 @@ export type PkmMutationPlanV2 = {
     displayed_domain: string;
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
+    authorization_mode: "owner_confirmed" | "owner_auto_save_policy";
+    auto_save_policy_version?: 1;
+    auto_save_policy_enabled_at?: string;
   };
 };
 
@@ -140,9 +170,16 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   confidence?: number;
   explanation?: string;
   sourceRevision?: number;
-  confirmation: PkmUserConfirmation;
+  confirmation: PkmWriteAuthorization;
 }): Promise<PkmMutationPlanV2> {
-  if (params.confirmation.confirmedByUser !== true) {
+  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  const automaticAuthorization = automatic
+    ? params.confirmation as PkmOwnerAutoSaveAuthorization
+    : null;
+  const ownerConfirmation = automatic
+    ? null
+    : params.confirmation as PkmUserConfirmation;
+  if (!automatic && params.confirmation.confirmedByUser !== true) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
   }
 
@@ -158,8 +195,14 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const sourceHandle = registryHandle(params.currentManifest, scope) || generatedHandle;
   const targetHandle = registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation = params.operation || (params.currentManifest ? "update" : "create");
+  if (automatic && operation === "delete") {
+    throw new Error("Automatic PKM saving cannot delete saved information.");
+  }
   const planId = opaqueId("plan");
-  const sharingImpact = params.confirmation.sharingImpact;
+  const sharingImpact = ownerConfirmation?.sharingImpact;
+  const confirmedAt = automatic
+    ? new Date().toISOString()
+    : ownerConfirmation?.confirmedAt || new Date().toISOString();
 
   return {
     version: 2,
@@ -174,7 +217,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`,
+      (automatic
+        ? `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
+        : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],
     affected_export_ids: sharingImpact?.affectedExportIds || [],
     sharing_impact: {
@@ -192,11 +237,19 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       receipt_id: opaqueId("receipt"),
       plan_id: planId,
       confirmed_by_user_id: params.userId,
-      confirmed_at: params.confirmation.confirmedAt || new Date().toISOString(),
+      confirmed_at: confirmedAt,
       surface: params.confirmation.surface,
       displayed_domain: domain,
       displayed_scope: scope,
-      sharing_impact_acknowledged: params.confirmation.sharingImpactAcknowledged === true,
+      sharing_impact_acknowledged:
+        ownerConfirmation?.sharingImpactAcknowledged === true,
+      authorization_mode: automatic ? "owner_auto_save_policy" : "owner_confirmed",
+      ...(automatic
+        ? {
+            auto_save_policy_version: automaticAuthorization!.autoSavePolicyVersion,
+            auto_save_policy_enabled_at: automaticAuthorization!.autoSavePolicyEnabledAt,
+          }
+        : {}),
     },
   };
 }

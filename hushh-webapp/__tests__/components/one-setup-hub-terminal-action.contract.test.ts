@@ -4,28 +4,29 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
-  it("opens completed Location directly instead of replaying one-time setup", () => {
+  it("keeps completed capabilities replayable while the setup hub is active", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("resolveCompletedSetupCapabilityTarget(item.id)");
+    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
+    expect(source).not.toContain(
+      "resolveCompletedSetupCapabilityTarget(item.id)",
+    );
   });
 
-  it("changes its explicit outcome from skip to finish after a verified capability completes", () => {
+  it("always finishes root setup through the required vault boundary", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain('masterSkipped ? "Skip setup" : "Finish setup"');
+    expect(source).toContain('const masterActionLabel = "Finish setup"');
     expect(source).toContain("isCapabilitySetupComplete(item.status)");
     expect(source).toContain('actionId="setup.hub_master_ack"');
-    expect(source).toContain(
-      'variant={masterSkipped ? "none" : "blue-gradient"}',
-    );
-    expect(source).toContain('effect={masterSkipped ? "fade" : "fill"}');
+    expect(source).toContain('variant="blue-gradient"');
+    expect(source).toContain('effect="fill"');
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -50,7 +51,10 @@ describe("One setup hub terminal action contract", () => {
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {
     const styles = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.module.css"),
+      join(
+        process.cwd(),
+        "components/onboarding/setup/one-setup-hub.module.css",
+      ),
       "utf8",
     );
 
@@ -80,12 +84,14 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('id: "connections", complete: runtimeChoiceComplete');
+    expect(source).toContain(
+      'id: "connections", complete: runtimeChoiceComplete',
+    );
     expect(source).toContain("const total = progressSteps.length");
     expect(source).toContain(
       "const done = progressSteps.filter((step) => step.complete).length",
     );
-    expect(source).toContain("const masterSkipped = completedCapabilityCount === 0");
+    expect(source).not.toContain("masterSkipped");
     expect(source).not.toContain("const total = items.length");
   });
 
@@ -104,7 +110,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("<SetupHubLoadingState />");
     expect(source).not.toContain("<Skeleton");
     expect(source).toContain("Checking your setup choices");
-    expect(source).toContain('actions: hubStateLoading ? [] : [');
+    expect(source).toMatch(/actions:\s*hubStateLoading\s*\?\s*\[\]\s*:/);
     expect(stateHook).toContain("useState(enrichVault)");
     expect(stateHook).toContain("useState(enrichOauth)");
     expect(stateHook).toContain("useState(enrichRia)");
@@ -112,7 +118,10 @@ describe("One setup hub terminal action contract", () => {
 
   it("keeps the quiet Morphy action legible on hover and while disabled", () => {
     const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/setup-completion-footer.tsx"),
+      join(
+        process.cwd(),
+        "components/onboarding/setup/setup-completion-footer.tsx",
+      ),
       "utf8",
     );
 
@@ -123,7 +132,10 @@ describe("One setup hub terminal action contract", () => {
 
   it("prevents KYC setup settlement while its server preference is saving", () => {
     const emailSetup = readFileSync(
-      join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"),
+      join(
+        process.cwd(),
+        "app/one/setup/email/email-onboarding-setup-client.tsx",
+      ),
       "utf8",
     );
     const coordinator = readFileSync(
@@ -134,8 +146,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(emailSetup).toContain("pending={saving || enablePending}");
-    expect(emailSetup).toContain("settlementBlocked: saving || enablePending");
+    expect(emailSetup).toContain("pending={saving}");
+    expect(emailSetup).toContain("settlementBlocked: saving");
     expect(coordinator).toContain("if (pending) return");
     expect(coordinator).toContain("disabled={pending}");
     expect(coordinator).toContain("enabled: enabled && !settlementBlocked");
@@ -164,5 +176,48 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('data-testid="one-setup-master-ack-mobile"');
     expect(source).toContain("sm:hidden");
     expect(source).toContain('<div className="hidden sm:block">');
+  });
+
+  it("requires vault completion after master setup acknowledgement", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("setVaultInvitationOpen(true);");
+    expect(source).toContain("const completeSetupAfterVault = () => {");
+    const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
+    expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
+    expect(source).toContain('data-testid="one-setup-vault-invitation"');
+    expect(source).toContain("Set up private vault");
+    expect(source).not.toContain("I’ll do this later");
+    expect(source).not.toContain("one-setup-vault-invitation-later");
+    expect(source).toContain("<VaultUnlockDialog");
+    expect(source).toContain("dismissible={false}");
+    expect(source).toContain("onSuccess={() => {");
+    expect(source).toContain("completeSetupAfterVault();");
+  });
+
+  it("does not allow a setup route to create a first vault before Finish setup", () => {
+    const vaultFreeSetupSurfaces = [
+      "app/one/setup/email/email-onboarding-setup-client.tsx",
+      "components/onboarding/setup/kyc-identity-preface.tsx",
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
+    ];
+
+    for (const relativePath of vaultFreeSetupSurfaces) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).not.toContain("VaultUnlockDialog");
+      expect(source).not.toContain("CapabilityVaultPrerequisite");
+    }
+
+    const existingVaultOnlySurfaces = [
+      "app/one/setup/kai/page.tsx",
+      "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
+    ];
+    for (const relativePath of existingVaultOnlySurfaces) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).toContain("allowVaultCreation={false}");
+    }
   });
 });

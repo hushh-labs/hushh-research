@@ -26,6 +26,7 @@ afterEach(() => {
   // @ts-expect-error test cleanup
   delete globalThis.google;
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("LiveMap", () => {
@@ -98,6 +99,54 @@ describe("LiveMap", () => {
       }),
     );
     mockTheme.current = "light";
+  });
+
+  it("restores the marker-centered zoom when an explicit refresh is requested", () => {
+    const markerSetPosition = vi.fn();
+    const mapPanTo = vi.fn();
+    const mapSetZoom = vi.fn();
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 42),
+    );
+    vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrame);
+    const Marker = vi.fn(function () {
+      return {
+        getPosition: () => ({
+          lat: () => point.latitude,
+          lng: () => point.longitude,
+        }),
+        setPosition: markerSetPosition,
+      };
+    });
+    const Map = vi.fn(function () {
+      return { panTo: mapPanTo, setZoom: mapSetZoom };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Map, Marker } };
+    mockStatus.current = "ready";
+
+    const { rerender } = render(
+      <LiveMap point={point} viewportResetKey={0} />,
+    );
+    markerSetPosition.mockClear();
+    mapPanTo.mockClear();
+    mapSetZoom.mockClear();
+    cancelAnimationFrame.mockClear();
+
+    rerender(<LiveMap point={point} viewportResetKey={1} />);
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
+    expect(markerSetPosition).toHaveBeenCalledWith({
+      lat: point.latitude,
+      lng: point.longitude,
+    });
+    expect(mapSetZoom).toHaveBeenCalledWith(16);
+    expect(mapPanTo).toHaveBeenCalledWith({
+      lat: point.latitude,
+      lng: point.longitude,
+    });
   });
 
   it("applies a dark filter to the iframe fallback so it cannot glow white", () => {

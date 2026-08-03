@@ -6,8 +6,8 @@ consent request flow (pending list, SSE, approve/deny).
 Run from consent-protocol with DB_* env set (or .env):
   python db/verify/verify_consent_audit_schema.py
 
-If verification fails, run against the Cloud SQL database:
-  consent-protocol/db/legacy/init_legacy_schema.sql (or the consent_audit block, lines 81-106).
+If verification fails, repair the database through the canonical release lane:
+  python db/migrate.py --release
 """
 
 import os
@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-# Required columns for consent request flow (from db/legacy/init_legacy_schema.sql / consent_db.py)
+# Required columns for consent request flow (canonical release migrations).
 REQUIRED_COLUMNS = [
     "id",
     "token_id",
@@ -67,7 +67,7 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "If consent_audit is missing, run db/legacy/init_legacy_schema.sql against the Cloud SQL database.",
+            "If consent_audit is missing, run the canonical release lane: python db/migrate.py --release",
             file=sys.stderr,
         )
         return 1
@@ -92,7 +92,7 @@ def main() -> int:
     if not rows:
         print("Table consent_audit does not exist.", file=sys.stderr)
         print(
-            "Run consent-protocol/db/legacy/init_legacy_schema.sql against the Cloud SQL database (or the consent_audit block, lines 81-106).",
+            "Repair through the canonical release lane: python db/migrate.py --release",
             file=sys.stderr,
         )
         return 1
@@ -102,7 +102,7 @@ def main() -> int:
     if missing:
         print(f"consent_audit is missing columns: {', '.join(missing)}", file=sys.stderr)
         print(
-            "Run consent-protocol/db/legacy/init_legacy_schema.sql against the Cloud SQL database (or the consent_audit block, lines 81-106).",
+            "Repair through the canonical release lane: python db/migrate.py --release",
             file=sys.stderr,
         )
         return 1

@@ -62,6 +62,7 @@ It does not own:
 | Understand the product-facing One Voice contract | [../../docs/reference/one/one-voice-runtime-architecture.md](../../docs/reference/one/one-voice-runtime-architecture.md) |
 | Understand the current One Voice Kai compatibility runtime | [../../docs/reference/one/one-voice-kai-compatibility-runtime.md](../../docs/reference/one/one-voice-kai-compatibility-runtime.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
+| Implement the Hermes trusted-device vault handoff | [reference/trusted-device-vault-handoff.md](./reference/trusted-device-vault-handoff.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
 | Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |
 | Implement the MuleSoft trusted connector for Salesforce and Agentforce | [reference/mulesoft-agentforce-secure-relay.md](./reference/mulesoft-agentforce-secure-relay.md) |

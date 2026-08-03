@@ -53,7 +53,7 @@ npx -y @hushh/mcp --help
 
 The same `/mcp/` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
-Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at `https://api.uat.hushh.ai/.well-known/oauth-authorization-server`, request `mcp:tools`, and send the resulting credential only as `Authorization: Bearer <access-token>`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority.
+Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at `https://api.uat.hushh.ai/.well-known/oauth-authorization-server`, request `mcp:tools`, and send the resulting credential only as `Authorization: Bearer <access-token>`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority. The npm bridge exchanges `HUSHH_OAUTH_CLIENT_ID` and `HUSHH_OAUTH_CLIENT_SECRET` locally at the token endpoint, retains the resulting Bearer token only in process memory, and renews it before expiry.
 
 Every tool uses shallow, fully described JSON Schema. Successful calls return `structuredContent` as the canonical result and `content[0].text` as its compatibility mirror. Execution errors return `isError: true` with safe JSON text only, so a strict client never validates an error against a success output schema.
 
@@ -152,6 +152,28 @@ Keep local: Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoin
 }
 ```
 
+### npm bridge with OAuth client credentials
+
+Use when: your operations-provisioned partner connector needs a local stdio process and has an approved Hussh OAuth client ID and secret.
+
+Keep local: Keep the client secret only in the host secret store. Configure either a developer token or OAuth client credentials, never both. The bridge obtains and renews an in-memory Bearer token; it never writes credentials into config output, disk, logs, or MCP results.
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "command": "npx",
+      "args": ["-y", "@hushh/mcp"],
+      "env": {
+        "CONSENT_API_URL": "https://api.uat.hushh.ai",
+        "HUSHH_OAUTH_CLIENT_ID": "<operations-provisioned-client-id>",
+        "HUSHH_OAUTH_CLIENT_SECRET": "<operations-provisioned-client-secret>"
+      }
+    }
+  }
+}
+```
+
 ### Claude remote custom connector
 
 Use when: Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.
@@ -223,9 +245,9 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 - Keep that connector private key in local secure storage for the lifetime of the grant when `continuous_until_expiry` is used. Future authorized export revisions are wrapped to the same connector key until explicit rotation or revocation. “Remember the key” always means connector custody—not chat history, prompts, tool results, Hussh storage, or model memory.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 
-### Upgrade to 0.4.0
+### Upgrade to 0.4.1
 
-Version 0.4.0 publishes hyphenated tool names, the first-class `prepare-campaign-context` tool, and one host-safe schema for every external client. The v0.3 underscore names remain accepted inbound until **2026-10-20** but are no longer listed from `tools/list`. Consent-token validation remains internal. Replace `user_id`/`request_id`/`consent_token` choreography with `user_identifier` input plus `request_ref` and `grant_ref` lifecycle references.
+Version 0.4.1 publishes hyphenated tool names, the first-class `prepare-campaign-context` tool, one host-safe schema for every external client, and OAuth client-credentials support for the local npm bridge. The v0.3 underscore names remain accepted inbound until **2026-10-20** but are no longer listed from `tools/list`. Consent-token validation remains internal. Replace `user_id`/`request_id`/`consent_token` choreography with `user_identifier` input plus `request_ref` and `grant_ref` lifecycle references.
 
 If upgrading from npm 0.1.3 or the earlier UAT MCP server 0.2.0 catalog, remove every `?token=` URL. Authentication is bearer-header-only. Raw `/api/v1` HTTP clients remain compatible; this breaking change applies to MCP tools.
 

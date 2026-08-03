@@ -60,6 +60,13 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
 
+    # ==================== NEARBY PRESENCE CAPABILITIES ====================
+    # Short-lived, explicit nearby-check-in scopes. These never authorize a
+    # recipient-scoped live-location grant and are not externally requestable.
+    CAP_LOCATION_NEARBY_PUBLISH = "cap.location.nearby.publish"
+    CAP_LOCATION_NEARBY_DISCOVER = "cap.location.nearby.discover"
+    CAP_LOCATION_NEARBY_REVOKE = "cap.location.nearby.revoke"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -227,6 +234,9 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
+            cls.CAP_LOCATION_NEARBY_PUBLISH,
+            cls.CAP_LOCATION_NEARBY_DISCOVER,
+            cls.CAP_LOCATION_NEARBY_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
         ]

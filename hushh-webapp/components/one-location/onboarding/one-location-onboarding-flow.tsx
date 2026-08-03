@@ -9,16 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { preload } from "react-dom";
-import {
-  ArrowLeft,
-  Check,
-  ChevronLeft,
-  Loader2,
-  MapPin,
-  ShieldCheck,
-  UserPlus,
-} from "lucide-react";
-
+import { ArrowLeft, Check, Loader2, MapPin, UserPlus } from "lucide-react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -70,6 +61,7 @@ type OneLocationOnboardingFlowProps = {
     userIds: string[],
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
+  onLocationReady: () => Promise<boolean>;
   onRequestNotifications: () => Promise<void>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
@@ -105,11 +97,7 @@ const WELCOME_ORBIT_ITEMS = [
   },
 ] as const;
 
-const ONBOARDING_IMAGE_SOURCES = [
-  ...WELCOME_ORBIT_ITEMS.map(({ src }) => src),
-  "/one-location/onboarding/feature-checkin-house-transparent.webp",
-] as const;
-
+const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
 
 const AVATAR_TONES = [
   { background: "#2f80ed", foreground: "#ffffff" },
@@ -247,16 +235,72 @@ function OnboardingSkipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-full text-[16px] font-bold disabled:opacity-50",
+        "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
         floating
-          ? "h-10 min-h-10 bg-white px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)]"
+          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
           : inverse
-          ? "text-white"
-          : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+            ? "text-white"
+            : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
       Skip
     </button>
+  );
+}
+
+function OnboardingNavigation({
+  onBack,
+  onSkip,
+  disabled = false,
+  inverse = false,
+  floating = false,
+  busy = false,
+  className,
+}: {
+  onBack: () => void;
+  onSkip: () => void;
+  disabled?: boolean;
+  inverse?: boolean;
+  floating?: boolean;
+  busy?: boolean;
+  className?: string;
+}) {
+  return (
+    <nav
+      aria-label="Onboarding"
+      className={cn(
+        "relative z-40 flex h-14 shrink-0 items-center justify-between",
+        className,
+      )}
+      data-one-onboarding-navigation
+    >
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={disabled}
+        className={cn(
+          "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
+          floating
+            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
+            : inverse
+              ? "bg-white/15 text-white"
+              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
+        )}
+        aria-label="Go back"
+      >
+        {busy ? (
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        ) : (
+          <ArrowLeft className="h-6 w-6" aria-hidden="true" />
+        )}
+      </button>
+      <OnboardingSkipButton
+        inverse={inverse}
+        floating={floating}
+        onClick={onSkip}
+        disabled={disabled}
+      />
+    </nav>
   );
 }
 
@@ -273,8 +317,7 @@ function WelcomeRadar() {
           className={cn(
             "absolute rounded-full border border-white/30",
             position,
-            index === 0 &&
-              "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
+            index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
           )}
         />
       ))}
@@ -304,7 +347,10 @@ function WelcomeRadar() {
               loading="eager"
               decoding="async"
               fetchPriority="high"
-              className={cn("h-full w-full rounded-[13px]", item.imageClassName)}
+              className={cn(
+                "h-full w-full rounded-[13px]",
+                item.imageClassName,
+              )}
             />
           </span>
           <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
@@ -334,26 +380,14 @@ function WelcomeScreen({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <header className="relative z-10 flex h-16 shrink-0 items-center justify-between pt-2">
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={leaving}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white disabled:opacity-50"
-          aria-label="Go back"
-        >
-          {leaving ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ArrowLeft className="h-6 w-6" />
-          )}
-        </button>
-        <OnboardingSkipButton
-          inverse
-          onClick={onSkip}
-          disabled={leaving}
-        />
-      </header>
+      <OnboardingNavigation
+        inverse
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+        className="pt-2"
+      />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 text-center">
           <p className="inline-flex items-center gap-2 text-[19px] font-bold">
@@ -389,38 +423,6 @@ function WelcomeScreen({
   );
 }
 
-type UseCaseCardProps = {
-  tag: string;
-  titleLines: readonly [string, string];
-  bodyLines: readonly string[];
-  alertText: string;
-  kind: "sms" | "share" | "checkin";
-  tone: "danger" | "success" | "info";
-  testId: string;
-};
-
-const USE_CASE_TONES = {
-  danger: {
-    line: "bg-[#ff4f55]",
-    chip: "bg-[#ff4f55] text-white",
-  },
-  success: {
-    line: "bg-[#16a895]",
-    chip: "bg-[#16a895] text-white",
-  },
-  info: {
-    line: "bg-[color:var(--app-accent)]",
-    chip: "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
-  },
-} as const;
-
-const CHECKIN_AVATARS = [
-  { label: "A", color: "#8b5cf6" },
-  { label: "J", color: "#3b82f6" },
-  { label: "N", color: "#111827" },
-  { label: "K", color: "#f59e0b" },
-] as const;
-
 /** Minimal, stylised street-map backdrop used behind the share / check-in art. */
 function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
   const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
@@ -431,115 +433,295 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
       className="absolute inset-0 h-full w-full"
       aria-hidden="true"
     >
-      <rect width="200" height="168" className="fill-[#edf1f6] dark:fill-[#1b222d]" />
+      <rect
+        width="200"
+        height="168"
+        className="fill-[#edf1f6] dark:fill-[#1b222d]"
+      />
       {/* green / park blocks */}
       <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
       <rect x="150" y="98" width="64" height="74" rx="7" fill={park} />
       {/* building blocks */}
-      <rect x="122" y="2" width="34" height="30" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
-      <rect x="150" y="8" width="52" height="34" rx="4" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
-      <rect x="8" y="118" width="44" height="48" rx="5" className="fill-[#e4e9f0] dark:fill-[#232c39]" />
+      <rect
+        x="122"
+        y="2"
+        width="34"
+        height="30"
+        rx="4"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
+      <rect
+        x="150"
+        y="8"
+        width="52"
+        height="34"
+        rx="4"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
+      <rect
+        x="8"
+        y="118"
+        width="44"
+        height="48"
+        rx="5"
+        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+      />
       {/* road casings */}
-      <path d="M-12 86 H212" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
-      <path d="M100 -12 V180" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="15" fill="none" />
-      <path d="M150 58 L214 122" className="stroke-white dark:stroke-[#0f141c]" strokeWidth="10" fill="none" />
+      <path
+        d="M-12 86 H212"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="15"
+        fill="none"
+      />
+      <path
+        d="M100 -12 V180"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="15"
+        fill="none"
+      />
+      <path
+        d="M150 58 L214 122"
+        className="stroke-white dark:stroke-[#0f141c]"
+        strokeWidth="10"
+        fill="none"
+      />
       {/* road centre hairlines */}
-      <path d="M-12 86 H212" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
-      <path d="M100 -12 V180" className="stroke-[#dde3ec] dark:stroke-[#2a323f]" strokeWidth="1.5" fill="none" />
+      <path
+        d="M-12 86 H212"
+        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        strokeWidth="1.5"
+        fill="none"
+      />
+      <path
+        d="M100 -12 V180"
+        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        strokeWidth="1.5"
+        fill="none"
+      />
     </svg>
   );
 }
 
-function UseCaseArt({
-  kind,
-  alertText,
+const SHARE_LOCATION_AVATARS = [
+  {
+    src: "/one-location/onboarding/feature-share-person-1.webp",
+    className: "right-[7%] top-[10%]",
+  },
+  {
+    src: "/one-location/onboarding/feature-share-person-2.webp",
+    className: "bottom-[10%] left-[3%]",
+  },
+  {
+    src: "/one-location/onboarding/feature-share-person-3.webp",
+    className: "bottom-[8%] right-[7%]",
+  },
+] as const;
+
+function FeatureStatusPill({
+  children,
+  className,
 }: {
-  kind: UseCaseCardProps["kind"];
-  alertText: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
+        className,
+      )}
+      data-one-use-case-alert
+    >
+      <span
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
+        aria-hidden="true"
+      >
+        <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
+      </span>
+      <span className="min-w-max whitespace-nowrap">{children}</span>
+    </span>
+  );
+}
+
+function FeatureStatusRow({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
-      className="absolute inset-y-0 right-0 w-[48%]"
-      data-one-use-case-art
-      data-one-use-case-kind={kind}
-      aria-hidden="true"
+      className={cn(
+        "relative z-30 mt-auto flex shrink-0 items-center pb-3",
+        className,
+      )}
+      data-one-feature-status-row
     >
-      {kind === "sms" ? (
-        <div
-          className="absolute right-[14%] top-[42%] flex h-[92px] w-[92px] -translate-y-1/2 items-center justify-center"
-          data-one-sms-radar
+      <FeatureStatusPill>{children}</FeatureStatusPill>
+    </div>
+  );
+}
+
+function TwoLineFeatureTitle({
+  lines,
+  className,
+}: {
+  lines: readonly [string, string];
+  className?: string;
+}) {
+  return (
+    <div
+      role="heading"
+      aria-level={2}
+      aria-label={lines.join(" ")}
+      className={cn(
+        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
+        className,
+      )}
+      data-one-feature-title
+    >
+      {lines.map((line) => (
+        <span
+          key={line}
+          aria-hidden="true"
+          className="block whitespace-nowrap"
+          data-one-feature-title-line
         >
-          {/* Radar / alarm pulse rings expanding outward from the red core. */}
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
-          />
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:0.8s]"
-          />
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-0 rounded-full bg-[#ef302f]/[0.16] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.6s]"
-          />
-          <span
-            data-one-sms-core
-            data-one-onboarding-motion
-            className="relative z-10 flex h-[66px] w-[66px] flex-col items-center justify-center rounded-full bg-[#ef302f] text-center text-white shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-          >
-            <span className="text-[16px] font-bold leading-none tracking-tight">
-              SMS
-            </span>
-            <span className="mt-0.5 text-[8px] font-semibold leading-none opacity-90">
-              Hold 2 s
-            </span>
-          </span>
-        </div>
-      ) : null}
+          {line}
+        </span>
+      ))}
+    </div>
+  );
+}
 
-      {kind === "share" ? (
-        <>
-          <MapBackdrop tone="share" />
-          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
-          {/* Dotted live-share route from your dot up to the shared contact. */}
-          <svg
-            viewBox="0 0 200 168"
-            preserveAspectRatio="none"
-            className="absolute inset-0 h-full w-full"
-            aria-hidden="true"
+function ShareLocationFeatureCard() {
+  return (
+    <article
+      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
+      data-testid="location-use-case-trip"
+      data-one-use-case-card
+      data-one-feature-card="share"
+    >
+      <MapBackdrop tone="share" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
+      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
+          data-one-use-case-tag
+        >
+          Share location
+        </span>
+        <TwoLineFeatureTitle
+          lines={["No more explaining", "where you are."]}
+          className="font-[family-name:var(--font-app-display)] text-[21px]"
+        />
+        <p
+          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          data-one-feature-body
+        >
+          Share once with family, friends, your driver &mdash; or anyone in your
+          Circle.
+        </p>
+      </div>
+      <div
+        className="absolute inset-y-0 right-0 z-10 w-[53%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <svg
+          viewBox="0 0 220 240"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
+        >
+          <path
+            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
+            fill="none"
+            stroke="var(--app-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            opacity="0.72"
+          />
+        </svg>
+        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
+        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
+          <span
+            key={avatar.src}
+            className={cn(
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
+              avatar.className,
+            )}
+            data-one-share-avatar={index + 1}
           >
-            <path
-              d="M46 128 C 84 118, 116 92, 152 56"
-              fill="none"
-              stroke="#338df2"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeDasharray="1 9"
+            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+            <img
+              src={avatar.src}
+              alt=""
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-full w-full object-cover"
             />
-          </svg>
-          <span className="absolute bottom-[24%] left-[22%] h-3 w-3 rounded-full bg-[#338df2] ring-[3px] ring-white dark:ring-[#171d27]" />
-          <span className="absolute right-[14%] top-[14%] flex h-[34px] w-[34px] items-center justify-center rounded-full border-[3px] border-white bg-[#8b5cf6] text-[13px] font-bold text-white shadow-[0_8px_16px_rgba(124,60,237,0.35)] dark:border-[#171d27]">
-            J
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-[13px] w-[13px] items-center justify-center rounded-full border-2 border-white bg-[#338df2] text-white dark:border-[#171d27]">
-              <Check className="h-1.5 w-1.5" strokeWidth={4} />
-            </span>
           </span>
+        ))}
+      </div>
+      <FeatureStatusRow className="px-5">
+        Sharing with Mom, Driver +1
+      </FeatureStatusRow>
+    </article>
+  );
+}
 
-        </>
-      ) : null}
-      {kind === "checkin" ? (
-        <>
-          <MapBackdrop tone="checkin" />
-          <span className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white to-transparent dark:from-[#171d27]" />
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-pin-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="absolute right-[34%] top-[3%] h-[38%] w-auto object-contain drop-shadow-[0_8px_10px_rgba(22,169,149,0.28)]"
+function CheckInFeatureCard() {
+  return (
+    <article
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
+      data-testid="location-use-case-checkin"
+      data-one-use-case-card
+      data-one-feature-card="checkin"
+    >
+      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          data-one-use-case-tag
+        >
+          Check in
+        </span>
+        <TwoLineFeatureTitle
+          lines={["At the venue, but", "can\u2019t find each other?"]}
+          className="text-[19px]"
+        />
+        <p
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          data-one-feature-body
+        >
+          Check in once so your Circle sees your exact spot.
+        </p>
+      </div>
+      <div
+        className="absolute inset-x-0 bottom-0 h-[47%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <MapBackdrop tone="checkin" />
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
+        <span
+          className="absolute bottom-[88px] right-[23%] z-20 h-7 w-7 drop-shadow-[0_7px_9px_rgba(28,177,103,0.26)]"
+          data-one-checkin-pin
+        >
+          <MapPin
+            className="h-full w-full fill-[#27b96a] text-[#27b96a]"
+            strokeWidth={1.8}
           />
+          <span className="absolute left-1/2 top-[37%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+        </span>
+        <span
+          className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
+          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
+          data-one-checkin-art
+        >
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
             src="/one-location/onboarding/feature-checkin-house-transparent.webp"
@@ -547,110 +729,87 @@ function UseCaseArt({
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="absolute bottom-[24%] right-[9%] w-[58%] object-contain drop-shadow-[0_10px_12px_rgba(20,30,50,0.24)]"
-            data-one-checkin-art
+            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+            style={{ transform: "rotateY(8deg)" }}
+            data-one-checkin-hotel
           />
-
-
-        </>
-      ) : null}
-      <span
-        className={cn(
-          "absolute bottom-[9%] right-[4%] flex w-max items-center gap-1 rounded-full bg-white/95 py-1.5 text-[9px] font-bold text-[#151b26] shadow-[0_6px_18px_rgba(22,35,58,0.18)] dark:bg-[#f4f7fb]",
-          kind === "sms" ? "px-3" : "px-2.5",
-        )}
-        data-one-use-case-alert
-      >
-        {kind === "share" ? (
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#338df2] text-white">
-            <ShieldCheck className="h-2.5 w-2.5" strokeWidth={2.5} />
-          </span>
-        ) : null}
-        {kind === "checkin" ? (
-          <span className="mr-0.5 flex -space-x-1.5">
-            {CHECKIN_AVATARS.map((avatar) => (
-              <span
-                key={avatar.label}
-                className="flex h-[15px] w-[15px] items-center justify-center rounded-full border border-white text-[7px] font-bold text-white"
-                style={{ backgroundColor: avatar.color }}
-              >
-                {avatar.label}
-              </span>
-            ))}
-          </span>
-        ) : null}
-        <span className="min-w-max shrink-0 whitespace-nowrap">{alertText}</span>
-        <Check
-          className={cn(
-            "h-3.5 w-3.5 shrink-0",
-            kind === "sms"
-              ? "text-[#ef302f]"
-              : kind === "share"
-                ? "text-[#338df2]"
-                : "text-[#16a895]",
-          )}
-          strokeWidth={3}
-        />
-      </span>
-    </div>
+        </span>
+      </div>
+      <FeatureStatusRow className="px-3">
+        Checked in at Hotel Grand
+      </FeatureStatusRow>
+    </article>
   );
 }
 
-
-function UseCaseCard({
-  tag,
-  titleLines,
-  bodyLines,
-  alertText,
-  kind,
-  tone,
-  testId,
-}: UseCaseCardProps) {
-  const colors = USE_CASE_TONES[tone];
+function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative h-full min-h-0 overflow-hidden rounded-[22px] border border-black/[0.03] bg-white shadow-[0_8px_26px_rgba(21,41,70,0.09)] dark:border-white/[0.08] dark:bg-[#171d27] dark:shadow-none"
-      data-testid={testId}
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
+      data-testid="location-use-case-sos"
       data-one-use-case-card
+      data-one-feature-card="sms"
     >
-      <span className={cn("absolute inset-y-0 left-0 w-[5px]", colors.line)} />
-      <div
-        className="relative z-10 flex h-full min-h-0 w-[64%] min-w-0 flex-col justify-center py-3 pl-4 pr-2"
-        data-one-use-case-copy
-      >
+      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className={cn(
-            "w-fit rounded-full px-3 py-1 text-[12px] font-bold",
-            colors.chip,
-          )}
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
-          {tag}
+          SMS &middot; Save My Soul
         </span>
-        <div
-          role="heading"
-          aria-level={2}
-          className="mt-2.5 font-[family-name:var(--font-app-display)] text-[16px] font-bold leading-[1.18] text-[#091126] dark:text-white"
-          data-one-use-case-title
-        >
-          {titleLines.map((line) => (
-            <span key={line} className="block whitespace-nowrap">
-              {line}
-            </span>
-          ))}
-        </div>
+        <TwoLineFeatureTitle
+          lines={["Need help but can\u2019t", "call or speak?"]}
+          className="text-[19px]"
+        />
         <p
-          className="mt-2 text-[13px] leading-[1.34] text-[#777d88] dark:text-[#aeb8c7]"
-          data-one-use-case-body
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
+          data-one-feature-body
         >
-          {bodyLines.map((line) => (
-            <span key={line} className="block whitespace-nowrap">
-              {line}
-            </span>
-          ))}
+          Send an emergency SMS with your live location to trusted contacts.
         </p>
       </div>
-      <UseCaseArt kind={kind} alertText={alertText} />
+      <div
+        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
+        data-one-feature-art-region
+      >
+        <div
+          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
+          data-one-sms-radar-clearance
+          aria-hidden="true"
+        >
+          <span
+            className="relative flex h-20 w-20 items-center justify-center"
+            data-one-sms-radar
+          >
+            <span
+              data-one-onboarding-motion
+              data-one-sms-radar-ring
+              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+            />
+            <span
+              data-one-onboarding-motion
+              data-one-sms-radar-ring
+              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+            />
+            <span
+              data-one-sms-core
+              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+            >
+              <span
+                data-one-onboarding-motion
+                data-one-sms-core-pulse
+                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+              />
+              <span className="relative z-10" data-one-sms-label>
+                SMS
+              </span>
+            </span>
+          </span>
+        </div>
+      </div>
+      <FeatureStatusRow className="px-3">
+        SMS sent to 3 contacts
+      </FeatureStatusRow>
     </article>
   );
 }
@@ -659,6 +818,8 @@ function FeaturesScreen({
   locationGranted,
   notificationsGranted,
   locationBusy,
+  locationPreparationBusy,
+  locationPreparationRetry,
   notificationBusy,
   requireLocationToContinue,
   onBack,
@@ -669,6 +830,8 @@ function FeaturesScreen({
   locationGranted: boolean;
   notificationsGranted: boolean;
   locationBusy: boolean;
+  locationPreparationBusy: boolean;
+  locationPreparationRetry: boolean;
   notificationBusy: boolean;
   requireLocationToContinue: boolean;
   onBack: () => void;
@@ -677,109 +840,80 @@ function FeaturesScreen({
   onContinue: () => void;
 }) {
   const waitingForLocation = requireLocationToContinue && !locationGranted;
-  const permissionBusy = locationBusy || notificationBusy;
-  const status = locationBusy
-    ? "Requesting Location permission..."
-    : notificationBusy
-      ? "Turning on notifications..."
-      : waitingForLocation
-        ? "Allow Location to continue. You stay in control of every share."
-        : locationGranted && notificationsGranted
-          ? "Location and notifications are ready."
-          : "You can adjust permissions later in Location Settings.";
+  const permissionBusy =
+    locationBusy || locationPreparationBusy || notificationBusy;
+  const status = locationPreparationBusy
+    ? "Preparing your saved place..."
+    : locationBusy
+      ? "Requesting Location permission..."
+      : notificationBusy
+        ? "Turning on notifications..."
+        : locationPreparationRetry
+          ? "We couldn't prepare your saved place. Try again."
+          : waitingForLocation
+            ? "Allow Location to continue. You stay in control of every share."
+            : locationGranted && notificationsGranted
+              ? "Location and notifications are ready."
+              : "You can adjust permissions later in Location Settings.";
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f5f5f7] pb-[max(env(safe-area-inset-bottom,0px),11px)] pl-6 pr-5 pt-[max(env(safe-area-inset-top,0px),55px)] dark:bg-[#0c1017]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]"
       data-one-feature-screen
     >
-      <header
-        className="flex h-[42px] shrink-0 items-center justify-between"
-        data-one-feature-header
+      <OnboardingNavigation
+        floating
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+      />
+      <div
+        className="flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden"
+        data-one-feature-scroll
       >
-        <button
-          type="button"
-          onClick={onBack}
-          className="press-scale flex h-[42px] w-[42px] items-center justify-center rounded-full bg-white text-[#7b8088] shadow-[0_4px_14px_rgba(26,42,65,0.12)] dark:bg-white/[0.08] dark:text-white"
-          aria-label="Go back"
+        <header className="mt-3 shrink-0" data-one-feature-header>
+          <h1
+            className="text-[36px] font-bold leading-none tracking-[-0.025em] text-[#111823] dark:text-[#f6f8fc]"
+            data-one-feature-heading
+          >
+            Stay connected
+          </h1>
+          <p
+            className="mt-4 text-[17px] leading-[26px] text-[#737a84] dark:text-[#aeb8c7]"
+            data-one-feature-subtitle
+          >
+            For everyday plans, meetups, and emergencies.
+          </p>
+        </header>
+        <div className="mt-6 grid shrink-0 gap-4" data-one-feature-grid>
+          <ShareLocationFeatureCard />
+          <div
+            className="grid grid-cols-2 items-start gap-4"
+            data-one-feature-lower-grid
+          >
+            <CheckInFeatureCard />
+            <SaveMySoulFeatureCard />
+          </div>
+        </div>
+        <p
+          className={cn(
+            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+            !waitingForLocation && !permissionBusy && "sr-only",
+          )}
+          aria-live="polite"
         >
-          <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
-        </button>
-        <OnboardingSkipButton
-          floating
-          onClick={onSkip}
-          disabled={leaving}
-        />
-      </header>
-      <h1
-        className="mt-[15px] shrink-0 text-[32px] font-bold leading-[1.05] tracking-[-0.02em] text-[#091126] dark:text-[#f6f8fc]"
-        data-one-feature-heading
-      >
-        Stay connected
-        <br />
-        when you need it.
-      </h1>
-      <div
-        className="mt-[18px] grid min-h-0 flex-1 grid-rows-3 gap-3"
-        data-one-feature-grid
-      >
-        <UseCaseCard
-          tag="SMS · Save My Soul"
-          titleLines={["Need help,", "but can’t call or speak?"]}
-          bodyLines={[
-            "Send an emergency SMS",
-            "with your live location to",
-            "trusted contacts.",
-          ]}
-          alertText="Sent to 3 contacts"
-          kind="sms"
-          tone="danger"
-          testId="location-use-case-sos"
-        />
-
-        <UseCaseCard
-          tag="Share location"
-          titleLines={["Still answering", "“Where are you?”"]}
-          bodyLines={[
-            "Share your live location safely in",
-            "one tap. Stop anytime.",
-          ]}
-          alertText="Shared securely"
-          kind="share"
-          tone="info"
-          testId="location-use-case-trip"
-        />
-        <UseCaseCard
-          tag="Check in"
-          titleLines={["Meeting up,", "but can’t find each other?"]}
-          bodyLines={["Check in once so everyone sees", "your exact spot."]}
-          alertText="Check-in sent"
-          kind="checkin"
-
-          tone="success"
-          testId="location-use-case-checkin"
-        />
+          {status}
+        </p>
       </div>
-      <p
-        className={cn(
-          "shrink-0 pt-2 text-center text-[10px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
-          !waitingForLocation && !permissionBusy && "sr-only",
-        )}
-        aria-live="polite"
-      >
-        {status}
-      </p>
-      <div
-        className="mt-[11px] shrink-0"
-        data-one-feature-cta
-      >
+      <div className="shrink-0 pt-8" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[52px] min-h-[52px]"
+          className="h-[58px] min-h-[58px]"
         >
-          Continue
+          {locationPreparationRetry ? "Try again" : "Add my people"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -795,67 +929,392 @@ function FeaturesScreen({
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
-        @media (max-width: 400px) {
-          [data-one-use-case-copy] { width: 60%; padding-left: 16px; padding-right: 4px; }
-          [data-one-use-case-tag] { padding: 3px 10px; font-size: 10.5px; }
-          [data-one-use-case-title] { margin-top: 7px; font-size: 16px; }
-          [data-one-use-case-body] { margin-top: 6px; font-size: 11px; }
-          [data-one-use-case-art] { width: 46%; }
+        [data-one-feature-heading] {
+          --foundation-title1-size: clamp(36px, 3vw, 40px);
+          --foundation-title1-line: 1.05;
         }
-        @media (max-height: 760px) {
-          [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 24px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+        [data-one-feature-copy] {
+          --one-feature-copy-gap: 12px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--one-feature-copy-gap);
+        }
+        @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
+          [data-one-feature-scroll] { flex: 1 1 0%; }
+          [data-one-feature-grid] {
+            flex: 1 1 0%;
+            min-height: 0;
+            grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr);
           }
-          [data-one-feature-heading] { font-size: 29px; }
-          [data-one-use-case-card] { border-radius: 20px; }
-          [data-one-use-case-copy] { width: 60%; padding: 8px 6px 8px 16px; }
-          [data-one-use-case-tag] { padding: 2px 10px; font-size: 10px; }
-          [data-one-use-case-title] { margin-top: 5px; font-size: 16px; line-height: 1.08; }
-          [data-one-use-case-body] { margin-top: 4px; font-size: 11.5px; line-height: 1.22; }
-          [data-one-use-case-art] { width: 46%; }
-          [data-one-sms-radar] { width: 88px; height: 88px; }
-          [data-one-sms-core] { width: 68px; height: 68px; }
-          [data-one-sms-core] > span:first-child { font-size: 17px; }
-          [data-one-sms-core] > span:last-child { font-size: 8px; }
-          [data-one-use-case-alert] { right: 2%; bottom: 7%; padding: 4px 8px; font-size: 8px; }
-          [data-one-use-case-alert] > span:first-child { height: 13px; }
-          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
+          [data-one-feature-lower-grid] {
+            height: 100%;
+            min-height: 0;
+            align-items: stretch;
+          }
+          [data-one-feature-card] {
+            height: 100%;
+            min-height: 0;
+            aspect-ratio: auto;
+          }
+        }
+        @media (max-height: 780px) {
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 8px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+          }
+          [data-one-onboarding-navigation] { height: 52px; }
+          [data-one-feature-header] { margin-top: 8px; }
+          [data-one-feature-heading] { --foundation-title1-size: 32px; }
+          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
+          [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
+          [data-one-feature-lower-grid] { gap: 12px; }
+          [data-one-feature-cta] { padding-top: 14px; }
+          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
         }
         @media (max-height: 680px) {
-          [data-one-feature-heading] { font-size: 26px; }
-          [data-one-use-case-copy] { width: 62%; padding-left: 14px; }
-          [data-one-use-case-tag] { font-size: 9px; }
-          [data-one-use-case-title] { font-size: 14px; }
-          [data-one-use-case-body] { font-size: 10px; }
-          [data-one-use-case-art] { width: 44%; }
-          [data-one-sms-radar] { width: 78px; height: 78px; }
-          [data-one-sms-core] { width: 60px; height: 60px; }
-          [data-one-use-case-alert] { padding: 3px 6px; font-size: 7px; }
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 6px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+          }
+          [data-one-onboarding-navigation] { height: 44px; }
+          [data-one-feature-header] { margin-top: 4px; }
+          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-subtitle] {
+            margin-top: 6px;
+            font-size: 13px;
+            line-height: 17px;
+            white-space: nowrap;
+          }
+          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-cta] { padding-top: 8px; }
+          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
         }
-        @media (max-width: 370px) {
-          [data-one-use-case-copy] { width: 60%; padding-left: 14px; padding-right: 3px; }
-          [data-one-use-case-title] { font-size: 14px; }
-          [data-one-use-case-body] { font-size: 9.5px; }
-          [data-one-use-case-art] { width: 46%; }
+        @media (max-width: 431px) and (min-height: 820px) {
+          [data-one-feature-header] { margin-top: 16px; }
+          [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
+        }
+        @media (max-width: 431px) {
+          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-heading] { --foundation-title1-size: 34px; }
+          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
+          [data-one-feature-grid] {
+            gap: 12px;
+          }
+          [data-one-feature-lower-grid] {
+            gap: 12px;
+          }
+          [data-one-feature-card] {
+            border-radius: 22px;
+          }
+        }
+        @media (max-width: 380px) {
+          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-use-case-card] { border-radius: 16px; }
-          [data-one-use-case-copy] { width: 60%; padding: 5px 2px 5px 12px; }
-          [data-one-use-case-tag] { padding: 1px 7px; font-size: 8px; }
-          [data-one-use-case-title] { margin-top: 3px; font-size: 13px; line-height: 1.05; }
-          [data-one-use-case-body] { margin-top: 3px; font-size: 9px; line-height: 1.12; }
-          [data-one-use-case-art] { width: 46%; }
-          [data-one-sms-radar] { width: 62px; height: 62px; }
-          [data-one-sms-core] { width: 50px; height: 50px; }
-          [data-one-sms-core] > span:first-child { font-size: 14px; }
-          [data-one-sms-core] > span:last-child { font-size: 7px; }
-          [data-one-use-case-alert] { right: 1%; bottom: 5%; padding: 2px 4px; font-size: 6px; gap: 2px; }
-          [data-one-use-case-alert] > svg { width: 9px; height: 9px; }
+          [data-one-feature-heading] { --foundation-title1-size: 31px; }
+          [data-one-feature-grid] { gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-card] { border-radius: 20px; }
+        }
+        @media (max-width: 300px) {
+          [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
+          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
+          [data-one-feature-title] { font-size: 16px; }
+          [data-one-feature-body] { font-size: 11px; }
+          [data-one-use-case-alert] { font-size: 9px; }
+        }
+        @container (max-width: 420px) {
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 8px;
+            width: 60%;
+            padding: 16px 14px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 3px 9px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            font-size: 19px;
+            line-height: 1.12;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            font-size: 14px;
+            line-height: 1.35;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] {
+            height: 28px;
+            padding-left: 7px;
+            padding-right: 7px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-right: 14px;
+            padding-left: 14px;
+          }
+        }
+        @container (max-width: 310px) {
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 6px;
+            padding: 13px 11px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 3px 7px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            font-size: 17px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            font-size: 12px;
+            line-height: 1.3;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-bottom: 9px;
+            padding-right: 11px;
+            padding-left: 11px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] {
+            height: 24px;
+            gap: 3px;
+            padding-left: 5px;
+            padding-right: 5px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
+            width: 12px;
+            height: 12px;
+          }
+        }
+        @container (max-width: 220px) {
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 6px;
+            padding-top: 10px;
+            padding-left: 12px;
+            padding-right: 10px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 3px 9px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: clamp(15px, calc(5vw - 4.5px), 17px);
+            line-height: 1.12;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title] {
+            letter-spacing: -0.025em;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 13.5px;
+            line-height: 1.3;
+          }
+          [data-one-checkin-pin] {
+            top: 14px;
+            bottom: auto;
+          }
+          [data-one-checkin-art] {
+            bottom: clamp(54px, calc(65vh - 486.6px), 120px);
+          }
+          [data-one-feature-card="sms"] [data-one-feature-art-region] {
+            align-items: flex-start;
+            padding-top: 12px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 28px;
+            padding-left: 7px;
+            padding-right: 7px;
+            font-size: 9px;
+          }
+          [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
+          [data-one-sms-radar] { width: 60px; height: 60px; }
+          [data-one-sms-core] { width: 44px; height: 44px; font-size: 13px; }
+        }
+        @container (max-width: 165px) {
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 4px;
+            padding-top: 8px;
+            padding-left: 7px;
+            padding-right: 5px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 3px 7px;
+            font-size: 10px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: clamp(14px, 9.5cqw, 15px);
+            line-height: 1.08;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title] {
+            letter-spacing: -0.05em;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 12px;
+            line-height: 1.25;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-status-row],
+          [data-one-feature-card="sms"] [data-one-feature-status-row] {
+            padding-right: 6px;
+            padding-bottom: 8px;
+            padding-left: 6px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 24px;
+            gap: 3px;
+            padding-left: 4px;
+            padding-right: 4px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
+            width: 12px;
+            height: 12px;
+          }
+          [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
+          [data-one-checkin-art] { bottom: 36px; width: 52%; }
+          [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
+          [data-one-sms-radar] { width: 40px; height: 40px; }
+          [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
+        }
+        @media (max-width: 431px) and (max-height: 680px) {
+          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-subtitle] {
+            margin-top: 6px;
+            font-size: 13px;
+            line-height: 17px;
+            white-space: nowrap;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
+          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-cta] { padding-top: 8px; }
+          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
+        }
+        @media (max-width: 340px) and (max-height: 680px) {
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
+        }
+        @media (max-width: 365px) and (min-height: 681px) {
+          [data-one-checkin-pin] {
+            bottom: clamp(54px, calc(40vh - 179.4px), 194px);
+          }
+          [data-one-checkin-art] {
+            bottom: clamp(43px, calc(40vh - 218.4px), 155px);
+          }
+        }
+        @media (max-width: 431px) and (max-height: 560px) {
+          [data-one-feature-screen] {
+            padding-top: max(env(safe-area-inset-top, 0px), 4px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
+          }
+          [data-one-onboarding-navigation] { height: 38px; }
+          [data-one-feature-header] { margin-top: 2px; }
+          [data-one-feature-heading] { --foundation-title1-size: 28px; }
+          [data-one-feature-subtitle] {
+            margin-top: 4px;
+            font-size: 11.5px;
+            line-height: 15px;
+          }
+          [data-one-feature-grid] {
+            grid-template-rows: minmax(0, 0.72fr) minmax(0, 1fr);
+            margin-top: 6px;
+            gap: 6px;
+          }
+          [data-one-feature-lower-grid] { gap: 6px; }
+          [data-one-feature-cta] { padding-top: 6px; }
+          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 5px;
+            width: 60%;
+            padding: 9px 9px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-tag] {
+            padding: 2px 7px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title] {
+            font-size: 15.5px;
+            line-height: 1.08;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body] {
+            font-size: 10px;
+            line-height: 1.2;
+          }
+          [data-one-feature-card="share"] [data-one-feature-status-row] {
+            padding-right: 9px;
+            padding-bottom: 6px;
+            padding-left: 9px;
+          }
+          [data-one-share-avatar="2"] { left: 20%; }
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            --one-feature-copy-gap: 4px;
+            padding-top: 7px;
+            padding-left: 6px;
+            padding-right: 5px;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-tag],
+          [data-one-feature-card="sms"] [data-one-use-case-tag] {
+            padding: 2px 6px;
+            font-size: 9px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 13px;
+            line-height: 1.08;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 9.5px;
+            line-height: 1.2;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-status-row],
+          [data-one-feature-card="sms"] [data-one-feature-status-row] {
+            padding-right: 5px;
+            padding-bottom: 6px;
+            padding-left: 5px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert],
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            height: 22px;
+            padding-right: 4px;
+            padding-left: 4px;
+            font-size: 8px;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
+          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
+            width: 11px;
+            height: 11px;
+          }
+          [data-one-checkin-pin] { top: 8px; }
+          [data-one-checkin-art] { bottom: 36px; width: 44%; }
+          [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
+          [data-one-sms-radar] { width: 32px; height: 32px; }
+          [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
         }
       `}</style>
-
     </div>
   );
 }
@@ -951,21 +1410,17 @@ function PeopleScreen({
     );
   };
 
-  const canContinue = !loading && selectedIds.length > 0;
+  const canContinue = !loading;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
-      </header>
+      <OnboardingNavigation
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+        className="px-5 pt-2"
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
         <h1 className="mt-3 text-[34px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
           Add people
@@ -1071,7 +1526,7 @@ function PeopleScreen({
         >
           {selectedIds.length > 0
             ? `${selectedIds.length} selected`
-            : "Select at least one person to continue"}
+            : "Add anyone you'd like — or just continue"}
         </p>
         <PrimaryButton
           onClick={() => onContinue(selectedIds)}
@@ -1091,6 +1546,9 @@ function CircleScreen({
   requestsSending,
   failedCount,
   settlementRetryCount,
+  onBack,
+  onSkip,
+  leaving,
 }: {
   currentUserName: string;
   currentUserPhotoUrl?: string | null;
@@ -1098,6 +1556,9 @@ function CircleScreen({
   requestsSending: boolean;
   failedCount: number;
   settlementRetryCount: number;
+  onBack: () => void;
+  onSkip: () => void;
+  leaving: boolean;
 }) {
   const shown = members.slice(0, 4);
   const positions = [
@@ -1120,8 +1581,15 @@ function CircleScreen({
             : "I've invited your people - I'll tell you when they join.";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),24px)] dark:bg-[#0c1017]">
-      <div className="shrink-0 pt-2 text-left">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]">
+      <OnboardingNavigation
+        floating
+        onBack={onBack}
+        onSkip={onSkip}
+        disabled={leaving}
+        busy={leaving}
+      />
+      <div className="shrink-0 pt-3 text-left" data-one-circle-heading>
         <h1 className="text-[36px] font-bold leading-[1.05] text-[#111823] dark:text-[#f5f7fb]">
           Your circle is ready.
         </h1>
@@ -1182,19 +1650,17 @@ function CircleScreen({
               </span>
             </span>
           ))}
-          <span className="absolute bottom-[-2%] right-[5%] z-10 flex w-[82px] flex-col items-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-dashed border-[#91c8f6] bg-[#e8f5ff] text-[#087ff5] dark:border-[#426b91] dark:bg-[#132c43] dark:text-[#68b5ff]">
-              <UserPlus className="h-7 w-7" strokeWidth={1.8} />
-            </span>
-            <span className="mt-1 text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
-              Add more
-            </span>
-          </span>
         </div>
       </div>
       <style>{`
         @keyframes oneCircleReady { 0%, 100% { opacity: .52; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.02); } }
         @keyframes oneCircleMemberIn { from { opacity: 0; transform: translateY(10px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @media (max-height: 680px) {
+          [data-one-onboarding-navigation] { height: 52px; }
+          [data-one-circle-heading] { padding-top: 6px; }
+          [data-one-circle-heading] h1 { font-size: 31px; }
+          [data-one-circle-heading] p { margin-top: 8px; font-size: 14px; line-height: 20px; }
+        }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
@@ -1223,6 +1689,7 @@ export function OneLocationOnboardingFlow({
   onRetryPeople,
   onSendConnectionRequests,
   onRequestLocation,
+  onLocationReady,
   onRequestNotifications,
   onBack,
   onComplete,
@@ -1241,10 +1708,17 @@ export function OneLocationOnboardingFlow({
   const [failedRequestCount, setFailedRequestCount] = useState(0);
   const [requestsSending, setRequestsSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const requestBatchRef = useRef(0);
+  const requestedConnectionIdsRef = useRef<Set<string>>(new Set());
   const permissionPromptAttemptedRef = useRef(false);
+  const locationPreparationCompleteRef = useRef(false);
+  const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
+  const [locationPreparationBusy, setLocationPreparationBusy] = useState(false);
+  const [locationPreparationRetry, setLocationPreparationRetry] =
+    useState(false);
 
   const locationGranted =
     locationPermission?.state === "granted" &&
@@ -1267,6 +1741,36 @@ export function OneLocationOnboardingFlow({
     onRequestNotifications,
   ]);
 
+  const prepareSavedLocation = useCallback((): Promise<boolean> => {
+    if (!locationGranted) return Promise.resolve(false);
+    if (locationPreparationCompleteRef.current) {
+      return Promise.resolve(true);
+    }
+    if (locationPreparationInFlightRef.current) {
+      return locationPreparationInFlightRef.current;
+    }
+
+    setLocationPreparationBusy(true);
+    setLocationPreparationRetry(false);
+    const attempt = Promise.resolve(onLocationReady())
+      .then((complete) => {
+        locationPreparationCompleteRef.current = complete;
+        setLocationPreparationRetry(!complete);
+        return complete;
+      })
+      .catch(() => {
+        locationPreparationCompleteRef.current = false;
+        setLocationPreparationRetry(true);
+        return false;
+      })
+      .finally(() => {
+        locationPreparationInFlightRef.current = null;
+        setLocationPreparationBusy(false);
+      });
+    locationPreparationInFlightRef.current = attempt;
+    return attempt;
+  }, [locationGranted, onLocationReady]);
+
   useEffect(() => {
     const nextScreen = initialScreen(startAt);
     setScreen(nextScreen);
@@ -1278,25 +1782,41 @@ export function OneLocationOnboardingFlow({
   }, [requestMissingPermissions, startAt]);
 
   useEffect(() => {
+    if (screen !== "features" || !locationGranted) return;
+    void prepareSavedLocation();
+  }, [locationGranted, prepareSavedLocation, screen]);
+
+  useEffect(() => {
     if (screen !== "circle") return;
     const delay = settlementRetryCount === 0 ? 4000 : 3000;
     const timer = window.setTimeout(() => {
       if (completionInFlightRef.current) return;
       completionInFlightRef.current = true;
+      setCompletionBusy(true);
       void Promise.resolve(onComplete()).catch(() => {
         completionInFlightRef.current = false;
+        setCompletionBusy(false);
         setSettlementRetryCount((current) => current + 1);
       });
     }, delay);
     return () => window.clearTimeout(timer);
   }, [onComplete, screen, settlementRetryCount]);
 
-  const runSkip = async () => {
-    if (leaving) return;
+  const runSkip = async (settleCircle = false) => {
+    if (leaving || (settleCircle && completionInFlightRef.current)) return;
+    if (settleCircle) {
+      completionInFlightRef.current = true;
+      setCompletionBusy(true);
+    }
     setLeaving(true);
     try {
       await onSkip();
     } catch {
+      if (settleCircle) completionInFlightRef.current = false;
+      if (settleCircle) {
+        setCompletionBusy(false);
+        setSettlementRetryCount((current) => current + 1);
+      }
       setLeaving(false);
     }
   };
@@ -1316,22 +1836,37 @@ export function OneLocationOnboardingFlow({
     requestMissingPermissions();
   };
 
+  const backFromFeatures = () => {
+    if (startAt === "permissions") {
+      void runBack();
+      return;
+    }
+    setScreen("welcome");
+  };
+
   const continueFromFeatures = () => {
     if (requireLocationToComplete && !locationGranted) {
       void onRequestLocation();
+      return;
+    }
+    if (locationGranted && !locationPreparationCompleteRef.current) {
+      void prepareSavedLocation();
       return;
     }
     setScreen("people");
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
-    if (selectedIds.length === 0) return;
     setSelectedPeopleIds(selectedIds);
     const selectedPeople = people.filter((person) =>
       selectedIds.includes(person.userId),
     );
     const requestIds = selectedPeople
-      .filter((person) => person.relationship === "none")
+      .filter(
+        (person) =>
+          person.relationship === "none" &&
+          !requestedConnectionIdsRef.current.has(person.userId),
+      )
       .map((person) => person.userId);
     const activeIds = new Set(
       connections.map((connection) => connection.userId),
@@ -1351,13 +1886,20 @@ export function OneLocationOnboardingFlow({
     setRequestsSending(requestIds.length > 0);
     setSettlementRetryCount(0);
     completionInFlightRef.current = false;
+    setCompletionBusy(false);
     setScreen("circle");
 
     const batchId = ++requestBatchRef.current;
     if (requestIds.length === 0) return;
+    requestIds.forEach((userId) =>
+      requestedConnectionIdsRef.current.add(userId),
+    );
 
     void onSendConnectionRequests(requestIds)
       .then((result) => {
+        result.failedUserIds.forEach((userId) =>
+          requestedConnectionIdsRef.current.delete(userId),
+        );
         if (requestBatchRef.current !== batchId) return;
         const sentIds = new Set(result.sentUserIds);
         setCircleMembers(
@@ -1370,6 +1912,9 @@ export function OneLocationOnboardingFlow({
         setRequestsSending(false);
       })
       .catch(() => {
+        requestIds.forEach((userId) =>
+          requestedConnectionIdsRef.current.delete(userId),
+        );
         if (requestBatchRef.current !== batchId) return;
         setCircleMembers(
           optimisticMembers.filter((member) => member.status === "connected"),
@@ -1377,6 +1922,14 @@ export function OneLocationOnboardingFlow({
         setFailedRequestCount(requestIds.length);
         setRequestsSending(false);
       });
+  };
+
+  // People is an optional step: "Skip" advances into the flow without adding
+  // anyone (or without changing an existing selection) instead of tearing down
+  // onboarding. It reuses the Continue path, so no requests are sent for an
+  // empty/unchanged selection and all prior onboarding data is preserved.
+  const handlePeopleSkip = () => {
+    handlePeopleContinue(selectedPeopleIds);
   };
 
   return (
@@ -1388,7 +1941,12 @@ export function OneLocationOnboardingFlow({
     >
       <NativeTestBeacon {...nativeTest} />
       <section
-        className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white dark:bg-[#0c1017]"
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          screen === "features"
+            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none"
+            : "max-w-[480px]",
+        )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
         {screen === "welcome" ? (
@@ -1404,9 +1962,11 @@ export function OneLocationOnboardingFlow({
             locationGranted={locationGranted}
             notificationsGranted={notificationsGranted}
             locationBusy={locationBusy}
+            locationPreparationBusy={locationPreparationBusy}
+            locationPreparationRetry={locationPreparationRetry}
             notificationBusy={notificationBusy}
             requireLocationToContinue={requireLocationToComplete}
-            onBack={() => setScreen("welcome")}
+            onBack={backFromFeatures}
             onSkip={() => void runSkip()}
             leaving={leaving}
             onContinue={continueFromFeatures}
@@ -1421,7 +1981,7 @@ export function OneLocationOnboardingFlow({
             initialSelectedIds={selectedPeopleIds}
             onRetry={onRetryPeople}
             onBack={() => setScreen("features")}
-            onSkip={() => void runSkip()}
+            onSkip={handlePeopleSkip}
             leaving={leaving}
             onSelectionChange={setSelectedPeopleIds}
             onContinue={handlePeopleContinue}
@@ -1435,6 +1995,11 @@ export function OneLocationOnboardingFlow({
             requestsSending={requestsSending}
             failedCount={failedRequestCount}
             settlementRetryCount={settlementRetryCount}
+            onBack={() => {
+              if (!completionBusy) setScreen("people");
+            }}
+            onSkip={() => void runSkip(true)}
+            leaving={leaving || completionBusy || requestsSending}
           />
         ) : null}
       </section>

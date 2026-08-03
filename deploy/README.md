@@ -40,11 +40,17 @@ deployed SHA cannot be proven, selection fails closed to the complete suite.
 The same selector produces the `uat-verification-plan` artifact with the
 required/skipped lane reasons; do not reproduce its path policy in another
 workflow or deploy script.
+Changes to the evaluator's own UAT workflow run one synthetic evaluator without
+also selecting the full zero-loss upgrade rehearsal, so the release-control
+path is proven independently.
 For a PKM upgrade release, the hosted structure evaluator uses the
-coverage-balanced `release_chain_24` phase and stops immediately on
-zero-tolerance infrastructure, schema, or domain failures. The 60- and
-120-prompt matrices remain available for offline research and deep rehearsal;
-they are not repeated in the UAT release critical path.
+coverage-balanced `release_chain_24` phase immediately after the backend
+candidate is built and before the frontend build begins. Its model-quality
+result is recorded as a release warning, not a traffic or rollback authority;
+runtime identity, provenance, parity, schema, semantic, reviewer, and passkey
+gates remain blocking. The 60- and 120-prompt matrices remain available for
+offline research and deep rehearsal; they are not repeated in the UAT release
+critical path.
 
 ### Backend Deployment
 
@@ -393,11 +399,12 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 >   `APPSTORE_CONNECT_KEY_ID`, and `APPSTORE_CONNECT_ISSUER_ID` from Secret Manager
 >   (`hushh-pda-uat`) via `GCP_SA_KEY_UAT` to build + sign + upload the UAT build to TestFlight.
 >   Setup + flow: [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
-> - **Production App Store:** `.github/workflows/release-ios-appstore.yml` reads the **same four
->   secret names from the `hushh-pda` (production) project** — plus the production `NEXT_PUBLIC_*`
->   web contract — via **Workload Identity Federation** (`GCP_WORKLOAD_IDENTITY_PROVIDER` +
->   `GCP_DEPLOY_SERVICE_ACCOUNT`, no JSON key). The deploy service account needs
->   `roles/secretmanager.secretAccessor` on each in `hushh-pda`. Setup + flow:
+> - **Public App Store:** `.github/workflows/release-ios-appstore.yml` reads the **same four
+>   secret names — plus the `NEXT_PUBLIC_*` web contract — from the same `hushh-pda-uat` project via
+>   `GCP_SA_KEY_UAT`**, because the public build ships the **UAT backend + UAT Firebase** (the same
+>   latest frontend+backend as TestFlight). It keeps `environment: production` and the production
+>   actor gate (public submission is a production surface) but keeps the production APNs entitlement,
+>   so the UAT Firebase project must hold a production APNs key. Setup + flow:
 >   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
 
 - Do not commit production `GoogleService-Info.plist` or `google-services.json`.

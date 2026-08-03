@@ -232,7 +232,7 @@ export function FeedPage() {
  *  reads as one continuous descending stream, not a stack of cards. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h2 className="sticky top-0 z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
+    <h2 className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
       {children}
     </h2>
   );

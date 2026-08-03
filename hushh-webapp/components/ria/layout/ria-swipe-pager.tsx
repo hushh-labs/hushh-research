@@ -1,34 +1,18 @@
 "use client";
 
 /**
- * RIA sub-agent — Apple-style swipe pager (route-hop model).
+ * RIA onboarding swipe pager.
  *
- * The pinned chrome (top bar + bottom nav + ask-bar) already survives
- * router.push (it's mounted once, globally). This wrapper adds the "content
- * swipes between tabs" half: a horizontal swipe on the RIA content region
- * navigates to the adjacent tab (router.push), so the screen changes while the
- * chrome stays put.
- *
- * Deliberately NOT a co-mounted embla pager: Connect (= /marketplace) is a
- * heavy shared route with its own card-deck swipe, so co-mounting would fire its
- * ~20 network calls everywhere and start a gesture war. Instead each tab stays a
- * real route; this only detects the gesture and hops.
- *
- * Order / adjacency / active index derive from the canonical RIA workspace
- * tabs, so the swipe order always matches the visible top tab bar. Mounted in
- * app/ria/layout.tsx, so it is RIA-scoped by construction and naturally absent
- * on /marketplace (Connect keeps its own swipe).
+ * The shared `TopShellRouteSwipe` owns gestures for the route-backed RIA
+ * workspace tabs. This wrapper remains mounted only to preserve the five-step
+ * onboarding gesture, which emits a local step-navigation event instead of
+ * competing for the same scroll surface.
  */
 
 import { useEffect, type ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
-import {
-  activeRiaRouteTabFromPath,
-  RIA_ROUTE_TABS,
-} from "@/lib/navigation/ria-route-tabs";
 import { isRiaOnboardingRoute } from "@/lib/navigation/routes";
-import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 
 const AXIS_LOCK_THRESHOLD_PX = 6;
 const VERTICAL_LIMIT_PX = 64;
@@ -70,26 +54,17 @@ function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
 }
 
 export function RiaSwipePager({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
     if (typeof document === "undefined") return;
+    if (!isRiaOnboardingRoute(pathname)) return;
     // Onboarding is a 5-step wizard inside the pinned chrome. A horizontal swipe
-    // must page the STEPS (not hop tabs, which would eject to /ria/clients). On
-    // onboarding we emit a step-nav event the onboarding page listens for;
-    // everywhere else the swipe hops to the adjacent tab.
-    const onboarding = isRiaOnboardingRoute(pathname);
+    // must page its steps. Route-backed RIA tabs use TopShellRouteSwipe.
 
     const swipeSurface: Document | HTMLElement =
       document.querySelector<HTMLElement>("[data-app-scroll-root='true']") ??
       document;
-
-    const activeTab = activeRiaRouteTabFromPath(pathname || "/ria");
-    const activeIndex = Math.max(
-      0,
-      RIA_ROUTE_TABS.findIndex((tab) => tab.id === activeTab),
-    );
 
     let startX: number | null = null;
     let startY: number | null = null;
@@ -175,17 +150,9 @@ export function RiaSwipePager({ children }: { children: ReactNode }) {
       }
 
       const direction = deltaX < 0 ? 1 : -1;
-      if (onboarding) {
-        // Page the wizard steps; the onboarding page advances/goes back.
-        window.dispatchEvent(
-          new CustomEvent("ria-onboarding-swipe", { detail: { direction } }),
-        );
-        return;
-      }
-      const target = RIA_ROUTE_TABS[activeIndex + direction];
-      if (!target) return;
-      scrollAppToTop("auto");
-      router.push(target.href);
+      window.dispatchEvent(
+        new CustomEvent("ria-onboarding-swipe", { detail: { direction } }),
+      );
     };
 
     const startListener: EventListener = (e) => onStart(e as TouchEvent);
@@ -208,7 +175,7 @@ export function RiaSwipePager({ children }: { children: ReactNode }) {
       swipeSurface.removeEventListener("touchend", endListener);
       swipeSurface.removeEventListener("touchcancel", cancelListener);
     };
-  }, [pathname, router]);
+  }, [pathname]);
 
   return <>{children}</>;
 }

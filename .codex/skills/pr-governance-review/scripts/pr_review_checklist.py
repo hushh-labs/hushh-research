@@ -258,7 +258,7 @@ FOUNDER_WIKI_PROBE_KEYWORDS = (
     "vault",
     "consent",
     "privacy",
-    "personal agent",
+    "private agent",
     "personal operating layer",
     "aha moment",
     "ibrokerage",
@@ -3002,7 +3002,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
         }
         changed_file_set = set(files)
         if changed_file_set & identity_runtime_files and (
-            "one is the top personal agent" in voice_text
+            "one is the top private agent" in voice_text
             or "app_name" in voice_text and "one" in voice_text
             or "kai is the app" in voice_text
         ):

@@ -87,16 +87,10 @@ export interface MarketplaceInvestor {
 }
 
 export type MarketplaceInvestorActionName =
-  | "view_more"
-  | "pass"
-  | "shortlist"
-  | "connect_request";
+  "view_more" | "pass" | "shortlist" | "connect_request";
 
 export type MarketplaceInvestorActionStatus =
-  | "viewed"
-  | "passed"
-  | "shortlisted"
-  | "connect_requested";
+  "viewed" | "passed" | "shortlisted" | "connect_requested";
 
 export interface MarketplaceInvestorActionRecord {
   id: string;
@@ -1007,7 +1001,6 @@ export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
 
-
   private static logRequest(
     stage: string,
     detail: Record<string, unknown>,
@@ -1072,7 +1065,10 @@ export class RiaService {
     // Drop the write-back if this user's RIA caches were invalidated (delete /
     // switch / marketplace) after this fetch was dispatched — otherwise a stale
     // in-flight response repopulates a just-cleared profile across all tiers.
-    if (params.userId && currentRiaInvalidationEpoch(params.userId) !== epochAtStart) {
+    if (
+      params.userId &&
+      currentRiaInvalidationEpoch(params.userId) !== epochAtStart
+    ) {
       this.logRequest("write_skipped_stale_epoch", {
         label: params.resourceLabel,
         cacheKey: params.cacheKey,
@@ -1389,7 +1385,9 @@ export class RiaService {
       idToken,
       body: payload,
     });
-    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(response);
+    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(
+      response,
+    );
     return parsed.items || [];
   }
 
@@ -2047,10 +2045,10 @@ export class RiaService {
 
     if (!params.vaultKey || !params.vaultOwnerToken) {
       const lockedPayload: RiaPicksResponse = {
-        package:
-          bootstrapMetadata.storage_source === "legacy"
-            ? bootstrapPackage
-            : emptyRiaPickPackage(),
+        // Picks are owner-encrypted information. Bootstrap intentionally
+        // carries summary metadata only; never revive a legacy package while
+        // the vault is locked.
+        package: emptyRiaPickPackage(),
         metadata: bootstrapMetadata,
       };
       return this.writeCached(cacheKey, lockedPayload, CACHE_TTL.SHORT);
@@ -2083,13 +2081,14 @@ export class RiaService {
         return this.writeCached(cacheKey, payload, CACHE_TTL.SHORT);
       }
     } catch {
-      // Fall through to bootstrap/legacy seed.
+      // The PKM read is unavailable. Keep the screen truthful rather than
+      // surfacing a legacy or server-provided package as a fallback.
     }
 
     return this.writeCached(
       cacheKey,
       {
-        package: bootstrapPackage,
+        package: emptyRiaPickPackage(),
         metadata: bootstrapMetadata,
       },
       CACHE_TTL.SHORT,
@@ -2175,7 +2174,6 @@ export class RiaService {
         screening_sections: nextPackage.screening_sections,
         source_data_version: result.dataVersion,
         source_manifest_revision: undefined,
-        retire_legacy: true,
       },
     });
     const synced = await toJsonOrThrow<RiaPicksResponse>(shareSyncResponse);

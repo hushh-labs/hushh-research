@@ -160,6 +160,30 @@ describe("observability schema", () => {
     expect(result.sanitized.cache_tier).toBe("secure_device");
   });
 
+  it("accepts agent PKM reliability metadata without decrypted facts", () => {
+    const result = validateAndSanitizeEvent("agent_pkm_context_resolved", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      route_id: "agent",
+      result: "success",
+      context_mode: "relevant",
+      total_fact_count_bucket: "50_249",
+      selected_fact_count_bucket: "10_49",
+      context_clipped: false,
+      inventory_only: false,
+      safety_omitted: true,
+      duration_ms_bucket: "300ms_1s",
+      pkm_payload: "never send decrypted PKM facts to analytics",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("pkm_payload");
+    expect(result.sanitized.context_mode).toBe("relevant");
+    expect(result.sanitized.total_fact_count_bucket).toBe("50_249");
+  });
+
   it("drops sensitive fields from cache performance events", () => {
     const result = validateAndSanitizeEvent("cache_resource_resolved", {
       env: "uat",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AppPageContentRegion,
@@ -9,11 +9,17 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import {
+  ConnectedSystemLogo,
+  ConnectedSystemsPanel,
+  crmTypeDisplayLabel,
+} from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import type { ConnectedSystemAgentInstruction } from "@/components/profile/connected-systems-panel";
+import type { ConnectedSystemSummary } from "@/lib/services/connected-systems-service";
+import { publishConnectedSystemPresentation } from "@/lib/navigation/connected-system-presentation";
 
 export function ConnectedSystemDetailClient({
   systemId,
@@ -26,6 +32,20 @@ export function ConnectedSystemDetailClient({
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
+  const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
+  const handleSystemResolved = useCallback(
+    (resolvedSystem: ConnectedSystemSummary) => {
+      setSystem(resolvedSystem);
+      publishConnectedSystemPresentation({
+        systemId: resolvedSystem.systemId,
+        label:
+          resolvedSystem.displayName ||
+          resolvedSystem.customerDisplayName ||
+          "CRM",
+      });
+    },
+    [],
+  );
   const [agentInstruction] = useState<ConnectedSystemAgentInstruction | null>(() => {
     if (typeof window === "undefined") return null;
     const instructionId = searchParams.get("agentActionId");
@@ -64,8 +84,12 @@ export function ConnectedSystemDetailClient({
       />
       <AppPageHeaderRegion>
         <PageHeader
-          title="Connected system"
-          description="Find, create, and manage the profile linked to this CRM."
+          title={system?.displayName || system?.customerDisplayName || "CRM"}
+          description={crmTypeDisplayLabel(system) || "CRM"}
+          actions={
+            system ? <ConnectedSystemLogo system={system} size="hero" /> : null
+          }
+          actionsInlineMobile
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -76,6 +100,7 @@ export function ConnectedSystemDetailClient({
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
           systemId={systemId}
+          onSystemResolved={handleSystemResolved}
           agentInstruction={agentInstruction}
           profile={{
             displayName: user?.displayName,

@@ -15,7 +15,6 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Bot,
   Check,
   ChevronRight,
   Copy,
@@ -35,6 +34,7 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
   SpecialistConsentActionsCard,
@@ -58,6 +58,10 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import {
+  getWelcomePromptSetIndex,
+  getWelcomePrompts,
+} from "@/lib/agent/agent-welcome-prompts";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
@@ -70,6 +74,7 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
+  getPkmAutoSaveCards,
   getPkmConfirmationCards,
   getIgnoredPkmCards,
   loadAgentPkmContext,
@@ -80,6 +85,11 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import {
+  DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
+  loadAgentPkmAutoSavePolicy,
+  type AgentPkmAutoSavePolicy,
+} from "@/lib/agent/agent-pkm-auto-save-policy";
+import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
@@ -88,6 +98,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import {
   isAgentGeminiVoiceEnabled,
@@ -231,18 +242,25 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hi, I'm One \u2014 your private agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a memory",
-  "Explain consent flows",
-] as const;
-
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
   domains: [],
   totalAttributes: 0,
   updatedAt: null,
 };
+
+function toPkmFactCountBucket(count: number):
+  | "none"
+  | "1_9"
+  | "10_49"
+  | "50_249"
+  | "250_plus" {
+  if (count <= 0) return "none";
+  if (count < 10) return "1_9";
+  if (count < 50) return "10_49";
+  if (count < 250) return "50_249";
+  return "250_plus";
+}
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 function getConsentRequiredPayload(
@@ -504,25 +522,6 @@ function markConsentDirectiveItemRevoked(
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-async function withDeadline<T>(
-  promise: Promise<T>,
-  timeoutMs: number
-): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      promise.then((value) => ({ timedOut: false as const, value })),
-      new Promise<{ timedOut: true }>((resolve) => {
-        timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
-
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
@@ -583,10 +582,12 @@ function formatAgentDisplayName(displayName?: string | null, email?: string | nu
 
 function AgentWelcomePanel({
   name,
+  prompts,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  prompts: readonly string[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
@@ -603,7 +604,7 @@ function AgentWelcomePanel({
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {prompts.map((prompt) => (
             <button
               key={prompt}
               type="button"
@@ -827,9 +828,14 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
+  const hasStreamContent =
+    streamEvents.length > 0 ||
+    Boolean(message.thought?.trim()) ||
+    Boolean(message.sources?.length) ||
+    Boolean(message.text.trim());
   const shouldRenderStreamPanel =
     !isUser &&
-    (isStreaming || streamEvents.length > 0 || Boolean(message.thought));
+    hasStreamContent;
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -873,15 +879,10 @@ function AgentBubble({
   return (
     <div
       className={cn(
-        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+        "motion-step-enter flex w-full",
         isUser ? "justify-end" : "justify-start"
       )}
     >
-      {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground sm:grid">
-          <Bot className="h-3.5 w-3.5" />
-        </div>
-      ) : null}
       <div
         className={cn(
           "min-w-0",
@@ -910,6 +911,7 @@ function AgentBubble({
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
               thinkingText={message.thought}
+              sources={message.sources}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -924,32 +926,6 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
-        {!isUser && message.sources && message.sources.length > 0 ? (
-          <nav
-            aria-label="Sources"
-            className="mt-2 flex flex-wrap items-center gap-1.5"
-          >
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Sources
-            </span>
-            {message.sources.map((source) => (
-              <span
-                key={source.agentId}
-                title={source.reason || undefined}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-black/10 bg-background/70 px-2 py-0.5 text-[11px] dark:border-white/10"
-              >
-                <span className="font-semibold text-foreground">
-                  {source.label}
-                </span>
-                {source.reason ? (
-                  <span className="max-w-[13rem] truncate text-muted-foreground">
-                    {source.reason}
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </nav>
-        ) : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
@@ -1197,6 +1173,9 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  const [pkmAutoSavePolicy, setPkmAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
+    DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY
+  );
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1214,6 +1193,7 @@ export function AgentChatWorkspace({
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
   const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
+  const [welcomePromptSetIndex, setWelcomePromptSetIndex] = useState(0);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
@@ -1223,10 +1203,12 @@ export function AgentChatWorkspace({
   const historyDrawerRef = useRef<HTMLDivElement | null>(null);
   const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
+  const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const agentTurnSubmitLockRef = useRef(false);
+  const savingPkmReviewIdsRef = useRef<Set<string>>(new Set());
   const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
@@ -1278,6 +1260,28 @@ export function AgentChatWorkspace({
     }
     clearAgentPkmContext(user?.uid);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      return undefined;
+    }
+    void loadAgentPkmAutoSavePolicy({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((policy) => {
+        if (!cancelled) setPkmAutoSavePolicy(policy);
+      })
+      .catch(() => {
+        if (!cancelled) setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -1580,6 +1584,17 @@ export function AgentChatWorkspace({
     return () => unsubscribe();
   }, [user?.uid]);
 
+  const welcomePrompts = useMemo(
+    () => getWelcomePrompts(welcomePromptSetIndex, { hasPortfolioData }),
+    [hasPortfolioData, welcomePromptSetIndex],
+  );
+
+  useEffect(() => {
+    if (welcomePromptSetInitializedRef.current) return;
+    welcomePromptSetInitializedRef.current = true;
+    setWelcomePromptSetIndex(getWelcomePromptSetIndex(null));
+  }, []);
+
   useEffect(() => {
     abortAgentTurnWork();
     setIsChatLoading(false);
@@ -1621,6 +1636,7 @@ export function AgentChatWorkspace({
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
+    setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
   }, [abortAgentTurnWork]);
 
   const updateMessage = (
@@ -2060,14 +2076,16 @@ export function AgentChatWorkspace({
   );
 
   const handleSavePkmReview = useCallback(
-    async (reviewId: string) => {
+    (reviewId: string) => {
+      if (savingPkmReviewIdsRef.current.has(reviewId)) return;
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
-        toast.error("Unlock your vault before saving to PKM.");
+        toast.error("Unlock your vault before saving to Memory.");
         return;
       }
 
+      savingPkmReviewIdsRef.current.add(reviewId);
       setPkmReviews((current) =>
         current.map((item) => (item.id === reviewId ? { ...item, saving: true } : item))
       );
@@ -2077,63 +2095,203 @@ export function AgentChatWorkspace({
         candidate_count: review.cards.length,
       });
 
-      try {
-        const result = await addToPKM({
-          userId: user.uid,
-          cards: review.cards,
-          sourceMessage: review.sourceMessage,
-          vaultKey,
-          vaultOwnerToken: token,
-          source: "agent_chat_review",
-          confirmation: {
-            confirmedByUser: true,
-            surface: "chat",
-            source: "agent_chat_review_button",
-            sharingImpactAcknowledged: review.cards.some(
+      const saveInBackground = async () => {
+        try {
+          const result = await addToPKM({
+            userId: user.uid,
+            cards: review.cards,
+            sourceMessage: review.sourceMessage,
+            vaultKey,
+            vaultOwnerToken: token,
+            source: "agent_chat_review",
+            confirmation: {
+              confirmedByUser: true,
+              surface: "chat",
+              source: "agent_chat_review_button",
+              sharingImpactAcknowledged: review.cards.some(
+                (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+              ),
+            },
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", result);
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent",
+            result: result.saved > 0 ? "success" : "expected_error",
+            saved_count_bucket: toPkmFactCountBucket(result.saved),
+            failed_count_bucket: toPkmFactCountBucket(result.failed),
+            has_active_recipients: review.cards.some(
               (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
             ),
-          },
-        });
-        appendDebugEvent(review.turnId, "pkm_review_save_result", result);
-        if (result.saved > 0) {
-          setPkmActivity((current) => [
-            ...current.slice(-4),
-            {
-              id: `pkm-review-saved-${Date.now()}`,
-              text: formatAgentPkmSaveSummary(result),
-              status: "done",
-            },
-          ]);
-          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
-          void loadAgentPkmContext({
-            userId: user.uid,
-            vaultOwnerToken: token!,
-            vaultKey,
-            forceRefresh: true,
-          }).catch(() => undefined);
-          toast.success("Saved to PKM.");
-          return;
-        }
+          });
+          if (result.saved > 0) {
+            const saveReceipt = formatAgentPkmSaveSummary(result);
+            setMessages((current) => [
+              ...current,
+              {
+                id: `pkm-save-receipt-${Date.now()}`,
+                role: "assistant",
+                text: saveReceipt,
+                timestamp: formatNow(),
+                status: "done",
+              },
+            ]);
+            setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+            void loadAgentPkmContext({
+              userId: user.uid,
+              vaultOwnerToken: token,
+              vaultKey,
+              forceRefresh: true,
+            }).catch(() => undefined);
+            toast.success("Saved to Memory.");
+            return;
+          }
 
-        setPkmReviews((current) =>
-          current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
-        );
-        toast.error(formatAgentPkmSaveSummary(result));
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Failed to save PKM memory.";
-        appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
-        setPkmReviews((current) =>
-          current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
-        );
-        toast.error(message);
-      } finally {
-        setActivePkmToolCount((count) => Math.max(0, count - 1));
-      }
+          setPkmReviews((current) =>
+            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+          );
+          toast.error(formatAgentPkmSaveSummary(result));
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Failed to save this memory.";
+          appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent",
+            result: "error",
+            saved_count_bucket: "none",
+            failed_count_bucket: toPkmFactCountBucket(review.cards.length),
+            has_active_recipients: review.cards.some(
+              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+            ),
+          });
+          setPkmReviews((current) =>
+            current.map((item) => (item.id === reviewId ? { ...item, saving: false } : item))
+          );
+          toast.error(message);
+        } finally {
+          savingPkmReviewIdsRef.current.delete(reviewId);
+          setActivePkmToolCount((count) => Math.max(0, count - 1));
+        }
+      };
+
+      window.setTimeout(() => {
+        void saveInBackground();
+      }, 0);
     },
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey]
+  );
+
+  const saveEligiblePkmCardsInBackground = useCallback(
+    (params: {
+      turnId: string;
+      sourceMessage: string;
+      cards: AgentPkmPreviewCard[];
+      policy: AgentPkmAutoSavePolicy;
+    }) => {
+      const token = getVaultOwnerToken();
+      const autoSavePolicyEnabledAt = params.policy.enabledAt;
+      if (
+        !user?.uid ||
+        !vaultKey ||
+        !token ||
+        !params.policy.enabled ||
+        !autoSavePolicyEnabledAt ||
+        params.cards.length === 0
+      ) {
+        return;
+      }
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(params.turnId, "pkm_auto_save_start", {
+        candidate_count: params.cards.length,
+        policy_version: params.policy.version,
+      });
+
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            const result = await addToPKM({
+              userId: user.uid,
+              cards: params.cards,
+              sourceMessage: params.sourceMessage,
+              vaultKey,
+              vaultOwnerToken: token,
+              source: "agent_chat_auto_save",
+              confirmation: {
+                authorizationMode: "owner_auto_save_policy",
+                surface: "chat",
+                source: "agent_chat_auto_save_policy",
+                autoSavePolicyVersion: params.policy.version,
+                autoSavePolicyEnabledAt,
+              },
+            });
+            appendDebugEvent(params.turnId, "pkm_auto_save_result", result);
+            trackEvent("agent_pkm_save_confirmation_completed", {
+              route_id: "agent",
+              result: result.saved > 0 ? "success" : "expected_error",
+              saved_count_bucket: toPkmFactCountBucket(result.saved),
+              failed_count_bucket: toPkmFactCountBucket(result.failed),
+              has_active_recipients: false,
+            });
+            if (result.saved > 0) {
+              setMessages((current) => [
+                ...current,
+                {
+                  id: `pkm-auto-save-receipt-${Date.now()}`,
+                  role: "assistant",
+                  text: formatAgentPkmSaveSummary(result),
+                  timestamp: formatNow(),
+                  status: "done",
+                },
+              ]);
+              void loadAgentPkmContext({
+                userId: user.uid,
+                vaultOwnerToken: token,
+                vaultKey,
+                forceRefresh: true,
+              }).catch(() => undefined);
+            }
+            if (result.failed > 0) {
+              const failedIds = new Set(
+                result.results.filter((item) => !item.success).map((item) => item.cardId)
+              );
+              const failedCards = params.cards.filter((card) => failedIds.has(card.card_id));
+              if (failedCards.length > 0) {
+                setPkmReviews((current) => {
+                  const existing = current.find((review) => review.turnId === params.turnId);
+                  if (!existing) {
+                    return [
+                      ...current,
+                      {
+                        id: `${params.turnId}-pkm-review`,
+                        turnId: params.turnId,
+                        sourceMessage: params.sourceMessage,
+                        cards: failedCards,
+                        saving: false,
+                      },
+                    ];
+                  }
+                  const cards = [...existing.cards, ...failedCards].filter(
+                    (card, index, all) =>
+                      all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+                  );
+                  return current.map((review) =>
+                    review.id === existing.id ? { ...review, cards } : review
+                  );
+                });
+              }
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Automatic memory saving failed.";
+            appendDebugEvent(params.turnId, "pkm_auto_save_failed", { message });
+          } finally {
+            setActivePkmToolCount((count) => Math.max(0, count - 1));
+          }
+        })();
+      }, 0);
+    },
+    [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey]
   );
 
   const runAgentTurn = async (
@@ -2276,7 +2434,7 @@ export function AgentChatWorkspace({
           reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
         return;
       }
 
@@ -2291,7 +2449,7 @@ export function AgentChatWorkspace({
         current_domains: turnPkmContext.domains,
         source_text: sourceText,
       });
-      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+      upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2329,24 +2487,24 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
 
         if (confirmationCards.length === 0) {
-          upsertPkmStatusMessage("I didn't find durable PKM memory to save from that.", "done");
+          upsertPkmStatusMessage("I didn't find a memory to save from that.", "done");
         }
       } catch (error) {
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not save that PKM memory.";
+            : "One could not save that memory.";
         appendDebugEvent(debugTurnId, "pkm_tool_failed", {
           message,
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+        upsertPkmStatusMessage("One could not save that memory.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -2368,7 +2526,7 @@ export function AgentChatWorkspace({
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: "PKM review prepared.",
+          resultSummary: "Memory review prepared.",
         };
       }
 
@@ -2540,7 +2698,7 @@ export function AgentChatWorkspace({
         execution: "frontend",
         current_domains: pkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking whether this belongs in PKM...", "streaming");
+      upsertPkmStatusMessage("Checking whether this belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2551,13 +2709,22 @@ export function AgentChatWorkspace({
         });
         if (signal.aborted) return;
         const cards = preview.cards;
-        const confirmationCards = getPkmConfirmationCards(cards);
+        const autoSaveCards = getPkmAutoSaveCards(cards);
+        const confirmationCards = [
+          ...getPkmConfirmationCards(cards),
+          ...(pkmAutoSavePolicy.enabled ? [] : autoSaveCards),
+        ].filter(
+          (card, index, all) =>
+            all.findIndex((candidate) => candidate.card_id === card.card_id) === index
+        );
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
           model: preview.model,
           used_fallback: preview.used_fallback,
           total_cards: cards.length,
+          auto_save_count: autoSaveCards.length,
+          auto_save_enabled: pkmAutoSavePolicy.enabled,
           confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
           preview_summary: preview.preview_summary || null,
@@ -2581,7 +2748,7 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
@@ -2589,16 +2756,24 @@ export function AgentChatWorkspace({
         if (confirmationCards.length === 0) {
           upsertPkmStatusMessage("", "done");
         }
+        if (pkmAutoSavePolicy.enabled && autoSaveCards.length > 0) {
+          saveEligiblePkmCardsInBackground({
+            turnId: debugTurnId,
+            sourceMessage: text,
+            cards: autoSaveCards,
+            policy: pkmAutoSavePolicy,
+          });
+        }
       } catch (error) {
         if (signal.aborted) return;
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not update PKM memory for this turn.";
+            : "One could not update Memory for this message.";
         appendDebugEvent(debugTurnId, "pkm_memory_failed", {
           message,
         });
-        upsertPkmStatusMessage("Agent could not update PKM memory for this turn.", "error");
+        upsertPkmStatusMessage("One could not update Memory for this message.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -2639,6 +2814,11 @@ export function AgentChatWorkspace({
     setIsStreaming(true);
 
     if (!token) {
+      trackEvent("agent_pkm_context_unavailable", {
+        route_id: "agent",
+        result: "expected_error",
+        reason: "vault_locked",
+      });
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: "Vault access expired. Unlock again to continue.",
@@ -2654,9 +2834,12 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
     let specialistDirectiveReceived = false;
+    const pkmContextStartedAt = performance.now();
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
-      if (!vaultKey) return EMPTY_PKM_CONTEXT;
+      if (!vaultKey) {
+        throw new Error("Your vault must remain unlocked while One prepares your private memory.");
+      }
 
       const cachedContext = peekAgentPkmContext({
         userId,
@@ -2672,52 +2855,19 @@ export function AgentChatWorkspace({
         return cachedContext;
       }
 
-      // Do not hold the first user turn behind a full encrypted PKM blob. The
-      // unlock warmer continues loading the richer memory-only working set;
-      // an interactive turn may use compact metadata when it arrives inside a
-      // short budget. PKM capture/review remains semantic and confirmation
-      // gated after the response, never a lexical action shortcut.
-      const fullWarmup = warmAgentPkmContext({
+      // A warm cache returns immediately. A cold unlocked turn waits for the
+      // local decrypted inventory instead of substituting metadata or sending
+      // an empty prompt to One.
+      const context = await loadAgentPkmContext({
         userId,
         vaultOwnerToken: token,
         vaultKey,
-      });
-      const metadataPreflight = loadAgentPkmContext({
-        userId,
-        vaultOwnerToken: token,
         message: text,
-        metadataOnly: true,
       });
-      const deadlineMs = 100;
-      const result = await withDeadline(metadataPreflight, deadlineMs);
-      if (!result.timedOut) {
-        appendDebugEvent(debugTurnId, "pkm_context_metadata_preflight", {
-          deadline_ms: deadlineMs,
-          domain_count: result.value.domains.length,
-          total_attributes: result.value.totalAttributes,
-        });
-        return result.value;
+      if (!context.text) {
+        throw new Error("One could not prepare your private memory for this turn. Please try again.");
       }
-
-      appendDebugEvent(debugTurnId, "pkm_context_deferred_for_turn_latency", {
-        deadline_ms: deadlineMs,
-        turn_source: options.source,
-      });
-      void fullWarmup
-        .then(() => {
-          appendDebugEvent(debugTurnId, "pkm_context_background_warm_ready", {
-            turn_source: options.source,
-          });
-        })
-        .catch((error) => {
-          appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
-            message:
-              error instanceof Error && error.message
-                ? error.message
-                : "Failed to refresh PKM context in the background.",
-          });
-        });
-      return EMPTY_PKM_CONTEXT;
+      return context;
     };
 
     try {
@@ -2730,6 +2880,18 @@ export function AgentChatWorkspace({
           return;
         }
         if (agentPkmContext.text) {
+          const coverage = agentPkmContext.coverage;
+          trackEvent("agent_pkm_context_resolved", {
+            route_id: "agent",
+            result: "success",
+            context_mode: agentPkmContext.mode === "broad" ? "broad" : "relevant",
+            total_fact_count_bucket: toPkmFactCountBucket(coverage?.totalFactCount || 0),
+            selected_fact_count_bucket: toPkmFactCountBucket(coverage?.selectedFactCount || 0),
+            context_clipped: coverage?.clipped === true,
+            inventory_only: coverage?.inventoryOnly === true,
+            safety_omitted: (coverage?.safetyOmittedNodeCount || 0) > 0,
+            duration_ms_bucket: toDurationBucket(performance.now() - pkmContextStartedAt),
+          });
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
             domain_count: agentPkmContext.domains.length,
             total_attributes: agentPkmContext.totalAttributes,
@@ -2737,15 +2899,30 @@ export function AgentChatWorkspace({
             source: agentPkmContext.source || "metadata",
             mode: agentPkmContext.mode || "summary",
             updated_at: agentPkmContext.updatedAt,
+            coverage: agentPkmContext.coverage,
           });
         }
       } catch (error) {
+        trackEvent("agent_pkm_context_unavailable", {
+          route_id: "agent",
+          result: "error",
+          reason: vaultKey ? "load_failed" : "vault_locked",
+        });
         appendDebugEvent(debugTurnId, "pkm_context_load_failed", {
           message:
             error instanceof Error && error.message
               ? error.message
-              : "Failed to load compact PKM context.",
+              : "Failed to load private PKM context.",
         });
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
+          status: "error",
+          streamEvents: [],
+        }));
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        return;
       }
 
       const runtimeConnection = await resolveGeminiRuntimeConnection({
@@ -3579,10 +3756,9 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          // On phones the popover is a full-bleed immersive sheet, so the inner
-          // content must reach every edge (no surrounding padding gap). The
-          // inset padding only applies to the floating windowed card at >=sm.
-          isPopover ? "overflow-hidden p-0 sm:p-3" : "overflow-hidden"
+          // The popover and page both use one continuous workspace surface.
+          // The outer popover owns its floating frame; no inner card is allowed.
+          "overflow-hidden"
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -3619,11 +3795,7 @@ export function AgentChatWorkspace({
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            // Rounded card framing is only for the floating windowed popover at
-            // >=sm. On phones the sheet is edge-to-edge, so no rounding/border.
-            isPopover &&
-              "sm:rounded-lg sm:border sm:border-border sm:shadow-sm"
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -3643,28 +3815,26 @@ export function AgentChatWorkspace({
           >
             <div className="flex min-w-0 items-center gap-3">
               {isPopover && onMinimize ? (
-                <button
-                  type="button"
+                <ShellActionSurface
+                  variant="icon"
                   onClick={onMinimize}
                   aria-label="Back"
                   title="Back"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/70 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:hidden"
+                  className="sm:hidden"
                 >
                   <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
-                </button>
+                </ShellActionSurface>
               ) : null}
               {!isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted lg:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
                 >
                   <Menu className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[color:var(--app-accent-border)]">
                 <Image
@@ -3692,30 +3862,26 @@ export function AgentChatWorkspace({
                 {statusText}
               </span>
               {isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-full bg-muted text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="sm:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
                 >
                   <Menu className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               {!isPopover ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                <ShellActionSurface
+                  variant="icon"
+                  className="lg:hidden"
                   onClick={handlePageMinimize}
                   aria-label="Minimize Agent"
                   title="Minimize Agent"
                 >
                   <Minus className="h-4 w-4" />
-                </Button>
+                </ShellActionSurface>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
             </div>
@@ -3727,7 +3893,7 @@ export function AgentChatWorkspace({
               isPopover ? "pb-4" : "pb-6 lg:px-8"
             )}
           >
-            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/35 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
@@ -3748,6 +3914,7 @@ export function AgentChatWorkspace({
               {!hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
+                  prompts={welcomePrompts}
                   disabled={isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
@@ -4269,9 +4436,9 @@ export function AgentChatWorkspace({
                 : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]"
             )}
           >
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto w-full max-w-4xl">
               {voiceActive ? (
-                <div className="rounded-2xl border border-black/10 bg-[#f5f5f7] p-2 shadow-lg shadow-black/[0.06] dark:border-white/10 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] p-2 shadow-[var(--app-card-shadow-standard)]">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -4282,7 +4449,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="flex min-h-14 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message One"
@@ -4300,7 +4467,7 @@ export function AgentChatWorkspace({
                     disabled={isLoadingHistory || isVoiceConnecting}
                     placeholder="Message One..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
                   />
                   {agentVoiceEnabled ? (
                     <Button

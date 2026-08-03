@@ -237,10 +237,6 @@ function buildDecisionProjection(historyMap: AnalysisHistoryMap): Array<Record<s
     created_at: entry.timestamp,
     metadata: {
       consensus_reached: entry.consensus_reached,
-      final_statement: entry.final_statement,
-      agent_votes: entry.agent_votes,
-      stream_id: extractStreamId(entry),
-      debate_run_id: extractRunId(entry),
       source: "analysis_history",
     },
   }));

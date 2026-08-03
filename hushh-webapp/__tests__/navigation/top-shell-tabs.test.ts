@@ -74,7 +74,11 @@ describe("top shell contextual tabs", () => {
     expect(resolveTopShellTabSet("/ria")).toMatchObject({
       id: "ria",
       label: "RIA workspace",
-      activeValue: "home",
+      activeValue: "profile",
+    });
+    expect(resolveTopShellTabSet("/ria/profile")).toMatchObject({
+      id: "ria",
+      activeValue: "profile",
     });
     expect(resolveTopShellTabSet("/ria/clients")).toMatchObject({
       id: "ria",
