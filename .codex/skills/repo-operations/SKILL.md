@@ -48,17 +48,18 @@ Non-owned surfaces:
 1. `docs/reference/operations/README.md`
 2. `docs/reference/operations/ci.md`
 3. `docs/reference/operations/branch-governance.md`
-4. `.codex/skills/repo-operations/references/branch-runtime-ops.md`
-5. `.codex/skills/repo-operations/references/maintainer-branch-freshness.md`
-6. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
-7. `.codex/skills/repo-operations/references/anti-rationalization.md`
+4. `.codex/skills/repo-operations/references/admin-release-sop.md`
+5. `.codex/skills/repo-operations/references/branch-runtime-ops.md`
+6. `.codex/skills/repo-operations/references/maintainer-branch-freshness.md`
+7. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
+8. `.codex/skills/repo-operations/references/anti-rationalization.md`
 
 ## Workflow
 
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
 3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
-4. For PR work, verify pre-PR, DCO, current head SHA, required gates, queue state, and post-merge smoke.
+4. For merge or deploy work, follow `admin-release-sop.md` as the single state machine; verify pre-PR, DCO, current head SHA, required gates, queue state, landed SHA, post-merge smoke, and requested environment separately.
 5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done.
 6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
 7. For DB migration/contract changes, run the DB release gate before calling UAT ready.

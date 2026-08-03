@@ -2,27 +2,29 @@
 
 ## Scope Decision
 
-Use the smallest deploy scope that covers the diff.
+Default to `scope=auto`, which compares the target SHA with each service's
+currently deployed SHA and covers accumulated changes when UAT lags multiple
+merges. Record both requested and resolved scope.
 
-1. `frontend`: `hushh-webapp`, Next.js routes, auth gates, UI, frontend env, or frontend Cloud Build only.
-2. `backend`: `consent-protocol`, API behavior, migrations, backend env, or backend Cloud Build only.
-3. `all`: shared deploy contracts, both runtime images, schema plus UI changes, or unknown cross-surface risk.
+Forced overrides require target-to-deployed-service delta proof:
 
-If a previous run accidentally used `scope=all`, name that as evidence drift and trigger the next run with the exact scope.
+1. `frontend`: every accumulated runtime change is frontend-only.
+2. `backend`: every accumulated runtime change is backend-only.
+3. `all`: both runtimes, shared deploy contracts, schema plus UI, or unknown cross-surface risk.
+
+If a previous run used an unjustified forced override, name that as evidence drift and return the next run to `scope=auto` (or provide complete target-to-deployed-service delta proof for another override).
 
 ## Deploy Command
 
-For the ordinary PR path, first use the merge queue. For an explicitly authorized
-admin landing, run the documented direct-main preflight, require every PR check to
-be green, and merge the exact reviewed head with `gh pr merge --admin --merge
---match-head-commit <sha>`. GitHub CLI defines `--admin` as a merge-queue bypass;
-it is an explicit release authority, never a substitute for the preflight, checks,
-post-merge smoke, or exact-SHA UAT provenance.
+Follow `.codex/skills/repo-operations/references/admin-release-sop.md` for the
+ordinary merge-queue path or an explicitly authorized Admin PR landing. This
+spoke owns UAT scope and proof after that authority contract yields an exact
+green landed `main` SHA; it does not redefine merge or bypass semantics.
 
 Use the resulting green `main` SHA:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f scope=<frontend|backend|all> -f sha=<main-sha>
+gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<main-sha>
 ```
 
 Then watch:

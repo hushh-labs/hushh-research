@@ -1,13 +1,16 @@
 # Ship iOS to TestFlight (one click)
 
+Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
+[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This guide adds TestFlight-specific build and verification detail only.
+
 ## Visual Context
 
 Canonical visual owner: [Mobile Guide](../mobile.md).
 
 ## What this is
 
-One click cuts a Hussh One iOS build from **whatever is live on UAT** (the latest green `main`
-SHA — the same source `deploy .uat` ships to the website), builds the Capacitor app against the
+One click cuts a Hussh One iOS build from an explicitly selected green `main` SHA, builds the Capacitor app against the
 **UAT backend + UAT Firebase**, signs it with **Apple-managed signing via an App Store Connect
 API key**, and **uploads it to TestFlight**. No manual "Missing Compliance" click, no public App
 Store submission.
@@ -15,8 +18,8 @@ Store submission.
 - **Workflow:** `.github/workflows/ship-ios-testflight.yml` (`workflow_dispatch`).
 - **Skill:** say `ship ios` (see `.claude/skills/ship-ios-testflight/SKILL.md`).
 - **Runner:** GitHub-hosted `macos-15` (GCP has no macOS instances; only the *dispatch* is local).
-- **Target:** bundle `com.hushh.app`, version `1.3.5`, TestFlight internal testers (no Beta App
-  Review), UAT backend + Firebase `hushh-pda-uat`.
+- **Target:** bundle `com.hushh.app`, the repository's current `MARKETING_VERSION`, TestFlight
+  internal testers (no Beta App Review), UAT backend + Firebase `hushh-pda-uat`.
 
 This does **not** ship the `mobile`-branch iOS redesign (that never merges to `main`), does not
 touch prod backend/Firebase, and does not submit for App Store review.
@@ -27,7 +30,7 @@ touch prod backend/Firebase, and does not submit for App Store review.
 npm ci --prefix hushh-webapp                    # MUST precede SPM (Package.swift → ../../node_modules)
 # materialize UAT NEXT_PUBLIC_* contract + native GoogleService-Info.plist from GCP Secret Manager
 NODE_OPTIONS=--max-old-space-size=8192 npm run ios:prepare:uat   # cap:build + cap:sync:ios + verify backend
-NEXT_BUILD = max(asc_latest_build(1.3.5), pbxproj CURRENT_PROJECT_VERSION) + 1
+NEXT_BUILD = max(asc_latest_build(MARKETING_VERSION), pbxproj CURRENT_PROJECT_VERSION) + 1
 
 xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath …
 xcodebuild archive        -allowProvisioningUpdates -authenticationKey{Path,ID,IssuerID} CURRENT_PROJECT_VERSION=$NEXT_BUILD
@@ -50,7 +53,7 @@ is a GitHub secret. The workflow reads these with the existing `GCP_SA_KEY_UAT` 
 ### 1. App Store Connect API key
 
 App Store Connect → **Users and Access** → **Integrations** → **App Store Connect API** →
-generate a **Team key** with role **App Manager** (needed: archive creates a dev asset, export a
+generate a **Team key** with role **Admin** (needed: archive creates a dev asset, export a
 distribution asset, both via `-allowProvisioningUpdates`). Download the `.p8` **once**; note the
 **Key ID** and **Issuer ID**. Then store all three in Secret Manager:
 
@@ -107,13 +110,13 @@ Say **`ship ios`** (or "ship to testflight", "cut an ios build"). The skill runs
 the green `main` SHA, **pauses for one explicit confirmation**, then dispatches and watches the run.
 
 Only operators in `config/ci-governance.json` → `uat.manual_dispatch_users` can dispatch;
-`assert-governed-actor.py --surface uat` enforces it. This operator (`ankitkumarsingh1702`) can
-dispatch UAT/iOS, **not** production.
+`assert-governed-actor.py --surface uat` enforces the current list. Never transcribe operator
+names into this runbook, and never infer production authority from UAT authorization.
 
 ## Verify (don't stop at "workflow green")
 
-1. Read the run's job summary: SHA, version `1.3.5`, resolved build number, upload vs dry run.
-2. For a real run, confirm the build appears in **TestFlight → 1.3.5 (build N)** for internal
+1. Read the run's job summary: SHA, resolved marketing version and build number, upload vs dry run.
+2. For a real run, confirm the resolved version/build appears in **TestFlight** for internal
    testers after Apple finishes processing (a few minutes), already compliant.
 3. On device: the TestFlight build boots against **UAT** backend — asserted by
    `verify-ios-bundled-backend.sh` during prep.
@@ -127,13 +130,14 @@ the web build, cap sync, SPM resolve, archive, and **signing** all succeed befor
 | --- | --- |
 | `Missing GCP secret APPSTORE_CONNECT_*` / `IOS_GOOGLESERVICE_INFO_PLIST_B64` | Secret not created or SA lacks `secretAccessor`. See setup above. |
 | Export/upload fails with an agreement error | Accept the Apple Program License Agreement in ASC. |
-| `... requires App Manager` / authz error | API key role too low — regenerate as **App Manager**. |
+| Cloud-signing authorization error | API key role too low — regenerate as **Admin**. |
 | Duplicate build number rejected | `resolve-ios-build-number.py` should prevent it; check its stderr in the archive log artifact. |
 | `cap:build` OOM-killed | Bump `runs-on` to `macos-15-xlarge` and `NODE_OPTIONS` to `--max-old-space-size=12288`. |
 | Cold SPM graph slow (firebase/grpc/facebook) | Expected ~15–35 min; `timeout-minutes: 40`. The SPM cache warms subsequent runs. |
 
 ## Scope / deferred
 
-Public App Store submission is a separate, larger milestone (privacy manifest, `aps-environment`
-production, prod GA4, store metadata/screenshots) — see `KT/hushh-one-publish-safety-audit.md`.
-None of those block a TestFlight upload.
+Public App Store submission is a separate, explicitly authorized milestone. Its durable safety
+checklist is the **Publish-safety blockers** section of
+[`release-ios-appstore.md`](./release-ios-appstore.md). None of those public-submission steps are
+implied by a TestFlight upload.

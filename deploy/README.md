@@ -1,641 +1,131 @@
-# Hushh Research - Cloud Build Deployment
+# Hussh Deployment Package
 
-> CI/CD deployment using Google Cloud Build. Contributor setup lives in `./bin/hushh bootstrap` plus the docs under `docs/guides/`.
+This directory contains Cloud Build definitions and environment-provisioning
+helpers used by the governed GitHub deployment workflows. It is not a manual
+Cloud Run deployment runbook.
 
----
+## Release authority
 
-## 🚀 Quick Deploy
+Use the canonical
+[Admin merge and release SOP](../.codex/skills/repo-operations/references/admin-release-sop.md)
+for merge queue, explicit Admin PR landing, exact-SHA UAT/production dispatch,
+monitoring, evidence, rollback, and branch restoration.
 
-UAT is the first deployment lane. Do not treat production as the initial validation target.
+Runtime traffic authority belongs to these workflows:
 
-Recommended order:
+1. [Deploy to Dev](../.github/workflows/deploy-dev.yml)
+2. [Deploy to UAT](../.github/workflows/deploy-uat.yml)
+3. [Deploy to Production](../.github/workflows/deploy-production.yml)
 
-```bash
-# local validation before touching deployment
-bash scripts/ci/orchestrate.sh all
+Humans dispatch governed workflows. Do not deploy images, mutate Cloud Run
+traffic, or repair CORS/runtime variables with direct `gcloud builds submit`,
+`gcloud run deploy`, `gcloud run services update`, or `update-traffic` commands.
+The workflow identity, provenance labels, bounded verification, and rollback
+receipts are part of the release contract.
 
-# release through main; UAT follows the green main SHA
-git push origin main
-```
+## Normal UAT dispatch
 
-The green `main` SHA is the deployment source of truth for a manual UAT dispatch through [`.github/workflows/deploy-uat.yml`](../.github/workflows/deploy-uat.yml), which now:
-
-1. opens a Cloud SQL Auth Proxy session to the UAT database
-2. applies the canonical release lane with `python3 consent-protocol/db/migrate.py --release`
-3. enforces the live UAT schema contract in `consent-protocol/db/contracts/uat_integrated_schema.json`
-4. deploys backend/frontend
-5. reruns the read-only UAT schema contract gate after deploy
-6. runs the hosted runtime parity check
-7. records the deployment in the canonical `uat` GitHub environment
-8. loads the maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE` overlay and runs semantic release verification with bounded retry/rollback
-
-The UAT lane selects expensive verification from the diff between the exact
-deployed service revisions and the target SHA. The synthetic structure-agent
-evaluation, historical zero-loss rehearsal, and full PKM runtime browser audit
-run only when PKM upgrade machinery, stored-shape contracts, upgrade migrations,
-or upgrade fixtures change. Ordinary PKM reads/writes, prompts, model-provider
-changes, and unrelated releases use the standard release checks. Vault or
-reviewer-auth changes independently enable the BYOK navigation rehearsal. If a
-deployed SHA cannot be proven, selection fails closed to the complete suite.
-The same selector produces the `uat-verification-plan` artifact with the
-required/skipped lane reasons; do not reproduce its path policy in another
-workflow or deploy script.
-Changes to the evaluator's own UAT workflow run one synthetic evaluator without
-also selecting the full zero-loss upgrade rehearsal, so the release-control
-path is proven independently.
-For a PKM upgrade release, the hosted structure evaluator uses the
-coverage-balanced `release_chain_24` phase immediately after the backend
-candidate is built and before the frontend build begins. Its model-quality
-result is recorded as a release warning, not a traffic or rollback authority;
-runtime identity, provenance, parity, schema, semantic, reviewer, and passkey
-gates remain blocking. The 60- and 120-prompt matrices remain available for
-offline research and deep rehearsal; they are not repeated in the UAT release
-critical path.
-
-### Backend Deployment
+After the exact landed `main` SHA passes `Main Post-Merge Smoke Gate`, dispatch
+UAT with automatic scope resolution:
 
 ```bash
-gcloud builds submit --config=deploy/backend.cloudbuild.yaml
+gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<landed-main-sha>
 ```
 
-### Frontend Deployment
+`scope=auto` compares the target SHA with each service's currently deployed SHA.
+This includes every accumulated frontend/backend change when UAT lags more than
+one merge. Force `frontend`, `backend`, or `all` only after proving the complete
+target-to-deployed-service delta and recording why automatic resolution is not
+appropriate.
+
+Production is a separate explicit authority transition. UAT success does not
+authorize it, and UAT credentials or runtime identities must never be reused in
+production.
+
+## What lives here
+
+| Path | Purpose |
+| --- | --- |
+| `backend.cloudbuild.yaml` | Backend image build and Cloud Run candidate deployment used by governed workflows |
+| `frontend.cloudbuild.yaml` | Frontend image build and Cloud Run candidate deployment used by governed workflows |
+| `iam/` | Environment-specific workload-identity and IAM provisioning helpers |
+| `marketplace/` | Marketplace job/scheduler provisioning helpers |
+| `observability/` | Observability infrastructure provisioning helpers |
+| `app_store_deployment.md` | Native App Store deployment reference |
+
+Cloud Build files are implementation inputs. Their presence does not authorize
+direct human builds or traffic changes.
+
+## Environment and secret contracts
+
+Canonical owners:
+
+1. [Environment and secrets](../docs/reference/operations/env-and-secrets.md)
+2. [Environment key matrix](../docs/reference/operations/env-secrets-key-matrix.md)
+3. [Branch governance](../docs/reference/operations/branch-governance.md)
+4. [CI configuration](../docs/reference/operations/ci.md)
+5. [Migration governance](../docs/reference/operations/migration-governance.md)
+
+Hosted Gemini uses environment-specific Cloud Run identity through Vertex ADC.
+Do not mount a Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS` into the
+runtime. Database releases use the governed `DB_*` and Cloud SQL contracts; do
+not restore a parallel `DATABASE_URL` deployment path.
+
+GitHub deployment environments expose only the environment-specific WIF
+provider and deploy service account. Production WIF setup is owned by
+`deploy/iam/setup_production_github_wif.sh`; never provision a parallel provider
+or restore a JSON service-account key.
+
+## Verification model
+
+Every hosted deployment must prove:
+
+1. governed actor and environment;
+2. exact deployable SHA and required upstream gate;
+3. requested and resolved scope plus skipped lanes;
+4. migration/schema result when applicable;
+5. ready revision, image, provenance labels, timeout, and traffic;
+6. runtime/semantic checks selected by the workflow;
+7. bounded rollback result when an authority failure requires it;
+8. terminal workflow status and uploaded release evidence.
+
+The UAT expensive-lane selector is
+`scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
+rehearsal, candidate evaluation, or reviewer BYOK proof is required. The
+structure-agent evaluator is warning-only and does not authorize rollback by
+itself; provenance, schema, runtime, and semantic authority remain blocking.
+
+## Read-only operator diagnostics
+
+Read-only inspection is allowed when it does not mutate runtime state. Prefer
+workflow artifacts, then use repository helpers such as:
 
 ```bash
-gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
+python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
+  --project hushh-pda-uat \
+  --service hushh-webapp \
+  --service consent-protocol \
+  --format text
 ```
 
----
-
-## 🧭 Runtime Profiles
-
-Contributor onboarding should start with:
-
-```bash
-./bin/hushh bootstrap
-./bin/hushh doctor --mode uat
-```
-
-Detailed profile behavior now lives in:
-
-- [docs/guides/getting-started.md](../docs/guides/getting-started.md)
-- [docs/guides/environment-model.md](../docs/guides/environment-model.md)
-- [docs/guides/advanced-ops.md](../docs/guides/advanced-ops.md)
-
-Low-level profile activation still works when you need it:
-
-- Backend active file: `consent-protocol/.env`
-- Frontend active file: `hushh-webapp/.env.local`
-
-Runtime profile source templates and activation behavior are documented in the guides and managed through the bootstrap/profile tooling. Do not document local unpublished profile filenames here as contributor-facing contract.
-
-`local-uatdb` backend note:
-
-- Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  only when you explicitly need the legacy UAT-backed local backend path.
-- Do not start local UAT DB access with bare `python`/`uvicorn` unless the
-  proxy is already running.
-- The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
-  instance and authenticates it from `FIREBASE_ADMIN_CREDENTIALS_JSON` in the
-  active backend env, or `CLOUDSQL_PROXY_CREDENTIALS_FILE` if explicitly set.
-- The launcher refuses to fall back to local `gcloud`/ADC credentials for this
-  path.
-
-### Blocking vs optional validation
-
-Blocking by default:
-
-1. `scripts/ci/secret-scan.sh`
-2. `scripts/ci/web-check.sh`
-3. `scripts/ci/protocol-check.sh`
-4. `scripts/ci/integration-check.sh`
-
-Canonical executor:
-
-- `scripts/ci/orchestrate.sh` (used by GitHub Actions stages and local entrypoints)
-
-Optional/advisory by default:
-
-1. `scripts/ci/docs-parity-check.sh`
-2. `scripts/ci/subtree-sync-check.sh`
-3. `scripts/ops/verify-env-secrets-parity.py` (release/deploy preflight)
-4. Native parity checks for native release lanes
-
-Local full run with advisory checks:
-
-```bash
-./bin/hushh ci --include-advisory
-```
-
-### UAT analytics note
-
-UAT and production now use the same frontend runtime contract shape:
-
-- one Firebase web config set
-- one active measurement ID: `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
-- one active GTM ID: `NEXT_PUBLIC_GTM_ID`
-
-### Partner gateway connectivity
-
-Private partner gateway handoff files are not stored in this public repo. Keep live VPN, private DNS, endpoint, and peer material in approved secret-managed operational systems only.
-
----
-
-## 📋 Prerequisites
-
-1. **Google Cloud SDK** installed and authenticated
-
-   ```bash
-   gcloud auth login
-   gcloud config set project YOUR_GCP_PROJECT
-   ```
-
-2. **Enable Required APIs**
-
-   ```bash
-   gcloud services enable cloudbuild.googleapis.com
-   gcloud services enable run.googleapis.com
-   gcloud services enable containerregistry.googleapis.com
-   gcloud services enable secretmanager.googleapis.com
-   ```
-
-3. **Configure Secrets** (one-time setup)
-
-   Secrets in GCP Secret Manager must match **exactly** what the code uses — no more, no less. See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/env-and-secrets.md) for the full audit and gcloud CLI.
-
-   ```bash
-   python3 scripts/ops/verify-env-secrets-parity.py \
-     --project hushh-pda \
-     --region us-central1 \
-     --backend-service consent-protocol \
-     --frontend-service hushh-webapp
-   ```
-
-   For brokerage-enabled environments such as UAT Plaid testing, include:
-
-   ```bash
-   python3 scripts/ops/verify-env-secrets-parity.py \
-     --project hushh-pda-uat \
-     --region us-central1 \
-     --backend-service consent-protocol \
-     --frontend-service hushh-webapp \
-     --require-plaid
-   ```
-
-   Required backend secrets (7):
-
-   - `APP_SIGNING_KEY`
-   - `VAULT_DATA_KEY`
-   - `FIREBASE_ADMIN_CREDENTIALS_JSON`
-   - `APP_FRONTEND_ORIGIN`
-   - `BACKEND_RUNTIME_CONFIG_JSON`
-   - `DB_USER`
-   - `DB_PASSWORD`
-
-   Optional when Plaid brokerage is enabled (3):
-
-   - `PLAID_CLIENT_ID`
-   - `PLAID_SECRET`
-   - `PLAID_ACCESS_TOKEN_KEY`
-
-   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`). Text starts at `global` so the approved Gemini 3.5 Flash and Gemini 3.1 Flash-Lite matrix is valid; One Live remains independently pinned to its supported US region. Do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
-   Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
-   `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
-   UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
-
-4. **Configure the production backup posture** (GCP)
-
-   Production backups are native Cloud SQL automated backups + point-in-time
-   recovery on `hushh-pda:us-central1:hushh-vault-db`. Apply/refresh the posture:
-
-   ```bash
-   gcloud sql instances patch hushh-vault-db \
-     --project hushh-pda \
-     --backup-start-time=06:00 \
-     --enable-point-in-time-recovery \
-     --retained-backups-count=30 \
-     --retained-transaction-log-days=7
-   ```
-
-   Validate backup posture locally (same gate used by the production deploy workflow):
-
-   ```bash
-   python3 scripts/ops/cloudsql_backup_freshness_check.py \
-     --project-id hushh-pda \
-     --instance hushh-vault-db \
-     --max-age-hours 30 \
-     --report-path /tmp/prod-backup-posture-report.json
-   ```
-
-  This checker uses `gcloud`, so it requires an authenticated gcloud session or service-account credentials.
-
-5. **Configure RIA marketplace investor replenisher** (UAT first)
-
-   Provision or update the Cloud Run Job plus Cloud Scheduler trigger that
-   refreshes public SEC-backed investor discovery rows every 8 hours:
-
-   ```bash
-   PROJECT_ID=hushh-pda-uat REGION=us-central1 \
-     bash deploy/marketplace/setup_investor_replenisher_scheduler.sh
-   ```
-
-   Run a one-off seed after UAT deploy:
-
-   ```bash
-   gcloud run jobs execute marketplace-investor-replenisher \
-     --project hushh-pda-uat \
-     --region us-central1 \
-     --wait
-   ```
-
-   The job reuses the deployed `consent-protocol` image, writes only
-   official/public investor reference rows into `investor_profiles`, and logs
-   run counts in `marketplace_investor_replenisher_runs`.
-
----
-
-## 🔧 Cloud Build Configuration
-
-### Backend (`backend.cloudbuild.yaml`)
-
-Deploys Python FastAPI backend to Cloud Run:
-
-- Builds Docker image from `consent-protocol/Dockerfile`
-- Pushes to Google Container Registry
-- Deploys to `consent-protocol` service
-- Uses DB host/port env wiring (optionally supports Cloud SQL Unix socket when configured)
-- Injects secrets from Secret Manager
-- Sets `ENVIRONMENT=production` and `GOOGLE_GENAI_USE_VERTEXAI=True` (Vertex AI for Gemini)
-
-### Frontend (`frontend.cloudbuild.yaml`)
-
-Deploys Next.js frontend to Cloud Run:
-
-- Builds Docker image from `hushh-webapp/Dockerfile`
-- Bakes environment variables into static build
-- Pushes to Google Container Registry
-- Deploys to `hushh-webapp` service
-- Serves via nginx
-
----
-
-## 🔄 CI/CD Setup (GitHub/GitLab)
-
-### GitHub Actions: Deploy workflows (production + UAT)
-
-The repo includes:
-
-- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production`.
-- [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): manual UAT deploy (`workflow_dispatch`) through `uat`.
-
-Production GitHub OIDC/WIF setup has one idempotent entrypoint:
-[`deploy/iam/setup_production_github_wif.sh`](iam/setup_production_github_wif.sh).
-Do not provision a parallel provider or restore a service-account JSON key.
-
-Manual dispatch now supports `scope`:
-
-- `all` (default): deploy backend then frontend in one run/approval
-- `backend`: deploy backend only
-- `frontend`: deploy frontend only
-
-**For seamless deployment:**
-
-1. **GitHub environment variables:** configure `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT` in each of `dev`, `uat`, and `production`. The deploy principal must use GitHub OIDC Workload Identity Federation, receive only the deploy permissions it needs, and have `roles/iam.serviceAccountUser` on that environment's exact runtime service account. Do not create or upload a JSON service-account key.
-2. **Backup variables:** configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_BACKUP_SERVICE_ACCOUNT` for the scheduled production backup posture check. The backup identity should be read-only for the governed backup bucket.
-3. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
-4. **Environment policy:** keep only the canonical deploy environments in active use:
-   - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md))
-   - `uat`
-   - `production`
-   Legacy unused production environments should not remain as parallel approval lanes.
-
-### CI Security Gates
-
-- `.github/workflows/ci.yml` runs a two-part secret gate:
-  - `gitleaks` over the event commit range
-  - GitHub secret-scanning + Dependabot parity via authenticated API reads
-- Set a repo secret like `GH_SECURITY_ALERTS_TOKEN` for CI so the workflow can read GitHub security alerts with the same fidelity as local `gh`-authenticated checks.
-- Native parity checks are optional in baseline CI and enabled for native release lanes.
-
-### Option 1: Cloud Build Triggers (Recommended)
-
-1. **Create Backend Trigger**
-
-   ```bash
-   gcloud builds triggers create github \
-     --name=deploy-backend \
-     --repo-name=hushh-research \
-     --repo-owner=YOUR_ORG \
-     --branch-pattern=^main$ \
-     --build-config=deploy/backend.cloudbuild.yaml
-   ```
-
-2. **Create Frontend Trigger**
-   ```bash
-   gcloud builds triggers create github \
-     --name=deploy-frontend \
-     --repo-name=hushh-research \
-     --repo-owner=YOUR_ORG \
-     --branch-pattern=^main$ \
-     --build-config=deploy/frontend.cloudbuild.yaml
-   ```
-
-### Option 2: Manual Deployment
-
-```bash
-# Deploy backend
-gcloud builds submit --config=deploy/backend.cloudbuild.yaml
-
-# Deploy frontend (uses BACKEND_URL secret)
-gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
-```
-
----
-
-## 🔐 Secrets Management
-
-All required secrets must exist in Google Cloud Secret Manager before deployment. Run the parity audit script, then create any missing secrets manually.
-
-**Backend (7 baseline secrets):** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`
-**Backend voice secrets when voice is enabled (2):** `OPENAI_API_KEY`, `VOICE_RUNTIME_CONFIG_JSON`
-**Backend market-data secrets when Kai market home is enabled (2):** `FINNHUB_API_KEY`, `PMP_API_KEY`
-**Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN_KEY`
-
-**Note:** 
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, and the Vertex ADC contract are set as Cloud Run env vars (not secrets) in `backend.cloudbuild.yaml`
-- Plaid Cloud Run env remains env-var based: `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`
-- Migrations use DB_* only (no DATABASE_URL). See docs/reference/operations/env-and-secrets.md.
-- **Action required:** Create `DB_USER` and `DB_PASSWORD` secrets in Secret Manager if they don't exist:
-  ```bash
-  echo "your-db-username" | gcloud secrets create DB_USER --data-file=-
-  echo "your-db-password" | gcloud secrets create DB_PASSWORD --data-file=-
-  ```
-
-**Frontend build-time (12 centrally-managed values):**
-- `BACKEND_URL`
-- `APP_FRONTEND_ORIGIN`
-- `NEXT_PUBLIC_FIREBASE_API_KEY`
-- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
-- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
-- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
-- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-- `NEXT_PUBLIC_FIREBASE_APP_ID`
-- `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (web push / FCM)
-- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
-- `NEXT_PUBLIC_GTM_ID`
-- `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` (restricted to the deployed web origins)
-
-These Firebase values are public client config, but are still centrally injected from Secret Manager to avoid hardcoded deploy YAML values.
-
-**Frontend runtime (server-only Next.js API handlers):**
-- `FIREBASE_ADMIN_CREDENTIALS_JSON`
-
-See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/env-and-secrets.md) for full reference.
-
-### Mobile Firebase Artifacts (Regulated)
-
-> **In use by the one-click iOS pipelines.**
-> - **TestFlight (UAT):** `.github/workflows/ship-ios-testflight.yml` reads
->   `IOS_GOOGLESERVICE_INFO_PLIST_B64`, `APPSTORE_CONNECT_API_KEY_P8_B64`,
->   `APPSTORE_CONNECT_KEY_ID`, and `APPSTORE_CONNECT_ISSUER_ID` from Secret Manager
->   (`hushh-pda-uat`) via `GCP_SA_KEY_UAT` to build + sign + upload the UAT build to TestFlight.
->   Setup + flow: [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
-> - **Public App Store:** `.github/workflows/release-ios-appstore.yml` reads the **same four
->   secret names — plus the `NEXT_PUBLIC_*` web contract — from the same `hushh-pda-uat` project via
->   `GCP_SA_KEY_UAT`**, because the public build ships the **UAT backend + UAT Firebase** (the same
->   latest frontend+backend as TestFlight). It keeps `environment: production` and the production
->   actor gate (public submission is a production surface) but keeps the production APNs entitlement,
->   so the UAT Firebase project must hold a production APNs key. Setup + flow:
->   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
-
-- Do not commit production `GoogleService-Info.plist` or `google-services.json`.
-- Store production mobile Firebase artifacts in Secret Manager:
-  - `IOS_GOOGLESERVICE_INFO_PLIST_B64`
-  - `ANDROID_GOOGLE_SERVICES_JSON_B64`
-- Store local/release signing assets in Secret Manager too:
-  - `APPLE_TEAM_ID`
-  - `IOS_DEV_CERT_P12_B64`
-  - `IOS_DEV_CERT_PASSWORD`
-  - `IOS_DEV_PROFILE_B64`
-  - `IOS_DIST_CERT_P12_B64`
-  - `IOS_DIST_CERT_PASSWORD`
-  - `IOS_APPSTORE_PROFILE_B64`
-  - `APPSTORE_CONNECT_API_KEY_P8_B64`
-  - `APPSTORE_CONNECT_KEY_ID`
-  - `APPSTORE_CONNECT_ISSUER_ID`
-  - `ANDROID_RELEASE_KEYSTORE_B64`
-  - `ANDROID_RELEASE_KEYSTORE_PASSWORD`
-  - `ANDROID_RELEASE_KEY_ALIAS`
-  - `ANDROID_RELEASE_KEY_PASSWORD`
-- Developers should treat the frontend runtime profile env files as the local source of truth.
-- `./bin/hushh bootstrap` hydrates those native values into the local profile env files and materializes the active native sidecar under `hushh-webapp/.env.local.d/`.
-- Re-run `./bin/hushh bootstrap` whenever the active profile needs refreshed mobile Firebase artifacts.
-- Native build wrappers apply the generated sidecar for the build and then restore the tracked templates.
-- If a developer already has real local plist/json files in the native paths or the old `.local-secrets` cache, the first sidecar materialization seeds the active profile instead of overwriting that local state.
-- Release CI still injects both real artifacts into the ephemeral workspace before native build/sign.
-- Release jobs should fail if the real Firebase artifacts were not injected before native build/sign.
-
-### Local iOS Signing (Shared Team Bootstrap)
-
-- Do not pass around `.p12`, `.mobileprovision`, or App Store Connect API keys manually.
-- Store Apple signing assets in Secret Manager and hydrate them through the active frontend runtime profile:
-  ```bash
-  ./bin/hushh bootstrap
-  ```
-- The active sidecar lives under `hushh-webapp/.env.local.d/ios/` and local iOS runs install signing material into the keychain/profile store on demand.
-- Android release signing follows the same model via `hushh-webapp/.env.local.d/android/`.
-- Use `cd hushh-webapp && npm run cleanup:ios-signing` to remove the local iOS sidecar and keychain artifacts when needed.
-
-### Observability Provisioning (Automated)
-
-Use the idempotent setup script to provision observability infra in GCP:
-
-```bash
-bash deploy/observability/setup_gcp_observability.sh
-```
-
-Optional email notification channel wiring:
-
-```bash
-OBS_ALERT_EMAIL=you@example.com bash deploy/observability/setup_gcp_observability.sh
-```
-
-### Production DB Governance Helpers
-
-```bash
-# Take an on-demand Cloud SQL backup (optional pre-deploy trigger)
-gcloud sql backups create \
-  --instance hushh-vault-db \
-  --project hushh-pda \
-  --description "manual-predeploy"
-
-# Read-only Cloud SQL backup posture gate
-python3 scripts/ops/cloudsql_backup_freshness_check.py \
-  --project-id hushh-pda \
-  --instance hushh-vault-db \
-  --max-age-hours 30 \
-  --report-path /tmp/prod-backup-posture-report.json
-
-# Read-only migration governance + DB drift checks
-python3 scripts/ops/db_migration_release_guard.py \
-  --report-path /tmp/db-migration-guard-report.json
-
-# Latest-integrated UAT schema contract gate
-python3 scripts/ops/db_migration_release_guard.py \
-  --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
-  --report-path /tmp/uat-db-migration-guard-report.json
-
-# Generate audit manifest for a production release
-python3 scripts/ops/generate_migration_release_manifest.py \
-  --output /tmp/prod-migration-release-manifest.json \
-  --environment production
-```
-
-### Verify Secrets
-
-```bash
-python3 scripts/ops/verify-env-secrets-parity.py \
-  --project hushh-pda \
-  --region us-central1 \
-  --backend-service consent-protocol \
-  --frontend-service hushh-webapp
-```
-
-### Create Secret
-
-```bash
-echo "your-secret-value" | gcloud secrets create SECRET_NAME --data-file=-
-```
-
-### Update Secret
-
-```bash
-echo "new-value" | gcloud secrets versions add SECRET_NAME --data-file=-
-```
-
-### View Secret
-
-```bash
-gcloud secrets versions access latest --secret=SECRET_NAME
-```
-
----
-
-## 🌐 Update CORS
-
-After deploying frontend, update backend's CORS:
-
-```bash
-# Get frontend URL
-APP_FRONTEND_ORIGIN=$(gcloud run services describe hushh-webapp --region=us-central1 --format="value(status.url)")
-
-# Update backend
-gcloud run services update consent-protocol \
-  --region=us-central1 \
-  --update-env-vars=APP_FRONTEND_ORIGIN=$APP_FRONTEND_ORIGIN
-```
-
----
-
-## 🧪 Verification
-
-### Backend
-
-```bash
-# Health check
-curl https://consent-protocol-1006304528804.us-central1.run.app/health
-
-# Swagger docs
-open https://consent-protocol-1006304528804.us-central1.run.app/docs
-```
-
-### Frontend
-
-```bash
-# Get URL
-gcloud run services describe hushh-webapp --region=us-central1 --format="value(status.url)"
-
-# Health check
-curl $(gcloud run services describe hushh-webapp --region=us-central1 --format="value(status.url)")/health
-```
-
----
-
-## 📊 Monitoring
-
-### View Logs
-
-```bash
-# Backend
-gcloud run services logs read consent-protocol --region=us-central1 --limit=50
-
-# Frontend
-gcloud run services logs read hushh-webapp --region=us-central1 --limit=50
-```
-
-### View Services
-
-```bash
-gcloud run services list --region=us-central1
-```
-
----
-
-## 🔄 Rollback
-
-```bash
-# List revisions
-gcloud run revisions list --service=consent-protocol --region=us-central1
-
-# Rollback
-gcloud run services update-traffic consent-protocol \
-  --region=us-central1 \
-  --to-revisions=REVISION_NAME=100
-```
-
----
-
-## 📁 File Structure
-
-```
-deploy/
-├── backend.cloudbuild.yaml      # Backend Cloud Build config
-├── frontend.cloudbuild.yaml     # Frontend Cloud Build config
-├── ../scripts/ops/verify-env-secrets-parity.py  # Secrets/deploy parity audit utility
-├── .env.backend.example         # Backend env vars template
-├── .env.frontend.example        # Frontend env vars template
-└── README.md                    # This file
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Build Fails
-
-```bash
-# View build logs
-gcloud builds list --limit=5
-gcloud builds log BUILD_ID
-```
-
-### Service Not Accessible
-
-```bash
-# Check service status
-gcloud run services describe SERVICE_NAME --region=us-central1
-
-# Check logs
-gcloud run services logs read SERVICE_NAME --region=us-central1 --limit=20
-```
-
-### CORS Errors
-
-```bash
-# Verify APP_FRONTEND_ORIGIN is set
-gcloud run services describe consent-protocol --region=us-central1 --format="value(spec.template.spec.containers[0].env)"
-```
-
----
-
-**Last Updated**: 2026-01-09
-**Version**: 2.1 (Verified Cloud Build with yfinance fix)
+Discover service project/region tuples before describing them. Keep tokens,
+credentials, secret values, vault material, and decrypted information out of
+logs and artifacts.
+
+## Infrastructure changes
+
+One-time IAM, API enablement, backup posture, scheduler, observability, or secret
+changes are infrastructure administration—not application deployment. Route
+them through `repo-operations`, verify the target project and actor first, and
+use the owning idempotent helper where one exists. Never turn an infrastructure
+repair command into an alternative release path.
+
+## Troubleshooting
+
+1. Classify CI, deploy, runtime, schema, provenance, or semantic failure before
+   editing.
+2. Start with `./bin/hushh codex rca --surface uat --text` for UAT failures.
+3. Inspect the exact failing GitHub job/step and its artifacts.
+4. Apply the smallest owner-routed correction, rerun local parity, and dispatch
+   a new governed workflow from an eligible SHA.
+5. Do not mask a failed workflow with a manual Cloud Run mutation.

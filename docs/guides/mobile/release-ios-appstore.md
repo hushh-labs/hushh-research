@@ -1,5 +1,9 @@
 # Release iOS to the App Store (public, one command)
 
+Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
+[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This guide adds App Store-specific build, submission, and verification detail only.
+
 ## Visual Context
 
 Canonical visual owner: [Mobile Guide](../mobile.md).
@@ -180,8 +184,8 @@ materialize/decode steps.
 
 ### Actor authorization
 
-`config/ci-governance.json` → `production.manual_dispatch_users` currently authorizes
-`kushaltrivedi5` and `ankitkumarsingh1702` for production dispatch.
+`config/ci-governance.json` → `production.manual_dispatch_users` is the sole current actor
+allowlist. Never transcribe operator names into this runbook; the workflow enforces the live policy.
 
 ### Apple account
 
@@ -211,9 +215,9 @@ will draw an Apple rejection, so treat the one-time human metadata pass as a pre
 
 ## Publish-safety blockers (preconditions for `submit_for_review`)
 
-A public submission is irreversible and exposes real users. Before submitting, clear the full
-publish-safety audit — summarized in `KT/hushh-one-publish-safety-audit.md` (~17 items; that file may
-live outside this branch). The non-negotiable ones:
+A public submission is irreversible and exposes real users. Before submitting, clear this durable
+publish-safety checklist. External working notes may add evidence but cannot replace or waive these
+committed requirements. The non-negotiable items are:
 
 1. **`PrivacyInfo.xcprivacy` reconciliation.** `hushh-webapp/ios/App/App/PrivacyInfo.xcprivacy` in
    this branch is a best-effort declaration (collected data types, tracking=false, required-reason
@@ -221,7 +225,9 @@ live outside this branch). The non-negotiable ones:
    nutrition labels before submission. This is publish blocker #1.
 2. **Android analytics / `AD_ID`, ZK truth-in-advertising, and managed-Gemini / Gmail-sweep
    consent** items from the audit (these gate a truthful store listing).
-3. Everything else enumerated in the audit.
+3. App Store metadata, screenshots, age rating, pricing/availability, agreements, release notes,
+   support/privacy URLs, and the exact submitted build have each been reviewed against the live
+   product and current legal/privacy claims.
 
 Prepare-only mode (the default) requires none of this — it is safe to run repeatedly to stage a
 build, set its release notes, and attach it for review.

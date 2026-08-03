@@ -38,7 +38,7 @@ Non-owned surfaces:
 
 1. TestFlight-only distribution — use the `ship-ios-testflight` sibling (same UAT-backed binary).
 2. Merging code to `main`; this ships what is already on `main` and never merges.
-3. Production Cloud Run or scoped UAT deploys — route to `uat-scoped-deploy`.
+3. Production Cloud Run deploys route to `repo-operations`; scoped UAT deploys route to `uat-scoped-deploy`.
 4. Publish-safety clearance or consent-boundary decisions — route to `security-audit`.
 
 ## Read First
@@ -49,7 +49,7 @@ Non-owned surfaces:
 4. `scripts/ci/submit-appstore-version.py`
 5. `scripts/ci/resolve-ios-build-number.py`
 6. `deploy/app_store_deployment.md`
-7. `docs/reference/operations/branch-governance.md`
+7. `.codex/skills/repo-operations/references/admin-release-sop.md`
 8. `.codex/skills/release-ios-appstore/references/release-proof.md`
 
 ## Workflow
@@ -67,13 +67,13 @@ Non-owned surfaces:
 
 1. If the request is broad or ambiguous, route it back to `repo-operations`.
 2. Route iOS native/Capacitor build, entitlement, or plist issues to `mobile-native`.
-3. Route UAT/prod Cloud Run and web deploy scope to `uat-scoped-deploy`.
+3. Route production Cloud Run and web deploys to `repo-operations`; route scoped UAT deploys to `uat-scoped-deploy`.
 4. Route publish-safety, consent, or secret-boundary findings to `security-audit`.
 
 ## Required Checks
 
 ```bash
 gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url
-gh workflow view "Release iOS to App Store" --ref main
+gh workflow view release-ios-appstore.yml
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 ```

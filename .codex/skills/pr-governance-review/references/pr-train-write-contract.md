@@ -205,9 +205,9 @@ harvested or patched into a current canonical surface.
 
 ## Attribution Gate
 
-Prefer direct contributor PR merge when safe. For maintainer harvests, add
-`Co-authored-by:` only when code or tests are materially reused in the landing
-commit. Never rewrite `main` for retroactive co-author credit.
+Prefer direct contributor PR merge when safe. Preserve human authorship through
+the contributor's own signed commits or PR record; never add an AI-tool
+co-author/generated-by trailer and never rewrite `main` for retroactive credit.
 
 Harvest completion requires a linked landing PR/commit, co-author trailers when
 material code/tests are reused, clear source PR state, dashboard credit, and a

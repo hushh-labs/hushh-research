@@ -135,6 +135,7 @@ COMMAND_PATTERNS = [
     r"^gh auth status$",
     r"^gh api user --jq ",
     r"^gh run list ",
+    r"^gh workflow view ",
     r"^git config --get user\.(name|email)$",
     r"^# TODO$",
 ]

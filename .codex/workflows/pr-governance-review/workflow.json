@@ -26,7 +26,8 @@
     ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
     ".codex/skills/pr-governance-review/references/comment-and-report-contract.md",
     ".codex/skills/pr-governance-review/references/pr-train-review-sop.md",
-    ".codex/skills/repo-operations/SKILL.md"
+    ".codex/skills/repo-operations/SKILL.md",
+    ".codex/skills/repo-operations/references/admin-release-sop.md"
   ],
   "required_commands": [
     "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"<user request>\" --paths \"<changed paths>\" --text",
