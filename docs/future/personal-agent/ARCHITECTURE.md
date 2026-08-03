@@ -234,7 +234,7 @@ it one level down — for the individual sovereign user — on GCP:
 | Apple PCC guarantee | GCP primitive that enforces it | Our binding |
 |---|---|---|
 | Hardware root of trust + attestation | **Confidential Space** attestation tokens (AMD SEV-SNP / Intel TDX) | pod runs in Confidential Space; key released only to a measured image |
-| Stateless / no retention | ephemeral Cloud Run/GKE pod; **no PKM persisted** | only ephemeral per-user-key scoped exports (Layer B) |
+| Stateless / no retention | ephemeral Cloud Run/GKE pod; no PKM persisted **in the control plane** | scoped exports are per-user-key encrypted (Layer B); the pod itself keeps a **per-pod-key-encrypted** working copy and its own agent memory — see §7a, which supersedes a literal reading of this row. Neither hussh nor the operator can read either. |
 | No privileged runtime access | Confidential Space (operator can't read workload memory) + **Binary Authorization** | no SSH; only signed/attested images run |
 | Non-targetability | HusshID indirection + per-pod X25519 key + **attestation-gated key release** | key unwrap gated on attestation match |
 | Verifiable transparency | Binary Authorization attestations + published image digests | transparency-log entry per execution |
