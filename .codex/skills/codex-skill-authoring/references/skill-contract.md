@@ -143,6 +143,12 @@ Workflow-routing rules:
 17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.
 18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
 19. Every skill and workflow inherits the Bacterial Software Architecture Gate in `AGENTS.md`: keep procedural kernels small, move reusable logic into bounded scripts or references, preserve canonical authority, and require characterization plus compatibility facades before splitting working surfaces.
+20. Every skill and workflow that reaches merge, Admin bypass, deployment,
+    rollback, or environment-promotion authority inherits
+    `.codex/skills/repo-operations/references/admin-release-sop.md`. Domain
+    skills may add surface-specific verification, but they must route the
+    state-changing decision to `repo-operations` and must not duplicate a
+    competing release procedure.
 
 ## Coverage baseline
 

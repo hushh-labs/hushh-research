@@ -24,12 +24,12 @@
     "scripts/ci/submit-appstore-version.py",
     "scripts/ci/resolve-ios-build-number.py",
     "deploy/app_store_deployment.md",
-    "docs/reference/operations/branch-governance.md",
+    ".codex/skills/repo-operations/references/admin-release-sop.md",
     ".codex/skills/release-ios-appstore/references/release-proof.md"
   ],
   "required_commands": [
     "gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
-    "gh workflow view \"Release iOS to App Store\" --ref main",
+    "gh workflow view release-ios-appstore.yml",
     "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
   ],
   "verification_bundles": [
@@ -37,7 +37,7 @@
       "id": "release-ios-appstore",
       "commands": [
         "gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
-        "gh workflow view \"Release iOS to App Store\" --ref main",
+        "gh workflow view release-ios-appstore.yml",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
       ],
       "tests": [

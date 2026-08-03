@@ -13,12 +13,12 @@ WHAT IT SYNCS (all idempotent — safe to re-run):
        <- repository.allow_auto_merge
      (required for `gh pr merge` to enqueue merge-queue PRs instead of failing
       with enablePullRequestAutoMerge when review is still pending.)
-  2. main branch protection `review_bypass_users`
-       <- main.review_bypass_users
+  2. main and integration/pr-train branch-protection `review_bypass_users`
+       <- main.review_bypass_users / pr_train.review_bypass_users
      (the list that was silently drifting: editing the JSON never reached GitHub,
       so a maintainer added to the JSON still couldn't approve/merge to main.)
   3. The `allowed-maintainers-to-approve` org team membership
-       <- union(main.review_bypass_users, main.merge_queue_bypass_users)
+       <- union(main/pr_train review and merge-queue bypass users)
      (this team is the merge-queue bypass actor list; membership IS the allowlist.)
   4. UAT / production deploy allowlists need NO GitHub action — assert-governed-actor.py
      reads uat.manual_dispatch_users / production.manual_dispatch_users from this
@@ -28,7 +28,7 @@ USAGE:
   python3 scripts/ci/apply-governance.py            # dry-run: show the plan, change nothing
   python3 scripts/ci/apply-governance.py --apply    # actually push to GitHub
 
-After --apply, scripts/ci/verify-main-branch-protection.sh should pass clean.
+After --apply, verify both `main` and `integration/pr-train` branch protection.
 
 Requires: gh CLI authenticated with org admin (to edit team membership) and
 repo admin (to edit branch protection).
@@ -45,7 +45,6 @@ from pathlib import Path
 REPO = "hushh-labs/hushh-research"
 ORG = "hushh-labs"
 TEAM_SLUG = "allowed-maintainers-to-approve"
-BRANCH = "main"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 
@@ -66,8 +65,8 @@ def load_policy() -> dict:
     return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
 
-def desired_review_bypass(policy: dict) -> list[str]:
-    return sorted(set(policy["main"]["review_bypass_users"]))
+def desired_review_bypass(policy: dict, policy_key: str) -> list[str]:
+    return sorted(set(policy[policy_key]["review_bypass_users"]))
 
 
 def desired_allow_auto_merge(policy: dict) -> bool:
@@ -111,14 +110,18 @@ def apply_repository_settings(policy: dict, *, apply: bool) -> bool:
 
 
 def desired_team_members(policy: dict) -> list[str]:
-    # The team backs merge-queue bypass; keep it the union of both main allowlists
-    # so a maintainer added to either list is fully empowered (approve + queue).
-    m = policy["main"]
-    return sorted(set(m["review_bypass_users"]) | set(m["merge_queue_bypass_users"]))
+    # The team backs merge-queue bypass on both governed branches. Keep it the
+    # union so a maintainer declared on either branch is fully represented.
+    users: set[str] = set()
+    for policy_key in ("main", "pr_train"):
+        branch_policy = policy[policy_key]
+        users.update(branch_policy["review_bypass_users"])
+        users.update(branch_policy["merge_queue_bypass_users"])
+    return sorted(users)
 
 
-def current_review_bypass() -> list[str]:
-    data = gh_json(["api", f"repos/{REPO}/branches/{BRANCH}/protection"])
+def current_review_bypass(branch: str) -> list[str]:
+    data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"])
     users = (
         (data or {})
         .get("required_pull_request_reviews", {})
@@ -133,20 +136,20 @@ def current_team_members() -> list[str]:
     return sorted(m["login"] for m in members if m.get("login"))
 
 
-def apply_review_bypass(desired: list[str], *, apply: bool) -> bool:
+def apply_review_bypass(branch: str, desired: list[str], *, apply: bool) -> bool:
     """PUT the full required_pull_request_reviews object with the desired user
     bypass list. We preserve every other review setting read from live state so
     nothing else is reset. Returns True if a change was (or would be) made."""
-    cur = current_review_bypass()
+    cur = current_review_bypass(branch)
     if cur == desired:
-        print(f"  ✓ review_bypass_users already in sync: {desired}")
+        print(f"  ✓ {branch} review_bypass_users already in sync: {desired}")
         return False
-    print(f"  Δ review_bypass_users: {cur}  ->  {desired}")
+    print(f"  Δ {branch} review_bypass_users: {cur}  ->  {desired}")
     if not apply:
         return True
 
     # Read the live review object to preserve all sibling settings.
-    data = gh_json(["api", f"repos/{REPO}/branches/{BRANCH}/protection"]) or {}
+    data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"]) or {}
     rpr = data.get("required_pull_request_reviews", {})
     bp = rpr.get("bypass_pull_request_allowances", {})
     team_slugs = [t["slug"] for t in bp.get("teams", []) if t.get("slug")]
@@ -167,13 +170,13 @@ def apply_review_bypass(desired: list[str], *, apply: bool) -> bool:
     # checks, enforce_admins, etc. untouched).
     proc = subprocess.run(
         ["gh", "api", "--method", "PATCH",
-         f"repos/{REPO}/branches/{BRANCH}/protection/required_pull_request_reviews",
+         f"repos/{REPO}/branches/{branch}/protection/required_pull_request_reviews",
          "--input", "-"],
         input=json.dumps(payload), capture_output=True, text=True,
     )
     if proc.returncode != 0:
         raise SystemExit(f"Failed to update review bypass:\n{proc.stderr.strip()}")
-    print("  ✅ review_bypass_users updated on GitHub")
+    print(f"  ✅ {branch} review_bypass_users updated on GitHub")
     return True
 
 
@@ -229,8 +232,14 @@ def main() -> int:
     print("1. repository settings")
     changed_repo = apply_repository_settings(policy, apply=args.apply)
 
-    print("\n2. main branch protection review_bypass_users")
-    changed_a = apply_review_bypass(desired_review_bypass(policy), apply=args.apply)
+    train_branch = policy["branch_flow"]["train_branch"]
+    print("\n2. governed branch protection review_bypass_users")
+    changed_main = apply_review_bypass(
+        "main", desired_review_bypass(policy, "main"), apply=args.apply
+    )
+    changed_train = apply_review_bypass(
+        train_branch, desired_review_bypass(policy, "pr_train"), apply=args.apply
+    )
 
     print(f"\n3. org team '{TEAM_SLUG}' membership (merge-queue bypass actors)")
     changed_b = apply_team_membership(desired_team_members(policy), apply=args.apply)
@@ -238,11 +247,11 @@ def main() -> int:
     report_deploy_allowlists(policy)
 
     print()
-    if not args.apply and (changed_repo or changed_a or changed_b):
+    if not args.apply and (changed_repo or changed_main or changed_train or changed_b):
         print("Plan has changes. Re-run with --apply to push them to GitHub.")
         return 0
     if args.apply:
-        print("✅ Governance applied. Run scripts/ci/verify-main-branch-protection.sh to confirm.")
+        print("✅ Governance applied. Verify main and integration/pr-train branch protection.")
     else:
         print("✅ Live GitHub state already matches config/ci-governance.json.")
     return 0

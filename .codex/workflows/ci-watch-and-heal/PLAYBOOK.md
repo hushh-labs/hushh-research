@@ -10,14 +10,15 @@ Monitor PR checks live, classify failures into the correct owner skill, and keep
 
 1. Start with `repo-operations` and use `owner skill only` as the default narrow path.
 2. Run the repo-operations Branch Preservation Gate: identify the active developer branch, keep fixes on it when safe, and record it as the return target before any merge, checkout, or hotfix branch.
-3. Run `./bin/hushh codex ci-status --watch` on the active PR or current branch.
-4. Distinguish the failing stage before editing code:
+3. For any merge, Admin bypass, deploy, or rollback transition, follow `.codex/skills/repo-operations/references/admin-release-sop.md`; do not infer the next transition from a green prior stage.
+4. Run `./bin/hushh codex ci-status --watch` on the active PR or current branch.
+5. Distinguish the failing stage before editing code:
    `PR Validation` is developer feedback, `Queue Validation` is the authoritative pre-merge blocker, and `Main Post-Merge Smoke` is the merge-to-main completion gate on the real `main` SHA.
-5. If the change lands on `main`, continue the monitoring chain through `Main Post-Merge Smoke`. Continue into `Deploy to UAT` only when the user explicitly asked for a UAT deployment or that dispatch has already started.
-6. If the fix landed on `main` or an isolated hotfix branch, back-sync the landed `origin/main` commits into the preserved developer branch before handoff.
-7. Route each failed check through the owner skill suggested by the monitor before editing code.
-8. Pull the failing job logs, apply the smallest fix that addresses the actual check failure, and rerun the local parity bundle.
-9. Capture every field listed in `impact_fields` before calling the work complete.
+6. If the change lands on `main`, continue the monitoring chain through `Main Post-Merge Smoke`. Continue into `Deploy to UAT` only when the user explicitly asked for a UAT deployment or that dispatch has already started.
+7. If the fix landed on `main` or an isolated hotfix branch, back-sync the landed `origin/main` commits into the preserved developer branch before handoff.
+8. Route each failed check through the owner skill suggested by the monitor before editing code.
+9. Pull the failing job logs, apply the smallest fix that addresses the actual check failure, and rerun the local parity bundle.
+10. Capture every field listed in `impact_fields` before calling the work complete.
 
 ## Common Drift Risks
 

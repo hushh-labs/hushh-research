@@ -103,7 +103,7 @@
     ]
   },
   "uat": {
-    "auto_deploy_workflow": "Main Post-Merge Smoke",
+    "post_merge_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
     "environment": "uat",
     "required_environment_variables": [
