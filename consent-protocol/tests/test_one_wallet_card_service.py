@@ -790,3 +790,88 @@ def test_every_statement_is_parameterised(service: OneWalletCardService, db: Fak
     for sql, _ in db.statements:
         assert "DROP TABLE" not in sql
         assert hostile not in sql
+
+
+# ---------------------------------------------------------------------------
+# The QR payload origin
+# ---------------------------------------------------------------------------
+
+# Every origin variable the resolver knows about, so a test can prove which one
+# wins without depending on whatever the developer happens to have exported.
+_ORIGIN_ENV_NAMES = (
+    "APP_FRONTEND_ORIGIN",
+    "NEXT_PUBLIC_APP_URL",
+    "APP_PUBLIC_URL",
+    "FRONTEND_BASE_URL",
+)
+
+
+@pytest.fixture
+def no_origin_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _ORIGIN_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_qr_url_is_absolute_when_only_app_frontend_origin_is_set(
+    no_origin_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``APP_FRONTEND_ORIGIN`` is the *only* one of these the deployed backend
+    actually receives (``deploy/backend.cloudbuild.yaml``). If the resolver
+    ignores it, every QR minted in UAT and prod encodes ``/c/<token>`` — a
+    relative path a phone camera cannot resolve, on a printed code that cannot
+    be recalled. The QR is the whole product, so this is asserted, not reviewed.
+    """
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    url = wallet_card_module.public_card_url("tok-abc")
+
+    assert url == "https://one.hushh.ai/c/tok-abc"
+
+
+def test_a_csv_origin_allowlist_yields_one_usable_url(
+    no_origin_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``APP_FRONTEND_ORIGIN`` is a CSV allowlist in some deployments (see the
+    CORS collection in ``vault_keys_service``). A QR can encode exactly one
+    origin, so the first entry wins rather than a comma-spliced non-URL."""
+    monkeypatch.setenv(
+        "APP_FRONTEND_ORIGIN", "https://one.hushh.ai,https://www.hushh.ai, https://hushh.ai"
+    )
+
+    url = wallet_card_module.public_card_url("tok-abc")
+
+    assert url == "https://one.hushh.ai/c/tok-abc"
+    assert "," not in url
+
+
+def test_a_trailing_slash_does_not_double_up(
+    no_origin_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai/")
+
+    assert wallet_card_module.public_card_url("tok-abc") == "https://one.hushh.ai/c/tok-abc"
+
+
+def test_a_bare_host_is_upgraded_to_https(
+    no_origin_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "one.hushh.ai")
+
+    assert wallet_card_module.public_card_url("tok-abc") == "https://one.hushh.ai/c/tok-abc"
+
+
+def test_the_local_overrides_still_win_when_they_are_set(
+    no_origin_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deployment variable leads the tuple, so a developer's explicit
+    ``NEXT_PUBLIC_APP_URL`` must still apply when the deployment one is unset."""
+    monkeypatch.setenv("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+
+    assert wallet_card_module.public_card_url("tok-abc") == "http://localhost:3000/c/tok-abc"
+
+
+def test_the_url_degrades_to_a_relative_path_with_no_origin_configured(
+    no_origin_env: None,
+) -> None:
+    """Unconfigured must stay honest rather than inventing a host."""
+    assert wallet_card_module.public_card_url("tok-abc") == "/c/tok-abc"

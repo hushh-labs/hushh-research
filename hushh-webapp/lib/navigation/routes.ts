@@ -639,6 +639,22 @@ export function isPublicRoute(pathname: string): boolean {
 }
 
 /**
+ * Routes that must emit no analytics at all (Wallet Profile contract §7).
+ *
+ * A visitor scanning someone's Wallet Profile QR never agreed to anything with
+ * us — they are not a user, they arrived from a stranger's printed code, and we
+ * do not get to measure them. Deliberately much narrower than `isPublicRoute`:
+ * the marketing and auth routes there are ours to instrument.
+ */
+export function isAnalyticsExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
+  );
+}
+
+/**
  * Public editorial routes that share One's Foundation ambient presentation and
  * voice-only controls. Keep this narrower than isPublicRoute: auth, profile,
  * phone, and public invite routes have their own security/UI contracts.
