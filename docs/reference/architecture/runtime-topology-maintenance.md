@@ -57,7 +57,7 @@ persona and structural surface:
 - `information_identity`: KYC, Email, Connected Systems, and Personal
   Information
 
-The existing curated `.codex/agents` fleet remains the implementation. Adding
+The existing curated `agents` fleet remains the implementation. Adding
 a generic maintenance agent would exceed the governed fleet cap and duplicate
 the governor, frontend, backend, data-model, documentation, security, and
 voice evidence lanes.

@@ -1,6 +1,6 @@
 ---
 name: codex-bridge
-description: Answers questions about and routes tasks for the hushh-research codebase. Use whenever the user asks about or wants to change anything this repo owns, including consent-protocol, Operons, HCT, Kai, MCP, IAM, PKM, vault, backend, frontend, mobile, security, docs, comms, ops, skill authoring, and any new specialist added under .codex/ later. Reads .codex/skills/, .codex/workflows/, and .codex/agents/ at invocation time, composes a briefing the way codex route-task does (workflow plus owner_skill plus default_spoke unioned), surfaces .codex/agents/* as advisory delegation lanes, and auto-discovers anything added to the tree without a bridge edit.
+description: Answers questions about and routes tasks for the hushh-research codebase. Use whenever the user asks about or wants to change anything this repo owns, including consent-protocol, Operons, HCT, Kai, MCP, IAM, PKM, vault, backend, frontend, mobile, security, docs, comms, ops, skill authoring, and any new specialist added under .codex/ later. Reads .codex/skills/, .codex/workflows/, and agents/ at invocation time, composes a briefing the way codex route-task does (workflow plus owner_skill plus default_spoke unioned), surfaces agents/* as advisory delegation lanes, and auto-discovers anything added to the tree without a bridge edit.
 argument-hint: "[skill-or-workflow-name | --list | --check | --coverage | free-text]"
 allowed-tools: Read Grep Glob Bash(python3 *)
 paths:
@@ -60,7 +60,7 @@ No strong match. Pick by description, re-invoke `/codex-bridge <name>`.
 
 ### An agent briefing
 
-The matched entry is a repo-scoped custom agent (under `.codex/agents/`), not a skill or workflow. Treat it as a delegation lane, not instructions to execute directly:
+The matched entry is a repo-scoped custom agent (under `agents/`), not a skill or workflow. Treat it as a delegation lane, not instructions to execute directly:
 
 1. Decide whether the current turn actually benefits from delegation. Most single-lane requests do not.
 2. If delegation fits, confirm with the user before invoking the corresponding `/agent <name>`. Subagent use is explicit only per [.codex/skills/agent-orchestration-governance/references/delegation-contract.md](../../../.codex/skills/agent-orchestration-governance/references/delegation-contract.md).
@@ -83,7 +83,7 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 
 ## Design
 
-- **Source of truth:** `.codex/skills/*`, `.codex/workflows/*`, and `.codex/agents/*`. Edit there; the bridge re-reads every invocation.
+- **Source of truth:** `.codex/skills/*`, `.codex/workflows/*`, and `agents/*`. Edit there; the bridge re-reads every invocation.
 - **Composition mirrors codex.** Routing emits the same union of fields that `repo_scan.py::build_route_task` produces, so Claude makes the same scope decisions codex would.
 - **Agents are advisory lanes, not winners.** Exact agent name routes to an agent briefing. Free-text never elevates an agent above a matching skill or workflow. On explicit skill or workflow invocations, matching agents appear as a compact `Suggested delegation lanes` footer (suppressed on Q&A turns and on close-scoring ties).
 - **Progressive disclosure.** Only the routed briefing enters context, not the full corpus. The `--hook` path adds a second axis: silence below the gate, a compact pointer at medium confidence or when a rival lane scores within 2 points, and the full composed briefing only when the match is both strong and unambiguous.
