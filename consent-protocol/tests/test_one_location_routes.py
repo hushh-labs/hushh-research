@@ -18,7 +18,13 @@ from tests.services.test_one_location_agent_service import (
 
 class DatabaseExecutionError(Exception):
     code = "DATABASE_UNAVAILABLE"
-    details = "Database temporarily unavailable."
+    # Shaped like the real thing: db_client passes str(<the DBAPI error>), and
+    # SQLAlchemy appends the statement plus every bound value to that.
+    details = (
+        "(psycopg2.OperationalError) connection failed\n"
+        "[SQL: SELECT * FROM one_location_recipients WHERE phone = %s]\n"
+        "[parameters: {'phone': '+919812345678'}]"
+    )
     hint = "Retry later."
     status_code = 503
 
@@ -675,9 +681,13 @@ def test_one_location_route_preserves_db_error_mapping_without_db_client_import(
     assert response.status_code == 503
     assert response.detail == {
         "code": "DATABASE_UNAVAILABLE",
-        "message": "Database temporarily unavailable.",
+        "message": "Location storage is temporarily unavailable. Try again shortly.",
         "hint": "Retry later.",
     }
+    # CWE-209: the raw SQLAlchemy detail carries the statement and its bound
+    # values; only the code and the static hint may cross the wire.
+    assert "[parameters:" not in str(response.detail)
+    assert "+919812345678" not in str(response.detail)
 
 
 def test_recipient_key_blob_is_returned_to_owner_and_never_leaks_to_others(monkeypatch) -> None:
