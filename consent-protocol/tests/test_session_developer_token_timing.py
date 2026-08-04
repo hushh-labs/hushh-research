@@ -4,10 +4,10 @@ A plain ``!=`` string comparison leaks token length and prefix information via
 response timing (CWE-208).  The fix replaces it with ``hmac.compare_digest``.
 
 These tests assert the observable security properties:
-- Missing token => 403
-- Wrong token => 403
+- Missing token => 401
+- Wrong token => 401
 - Correct token => request proceeds past the auth gate (400 due to missing
-  lookup params, NOT 403)
+  lookup params, NOT 401)
 - Source code uses ``hmac.compare_digest`` for the comparison
 """
 
@@ -28,16 +28,16 @@ def _build_app() -> FastAPI:
     return app
 
 
-def test_missing_developer_token_returns_403(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_developer_token_returns_401(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "correct-secret")
     client = TestClient(_build_app())
 
     response = client.get("/api/user/lookup")
 
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_wrong_developer_token_returns_403(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wrong_developer_token_returns_401(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "correct-secret")
     client = TestClient(_build_app())
 
@@ -46,7 +46,7 @@ def test_wrong_developer_token_returns_403(monkeypatch: pytest.MonkeyPatch) -> N
         headers={"X-MCP-Developer-Token": "wrong-secret"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_correct_developer_token_passes_auth_gate(monkeypatch: pytest.MonkeyPatch) -> None:
