@@ -20,7 +20,6 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        # Ensure gcr.io auth is available to the buildx container driver.
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder
@@ -36,6 +35,39 @@ steps:
     id: "build-backend-image"
 
   # Step 3: Deploy to Cloud Run
+  #
+  # NOTE ON COMMENTS IN THIS STEP: Cloud Build caps a single build-step arg at
+  # 10,000 characters, and this step's whole bash body is one arg. Comments
+  # placed *inside* the body count against that cap; comments here do not.
+  # Keep explanatory prose at this level. See
+  # consent-protocol/tests/test_cloudbuild_step_arg_limit.py for the CI guard.
+  #
+  # Apple Wallet pass signing material (WALLET_PASS_CERT_PEM / KEY_PEM /
+  # WWDR_PEM) is optional by construction: until the Pass Type ID certificate
+  # is minted these secrets do not exist, so append_optional_secret skips them
+  # and the signing service answers 503 instead of 500. They are defaulted to
+  # their canonical names so the first deploy after provisioning picks them up
+  # with no change to this file.
+  #
+  # Runtime identity may differ from deploy identity: the dev environment
+  # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
+  # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
+  #
+  # env_var_string joins with '|' (not ',') so env VALUES may themselves
+  # contain commas. Paired with gcloud's alternate-delimiter syntax on
+  # --set-env-vars below.
+  #
+  # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are long-lived
+  # HTTP requests on Cloud Run; the previous 300s hard-killed any voice
+  # conversation at 5 minutes. Session affinity is best-effort per Google's
+  # WebSocket guidance; reconnects still re-mint a relay ticket, and
+  # cross-instance nonce single-use is Postgres-backed (migration 084). Billing
+  # note: instances with open WebSockets stay active for the connection's
+  # lifetime.
+  #
+  # --max/--min: service-level limits bound aggregate database fan-out across
+  # traffic splits. Revision min-instances=0 prevents no-traffic/retired
+  # revisions from pinning their own warm database pools.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -135,10 +167,10 @@ steps:
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
         append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
+        append_optional_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
+        append_optional_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
+        append_optional_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
 
-        # Runtime identity may differ from deploy identity: the dev environment
-        # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
-        # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
         runtime_environment="${_RUNTIME_ENVIRONMENT}"
         if [[ -z "${runtime_environment}" ]]; then
           runtime_environment="${_DEPLOY_ENV}"
@@ -215,18 +247,9 @@ steps:
         append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 
-        # Join with '|' (not ',') so env VALUES may themselves contain commas.
-        # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
 
-        # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are
-        # long-lived HTTP requests on Cloud Run; the previous 300s hard-killed
-        # any voice conversation at 5 minutes. Session affinity is best-effort
-        # per Google's WebSocket guidance; reconnects still re-mint a relay
-        # ticket, and cross-instance nonce single-use is Postgres-backed
-        # (migration 084). Billing note: instances with open WebSockets stay
-        # active for the connection's lifetime.
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
           "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -239,9 +262,6 @@ steps:
           "--cpu=1"
           "--timeout=3600"
           "--session-affinity"
-          # Service-level limits bound aggregate database fan-out across traffic
-          # splits. Revision min=0 prevents no-traffic/retired revisions from
-          # pinning their own warm database pools.
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"
           "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
@@ -340,6 +360,9 @@ substitutions:
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  _WALLET_PASS_CERT_PEM_SECRET: WALLET_PASS_CERT_PEM
+  _WALLET_PASS_KEY_PEM_SECRET: WALLET_PASS_KEY_PEM
+  _WALLET_PASS_WWDR_PEM_SECRET: WALLET_PASS_WWDR_PEM
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""

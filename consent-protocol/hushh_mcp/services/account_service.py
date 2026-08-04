@@ -199,6 +199,7 @@ class AccountService:
             "one_location_public_invites": text(
                 "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
             ),
+            "one_wallet_cards": text("DELETE FROM one_wallet_cards WHERE user_id = :user_id"),
             "one_location_circle_invites": text(
                 """
                 DELETE FROM one_location_circle_invites
@@ -545,6 +546,7 @@ class AccountService:
                 "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
+                "one_wallet_cards",
             ],
             params=params,
             results=results,
@@ -1060,6 +1062,7 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "one_wallet_cards",
                 ):
                     self._delete_user_rows_if_table_exists(
                         conn,

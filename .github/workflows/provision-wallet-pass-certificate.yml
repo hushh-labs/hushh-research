@@ -1,0 +1,337 @@
+name: Provision Wallet Pass Certificate
+
+# One-click provisioning of the Apple Pass Type ID (`pass.com.hushh.app.one`) and
+# its PASS_TYPE_ID signing certificate for the Hushh One Wallet Profile pass.
+#
+# The whole chain is automatable with the Admin-role App Store Connect key that
+# already lives in GCP Secret Manager (hushh-pda-uat): create/reuse the Pass Type
+# ID, generate an RSA-2048 keypair + CSR inside the runner, request the
+# certificate, verify the Apple WWDR **G4** intermediate, and write
+# WALLET_PASS_CERT_PEM / WALLET_PASS_KEY_PEM / WALLET_PASS_WWDR_PEM to Secret
+# Manager over stdin. Cloud Run then receives them as `--set-secrets` env refs
+# from deploy/backend.cloudbuild.yaml and reads them through runtime_settings.
+#
+# IRREVERSIBLE: minting a certificate consumes a slot in the Apple Developer
+# account and cannot be undone from CI. This workflow therefore defaults to a dry
+# run and additionally requires the `confirm` phrase before it creates anything —
+# the same default-off gating the App Store release workflow uses for its
+# submit-for-review action.
+#
+# The private key is generated in the job, piped straight into Secret Manager,
+# and never printed, never exported to the environment, and never uploaded as an
+# artifact. Only non-sensitive metadata (identifier, certificate id, serial,
+# expiry) reaches the log, the artifact, and the job summary.
+#
+# ROTATION: a Pass Type ID certificate is valid for about a year (the WWDR G4
+# intermediate runs to 2030-12-10, so it is not the operational risk). Re-dispatch
+# this workflow before the expiry printed in the job summary; a re-run inside the
+# renewal window mints a replacement, and a re-run outside it is a safe no-op.
+#
+# Runbook: docs/superpowers/plans/2026-08-03-hushh-one-wallet-card.md (section 5)
+# Contract: docs/superpowers/specs/2026-08-03-wallet-card-contract.md (section 1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Resolve, generate and verify only — create no Apple resource and write no secret"
+        required: false
+        default: true
+        type: boolean
+      confirm:
+        description: "IRREVERSIBLE: type MINT-PASS-CERTIFICATE to actually mint the Apple certificate and write the secrets (required when dry_run=false)"
+        required: false
+        default: ""
+        type: string
+      secret_projects:
+        description: "Comma-separated GCP projects that receive the signing material. A certificate is minted ONCE, so list every environment that needs it in the same run."
+        required: false
+        default: "hushh-pda-uat"
+        type: string
+      force_new_certificate:
+        description: "Mint a new certificate even if valid signing material is already stored (rotation override)"
+        required: false
+        default: false
+        type: boolean
+      notes:
+        description: "Optional note for the run summary"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # The App Store Connect Admin key (APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID /
+  # _ISSUER_ID) lives in hushh-pda-uat, exactly like the TestFlight and App Store
+  # pipelines. Nothing App Store-related is stored as a GitHub secret.
+  GCP_PROJECT_ID: hushh-pda-uat
+  PASS_TYPE_IDENTIFIER: pass.com.hushh.app.one
+  PASS_TYPE_NAME: Hushh One Wallet Profile
+  CONFIRM_PHRASE: MINT-PASS-CERTIFICATE
+  METADATA_PATH: wallet-pass-certificate.json
+
+concurrency:
+  # Serialize dispatches so two runs cannot race the same Pass Type ID or mint
+  # two certificates that both claim to be "the" signing material.
+  group: provision-wallet-pass-certificate
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision Pass Type ID + certificate
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+
+    steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing Wallet pass certificate provisioning from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Assert production dispatch actor policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Minting an Apple certificate is an account-level, irreversible action,
+          # so it carries the production actor gate rather than the uat one.
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
+
+      - name: Resolve mode (dry run vs irreversible apply)
+        id: mode
+        shell: bash
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "false" ]; then
+            if [ "${CONFIRM}" != "${CONFIRM_PHRASE}" ]; then
+              echo "Refusing to provision: dry_run=false requires confirm='${CONFIRM_PHRASE}' (got '${CONFIRM}')." >&2
+              echo "Minting a Pass Type ID certificate is IRREVERSIBLE; re-dispatch with the exact phrase." >&2
+              exit 1
+            fi
+            echo "::warning title=Irreversible Apple certificate mint::dry_run=false and the confirmation phrase was supplied -> this run WILL create an Apple Pass Type ID certificate and write signing material to Secret Manager. This consumes a certificate slot and cannot be undone from CI."
+            echo "apply=true" >> "$GITHUB_OUTPUT"
+            echo "mode=apply (mint certificate + write secrets)" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dry run: nothing will be created in App Store Connect and no secret will be written."
+            echo "apply=false" >> "$GITHUB_OUTPUT"
+            echo "mode=dry run (no Apple resource, no secret write)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate target secret projects
+        id: projects
+        shell: bash
+        env:
+          SECRET_PROJECTS: ${{ github.event.inputs.secret_projects }}
+        run: |
+          set -euo pipefail
+          RAW="${SECRET_PROJECTS:-hushh-pda-uat}"
+          PROJECTS="$(printf '%s' "$RAW" | tr ',' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | grep -v '^$' || true)"
+          if [ -z "$PROJECTS" ]; then
+            echo "secret_projects resolved to nothing; at least one GCP project is required." >&2
+            exit 1
+          fi
+          while IFS= read -r project; do
+            if ! printf '%s' "$project" | grep -Eq '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'; then
+              echo "Refusing provisioning: '$project' is not a valid GCP project id." >&2
+              exit 1
+            fi
+          done <<< "$PROJECTS"
+          echo "Target projects:"
+          printf '%s\n' "$PROJECTS" | sed 's/^/  /'
+          {
+            echo "list<<EOF"
+            echo "$PROJECTS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "joined=$(printf '%s' "$PROJECTS" | paste -sd ',' -)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud (UAT)
+        uses: google-github-actions/auth@v2
+        with:
+          # UAT-scoped SA key (repo-level secret, inherited by the production
+          # environment). The App Store Connect key this job needs lives in
+          # hushh-pda-uat, exactly like the TestFlight / App Store pipelines.
+          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Assert GCP project scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "${GCP_PROJECT_ID}"
+          ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null)"
+          if [ "$ACTIVE_PROJECT" != "${GCP_PROJECT_ID}" ]; then
+            echo "Refusing provisioning: expected project '${GCP_PROJECT_ID}' but got '$ACTIVE_PROJECT'." >&2
+            exit 1
+          fi
+
+      - name: Decode App Store Connect API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The ASC key lives in GCP Secret Manager (hushh-pda-uat), the store
+          # deploy/README.md designates for native signing assets:
+          #   APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID / _ISSUER_ID.
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
+          }
+          for name in APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID; do
+            if ! gcloud secrets describe "$name" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+              echo "Missing GCP secret $name in ${GCP_PROJECT_ID}." >&2
+              echo "The Pass Type ID API requires an ADMIN-role App Store Connect key." >&2
+              echo "See docs/superpowers/plans/2026-08-03-hushh-one-wallet-card.md (section 5)." >&2
+              exit 1
+            fi
+          done
+          ASC_KEY_ID="$(get APPSTORE_CONNECT_KEY_ID)"
+          ASC_ISSUER_ID="$(get APPSTORE_CONNECT_ISSUER_ID)"
+          echo "::add-mask::${ASC_KEY_ID}"
+          echo "::add-mask::${ASC_ISSUER_ID}"
+          umask 077
+          get APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "${RUNNER_TEMP}/asc.p8"
+          chmod 600 "${RUNNER_TEMP}/asc.p8"
+          if ! grep -q "BEGIN PRIVATE KEY" "${RUNNER_TEMP}/asc.p8"; then
+            echo "Decoded ASC key is not a valid PEM .p8 (check APPSTORE_CONNECT_API_KEY_P8_B64)." >&2
+            exit 1
+          fi
+          echo "ASC_KEY_ID=${ASC_KEY_ID}" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=${ASC_ISSUER_ID}" >> "$GITHUB_ENV"
+
+      - name: Create App Store Connect Python venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/asc-venv"
+          "${RUNNER_TEMP}/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
+
+      - name: Self-test the provisioning script (offline)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exercises JWT minting, CSR generation, certificate decoding, the
+          # key-match assertion and the WWDR G4 pinning with no network and no
+          # real key, before anything irreversible can run.
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/provision_wallet_pass_certificate.py --self-test
+
+      - name: Provision Pass Type ID + certificate
+        id: provision
+        shell: bash
+        env:
+          APPLY: ${{ steps.mode.outputs.apply }}
+          PROJECT_LIST: ${{ steps.projects.outputs.list }}
+          FORCE_NEW: ${{ github.event.inputs.force_new_certificate }}
+        run: |
+          set -euo pipefail
+          umask 077
+          PROVISION_ARGS=()
+          while IFS= read -r project; do
+            [ -n "$project" ] || continue
+            PROVISION_ARGS+=(--secret-project "$project")
+          done <<< "${PROJECT_LIST}"
+          if [ "${APPLY}" = "true" ]; then
+            PROVISION_ARGS+=(--apply)
+          fi
+          if [ "${FORCE_NEW}" = "true" ]; then
+            PROVISION_ARGS+=(--force-new-certificate)
+          fi
+          # bash guard for a possibly-empty array under `set -u`.
+          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/provision_wallet_pass_certificate.py \
+            --p8-path "${RUNNER_TEMP}/asc.p8" \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer-id "${ASC_ISSUER_ID}" \
+            --pass-type-identifier "${PASS_TYPE_IDENTIFIER}" \
+            --pass-type-name "${PASS_TYPE_NAME}" \
+            --upsert-script scripts/ops/upsert_gcp_secret.py \
+            --metadata-path "${RUNNER_TEMP}/${METADATA_PATH}" \
+            "${PROVISION_ARGS[@]+"${PROVISION_ARGS[@]}"}"
+          # The metadata JSON holds only non-sensitive fields (identifier,
+          # certificate id, serial, expiry), so it is safe to read back.
+          chmod 644 "${RUNNER_TEMP}/${METADATA_PATH}"
+
+      - name: Remove the App Store Connect key from the runner
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${RUNNER_TEMP}/asc.p8"
+
+      - name: Upload provisioning metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Strict allowlist: ONLY the non-sensitive metadata JSON. The private
+          # key, the certificate body and the WWDR body are never written to a
+          # path that any artifact glob can reach.
+          name: wallet-pass-certificate-metadata
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/wallet-pass-certificate.json
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="${RUNNER_TEMP}/${METADATA_PATH}"
+          field() {
+            if [ -f "$META" ]; then
+              jq -r --arg key "$1" '.[$key] // "n/a"' "$META"
+            else
+              echo "n/a"
+            fi
+          }
+          NOT_AFTER="$(field not_after)"
+          DAYS_LEFT="$(field days_until_expiry)"
+          {
+            echo "## Provision Wallet Pass Certificate"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Pass Type Identifier | \`${PASS_TYPE_IDENTIFIER}\` |"
+            echo "| Mode | ${{ steps.mode.outputs.mode }} |"
+            echo "| Action | $(field action) |"
+            echo "| Secret projects | ${{ steps.projects.outputs.joined }} |"
+            echo "| Secrets | \`WALLET_PASS_CERT_PEM\`, \`WALLET_PASS_KEY_PEM\`, \`WALLET_PASS_WWDR_PEM\` |"
+            echo "| Pass Type ID | $(field pass_type_id) |"
+            echo "| Certificate id | $(field certificate_id) |"
+            echo "| Certificate serial | $(field certificate_serial) |"
+            echo "| Certificate expires | ${NOT_AFTER} |"
+            echo "| Days until expiry | ${DAYS_LEFT} |"
+            echo "| WWDR G4 expires | $(field wwdr_not_after) |"
+            if [ -n "${{ github.event.inputs.notes }}" ]; then
+              echo "| Notes | ${{ github.event.inputs.notes }} |"
+            fi
+            echo ""
+            if [ "${{ steps.mode.outputs.apply }}" = "true" ]; then
+              echo "> **Rotation required.** The Pass Type ID certificate above is valid for"
+              echo "> roughly one year and expires **${NOT_AFTER}** (${DAYS_LEFT} day(s) left)."
+              echo "> It — not the WWDR G4 intermediate, which runs to 2030-12-10 — is the"
+              echo "> operational risk: once it expires, every \`.pkpass\` this backend signs"
+              echo "> stops installing. Put the expiry date in the on-call calendar and"
+              echo "> re-dispatch this workflow before it lands; a run inside the 30-day"
+              echo "> renewal window mints a replacement, and a run outside it is a no-op."
+            else
+              echo "> Dry run only: the Pass Type ID was resolved, an RSA-2048 keypair + CSR"
+              echo "> were generated locally, and the Apple WWDR G4 intermediate was fetched"
+              echo "> and pinned — but **no Apple resource was created and no secret was"
+              echo "> written**. Re-dispatch with \`dry_run=false\` and"
+              echo "> \`confirm=MINT-PASS-CERTIFICATE\` to provision for real."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

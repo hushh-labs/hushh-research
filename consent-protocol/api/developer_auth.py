@@ -164,7 +164,7 @@ def authenticate_developer_principal(
     )
     if principal is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "DEVELOPER_TOKEN_INVALID",
                 "message": "Developer token is invalid or revoked.",

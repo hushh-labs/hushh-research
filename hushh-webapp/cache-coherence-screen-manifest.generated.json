@@ -10,16 +10,16 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 116,
-    "physical_page_count": 116,
-    "route_contract_count": 116,
-    "surface_map_count": 116,
+    "total_screens": 118,
+    "physical_page_count": 118,
+    "route_contract_count": 118,
+    "surface_map_count": 118,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 40,
-      "vault-backed": 41,
-      "hidden flow": 11,
+      "vault-backed": 42,
+      "hidden flow": 12,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
       "PKM-secure": 6
@@ -196,6 +196,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/blog/[slug]",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/c/[token]",
+      "page_file": "app/c/[token]/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/c/[token]",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4431,6 +4476,51 @@
       ]
     },
     {
+      "route": "/one/wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fwallet-card",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/pkm",
       "page_file": "app/pkm/page.tsx",
       "route_contract_mode": "redirect",
@@ -5207,5 +5297,5 @@
       ]
     }
   ],
-  "content_sha256": "acfb31173b2e98a6da34fb9d8fb9a6eeadc0e6a88d108bafac2071f28560e7b6"
+  "content_sha256": "96ec5d41de403e180de7ea97dd1e89a86b0b3999891a74e6961f01b694d50d13"
 }
