@@ -23,6 +23,24 @@ const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
 type SmsMessageSelection = SmsQuickMessage | "custom" | null;
 
+type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
+
+export function isWindowsDesktopEmCallUnsupported(
+  options?: {
+    userAgent?: string;
+    platform?: string;
+  },
+) {
+  const userAgent = (options?.userAgent ?? navigator.userAgent).toLowerCase();
+  const platform = (options?.platform ?? navigator.platform).toLowerCase();
+  const isWindows = /windows/.test(platform) || /windows/i.test(userAgent);
+  const isMobileOrTablet =
+    /mobile|mobi|iphone|ipad|ipod|android/.test(userAgent) ||
+    /phone|tablet|touch/.test(userAgent);
+
+  return isWindows && !isMobileOrTablet;
+}
+
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   active: boolean;
@@ -68,6 +86,8 @@ export function SosPanel({
   const [customMessage, setCustomMessage] = useState("");
 
   const [progress, setProgress] = useState(0);
+  const [windowsCopyStatus, setWindowsCopyStatus] =
+    useState<WindowsFallbackCopyStatus>("idle");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef(0);
@@ -97,6 +117,7 @@ export function SosPanel({
     (!selectedMessage || customMessageLimitExceeded);
   const disabled =
     busy || active || readyRecipients.length === 0 || customMessageInvalid;
+  const shouldFallbackWindowsEmergencyCall = isWindowsDesktopEmCallUnsupported();
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
@@ -187,6 +208,20 @@ export function SosPanel({
       cancelHold();
     }
   };
+
+  const handleWindowsEmergencyCopy = useCallback(async () => {
+    if (!emergency) return;
+    try {
+      await navigator.clipboard.writeText(emergency.number);
+      setWindowsCopyStatus("copied");
+    } catch {
+      setWindowsCopyStatus("error");
+    }
+  }, [emergency]);
+
+  useEffect(() => {
+    setWindowsCopyStatus("idle");
+  }, [emergency?.number]);
 
   return (
     <section
@@ -402,21 +437,56 @@ export function SosPanel({
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {emergencyStatus === "resolved" && emergency ? (
-              <a
-                href={`tel:${emergency.number}`}
-                aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
-              >
-                <Phone className="h-4 w-4 fill-current" aria-hidden />
-                <span className="min-w-0 text-left leading-tight">
-                  <span className="block text-[15px] font-semibold">
-                    Call {emergency.number}
+              shouldFallbackWindowsEmergencyCall ? (
+                <div className="flex min-h-12 flex-col justify-center">
+                  <button
+                    type="button"
+                    onClick={handleWindowsEmergencyCopy}
+                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                    aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
+                  >
+                    <Phone className="h-4 w-4 fill-current" aria-hidden />
+                    <span className="min-w-0 text-left leading-tight">
+                      <span className="block text-[15px] font-semibold">
+                        Copy emergency number
+                      </span>
+                      <span className="block truncate text-[10px] text-white/75">
+                        {emergency.countryName} · {emergency.number}
+                      </span>
+                    </span>
+                  </button>
+                  <span className="mt-1 block text-[11px] leading-tight text-white/75">
+                    Windows browsers cannot open emergency dialers directly. Call {emergency.number}
+                    from your phone now.
                   </span>
-                  <span className="block truncate text-[10px] text-white/75">
-                    {emergency.countryName}
+                  {windowsCopyStatus === "copied" ? (
+                    <span className="mt-1 block text-[11px] leading-tight text-[#35d07f]">
+                      Number copied to clipboard.
+                    </span>
+                  ) : null}
+                  {windowsCopyStatus === "error" ? (
+                    <span className="mt-1 block text-[11px] leading-tight text-[#ff9a75]">
+                      Could not copy. Please open your phone dialer manually.
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <a
+                  href={`tel:${emergency.number}`}
+                  aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
+                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                >
+                  <Phone className="h-4 w-4 fill-current" aria-hidden />
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block text-[15px] font-semibold">
+                      Call {emergency.number}
+                    </span>
+                    <span className="block truncate text-[10px] text-white/75">
+                      {emergency.countryName}
+                    </span>
                   </span>
-                </span>
-              </a>
+                </a>
+              )
             ) : (
               <button
                 type="button"
