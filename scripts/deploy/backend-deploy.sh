@@ -121,6 +121,9 @@ append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
 append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
 append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
 append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
+append_optional_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
+append_optional_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
+append_optional_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
 
 # Runtime identity may differ from deploy identity: the dev environment
 # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with

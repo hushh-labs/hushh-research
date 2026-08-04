@@ -9,6 +9,7 @@ import {
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
   buildWelcomeRoute,
+  isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
   isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
@@ -138,7 +139,10 @@ describe("navigation routes", () => {
       ),
     ).toBe("/one/profile/support/routing");
     expect(
-      buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=regulatory"),
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=regulatory",
+      ),
     ).toBe("/one/profile");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
@@ -179,6 +183,28 @@ describe("navigation routes", () => {
     expect(isPublicRoute("/kai")).toBe(false);
     expect(isPublicRoute("/one/profile")).toBe(false);
     expect(isPublicRoute("/one/connect")).toBe(false);
+  });
+
+  it("exempts the public Wallet Profile from analytics without widening the exemption", () => {
+    // A visitor scanning a stranger's QR is not our user and never agreed to
+    // anything with us (Wallet Profile contract §7).
+    expect(isAnalyticsExemptRoute("/c/abc123")).toBe(true);
+    expect(isAnalyticsExemptRoute("/c")).toBe(true);
+    // Capacitor's static export shapes: trailing slash and backing document.
+    expect(isAnalyticsExemptRoute("/c/abc123/")).toBe(true);
+    expect(isAnalyticsExemptRoute("/c/abc123/index.html")).toBe(true);
+
+    // Strictly narrower than isPublicRoute: the marketing and auth surfaces
+    // there are ours to instrument, and the owner's own Wallet Profile screen
+    // is an authenticated product surface.
+    expect(isAnalyticsExemptRoute("/")).toBe(false);
+    expect(isAnalyticsExemptRoute("/welcome")).toBe(false);
+    expect(isAnalyticsExemptRoute("/developers")).toBe(false);
+    expect(isAnalyticsExemptRoute("/one/wallet-card")).toBe(false);
+    expect(isAnalyticsExemptRoute("/one")).toBe(false);
+    // Prefix matching must not spill into an unrelated sibling route.
+    expect(isAnalyticsExemptRoute("/consents")).toBe(false);
+    expect(isAnalyticsExemptRoute("/careers")).toBe(false);
   });
 
   it("defines profile and Connect inside the vault-protected One route family", () => {

@@ -906,6 +906,16 @@
       "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
+      "data_class": "personal_projection",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "id": "one_wallet_card",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "personal_agent_registry",
@@ -1368,6 +1378,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/c/[token]/page.tsx",
+      "pathname": "/c/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.wallet.card.public.token"
       }
     },
     {
@@ -3937,6 +3970,29 @@
     },
     {
       "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "pathname": "/one/wallet-card",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.wallet.card"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [
         {
           "backend_endpoint_family": "/pkm/*",
@@ -4440,13 +4496,13 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "504402b13d46d3db9cd7f209f4b45f2bd8a8518e69dbf9bf0d9954df7d695d6e",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "77a3699fa0f0292807e2c949b93c43eb3f0c48950544d8b75da96ad91cf2e310",
-    "data_plane": "1ac3f4da8291c15087ec66ab740209a9a9152f36d7799fa35c85129f2cea4193",
+    "cache_manifest": "e939f772b53a77b36b5be73a4a4e9c3e36562cc5e078ac35950582855b21f9c5",
+    "data_plane": "44bd317c8f79739f5b180b2683f117e4c14eef8aabd5f0259d8f5b3e24f49fa2",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "167d04e6700661185f7b08249decdb09e27f32b1630e0fcc16595719fe9d1f91",
-    "route_layout": "6f59201fa2ecc0256cb0e3aeb7887d3f8fc3ca2c0b6e548782e360df936f7e62",
-    "surface_map": "4bd1fb33c82f5fad85abf4e1436bbbc7f3e919403d6999b00f88b5da6f1893f4",
+    "route_index": "a9aa3bdab7af5e90ba1b58e246d53d89425eb29f9e46eab33064204ae1cc6c7c",
+    "route_layout": "bc33f99445d51fd79b22a7d42f364a87509b9b5c90699c5a86566ac8b9e67a64",
+    "surface_map": "eb4a313f290454c68c06554b4b179659396d049b40fabfec238e79ae085d7c42",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4458,8 +4514,8 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 116,
+    "physical_routes": 118,
     "semantic_routes": 14,
-    "table_families": 46
+    "table_families": 47
   }
 }

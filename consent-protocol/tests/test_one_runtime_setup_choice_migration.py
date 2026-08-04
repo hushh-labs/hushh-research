@@ -16,7 +16,9 @@ def test_runtime_setup_choice_is_released_as_a_strict_non_secret_field() -> None
     migration = (ROOT / "db" / "migrations" / MIGRATION_NAME).read_text(encoding="utf-8")
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text("utf-8"))
 
-    assert manifest["ordered_migrations"][-1] == MIGRATION_NAME
+    # Membership, not last-position: asserting this migration is *last* turns
+    # every subsequent unrelated migration into a false failure here.
+    assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert MIGRATION_NAME in manifest["groups"]["iam"]
     assert "ADD COLUMN IF NOT EXISTS one_runtime_setup_choice TEXT" in migration
     assert "hushh_managed_vertex" in migration
