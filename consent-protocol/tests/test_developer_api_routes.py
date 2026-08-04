@@ -208,7 +208,7 @@ def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     assert response.json()["app_id"] == "app_demo_123"
 
 
-def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
+def test_user_scopes_invalid_authorization_bearer_returns_401(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
@@ -224,7 +224,7 @@ def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
         headers={"Authorization": "Bearer not-a-real-token"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 401
     detail = response.json()["detail"]
     assert detail["error_code"] == "DEVELOPER_TOKEN_INVALID"
 

@@ -131,7 +131,7 @@ class AuthenticatedRemoteMCPApp:
         if principal is None:
             await _send_json(
                 send,
-                403,
+                401,
                 {
                     "error_code": "DEVELOPER_TOKEN_INVALID",
                     "message": "Developer token is invalid or revoked.",
