@@ -198,6 +198,53 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
   These are GitHub environment variables consumed through `vars.*`, not
   environment secrets. The verifier checks names only and never renders values.
 
+## The bypass lane
+
+The most privileged path in the repository, gathered in one place because it was
+previously described correctly but scattered across a dozen paragraphs with no heading
+of its own — so nobody could find it by searching for what it is called.
+
+**What it is.** A single sanctioned cohort — the `allowed-maintainers-to-approve` GitHub
+team, declared in [`config/ci-governance.json`](../../../config/ci-governance.json) as
+`review_bypass_users` and `merge_queue_bypass_users`. It applies to both the `main` and
+`pr_train` branch policies.
+
+**What it waives.** Two things only:
+
+1. **Review.** A member may land a PR on `main` without a counted GitHub approval. A PR
+   author still cannot self-approve through GitHub — sanctioned "self approval" *is* this
+   explicit branch-protection bypass, not a review that GitHub counted.
+2. **The train detour.** A member may open a PR **directly into `main`** from any branch,
+   instead of routing through `integration/pr-train` or a registered promote branch.
+
+It additionally carries the right to edit `protected_pipeline_paths`
+(`.github/workflows/`, `deploy/`, `scripts/ci/`, `config/ci-governance.json`), through the
+separate `protected_pipeline_edit_users` list.
+
+**What it never waives — this is the load-bearing half.** Bypass waives *review*, never
+*validation*. All of these still apply, to every member, on every PR:
+
+- `CI Status Gate`
+- merge queue validation
+- `Main Post-Merge Smoke Gate`
+
+A bypass that skipped validation would not be a lane, it would be a hole. Anything
+presented as needing to "bypass CI" is out of contract — see
+[ci.md](./ci.md) and never route it through this cohort.
+
+**Where the live membership lives.** `config/ci-governance.json`, and nowhere else. Do
+**not** transcribe the names into prose anywhere, including here — they drift, and a stale
+copy in a document is worse than no copy. The rings table above shows the relationships;
+the JSON shows who.
+
+**How to change it.** Edit the JSON, then run
+`python3 scripts/ci/apply-governance.py --apply`. The cohort lists are protected-surface
+edits — see *Adding or removing a maintainer* below for the one standardized procedure,
+and *Rule: deploy-actor lists are governance* for why they are not routine config.
+`scripts/ci/verify-main-branch-protection.sh` and
+`scripts/ci/verify-deployment-environment-governance.py` fail if the live GitHub state and
+this JSON drift apart.
+
 ### Rule: deploy-actor lists are governance, not routine config
 
 Changes to `manual_dispatch_users` (UAT or production) and to the maintainer

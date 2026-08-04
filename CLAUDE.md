@@ -158,6 +158,11 @@ cite `AGENTS.md` rather than copying its doctrine into a skill prompt.
 
 - Operating kernel → `AGENTS.md`
 - Route any task → **codex-bridge** skill (reads `.codex/` live)
+- **The bypass lane** (who may land directly on `main` and edit protected pipeline paths,
+  and what it never waives) → `docs/reference/operations/branch-governance.md` §*The bypass
+  lane*. Live membership is `config/ci-governance.json` only — never transcribed into prose.
+- Who I am to GitHub → repo-local **and** global git identity are the active MCP account
+  (`kushaltrivedi5`); see the `github-contribution-governance` skill
 - Preview a branch → dev fast lane: `docs/reference/operations/dev-fast-lane.md`
 - iOS / mobile → `run-ios-sim`, `mobile-bug-log` skills
 - How we work (Dean / Karpathy method, verification discipline) → `verify-before-claim` skill
