@@ -34,3 +34,4 @@ tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
+tests/test_cloudbuild_step_arg_limit.py
