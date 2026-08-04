@@ -84,6 +84,44 @@ steps:
     id: "build-pod-image"
 
   # Step 3: Deploy to Cloud Run
+  #
+  # WHY THE BODY LIVES IN A SCRIPT: Cloud Build caps a single build-step arg at
+  # 10,000 characters, and this step's whole bash body used to be one arg. It
+  # breached that cap twice in eight days -- 363a9932d (2026-07-28) and PR #4791
+  # (2026-08-04) -- taking the UAT and dev deploy lanes down both times.
+  # Substitutions are applied BEFORE the cap is enforced, so lanes differ: at
+  # ba39d0342 the same body measured 10,282 for UAT and 10,208 for dev (both
+  # over) but 8,937 for production (under), which is why nothing surfaced it.
+  # Moving the body into scripts/deploy/backend-deploy.sh removes the ceiling
+  # rather than buying headroom under it. The guard stays in
+  # consent-protocol/tests/test_cloudbuild_step_arg_limit.py.
+  #
+  # Apple Wallet pass signing material (WALLET_PASS_CERT_PEM / KEY_PEM /
+  # WWDR_PEM) is optional by construction: until the Pass Type ID certificate
+  # is minted these secrets do not exist, so append_optional_secret skips them
+  # and the signing service answers 503 instead of 500. They are defaulted to
+  # their canonical names so the first deploy after provisioning picks them up
+  # with no change to this file.
+  #
+  # Runtime identity may differ from deploy identity: the dev environment
+  # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
+  # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
+  #
+  # env_var_string joins with '|' (not ',') so env VALUES may themselves
+  # contain commas. Paired with gcloud's alternate-delimiter syntax on
+  # --set-env-vars in the script.
+  #
+  # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are long-lived
+  # HTTP requests on Cloud Run; the previous 300s hard-killed any voice
+  # conversation at 5 minutes. Session affinity is best-effort per Google's
+  # WebSocket guidance; reconnects still re-mint a relay ticket, and
+  # cross-instance nonce single-use is Postgres-backed (migration 084). Billing
+  # note: instances with open WebSockets stay active for the connection's
+  # lifetime.
+  #
+  # --max/--min: service-level limits bound aggregate database fan-out across
+  # traffic splits. Revision min-instances=0 prevents no-traffic/retired
+  # revisions from pinning their own warm database pools.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -158,6 +196,9 @@ steps:
       - "_RUNTIME_SERVICE_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
       - "_VAULT_DATA_KEY_SECRET=${_VAULT_DATA_KEY_SECRET}"
       - "_VOICE_RUNTIME_CONFIG_JSON_SECRET=${_VOICE_RUNTIME_CONFIG_JSON_SECRET}"
+      - "_WALLET_PASS_CERT_PEM_SECRET=${_WALLET_PASS_CERT_PEM_SECRET}"
+      - "_WALLET_PASS_KEY_PEM_SECRET=${_WALLET_PASS_KEY_PEM_SECRET}"
+      - "_WALLET_PASS_WWDR_PEM_SECRET=${_WALLET_PASS_WWDR_PEM_SECRET}"
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -225,6 +266,9 @@ substitutions:
   _OPENAI_API_KEY_SECRET: ""
   _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
   _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
+  _WALLET_PASS_CERT_PEM_SECRET: WALLET_PASS_CERT_PEM
+  _WALLET_PASS_KEY_PEM_SECRET: WALLET_PASS_KEY_PEM
+  _WALLET_PASS_WWDR_PEM_SECRET: WALLET_PASS_WWDR_PEM
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
   _OMNIGATEWAY_CLIENT_SECRET_SECRET: OMNIGATEWAY_CLIENT_SECRET
   _HUSHH_DEVELOPER_TOKEN_SECRET: ""

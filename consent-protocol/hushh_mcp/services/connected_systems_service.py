@@ -168,6 +168,26 @@ def _clean_text(value: Any, *, max_length: int = 512) -> str:
     return text
 
 
+def _parse_crm_phone_parts(value: Any) -> tuple[str, str, str]:
+    """Parse E.164 phone string into (country_code, national_number, fallback)."""
+    raw = str(value or "").strip()
+    fallback = _normalize_crm_phone_for_mcp(raw)
+    if not raw.startswith("+"):
+        return "", fallback, fallback
+    try:
+        import phonenumbers
+
+        parsed = phonenumbers.parse(raw, None)
+        if not phonenumbers.is_valid_number(parsed):
+            return "", fallback, fallback
+
+        country_code = f"+{parsed.country_code}"
+        national_number = str(parsed.national_number)
+        return country_code, national_number, fallback
+    except Exception:
+        return "", fallback, fallback
+
+
 def _normalize_crm_phone_for_mcp(value: Any) -> str:
     clean = _clean_text(value, max_length=80)
     digits = re.sub(r"\D", "", clean)
@@ -2091,6 +2111,13 @@ class ConnectedSystemsService:
         aliases = {
             "email": ("email", "emailaddress", "email_address"),
             "phone": ("phone", "telephone", "phone_number", "mobilephone", "mobile_phone"),
+            "phoneCountryCode": (
+                "phonecountrycode",
+                "countrycode",
+                "dialcode",
+                "phone_country_code",
+                "mobilephonecountrycode",
+            ),
             "firstName": ("firstname", "first_name", "givenname", "given_name"),
             "lastName": ("lastname", "last_name", "surname", "familyname", "family_name"),
             "fullName": ("name", "fullname", "full_name", "displayname", "display_name"),
@@ -2191,6 +2218,11 @@ class ConnectedSystemsService:
                 "Verify your email before linking this CRM.",
                 code="CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED",
             )
+
+        raw_phone = identity.get("phone_number")
+        phone_country_code, phone_national, phone_fallback = _parse_crm_phone_parts(raw_phone)
+        phone = phone_fallback
+
         if not identity.get("phone_verified") or not phone:
             raise ConnectedSystemBlockedError(
                 "Verify your phone before linking this CRM.",
@@ -2200,7 +2232,9 @@ class ConnectedSystemsService:
         parts = display_name.split()
         return {
             "email": email,
-            "phone": phone,
+            "phone": phone_national or phone,
+            "phoneCountryCode": phone_country_code,
+            "phoneFallback": phone,
             "displayName": display_name,
             "firstName": parts[0] if parts else "",
             "lastName": " ".join(parts[1:]) if len(parts) > 1 else (parts[0] if parts else ""),
@@ -2593,6 +2627,7 @@ class ConnectedSystemsService:
         fields: dict[str, Any] = {}
         for semantic, profile_key in (
             ("email", "email"),
+            ("phoneCountryCode", "phoneCountryCode"),
             ("phone", "phone"),
             ("firstName", "firstName"),
             ("lastName", "lastName"),
@@ -2601,6 +2636,14 @@ class ConnectedSystemsService:
             value = _clean_text(profile.get(profile_key), max_length=320)
             if field_name and value:
                 fields[field_name] = value
+
+        # If the schema didn't map a distinct phoneCountryCode but did map phone,
+        # fallback to the fully-constructed E.164-equivalent normalized value
+        # to ensure the single mapped field receives all necessary dial digits.
+        phone_field = _clean_text(mappings.get("phone"), max_length=80)
+        phone_cc_field = _clean_text(mappings.get("phoneCountryCode"), max_length=80)
+        if phone_field and not phone_cc_field:
+            fields[phone_field] = _clean_text(profile.get("phoneFallback"), max_length=320)
         # Salesforce-style `Name` fields are frequently derived and cannot be
         # written alongside FirstName/LastName. Use a full-name field only for
         # schemas that do not expose the split name pair.

@@ -395,6 +395,21 @@
       "expected_row_growth": "medium_per_user_share"
     },
     {
+      "id": "one_wallet_card",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses",
+      "retention_policy": "Retain one row while the owner keeps a card; a revoked card is retained as a tombstone so an already-printed QR can answer honestly, and is hard-deleted on account deletion or reset.",
+      "deletion_behavior": "Soft revoke by setting status='revoked' and revoked_at, which invalidates the share token immediately; hard-delete on account deletion or reset, before actor_profiles tears down the identity spine.",
+      "trust_boundary": "Stores only the owner-selected allowlisted card payload (name, headline, organisation, coarse location label, summary, skills, contact links), the SHA-256 hash of the share token, and aggregate scan counters. Plaintext share tokens are never stored. No per-scan rows, IP addresses, user agents, geolocation, or referrers are recorded. The card grants no vault, PKM, or marketplace access, and is deliberately not published through pkm_default_available_projections.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user"
+    },
+    {
       "id": "information_marketplace_requests",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

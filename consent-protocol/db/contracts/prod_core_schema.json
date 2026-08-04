@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 131,
+  "expected_migration_version": 132,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -1138,6 +1138,23 @@
       "event_type",
       "created_at",
       "metadata"
+    ],
+    "one_wallet_cards": [
+      "user_id",
+      "pass_serial",
+      "share_token_hash",
+      "share_token_version",
+      "status",
+      "card_payload",
+      "display_name",
+      "headline",
+      "avatar_url",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "last_scanned_at",
+      "scan_count"
     ]
   }
 }

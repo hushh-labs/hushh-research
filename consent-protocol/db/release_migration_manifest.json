@@ -109,7 +109,8 @@
     "128_private_analysis_history_redaction.sql",
     "129_ria_pick_legacy_retirement.sql",
     "130_one_runtime_setup_choice.sql",
-    "131_one_location_nearby_point_contract.sql"
+    "131_one_location_nearby_point_contract.sql",
+    "132_one_wallet_card.sql"
   ],
   "groups": {
     "iam": [
@@ -173,7 +174,8 @@
       "128_private_analysis_history_redaction.sql",
       "129_ria_pick_legacy_retirement.sql",
       "130_one_runtime_setup_choice.sql",
-      "131_one_location_nearby_point_contract.sql"
+      "131_one_location_nearby_point_contract.sql",
+      "132_one_wallet_card.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
