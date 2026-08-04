@@ -107,17 +107,29 @@ information — it reads identically whether a lane was used or not, which is th
 failure mode as a status code that says `200` on an empty page. Attribution is only
 meaningful when it is selective. If a response used nothing, say so or omit the block.
 
-Format:
+Format — **one lane per line, as a bullet.** Never run several lanes together on one line
+separated by `·`; that packs the most useful information in the response into the least
+readable shape, and at three or four lanes it stops being scannable at all (founder
+directive, 2026-08-04).
 
 ```
 ---
-**Subagents used:** `repo_operator` — deploy-lane evidence · `Explore` ×2 — ADK surface, audit scope
-**Skills used:** `verify-before-claim` — live-artifact verification of the deployed revision
-**Skills evolved:** `verify-before-claim` — added the fallback-classification lesson
+**Subagents used:**
+- `repo_operator` — deploy-lane evidence
+- `Explore` ×2 — ADK surface, audit scope
+
+**Skills used:**
+- `verify-before-claim` — live-artifact verification of the deployed revision
+
+**Skills evolved:**
+- `verify-before-claim` — added the fallback-classification lesson
 ```
 
-Omit a line entirely when that category is empty — an empty heading is noise. If a response
-used nothing, say so plainly or omit the block.
+Each bullet is `lane — what it was actually used for`. Keep the "what for" concrete: the
+value of the block is that a reader can tell what each lane *did*, not merely that it ran.
+
+Omit a heading entirely when that category is empty — an empty heading is noise. If a
+response used nothing, say so plainly or omit the block.
 
 Evolve the lanes as you use them: when a session teaches a durable lesson, fold it into
 the relevant skill or agent definition in the same change, grounded in real repository
