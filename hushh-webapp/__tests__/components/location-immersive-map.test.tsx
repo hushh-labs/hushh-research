@@ -297,8 +297,8 @@ describe("LocationImmersiveMap demo experience", () => {
       "text-[var(--app-accent-fg)]",
     );
     expect(screen.getByTestId("one-location-map-close")).toHaveClass(
-      "bg-[var(--app-accent)]",
-      "text-[var(--app-accent-fg)]",
+      "!bg-[var(--app-accent-surface)]",
+      "!text-[var(--app-accent-deep)]",
     );
     await waitFor(() => {
       expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledTimes(1);
