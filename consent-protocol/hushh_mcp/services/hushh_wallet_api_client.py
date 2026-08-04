@@ -34,7 +34,6 @@ from PIL import Image
 from hushh_mcp.services.apple_wallet_pass_service import (
     ORGANIZATION_NAME,
     PASS_DESCRIPTION,
-    PASS_LOGO_TEXT,
     WalletPassContent,
     WalletPassSigningUnavailableError,
     _build_back_fields,
@@ -55,26 +54,29 @@ CARD_BACKGROUND_COLOR = "rgb(212, 175, 55)"
 CARD_FOREGROUND_COLOR = "rgb(12, 12, 12)"
 CARD_LABEL_COLOR = "rgb(32, 32, 32)"
 
-# `storeCard` is the membership-card style. It is the right shape for an
-# identity card you hand someone, and — unlike `generic` — it does not reserve
-# a thumbnail slot we deliberately leave empty.
-PASS_STYLE = "storeCard"  # noqa: S105 — pass style, not a credential
+# `generic`, not `storeCard`. A storeCard reserves a full-width strip band at
+# the top and renders the primary field inside it; with no strip image that band
+# collapses into a large empty slab of background — which is exactly how the
+# first build looked on device. `generic` has no strip, so a sparse card stays
+# compact instead of stranding the holder's name above a void.
+PASS_STYLE = "generic"  # noqa: S105 — pass style, not a credential
 
 # Apple's icon sizes at @1x/@2x/@3x. The icon is what Wallet shows on the lock
 # screen and in notifications; a pass without one renders a grey placeholder.
 _ICON_SCALES = {"icon.png": 29, "icon@2x.png": 58, "icon@3x.png": 87}
 
-# The logo slot sits top-left, beside `logoText`. Apple allows up to 160x50, but
-# the mark is square, so it is sent at the slot's 50pt height and Wallet renders
-# the wordmark next to it in the system font. Sending nothing here is worse than
-# it sounds: the service substitutes a blank placeholder square.
+# The logo sits top-left, and the signing service forces `logoText` to "HUSHH"
+# beside it — an empty string does not suppress it. So the logo must be a MARK,
+# not a wordmark: a "hussh" wordmark next to "HUSHH" reads as a stutter. The app
+# icon tile is the mark, at the logo slot's 50pt height.
 _LOGO_SCALES = {"logo.png": 50, "logo@2x.png": 100, "logo@3x.png": 150}
 
 # NOT a directory named `assets`: the repo-root .gcloudignore excludes
 # `assets/` at any depth for the frontend's large media, which silently
 # stripped this icon from the Cloud Build context and shipped a
 # placeholder pass. `test_pass_assets_reach_the_deployed_image` guards it.
-_ICON_SOURCE = Path(__file__).with_name("pass_assets") / "hushh_pass_icon.png"
+_ASSET_DIR = Path(__file__).with_name("pass_assets")
+_ICON_SOURCE = _ASSET_DIR / "hushh_pass_icon.png"
 
 _REQUEST_TIMEOUT_SECONDS = 15.0
 
@@ -102,22 +104,44 @@ def _icon_images() -> dict[str, str]:
         return {}
 
 
-def _fields(content: WalletPassContent) -> dict[str, list[dict[str, str]]]:
-    """Front-of-card fields, ordered by what a stranger needs first.
+# Front-of-card rows in the order a stranger wants them, richest identity
+# signal first. The card fills from whatever the owner actually shared rather
+# than from fixed slots: a profile carrying only a name and an email must not
+# render one line above an empty card, which is what a fixed mapping produced.
+_DISPLAY_ROWS: tuple[tuple[str, str], ...] = (
+    ("headline", "Role"),
+    ("organisation", "Organisation"),
+    ("location_label", "Location"),
+    ("email", "Email"),
+    ("phone", "Phone"),
+    ("website", "Link"),
+)
 
-    `storeCard` shows one primary plus a combined budget of secondary and
-    auxiliary rows, so this stays deliberately short: who they are, what they
-    do, where they are. Everything else lives on the back.
+# Apple caps a generic pass carrying a square barcode at four secondary and
+# auxiliary fields combined.
+_MAX_FRONT_ROWS = 4
+
+
+def _fields(content: WalletPassContent) -> dict[str, list[dict[str, str]]]:
+    """Front-of-card fields, packed from whatever the owner shared.
+
+    The holder's name is the hero and carries no label — a label above a name
+    reads like a form. Everything else fills the remaining rows in priority
+    order and the rest goes to the back, so the front is never empty and never
+    overflows Apple's budget.
     """
+    rows: list[dict[str, str]] = []
+    for attribute, label in _DISPLAY_ROWS:
+        if len(rows) == _MAX_FRONT_ROWS:
+            break
+        field = _text_field(attribute, getattr(content, attribute, ""), label=label)
+        if field:
+            rows.append(field)
+
     return {
         "primaryFields": _present(_text_field("holder", content.full_name, label="")),
-        "secondaryFields": _present(
-            _text_field("headline", content.headline, label="Role"),
-            _text_field("organisation", content.organisation, label="Organisation"),
-        ),
-        "auxiliaryFields": _present(
-            _text_field("location", content.location_label, label="Location"),
-        ),
+        "secondaryFields": rows[:2],
+        "auxiliaryFields": rows[2:_MAX_FRONT_ROWS],
         "backFields": _build_back_fields(content),
     }
 
@@ -128,7 +152,6 @@ def build_pass_request(content: WalletPassContent) -> dict[str, Any]:
         "passType": PASS_STYLE,
         "description": PASS_DESCRIPTION,
         "organizationName": ORGANIZATION_NAME,
-        "logoText": PASS_LOGO_TEXT,
         "backgroundColor": CARD_BACKGROUND_COLOR,
         "foregroundColor": CARD_FOREGROUND_COLOR,
         "labelColor": CARD_LABEL_COLOR,
