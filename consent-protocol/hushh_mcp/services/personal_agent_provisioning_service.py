@@ -12,9 +12,19 @@ the ``PERSONAL_AGENT_ENABLED`` kill-switch:
     3. record the mapping (HusshID, phone hash, pod public key) in the registry as
        ``provisioning`` — BEFORE any token exists, so a registry failure can never
        orphan a live standing grant;
-    4. mint the standing, Nav-governed pkm.read for the user's own agent
+    4. stand the host up on the selected compute backend;
+    5. mint the standing, Nav-governed pkm.read for the user's own agent
        (``personal_agent_grant_service``);
-    5. flip the registry row to ``provisioned`` once the read authority is live.
+    6. flip the registry row to ``provisioned`` once the read authority is live.
+
+  Step 2 has TWO timings, and which one applies decides where provision() stops.
+  The owner-authorized route supplies a pod public key and the flow runs straight
+  through. Automatic provisioning off phone-verify cannot: the pod generates its
+  keypair inside its OWN runtime, so the key does not exist until the pod does.
+  There, provision() performs steps 1, 3 and 4, stops at ``connecting``, and
+  :meth:`attach_pod_public_key` performs 2, 5 and 6 once the hub has collected the
+  key from the pod (``pod_key_collector``). Either way the standing read is minted
+  only after both a host and a key exist — never for a pod that cannot hold it.
 
   deprovision (mirrors the account-deletion teardown seam):
     1. revoke the standing pkm.read FIRST (a REVOKED consent event), so the pod's
@@ -44,6 +54,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+from hmac import compare_digest
 from typing import Any, Optional, Protocol
 
 from hushh_mcp.runtime_settings import personal_agent_enabled, personal_agent_max_pods
@@ -81,6 +93,12 @@ _MAX_HUSHH_ID_GENERATIONS = 4096
 # existing vocabulary (``consent_requested``, ``location_share_created``).
 FEED_EVENT_RESERVED = "personal_agent_reserved"
 FEED_EVENT_PROVISIONING = "personal_agent_provisioning"
+# The host EXISTS and is booting; we are waiting on the pod to come up and hand us
+# its public key. Distinct from ``provisioning`` (which covers "we are asking a
+# backend to build one") because the honest answer to "what is happening" differs:
+# one is our work, the other is a machine starting. The onboarding surface shows
+# them differently, and only this one has a host worth billing.
+FEED_EVENT_CONNECTING = "personal_agent_connecting"
 FEED_EVENT_READY = "personal_agent_ready"
 FEED_EVENT_FAILED = "personal_agent_failed"
 # The fleet is at PERSONAL_AGENT_MAX_PODS: nothing was provisioned, nothing
@@ -96,6 +114,7 @@ _FEED_EVENT_TYPES = frozenset(
     {
         FEED_EVENT_RESERVED,
         FEED_EVENT_PROVISIONING,
+        FEED_EVENT_CONNECTING,
         FEED_EVENT_READY,
         FEED_EVENT_FAILED,
         FEED_EVENT_CAPPED,
@@ -235,8 +254,8 @@ class PersonalAgentProvisioningService:
         *,
         user_id: str,
         phone_e164: str,
-        pod_public_key_b64: str,
-        pod_key_id: str,
+        pod_public_key_b64: Optional[str] = None,
+        pod_key_id: Optional[str] = None,
         pod_key_wrapping_alg: str = WRAPPING_ALG,
         ledger: Any = None,
     ) -> dict[str, Any]:
@@ -244,6 +263,27 @@ class PersonalAgentProvisioningService:
 
         Idempotent by user (``upsert``). Raises ``PersonalAgentDisabledError``
         when off, and ``ValueError`` on a bad phone or pod key.
+
+        TWO KEY TIMINGS, one flow. ``pod_public_key_b64``/``pod_key_id`` are
+        optional, and which case applies decides where this call stops:
+
+        * **Key supplied** (the owner-authorized ``/provision`` route): the caller
+          already holds a pod public key, so the host is created and the standing
+          read minted in one pass, ending at ``provisioned``.
+        * **Key deferred** (auto-provisioning off phone-verify): there is no pod
+          public key yet, and there cannot be one. Per
+          :mod:`hushh_mcp.services.pod_connector_keypair_service`, the pod
+          generates its own X25519 keypair *inside its own runtime* and Hushh only
+          ever receives the public half -- which is what keeps Hushh unable to
+          decrypt the pod. So the key cannot exist before the pod does. This call
+          therefore creates the host and stops at ``connecting``; the pod completes
+          the flow by registering its public key, at which point
+          :meth:`attach_pod_public_key` mints the grant and flips to
+          ``provisioned``.
+
+        The deferred case is the one that reaches ``provisioned`` *later*, not the
+        one that skips it. Nothing here mints a standing read without a pod key:
+        the read authority is only issued once a real pod exists to hold it.
 
         Ordering (SECURITY-REVIEW.md M3): derive + validate first (no side effect),
         then record the registry row as ``provisioning``, then mint the standing
@@ -275,6 +315,13 @@ class PersonalAgentProvisioningService:
         if not user_id:
             raise ValueError("user_id is required")
 
+        # Bound outside the try so the failure handler can tell "we never got far
+        # enough to have a row" from "we have a row and it should be marked failed".
+        # Everything before the first _record call -- HusshID minting, key parsing,
+        # the cap check -- happens without a registry row existing, and there is
+        # nothing to mark failed there.
+        record: Optional[Callable[..., Awaitable[None]]] = None
+
         try:
             # Recycled-phone rotation (SECURITY-REVIEW.md L1): a reassigned phone must
             # not re-derive a prior owner's HusshID. Pick the first generation whose
@@ -282,7 +329,15 @@ class PersonalAgentProvisioningService:
             generation = await self._next_free_generation(phone_e164)
             hushh_id = mint_hushh_id(phone_e164, generation)
             phone_hash = hash_phone_e164(phone_e164)
-            pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+            # Validated only when supplied. A half-supplied pair is a caller bug, not
+            # a deferred key, and must not be silently read as one -- that would drop
+            # a key the caller believed it had handed over.
+            if pod_public_key_b64 or pod_key_id:
+                if not (pod_public_key_b64 and pod_key_id):
+                    raise ValueError("pod_public_key_b64 and pod_key_id must be supplied together")
+                pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+            else:
+                pod_key = None
 
             # Fleet ceiling, checked AFTER validation (pure, no side effect) and
             # BEFORE the first registry write, so a capped user's row is left
@@ -309,9 +364,11 @@ class PersonalAgentProvisioningService:
                     user_id=user_id,
                     hushh_id=hushh_id,
                     phone_e164_hash=phone_hash,
-                    pod_pubkey=pod_key.public_key_b64,
-                    pod_key_id=pod_key.key_id,
-                    pod_key_wrapping_alg=pod_key.wrapping_alg,
+                    # None when the key is deferred; the repo drops None fields, so the
+                    # pod-key columns stay at their schema NULLs until the pod registers.
+                    pod_pubkey=pod_key.public_key_b64 if pod_key else None,
+                    pod_key_id=pod_key.key_id if pod_key else None,
+                    pod_key_wrapping_alg=pod_key.wrapping_alg if pod_key else None,
                     status=status,
                 )
                 if handle is not None:
@@ -327,6 +384,8 @@ class PersonalAgentProvisioningService:
                     )
                 await self._registry.upsert(**fields)
 
+            record = _record
+
             # Record the mapping BEFORE any host or token side effect: a registry failure
             # can never orphan a live host or a live standing grant (SECURITY-REVIEW.md M3).
             await _record("provisioning")
@@ -341,18 +400,54 @@ class PersonalAgentProvisioningService:
             spec = PodSpec(
                 hushh_id=hushh_id,
                 phone_e164_hash=phone_hash,
-                pod_pubkey=pod_key.public_key_b64,
+                # Empty when deferred. No backend reads this field -- the pod holds its
+                # own key -- so an absent one changes nothing about what gets rendered.
+                pod_pubkey=pod_key.public_key_b64 if pod_key else "",
             )
             handle = await self._backend.provision(spec)
             await _record("provisioning", handle=handle)
+
+            if pod_key is None:
+                # The host exists; the pod now has to boot and hand us its public key.
+                # Stop here rather than minting: a standing pkm.read with no pod to
+                # hold it is read authority granted to nobody, which is the one
+                # ordering SECURITY-REVIEW.md M3 exists to prevent.
+                await _record("connecting", handle=handle)
+                await record_provisioning_feed_event_safe(
+                    user_id=user_id, event_type=FEED_EVENT_CONNECTING
+                )
+                logger.info(
+                    "personal_agent.connecting hushh_id_present=%s backend=%s",
+                    bool(hushh_id),
+                    handle.backend or "null",
+                )
+                return {
+                    "hushhId": hushh_id,
+                    "status": "connecting",
+                    "backend": handle.backend,
+                    "externalAgentId": handle.external_agent_id,
+                    "a2aRoute": handle.a2a_route,
+                    "standingReadExpiresAt": None,
+                }
+
             # Mint only after the row + host exist.
             grant = await self._grant.issue_standing_pkm_read(user_id, ledger=ledger)
             # Flip to provisioned now that the read authority is live.
             await _record("provisioned", handle=handle)
         except Exception as exc:
+            # Mark the row failed so the state is legible to the user and to the
+            # reconcile sweep. Best-effort and swallowed: this is an error path
+            # already, and a registry write that fails here must not replace the
+            # original exception with a less informative one. When it does fail the
+            # row stays in ``provisioning``, which is exactly the pre-existing
+            # behaviour -- so this can only ever add information, never remove it.
+            if record is not None:
+                try:
+                    await record("provisioning_failed")
+                except Exception:
+                    logger.exception("personal_agent.failed_status_write_failed")
             # Surface the stall to the user, then re-raise UNCHANGED: the feed is a
-            # projection, never an error handler. The row stays visibly stuck in
-            # ``provisioning`` for the reconcile sweep exactly as before.
+            # projection, never an error handler.
             await record_provisioning_feed_event_safe(
                 user_id=user_id,
                 event_type=FEED_EVENT_FAILED,
@@ -372,6 +467,101 @@ class PersonalAgentProvisioningService:
             "backend": handle.backend,
             "externalAgentId": handle.external_agent_id,
             "a2aRoute": handle.a2a_route,
+            "standingReadExpiresAt": grant.get("expiresAt"),
+        }
+
+    async def attach_pod_public_key(
+        self,
+        *,
+        user_id: str,
+        pod_public_key_b64: str,
+        pod_key_id: str,
+        pod_key_wrapping_alg: str = WRAPPING_ALG,
+        ledger: Any = None,
+    ) -> dict[str, Any]:
+        """Second half of a deferred-key provision: the pod hands over its public key.
+
+        Called once a pod has booted and generated its own X25519 keypair. Records
+        the public half, mints the standing ``pkm.read``, and flips the row to
+        ``provisioned`` -- the same terminal steps :meth:`provision` performs when
+        the key is supplied up front, in the same order and for the same reason.
+
+        Authorization is the caller's job, and it is the whole security question
+        here: this mints read authority, so the route above it must establish that
+        the pod presenting the key is the pod belonging to ``user_id``. See
+        ``api/routes/one/pod_registration.py``.
+
+        Idempotent in the way that matters. Re-registering the SAME key is a no-op
+        that returns the current state -- a pod that restarts and re-registers must
+        not mint a second grant. A DIFFERENT key is refused rather than accepted:
+        silently rebinding a user's agent to a new key would let anyone who reached
+        this path take over the agent's identity, and a legitimate key change is a
+        re-provision, not an update.
+        """
+        if not personal_agent_enabled():
+            raise PersonalAgentDisabledError(
+                "pod key registration requested while PERSONAL_AGENT_ENABLED is off"
+            )
+        if not user_id:
+            raise ValueError("user_id is required")
+
+        pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+
+        existing = await self._registry.get(user_id)
+        if existing is None:
+            raise ValueError("no personal-agent row for this user")
+
+        recorded_key = str(existing.get("pod_pubkey") or "").strip()
+        if recorded_key:
+            if not compare_digest(recorded_key, pod_key.public_key_b64):
+                # Constant-time, and refused: see the idempotency note above.
+                raise ValueError("a different pod public key is already registered")
+            return {
+                "hushhId": existing.get("hushh_id"),
+                "status": existing.get("status"),
+            }
+
+        hushh_id = str(existing.get("hushh_id") or "").strip()
+        phone_hash = str(existing.get("phone_e164_hash") or "").strip()
+        if not hushh_id or not phone_hash:
+            raise ValueError("personal-agent row is missing its identity fields")
+
+        async def _record(status: str) -> None:
+            await self._registry.upsert(
+                user_id=user_id,
+                hushh_id=hushh_id,
+                phone_e164_hash=phone_hash,
+                pod_pubkey=pod_key.public_key_b64,
+                pod_key_id=pod_key.key_id,
+                pod_key_wrapping_alg=pod_key.wrapping_alg,
+                status=status,
+            )
+
+        try:
+            # Key first, then grant, then status -- the M3 ordering. The key is the
+            # record of WHO holds the authority, so it must exist before the
+            # authority does; a grant minted against an unrecorded key would be
+            # held by something the registry cannot name.
+            await _record("connecting")
+            grant = await self._grant.issue_standing_pkm_read(user_id, ledger=ledger)
+            await _record("provisioned")
+        except Exception as exc:
+            try:
+                await _record("provisioning_failed")
+            except Exception:
+                logger.exception("personal_agent.failed_status_write_failed")
+            await record_provisioning_feed_event_safe(
+                user_id=user_id,
+                event_type=FEED_EVENT_FAILED,
+                reason=user_safe_failure_reason(exc),
+            )
+            raise
+
+        await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
+        logger.info("personal_agent.pod_key_attached hushh_id_present=%s", bool(hushh_id))
+        return {
+            "hushhId": hushh_id,
+            "status": "provisioned",
             "standingReadExpiresAt": grant.get("expiresAt"),
         }
 

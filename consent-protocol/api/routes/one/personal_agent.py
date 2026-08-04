@@ -24,6 +24,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
+from hushh_mcp.services.pod_key_collector import collect_pod_key_if_pending
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,9 @@ class ProvisionRequest(BaseModel):
     pod_public_key: str = Field(..., alias="podPublicKey", min_length=1, max_length=256)
     pod_key_id: str = Field(..., alias="podKeyId", min_length=1, max_length=128)
     pod_key_wrapping_alg: str = Field(
-        default=WRAPPING_ALG, alias="podKeyWrappingAlg", max_length=64  # gitleaks:allow -- algorithm label, not key material
+        default=WRAPPING_ALG,
+        alias="podKeyWrappingAlg",
+        max_length=64,  # gitleaks:allow -- algorithm label, not key material
     )
 
     model_config = ConfigDict(populate_by_name=True)
@@ -112,6 +115,23 @@ async def personal_agent_status(
         logger.warning("personal_agent.status_read_failed err=%s", type(exc).__name__)
 
     status = str((row or {}).get("status") or "").strip()
+
+    # A row parked in 'connecting' is waiting on its pod to come up and publish its
+    # public key. This read is the natural place to try collecting it: onboarding
+    # polls this endpoint while the person waits, so the poll that ASKS whether the
+    # agent is ready is also the poll that can MAKE it ready -- no extra timer, and
+    # no window where the pod is up but nothing has noticed.
+    #
+    # Best-effort and non-blocking on failure: returns None unless the state
+    # actually advanced, and never raises. A slow pod costs this request the fetch
+    # timeout and nothing else.
+    try:
+        collected = await collect_pod_key_if_pending(row)
+        if collected:
+            status = collected
+    except Exception as exc:  # the status read must never fail because a pod is slow
+        logger.warning("personal_agent.key_collection_failed err=%s", type(exc).__name__)
+
     state = _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
     result: dict = {"state": state, "featureEnabled": personal_agent_enabled()}
     hushh_id = (row or {}).get("hushh_id")
