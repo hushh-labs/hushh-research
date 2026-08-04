@@ -156,7 +156,7 @@ async def test_missing_token_returns_401(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalid_token_returns_403(monkeypatch):
+async def test_invalid_token_returns_401(monkeypatch):
     app, _inner = _build_app()
     monkeypatch.setattr(app._registry, "authenticate_token", lambda *a, **k: None)
 
@@ -164,7 +164,7 @@ async def test_invalid_token_returns_403(monkeypatch):
     headers = [(b"authorization", b"Bearer bad-token")]
     await app(_http_scope(headers=headers), _noop_receive, send)
 
-    assert send.status == 403
+    assert send.status == 401
     assert send.body_json["error_code"] == "DEVELOPER_TOKEN_INVALID"
 
 

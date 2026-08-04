@@ -5548,11 +5548,36 @@ def location_error_detail(exc: OneLocationAgentError) -> dict[str, str]:
     return {"code": exc.code, "message": exc.message}
 
 
+_DB_UNAVAILABLE_HTTP_STATUS = 503
+_DB_UNAVAILABLE_MESSAGE = "Location storage is temporarily unavailable. Try again shortly."
+_DB_FAILED_MESSAGE = "Location request failed."
+
+
 def database_error_detail(exc: DatabaseExecutionError) -> dict[str, str]:
+    """Client-safe detail for a database failure.
+
+    `exc.details` is `str(<the DBAPI error>)`, and SQLAlchemy appends the failing
+    statement plus every bound value to that string (no engine here sets
+    `hide_parameters`). Location binds phone numbers, display labels, invite
+    tokens and coordinates, so the raw detail stays server-side: the caller gets
+    the stable code and the static hint, which is all it can act on anyway.
+    """
+    code = getattr(exc, "code", "DATABASE_EXECUTION_ERROR")
+    status_code = getattr(exc, "status_code", 500)
+    logger.error(
+        "one_location.database_error code=%s table=%s operation=%s",
+        code,
+        getattr(exc, "table_name", "unknown"),
+        getattr(exc, "operation", "unknown"),
+    )
     return {
-        "code": exc.code,
-        "message": exc.details,
-        "hint": exc.hint or "",
+        "code": code,
+        "message": (
+            _DB_UNAVAILABLE_MESSAGE
+            if status_code == _DB_UNAVAILABLE_HTTP_STATUS
+            else _DB_FAILED_MESSAGE
+        ),
+        "hint": getattr(exc, "hint", "") or "",
     }
 
 

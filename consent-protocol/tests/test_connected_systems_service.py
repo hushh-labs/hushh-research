@@ -1032,6 +1032,104 @@ async def test_verified_profile_create_uses_server_identity_and_never_writes_der
 
 
 @pytest.mark.asyncio
+async def test_verified_profile_create_splits_phone_country_code_when_mapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "PhoneCountryCode", "type": "string"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "phoneCountryCode": "PhoneCountryCode",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored.get("additionalFields", {}).get("PhoneCountryCode") == "+44"
+    assert stored.get("phone") == "2083661177"
+
+
+@pytest.mark.asyncio
+async def test_verified_profile_create_falls_back_to_full_phone_when_country_code_unmapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_without_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_without_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert "PhoneCountryCode" not in stored.get("additionalFields", {})
+    assert stored.get("phone") == "442083661177"
+
+
+@pytest.mark.asyncio
 async def test_verified_profile_create_accepts_required_derived_full_name_when_split_name_is_mapped():
     class VerifiedIdentityService:
         async def get_many(self, _user_ids):
