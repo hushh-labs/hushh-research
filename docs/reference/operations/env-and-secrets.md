@@ -29,7 +29,7 @@ flowchart TB
   end
 
   subgraph gcp["GCP Secret Manager"]
-    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by append_optional_secret"]
+    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by add_secret"]
     fesec["Frontend secrets<br/>build-time args plus Cloud Run runtime secrets"]
   end
 
