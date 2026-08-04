@@ -233,6 +233,88 @@ async def test_upstream_rate_limit_is_passed_through(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_upstream_retry_after_is_carried_not_guessed(monkeypatch):
+    """The upstream limit is per-IP, so its wait applies to every user of ours."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": "42"})
+
+    with pytest.raises(ads.AdvisorDirectoryError) as excinfo:
+        await _service(monkeypatch, handler).search(lat=1.0, lng=1.0)
+
+    assert excinfo.value.retry_after_seconds == 42
+
+
+@pytest.mark.asyncio
+async def test_a_missing_retry_after_is_simply_absent(monkeypatch):
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(429)
+
+    with pytest.raises(ads.AdvisorDirectoryError) as excinfo:
+        await _service(monkeypatch, handler).search(lat=1.0, lng=1.0)
+
+    assert excinfo.value.retry_after_seconds is None
+
+
+@pytest.mark.asyncio
+async def test_the_upstreams_own_source_credit_is_carried_through(monkeypatch):
+    """BrokerCheck's terms require the Terms link and an error-reporting route.
+
+    Hardcoding a bare source name dropped three of the four obligations.
+    """
+
+    stream = _ndjson(
+        {
+            "type": "meta",
+            "returned": 1,
+            "available": 2518,
+            "estimatedTotal": 4430,
+            "cache": "warm",
+            "truncatedBy": "candidateCeiling",
+            "attribution": {
+                "source": "FINRA BrokerCheck",
+                "sourceUrl": "https://brokercheck.finra.org",
+                "termsUrl": "https://brokercheck.finra.org/terms-and-conditions",
+                "notice": "Data retrieved from FINRA BrokerCheck.",
+                "errorReporting": "https://www.finra.org/investors/about-brokercheck",
+            },
+        },
+        {"type": "batch", "items": []},
+        {"type": "done"},
+    )
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=stream)
+
+    result = await _service(monkeypatch, handler).search(lat=1.0, lng=1.0)
+    attribution = result["attribution"]
+
+    assert attribution["termsUrl"].endswith("/terms-and-conditions")
+    assert attribution["errorReporting"].startswith("https://www.finra.org/")
+    assert attribution["notice"]
+    # §5 also requires disclosing when the data was retrieved.
+    assert attribution["retrievedAt"]
+
+    # `available` is pageable; `estimatedTotal` is not and must not be offered
+    # as a count the API cannot actually deliver.
+    assert result["meta"]["available"] == 2518
+    assert "estimatedTotal" not in result["meta"]
+    assert result["meta"]["cache"] == "warm"
+
+
+@pytest.mark.asyncio
+async def test_source_credit_falls_back_when_the_upstream_omits_it(monkeypatch):
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_PERSON_STREAM)
+
+    attribution = (await _service(monkeypatch, handler).search(lat=1.0, lng=1.0))["attribution"]
+
+    assert attribution["source"] == "FINRA BrokerCheck"
+    assert attribution["termsUrl"]
+    assert attribution["errorReporting"]
+
+
+@pytest.mark.asyncio
 async def test_unconfigured_backend_reports_unavailable(monkeypatch):
     monkeypatch.delenv("ADVISORS_API_BASE_URL", raising=False)
     monkeypatch.delenv("ADVISORS_API_BASE", raising=False)

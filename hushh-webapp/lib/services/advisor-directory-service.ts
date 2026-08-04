@@ -38,9 +38,24 @@ export type AdvisorSearchMeta = {
   radiusRequested: number | null;
   radiusAdjusted: boolean;
   truncated: boolean;
+  /** "cold" | "warm" — a warm result can trail the regulator's own feed. */
+  cache: string | null;
 };
 
-export type AdvisorAttribution = { source: string; url: string };
+/**
+ * BrokerCheck's Terms of Use permit this data's reuse under §5, and those
+ * conditions include naming the source, linking to BrokerCheck *and* to the
+ * Terms, offering a way to report an error, and disclosing the retrieval date.
+ * All five travel with every response so the UI can satisfy them.
+ */
+export type AdvisorAttribution = {
+  source: string;
+  sourceUrl: string;
+  termsUrl: string;
+  notice: string;
+  errorReporting: string;
+  retrievedAt: string;
+};
 
 export type AdvisorSearchResult = {
   items: AdvisorCard[];

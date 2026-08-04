@@ -15,6 +15,7 @@ import {
   AdvisorDirectoryService,
   formatAdvisorSubtitle,
   formatDistance,
+  type AdvisorAttribution,
   type AdvisorCard,
   type AdvisorSearchMeta,
 } from "@/lib/services/advisor-directory-service";
@@ -83,6 +84,76 @@ function PostalCodeForm({
         Search
       </Button>
     </form>
+  );
+}
+
+/**
+ * The source credit BrokerCheck's Terms require wherever this data is shown:
+ * the source named, BrokerCheck and its Terms linked, a way to report an error,
+ * and the retrieval date. Four obligations, one quiet line — a bare "FINRA
+ * BrokerCheck" string met only the first of them.
+ */
+function Attribution({
+  attribution,
+  stale,
+}: {
+  attribution: AdvisorAttribution | null;
+  stale: boolean;
+}) {
+  if (!attribution) return null;
+
+  const retrieved = attribution.retrievedAt
+    ? new Date(attribution.retrievedAt)
+    : null;
+  const retrievedLabel =
+    retrieved && !Number.isNaN(retrieved.getTime())
+      ? retrieved.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : null;
+
+  return (
+    <footer
+      className="mx-auto max-w-[30rem] text-center"
+      data-testid="advisors-attribution"
+    >
+      <p className="type-caption text-muted-foreground">
+        <a
+          href={attribution.sourceUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="underline-offset-4 hover:underline"
+        >
+          {attribution.source}
+        </a>
+        {" · "}
+        <a
+          href={attribution.termsUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="underline-offset-4 hover:underline"
+        >
+          Terms
+        </a>
+        {" · "}
+        <a
+          href={attribution.errorReporting}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="underline-offset-4 hover:underline"
+        >
+          Report an error
+        </a>
+      </p>
+      {retrievedLabel ? (
+        <p className="type-caption mt-1 text-muted-foreground/70">
+          Retrieved {retrievedLabel}
+          {stale ? " · cached" : ""}
+        </p>
+      ) : null}
+    </footer>
   );
 }
 
@@ -196,6 +267,9 @@ export function AdvisorsNearby({
   const [radiusMi, setRadiusMi] = useState<number>(10);
   const [cards, setCards] = useState<AdvisorCard[]>([]);
   const [meta, setMeta] = useState<AdvisorSearchMeta | null>(null);
+  const [attribution, setAttribution] = useState<AdvisorAttribution | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -244,6 +318,7 @@ export function AdvisorsNearby({
         // A slower earlier query must never overwrite a newer one.
         if (token !== requestRef.current) return;
         setMeta(result.meta);
+        setAttribution(result.attribution ?? null);
         setCards((previous) =>
           offset === 0 ? result.items : [...previous, ...result.items],
         );
@@ -420,9 +495,7 @@ export function AdvisorsNearby({
       ) : null}
 
       {cards.length > 0 ? (
-        <p className="type-caption text-center text-muted-foreground">
-          FINRA BrokerCheck
-        </p>
+        <Attribution attribution={attribution} stale={meta?.cache === "warm"} />
       ) : null}
 
       <AdvisorDetailSurface
