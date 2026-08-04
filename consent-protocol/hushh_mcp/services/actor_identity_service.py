@@ -13,7 +13,10 @@ import asyncpg
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
-from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.runtime_settings import (
+    personal_agent_autoprovision_enabled,
+    personal_agent_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +136,7 @@ class ActorIdentityService:
     async def _register_pending_personal_agent(self, user_id: str, phone_number: str) -> None:
         # Deferred import: no personal-agent dependency at module import time, and
         # nothing runs unless the flag gated the scheduler open.
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
         from hushh_mcp.services.personal_agent_provisioning_service import (
             PersonalAgentProvisioningService,
         )
@@ -140,8 +144,33 @@ class ActorIdentityService:
             PersonalAgentRegistryRepo,
         )
 
-        service = PersonalAgentProvisioningService(registry=PersonalAgentRegistryRepo())
+        # Resolve the SAME backend the owner-authorized route uses
+        # (api/routes/one/personal_agent.py). Constructing this service without a
+        # backend silently yields NullBackend, so this path would have reported
+        # success while creating no host at all -- and it is the path that will run
+        # for every signup, where nobody is watching a response body.
+        service = PersonalAgentProvisioningService(
+            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+        )
         await service.register_pending(user_id=user_id, phone_e164=phone_number)
+
+        if not personal_agent_autoprovision_enabled():
+            return
+
+        # Continue straight through to a real host. Deferred pod key: at phone-verify
+        # there is no pod yet, so there is no pod public key yet either -- the pod
+        # generates its own and registers it, and provision() stops at 'connecting'
+        # until it does.
+        #
+        # Failures are logged and swallowed. This runs fire-and-forget off phone
+        # verification, so raising would be an invisible, unretried break AND could
+        # surface on a path whose only job is to confirm a phone number. The user
+        # keeps their reservation, the row records the failure, and the feed carries
+        # a personal_agent_failed row.
+        try:
+            await service.provision(user_id=user_id, phone_e164=phone_number)
+        except Exception:
+            logger.exception("personal_agent.autoprovision_failed")
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]

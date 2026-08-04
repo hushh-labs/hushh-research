@@ -34,8 +34,7 @@ import requests  # type: ignore[import-untyped]
 logger = logging.getLogger(__name__)
 
 _METADATA_IDENTITY_URL = (
-    "http://metadata.google.internal/computeMetadata/v1/"
-    "instance/service-accounts/default/identity"
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
 )
 _METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 
@@ -96,13 +95,29 @@ class PodHubClient:
         except Exception as exc:  # noqa: BLE001 - surface as a typed failure
             raise PodHubUnavailable(f"metadata server unreachable: {type(exc).__name__}") from exc
         if getattr(r, "status_code", 0) != 200 or not (r.text or "").strip():
-            raise PodHubUnavailable(f"metadata identity failed: HTTP {getattr(r, 'status_code', 0)}")
+            raise PodHubUnavailable(
+                f"metadata identity failed: HTTP {getattr(r, 'status_code', 0)}"
+            )
         self._token = r.text.strip()
         # Cloud Run identity tokens last ~1h; refresh early rather than parsing the JWT.
         self._token_expiry = now + 3600 - _TOKEN_REFRESH_SKEW_SECONDS
         return self._token
 
     # -- transport --------------------------------------------------------------
+
+    def _identity_headers(self, extra: Optional[dict[str, str]] = None) -> dict[str, str]:
+        merged = {
+            "Authorization": f"Bearer {self._identity_token()}",
+            POD_IDENTITY_HEADER: (os.getenv("HUSSH_ID") or "").strip(),
+            POD_SPACE_HEADER: (os.getenv("HUSSH_SPACE_ID") or "").strip(),
+        }
+        merged.update(extra or {})
+        return merged
+
+    def _url(self, path: str) -> str:
+        if not self._base:
+            raise PodHubUnavailable("HUSSH_HUB_BASE_URL is not set; the pod has no hub to read")
+        return f"{self._base}{path if path.startswith('/') else '/' + path}"
 
     def get(
         self,
@@ -117,19 +132,32 @@ class PodHubClient:
         hub cannot be reached at all -- callers must degrade deliberately rather than
         treat an outage as "no data", which would silently look like a missing record.
         """
-        if not self._base:
-            raise PodHubUnavailable("HUSSH_HUB_BASE_URL is not set; the pod has no hub to read")
-
-        merged = {
-            "Authorization": f"Bearer {self._identity_token()}",
-            POD_IDENTITY_HEADER: (os.getenv("HUSSH_ID") or "").strip(),
-            POD_SPACE_HEADER: (os.getenv("HUSSH_SPACE_ID") or "").strip(),
-        }
-        merged.update(headers or {})
-        url = f"{self._base}{path if path.startswith('/') else '/' + path}"
+        url = self._url(path)
+        merged = self._identity_headers(headers)
         try:
             return self._session.get(
                 url, params=params or {}, headers=merged, timeout=self._timeout
             )
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
+
+    def post(
+        self,
+        path: str,
+        *,
+        json: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, str]] = None,
+    ) -> Any:
+        """POST ``path`` on the hub with the pod's identity attached.
+
+        Same failure contract as :meth:`get`: an unreachable hub raises rather than
+        returning something a caller could mistake for a rejection. The distinction
+        matters more here than on a read -- "the hub refused this" and "the hub could
+        not be asked" call for opposite responses, and only one of them is worth a retry.
+        """
+        url = self._url(path)
+        merged = self._identity_headers(headers)
+        try:
+            return self._session.post(url, json=json or {}, headers=merged, timeout=self._timeout)
         except Exception as exc:  # noqa: BLE001
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc

@@ -45,6 +45,10 @@ from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_settings import pod_mode  # noqa: E402
 from hushh_mcp.services.pod_hub_client import PodHubUnavailable  # noqa: E402
+from hushh_mcp.services.pod_self_registration import (  # noqa: E402
+    pod_keypair,
+    pod_public_key_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +102,23 @@ def pod_info() -> dict:
         "hushhId": os.getenv("HUSSH_ID") or None,
         "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
         "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
-        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt"],
+        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt", "public-key"],
     }
+
+
+@app.get("/pod/public-key", tags=["pod"])
+def pod_public_key() -> dict:
+    """This pod's PUBLIC key, for the hub to record against this agent's row.
+
+    Deliberately unauthenticated: a public key is public, and the hub reaches this
+    at a URL it recorded itself when it created the service, so there is no caller
+    identity to establish. Pods are ``internal`` ingress with no ``allUsers``
+    binding, so nothing outside the project can reach it in any case.
+
+    Serving the key is the pod's whole part in provisioning -- the hub decides
+    whether to adopt it (see ``pod_key_collector``).
+    """
+    return {"hushhId": os.getenv("HUSSH_ID") or None, **pod_public_key_payload()}
 
 
 @app.on_event("startup")
@@ -110,3 +129,8 @@ async def _pod_startup() -> None:
         bool(os.getenv("HUSSH_ID")),
         bool(os.getenv("HUSSH_SPACE_ID")),
     )
+
+    # Generate the keypair now rather than on the first request, so the key exists
+    # before the hub can ask for it and two concurrent requests cannot race to
+    # create two different ones.
+    pod_keypair()

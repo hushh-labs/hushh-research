@@ -14,6 +14,7 @@ never the raw phone number and never a private key.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from db.db_client import get_db
@@ -24,9 +25,13 @@ _TOMBSTONES = "personal_agent_deletion_tombstones"
 # Statuses that mean this row is holding, or is in the act of standing up, a real
 # host. ``provisioning`` is counted deliberately: provision() records that status
 # before the backend call and leaves it there while the host is created, so a row
-# mid-flight may already own a billable service. Over-counting is the safe
-# direction for a cost ceiling; under-counting is the one that spends money.
-_ACTIVE_POD_STATUSES = ("provisioning", "provisioned")
+# mid-flight may already own a billable service. ``connecting`` is counted for the
+# stronger reason that the host demonstrably EXISTS by then -- the backend returned
+# a handle and the row is waiting only on the pod to register its public key. A
+# pod parked in ``connecting`` is fully billable, so omitting it here would let the
+# fleet grow past PERSONAL_AGENT_MAX_PODS without the cap ever noticing.
+# Over-counting is the safe direction for a cost ceiling; under-counting spends money.
+_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned")
 
 
 class PersonalAgentRegistryRepo:
@@ -74,10 +79,42 @@ class PersonalAgentRegistryRepo:
             "status": status,
         }
         data = {k: v for k, v in data.items() if v is not None}
+
+        # Stamp the transition time ourselves. The column defaults to now() but a
+        # DEFAULT only fires on INSERT and there is no ON UPDATE trigger (migration
+        # 900), so on every subsequent upsert `updated_at` would keep reporting the
+        # moment the row was first created. Nothing could then say how long a pod
+        # has been booting -- and "how long has this been going" is precisely what
+        # the onboarding progress surface has to answer honestly. `health.py`
+        # currently works around the gap with an age heuristic.
+        now = datetime.now(timezone.utc).isoformat()
+        data["updated_at"] = now
+        # Set once, when the agent actually becomes usable. Left alone on every
+        # other transition so a re-provision cannot rewrite the original activation
+        # time, and never cleared, so it stays a durable record of first activation.
+        if status == "provisioned":
+            data["provisioned_at"] = now
+
         self._db().table(_REGISTRY).upsert(data, on_conflict="user_id").execute()
 
     async def get(self, user_id: str) -> Optional[dict]:
         response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    async def get_by_hushh_id(self, hushh_id: str) -> Optional[dict]:
+        """Reverse lookup for callers that know the HusshID but not the user.
+
+        Used by the pod key-registration route: a pod knows its own HusshID (it is
+        the agent's identity) and nothing else about its owner. ``hushh_id`` is
+        UNIQUE in migration 900, so this is a single row by construction.
+        """
+        normalized = str(hushh_id or "").strip()
+        if not normalized:
+            return None
+        response = (
+            self._db().table(_REGISTRY).select("*").eq("hushh_id", normalized).limit(1).execute()
+        )
         rows = response.data or []
         return rows[0] if rows else None
 

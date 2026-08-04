@@ -335,6 +335,26 @@ def personal_agent_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_ENABLED"), default=False)
 
 
+def personal_agent_autoprovision_enabled() -> bool:
+    """Fire a user's pod automatically once their phone is verified.
+
+    OFF, the phone-verify seam stops where it always has: a ``pending`` registry
+    row reserving the user's HusshID, and a pod only when the owner-authorized
+    ``POST /api/one/personal-agent/provision`` is called. ON, that same seam
+    continues straight through to :meth:`provision`, so every verified signup
+    gets a host with no further interaction.
+
+    Separate from ``PERSONAL_AGENT_ENABLED`` on purpose, and defaults OFF. The
+    master flag opens the surface; this one decides whether verifying a phone
+    *spends money*. A pod is a real billable host, and "every signup provisions"
+    is exactly the shape that turns a load test into a bill -- so it must be a
+    deliberate, separately-revocable act. ``PERSONAL_AGENT_MAX_PODS`` remains the
+    ceiling underneath it, and is what actually bounds the spend.
+
+    Intended for the dev environment while the flow is being proven end to end."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_AUTOPROVISION_ENABLED"), default=False)
+
+
 def personal_agent_backend() -> str:
     """Selected compute backend for the per-user agent (see ``compute_backend``).
 
