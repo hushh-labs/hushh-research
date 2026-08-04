@@ -199,6 +199,8 @@ export function AdvisorsNearby({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A failed extra page. Kept apart from `error` so it never hides the list. */
+  const [pageError, setPageError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdvisorCard | null>(null);
 
   const requestRef = useRef(0);
@@ -225,6 +227,7 @@ export function AdvisorsNearby({
       } else {
         setLoadingMore(true);
       }
+      setPageError(null);
 
       try {
         const idToken = await getIdToken();
@@ -246,12 +249,20 @@ export function AdvisorsNearby({
         );
       } catch (caught) {
         if (token !== requestRef.current) return;
-        setError(
+        const message =
           caught instanceof Error
             ? caught.message
-            : "Advisors are unavailable right now.",
-        );
-        if (offset === 0) setCards([]);
+            : "Advisors are unavailable right now.";
+        if (offset === 0) {
+          // A fresh search that failed has nothing to show, and its old paging
+          // cursor now points into a list that no longer exists.
+          setError(message);
+          setCards([]);
+          setMeta(null);
+        } else {
+          // A failed page must not take the page already on screen with it.
+          setPageError(message);
+        }
       } finally {
         if (token === requestRef.current) {
           setLoading(false);
@@ -384,8 +395,13 @@ export function AdvisorsNearby({
         </SettingsGroup>
       )}
 
-      {meta?.hasMore && !loading ? (
-        <div className="flex justify-center">
+      {meta?.hasMore && typeof meta.nextOffset === "number" && !loading ? (
+        <div className="flex flex-col items-center gap-2">
+          {pageError ? (
+            <p className="type-footnote text-muted-foreground" role="status">
+              {pageError}
+            </p>
+          ) : null}
           <Button
             type="button"
             variant="none"
@@ -398,7 +414,7 @@ export function AdvisorsNearby({
               }
             }}
           >
-            {loadingMore ? "Loading…" : "Show more"}
+            {loadingMore ? "Loading…" : pageError ? "Try again" : "Show more"}
           </Button>
         </div>
       ) : null}

@@ -79,8 +79,13 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _unique(values: Iterable[str | None], limit: int = 12) -> list[str]:
-    """Order-preserving dedupe, dropping blanks and capping the list."""
+def _unique(values: Iterable[str | None], limit: int | None = None) -> list[str]:
+    """Order-preserving dedupe, dropping blanks.
+
+    ``limit`` is opt-in because the caller decides whether the list is being
+    shown or counted. Truncating a list the UI reports as a count turns it into
+    a wrong number: an adviser registered in 51 states rendered as "12".
+    """
     seen: set[str] = set()
     out: list[str] = []
     for value in values:
@@ -88,7 +93,7 @@ def _unique(values: Iterable[str | None], limit: int = 12) -> list[str]:
             continue
         seen.add(value)
         out.append(value)
-        if len(out) >= limit:
+        if limit is not None and len(out) >= limit:
             break
     return out
 
@@ -426,8 +431,8 @@ def _normalize_profile(
         "hasDisclosures": bool(profile.get("hasDisclosures")),
         "disclosureCount": len(disclosures) if isinstance(disclosures, list) else 0,
         # One state appears once per registration scope (BC and IA), so the raw
-        # list double-counts. The UI shows a count, and "51 states" would be a
-        # lie — dedupe while preserving order.
+        # list double-counts. The UI reports the length of this list, so it is
+        # deduped but never truncated — a cap here would render as a wrong count.
         "states": _unique(
             _text(entry.get("state")) if isinstance(entry, dict) else None
             for entry in (

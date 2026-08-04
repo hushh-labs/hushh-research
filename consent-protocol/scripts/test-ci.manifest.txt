@@ -37,3 +37,4 @@ tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/services/test_advisor_directory_service.py
 tests/test_advisors_runtime_config_wiring.py
+tests/test_advisors_coordinate_privacy.py

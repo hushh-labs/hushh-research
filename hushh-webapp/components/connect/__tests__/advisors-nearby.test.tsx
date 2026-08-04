@@ -314,6 +314,55 @@ describe("AdvisorsNearby", () => {
     expect(screen.getByText("25 mi")).toBeTruthy();
   });
 
+  it("keeps the page on screen when Show more fails", async () => {
+    // A failed extra page must not take the results the user is already
+    // reading with it.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValueOnce(
+      result({ meta: { ...result().meta, hasMore: true, nextOffset: 10 } }),
+    );
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+    expect(await screen.findByText("Christine Cote")).toBeTruthy();
+
+    mocks.searchNearby.mockRejectedValueOnce(new Error("Try again shortly."));
+    fireEvent.click(screen.getByText("Show more"));
+
+    await waitFor(() =>
+      expect(screen.getByText("Try again shortly.")).toBeTruthy(),
+    );
+    expect(screen.getByText("Christine Cote")).toBeTruthy();
+    expect(screen.queryByTestId("advisors-error")).toBeNull();
+  });
+
+  it("drops a stale paging cursor when a fresh search fails", async () => {
+    // Otherwise "Show more" survives the failure and pages into a list that no
+    // longer exists.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValueOnce(
+      result({ meta: { ...result().meta, hasMore: true, nextOffset: 10 } }),
+    );
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+    expect(await screen.findByText("Show more")).toBeTruthy();
+
+    mocks.searchNearby.mockRejectedValueOnce(new Error("Not available yet."));
+    fireEvent.click(screen.getByText("25 mi"));
+
+    expect(await screen.findByTestId("advisors-error")).toBeTruthy();
+    expect(screen.queryByText("Show more")).toBeNull();
+  });
+
   it("shows a failure without wiping the surface", async () => {
     mocks.locationState = {
       status: "ready",
