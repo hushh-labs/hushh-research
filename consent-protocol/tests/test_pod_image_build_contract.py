@@ -237,9 +237,21 @@ def test_pod_hub_data_path_is_wired_in_dev():
     )
 
 
-def test_hub_url_is_derived_not_hardcoded(config: dict):
-    """A hardcoded dev URL would silently point pods at the wrong hub from any other
-    project. The project-number form is the one deploy-dev.yml already relies on."""
+def test_hub_url_is_read_from_cloud_run_not_constructed(config: dict):
+    """The hub's url is ASKED FOR, never assumed.
+
+    A hardcoded dev url would point pods at the wrong hub from any other project. An
+    earlier version reconstructed it from the $PROJECT_NUMBER substitution and that dev
+    deploy was rejected inside `gcloud builds submit` before any Cloud Build existed
+    (2026-08-04) -- the exact error was unrecoverable, so that is the suspect rather than
+    a proven cause. Reading status.url needs no substitution at all, which is why it is
+    the shape pinned here.
+    """
     script = _step(config, "deploy-backend")["args"][-1]
-    assert 'hub_url="https://${_BACKEND_SERVICE}-${PROJECT_NUMBER}.${_REGION}.run.app"' in script
+    assert 'gcloud run services describe "${_BACKEND_SERVICE}"' in script
+    assert "--format='value(status.url)'" in script
     assert "aqahj4iyha" not in script  # the dev-specific Cloud Run hash
+    # The assignment itself must not rebuild a url; a mention inside a comment is fine.
+    assignment = script.split("hub_url=", 1)[1][:200]
+    assert ".run.app" not in assignment
+    assert "PROJECT_NUMBER" not in assignment

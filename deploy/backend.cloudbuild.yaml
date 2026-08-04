@@ -303,7 +303,22 @@ steps:
         pod_identity_auth=""
         pod_allowed_sa=""
         if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-          hub_url="https://${_BACKEND_SERVICE}-${PROJECT_NUMBER}.${_REGION}.run.app"
+          # Ask Cloud Run for the hub's OWN url rather than reconstructing it. A
+          # service's url is stable across revisions, so reading it before this
+          # deploy yields the same address the new revision will serve on.
+          #
+          # An earlier version built this url from the $PROJECT_NUMBER built-in
+          # substitution, and that dev deploy failed inside `gcloud builds submit`
+          # in ~5s with no Cloud Build ever created -- i.e. it was rejected before
+          # submission. The exact gcloud error was not recoverable from the run
+          # logs, so $PROJECT_NUMBER is the SUSPECT (it was the only substitution
+          # introduced) rather than a confirmed cause; the Cloud Build REST API
+          # accepts it, which narrows it to gcloud's client-side validation if it
+          # is the cause at all. Reading status.url sidesteps the question
+          # entirely: it needs no substitution, uses only gcloud (which this step
+          # already depends on), and returns the real url instead of an assumed shape.
+          hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
+            --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
           pod_identity_auth="true"
           pod_allowed_sa="hussh-one-pod@${PROJECT_ID}.iam.gserviceaccount.com"
         fi
