@@ -153,6 +153,7 @@ steps:
         append_optional_secret "${_GMAIL_OAUTH_TOKEN_KEY_SECRET}" "GMAIL_OAUTH_TOKEN_KEY"
         append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
         append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
+        append_optional_secret "${_ADVISORS_API_KEY_SECRET}" "ADVISORS_API_KEY"
         append_optional_secret "${_VOICE_RUNTIME_CONFIG_JSON_SECRET}" "VOICE_RUNTIME_CONFIG_JSON"
         append_optional_secret "${_OMNIGATEWAY_CLIENT_ID_SECRET}" "OMNIGATEWAY_CLIENT_ID"
         append_optional_secret "${_OMNIGATEWAY_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_CLIENT_SECRET"
@@ -234,6 +235,7 @@ steps:
             env_vars+=("${env_name}=${env_value}")
           fi
         }
+        append_optional_env "ADVISORS_API_BASE_URL" "${_ADVISORS_API_BASE_URL}"
         append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
         append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
         append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
@@ -346,6 +348,11 @@ substitutions:
   _GMAIL_OAUTH_TOKEN_KEY_SECRET: ""
   _OPENAI_API_KEY_SECRET: ""
   _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
+  # Advisor directory. Both stay inert until the secret exists in the deploy
+  # project and the base URL is supplied, so the surface simply reports
+  # unavailable rather than failing a deploy.
+  _ADVISORS_API_BASE_URL: ""
+  _ADVISORS_API_KEY_SECRET: ADVISORS_API_KEY
   _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
   _OMNIGATEWAY_CLIENT_SECRET_SECRET: OMNIGATEWAY_CLIENT_SECRET

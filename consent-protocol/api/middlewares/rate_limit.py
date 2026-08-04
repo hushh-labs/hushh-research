@@ -107,6 +107,12 @@ class RateLimits:
     # check-in budgets while still bounding scripted abuse per signed owner.
     ONE_LOCATION_MAPS_PROVIDER = "30/minute"  # noqa: S105
 
+    # Advisor directory (FINRA BrokerCheck proxy). Every miss is an upstream
+    # call against a quota we own, so this stays bounded per principal. Paging
+    # is served from the upstream's own ranking cache and is therefore cheap;
+    # the limit is sized for browse-and-page, not for scraping the directory.
+    ONE_ADVISORS_DIRECTORY_READ = "20/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's
