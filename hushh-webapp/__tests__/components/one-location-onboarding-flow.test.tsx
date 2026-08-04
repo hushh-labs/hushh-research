@@ -6,8 +6,15 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+  },
+}));
 
 const people = [
   {
@@ -99,6 +106,7 @@ function openPeopleScreen() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.mocked(toast.error).mockClear();
 });
 
 describe("OneLocationOnboardingFlow", () => {
@@ -484,7 +492,7 @@ describe("OneLocationOnboardingFlow", () => {
     });
   });
 
-  it("lets the user continue without selecting anyone and sends no requests", () => {
+  it("keeps the user on contact selection and explains why one person is required", () => {
     const props = renderFlow({
       people: [people[1]!],
       connections: [],
@@ -496,16 +504,26 @@ describe("OneLocationOnboardingFlow", () => {
     const continueButton = screen.getByRole("button", { name: "Continue" });
     expect(continueButton).toBeEnabled();
     expect(
-      screen.getByText("Add anyone you'd like — or just continue"),
+      screen.getByText("Select at least one person to continue"),
     ).toBeTruthy();
 
     fireEvent.click(continueButton);
+    expect(toast.error).toHaveBeenCalledWith(
+      "Choose at least one contact",
+      {
+        description:
+          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
+      },
+    );
     expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    expect(
+      screen.queryByTestId("one-location-onboarding-circle"),
+    ).toBeNull();
   });
 
-  it("keeps Continue enabled and counts people as they are selected", () => {
-    renderFlow({
+  it("allows the user to continue after selecting exactly one person", () => {
+    const props = renderFlow({
       people: [people[1]!],
       connections: [],
     });
@@ -517,9 +535,14 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
     expect(continueButton).toBeEnabled();
     expect(screen.getByText("1 selected")).toBeTruthy();
+
+    fireEvent.click(continueButton);
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
   });
 
-  it("advances the optional people step on Skip without ending onboarding", () => {
+  it("does not let people-screen Skip bypass the required contact", () => {
     const props = renderFlow({
       people: [people[1]!],
       connections: [],
@@ -528,7 +551,17 @@ describe("OneLocationOnboardingFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
 
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Choose at least one contact",
+      {
+        description:
+          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
+      },
+    );
+    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    expect(
+      screen.queryByTestId("one-location-onboarding-circle"),
+    ).toBeNull();
     expect(props.onSkip).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
     expect(props.onSendConnectionRequests).not.toHaveBeenCalled();

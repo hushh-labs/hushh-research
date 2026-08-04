@@ -20,7 +20,7 @@ import {
   isPublicRoute,
   isRiaRoute,
   resolveCapabilityHandoffTarget,
-  resolveCompletedSetupCapabilityTarget,
+  resolveCompletedSetupCapabilityEntry,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -342,34 +342,34 @@ describe("navigation routes", () => {
     );
   });
 
-  it("keeps completed Location setup replayable until root setup resolves", () => {
+  it("acknowledges completed Location while root setup is still active", () => {
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: ["location"],
         rootSetupResolved: false,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "acknowledge", target: "/one/setup" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: [],
         rootSetupResolved: true,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "continue" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: ["location"],
         rootSetupResolved: true,
       }),
-    ).toBe("/one/location");
+    ).toEqual({ kind: "redirect", target: "/one/location" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "gmail",
         completedCapabilityIds: ["gmail"],
         rootSetupResolved: true,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "continue" });
   });
 });

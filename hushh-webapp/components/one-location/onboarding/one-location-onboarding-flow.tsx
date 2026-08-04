@@ -10,6 +10,7 @@ import {
 } from "react";
 import { preload } from "react-dom";
 import { ArrowLeft, Check, Loader2, MapPin, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -1526,7 +1527,7 @@ function PeopleScreen({
         >
           {selectedIds.length > 0
             ? `${selectedIds.length} selected`
-            : "Add anyone you'd like — or just continue"}
+            : "Select at least one person to continue"}
         </p>
         <PrimaryButton
           onClick={() => onContinue(selectedIds)}
@@ -1857,10 +1858,21 @@ export function OneLocationOnboardingFlow({
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
-    setSelectedPeopleIds(selectedIds);
-    const selectedPeople = people.filter((person) =>
-      selectedIds.includes(person.userId),
+    const selectedPeople = people.filter(
+      (person) =>
+        selectedIds.includes(person.userId) &&
+        person.relationship !== "pending_incoming" &&
+        person.relationship !== "pending_outgoing",
     );
+    if (selectedPeople.length === 0) {
+      toast.error("Choose at least one contact", {
+        description:
+          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
+      });
+      return;
+    }
+
+    setSelectedPeopleIds(selectedPeople.map((person) => person.userId));
     const requestIds = selectedPeople
       .filter(
         (person) =>
@@ -1924,10 +1936,8 @@ export function OneLocationOnboardingFlow({
       });
   };
 
-  // People is an optional step: "Skip" advances into the flow without adding
-  // anyone (or without changing an existing selection) instead of tearing down
-  // onboarding. It reuses the Continue path, so no requests are sent for an
-  // empty/unchanged selection and all prior onboarding data is preserved.
+  // Keep the people-screen Skip path aligned with Continue so neither control
+  // can bypass the minimum-one-contact onboarding requirement.
   const handlePeopleSkip = () => {
     handlePeopleContinue(selectedPeopleIds);
   };
