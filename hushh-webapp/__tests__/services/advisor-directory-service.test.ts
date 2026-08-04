@@ -31,13 +31,20 @@ function requestedUrl(): URL {
   return new URL(String(mockApiFetch.mock.calls[0][0]), "https://app.test");
 }
 
+function requestedBody(): Record<string, unknown> {
+  const init = mockApiFetch.mock.calls[0][1] as RequestInit;
+  return JSON.parse(String(init.body));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockApiFetch.mockResolvedValue(jsonResponse(EMPTY_RESULT));
 });
 
 describe("AdvisorDirectoryService.searchNearby", () => {
-  it("sends coordinates and the bearer token to our own backend", async () => {
+  it("never puts the user's position in a URL", async () => {
+    // A query string lands in the server access log, browser history and any
+    // Referer. Coordinates travel in the request body instead.
     await AdvisorDirectoryService.searchNearby({
       idToken: "id-token",
       latitude: 47.676912,
@@ -46,17 +53,22 @@ describe("AdvisorDirectoryService.searchNearby", () => {
     });
 
     const url = requestedUrl();
-    expect(url.pathname).toBe("/api/one/advisors/nearby");
-    expect(url.searchParams.get("lat")).toBe("47.676912");
-    expect(url.searchParams.get("lng")).toBe("-122.206045");
-    expect(url.searchParams.get("radiusMi")).toBe("25");
-    expect(url.searchParams.get("limit")).toBe("10");
-    expect(url.searchParams.get("offset")).toBe("0");
+    expect(url.pathname).toBe("/api/one/advisors/search");
+    expect(url.search).toBe("");
+    expect(String(mockApiFetch.mock.calls[0][0])).not.toMatch(/47\.67|122\.20/);
 
     const init = mockApiFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer id-token",
     );
+    expect(requestedBody()).toMatchObject({
+      lat: 47.676912,
+      lng: -122.206045,
+      radiusMi: 25,
+      limit: 10,
+      offset: 0,
+    });
   });
 
   it("falls back to a postal code when there are no coordinates", async () => {
@@ -65,9 +77,10 @@ describe("AdvisorDirectoryService.searchNearby", () => {
       postalCode: "98033",
     });
 
-    const url = requestedUrl();
-    expect(url.searchParams.get("postalCode")).toBe("98033");
-    expect(url.searchParams.has("lat")).toBe(false);
+    const body = requestedBody();
+    expect(body.postalCode).toBe("98033");
+    expect(body.lat).toBeUndefined();
+    expect(requestedUrl().search).toBe("");
   });
 
   it("pages from the offset the server handed back", async () => {
@@ -78,7 +91,7 @@ describe("AdvisorDirectoryService.searchNearby", () => {
       offset: 30,
     });
 
-    expect(requestedUrl().searchParams.get("offset")).toBe("30");
+    expect(requestedBody().offset).toBe(30);
   });
 
   it("surfaces the server's message rather than a bare status", async () => {
@@ -163,8 +176,11 @@ describe("formatDistance", () => {
     expect(formatDistance(12.4)).toBe("~12 mi");
   });
 
-  it("never renders a zero distance", () => {
-    expect(formatDistance(0)).toBe("~0.1 mi");
+  it("renders nothing rather than inventing a distance", () => {
+    // A ZIP search measures from the centroid it was given, so every row comes
+    // back at exactly 0. "~0.1 mi" would be a number we made up.
+    expect(formatDistance(0)).toBeNull();
+    // A real, tiny coordinate distance still rounds up to the floor.
     expect(formatDistance(0.02)).toBe("~0.1 mi");
   });
 
