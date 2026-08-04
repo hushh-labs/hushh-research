@@ -20,6 +20,27 @@ export type KycEmploymentStatus =
   | "retired"
   | "not_currently_employed";
 
+export function isValidDateOfBirth(value: string, now = new Date()): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  const isCalendarDate =
+    candidate.getUTCFullYear() === year &&
+    candidate.getUTCMonth() === month - 1 &&
+    candidate.getUTCDate() === day;
+  if (!isCalendarDate) return false;
+
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  return value < today;
+}
+
 type KycIdentityProfilePkmWriteParams = {
   userId: string;
   vaultKey: string | null;
@@ -38,6 +59,10 @@ export class KycIdentityProfilePkmService {
   static saveProfile(
     params: KycIdentityProfilePkmWriteParams,
   ): Promise<PkmWriteCoordinatorResult> {
+    if (!isValidDateOfBirth(params.profile.dateOfBirth)) {
+      return Promise.reject(new Error("Date of birth must be a real past date."));
+    }
+
     const savedAt = new Date().toISOString();
 
     return PkmWriteCoordinator.saveMergedDomain({
@@ -84,6 +109,7 @@ const pendingProfiles = new Map<string, KycIdentityProfile>();
 
 export class KycIdentityProfileDraftService {
   static stage(userId: string, profile: KycIdentityProfile): void {
+    if (!isValidDateOfBirth(profile.dateOfBirth)) return;
     pendingProfiles.set(userId, profile);
   }
 

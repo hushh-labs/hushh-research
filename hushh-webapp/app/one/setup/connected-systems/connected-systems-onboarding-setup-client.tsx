@@ -58,7 +58,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
     <CapabilityCinematicIntroGate capabilityId="connected-systems">
       <AppPageShell
         as="main"
-        width="standard"
+        width="reading"
         className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
       >
         <AppPageHeaderRegion>

@@ -11,10 +11,21 @@ import {
   KYC_IDENTITY_PKM_DOMAIN,
   KycIdentityProfileDraftService,
   KycIdentityProfilePkmService,
+  isValidDateOfBirth,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 describe("KycIdentityProfilePkmService", () => {
+  it("accepts only real past calendar dates of birth", () => {
+    const now = new Date("2026-08-03T12:00:00");
+
+    expect(isValidDateOfBirth("1994-04-15", now)).toBe(true);
+    expect(isValidDateOfBirth("2000-02-29", now)).toBe(true);
+    expect(isValidDateOfBirth("1994-02-29", now)).toBe(false);
+    expect(isValidDateOfBirth("2026-08-03", now)).toBe(false);
+    expect(isValidDateOfBirth("2099-01-01", now)).toBe(false);
+  });
+
   it("merges the completed identity preface into the encrypted identity domain", async () => {
     let writtenDomainData: Record<string, unknown> | null = null;
     let writtenSummary: Record<string, unknown> | null = null;
@@ -102,6 +113,39 @@ describe("KycIdentityProfilePkmService", () => {
       }),
     ).resolves.toBe(true);
     expect(KycIdentityProfileDraftService.hasPending("user_draft")).toBe(false);
+  });
+
+  it("rejects an invalid date before writing the encrypted identity profile", async () => {
+    const callsBefore = (PkmWriteCoordinator.saveMergedDomain as Mock).mock.calls.length;
+
+    await expect(
+      KycIdentityProfilePkmService.saveProfile({
+        userId: "user_1",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "owner-token",
+        profile: {
+          legalName: "Avery Example",
+          dateOfBirth: "2099-01-01",
+          citizenshipCountryCode: "IN",
+          citizenshipCountryName: "India",
+          employmentStatus: "employed",
+        },
+      }),
+    ).rejects.toThrow("Date of birth must be a real past date.");
+
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  it("does not retain an invalid pre-vault identity draft", () => {
+    KycIdentityProfileDraftService.stage("user_invalid", {
+      legalName: "Avery Example",
+      dateOfBirth: "2099-01-01",
+      citizenshipCountryCode: "IN",
+      citizenshipCountryName: "India",
+      employmentStatus: "employed",
+    });
+
+    expect(KycIdentityProfileDraftService.hasPending("user_invalid")).toBe(false);
   });
 
   it("retains an in-memory draft when its encrypted save fails", async () => {

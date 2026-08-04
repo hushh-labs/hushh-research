@@ -2138,6 +2138,31 @@ class ConnectedSystemsService:
                 mapping[semantic] = str(partial["name"])
         return mapping
 
+    @staticmethod
+    def _derived_required_full_name_field(fields: list[dict[str, Any]]) -> str | None:
+        """Return a public derived-name descriptor for the basic CRM create shape.
+
+        Salesforce-style create requests supply first and last name separately.
+        Some schemas nevertheless advertise their computed ``Name`` / ``Full
+        Name`` field as required. This is a narrow schema validation exception:
+        the derived field remains absent from the upstream request payload.
+        """
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if field.get("required") is not True or field.get("identityField") is True:
+                continue
+            tokens = {
+                re.sub(r"[^a-z0-9]", "", str(field.get(key) or "").lower())
+                for key in ("key", "name", "label")
+            }
+            if not tokens.intersection({"name", "fullname"}):
+                continue
+            field_name = _clean_text(field.get("name") or field.get("key"), max_length=80)
+            if field_name:
+                return field_name
+        return None
+
     async def _verified_user_crm_profile(self, *, user_id: str) -> dict[str, str]:
         """Load the actor's server-side verified identity for CRM onboarding.
 
@@ -2592,9 +2617,18 @@ class ConnectedSystemsService:
         if split_name_is_complete:
             # Some CRM schemas expose a derived full-name field as required
             # even though create accepts its mapped first/last components.
-            # The schema mapper owns this semantic equivalence; do not send the
-            # derived field back as a second, potentially read-only value.
+            # Do not send the derived field back as a second, potentially
+            # read-only value. Enterprise mappers may intentionally return
+            # only the split-name pair, so resolve the exact public descriptor
+            # from the schema only for the registered basic identity shape.
             full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
+            if (
+                not full_name_field
+                and _operation_request_style(system, "create") == "basic_identity_fields.v1"
+            ):
+                full_name_field = self._derived_required_full_name_field(
+                    list(schema.get("fields") or [])
+                )
             if full_name_field:
                 satisfied_required_fields.add(full_name_field)
         else:

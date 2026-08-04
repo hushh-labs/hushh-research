@@ -3202,6 +3202,12 @@ export class ApiService {
           "Check the Google Cloud project ID and Vertex location.",
         );
       }
+      if (status === "permission_denied") {
+        throw new Error("This Google account needs Vertex AI User access for that project.");
+      }
+      if (status === "api_not_enabled") {
+        throw new Error("Enable the Vertex AI API in this Google Cloud project, then try again.");
+      }
       if (status === "unsupported_model") {
         throw new Error("This Gemini key cannot access the model One uses.");
       }

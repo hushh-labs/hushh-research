@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   clearPreVault: vi.fn(),
+  clearPreVaultSensitive: vi.fn(),
+  clearFinanceSetupDraft: vi.fn(),
+  clearKycIdentityDraft: vi.fn(),
   clearKaiNavTour: vi.fn(),
   clearRiaOnboardingDraft: vi.fn(),
   clearVaultMethodPrompt: vi.fn(),
@@ -9,6 +12,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({
   PreVaultOnboardingService: { clear: mocks.clearPreVault },
+}));
+
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
+  PreVaultSensitiveDraftService: { clearForUser: mocks.clearPreVaultSensitive },
+}));
+
+vi.mock("@/lib/services/finance-setup-draft-service", () => ({
+  FinanceSetupDraftService: { clear: mocks.clearFinanceSetupDraft },
+}));
+
+vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
+  KycIdentityProfileDraftService: { clear: mocks.clearKycIdentityDraft },
 }));
 
 vi.mock("@/lib/services/kai-nav-tour-local-service", () => ({
@@ -35,6 +50,9 @@ describe("UserLocalStateService", () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     mocks.clearPreVault.mockResolvedValue(undefined);
+    mocks.clearPreVaultSensitive.mockReturnValue(undefined);
+    mocks.clearFinanceSetupDraft.mockResolvedValue(undefined);
+    mocks.clearKycIdentityDraft.mockReturnValue(undefined);
     mocks.clearKaiNavTour.mockResolvedValue(undefined);
     mocks.clearRiaOnboardingDraft.mockResolvedValue(undefined);
     mocks.clearVaultMethodPrompt.mockResolvedValue(undefined);
@@ -44,6 +62,9 @@ describe("UserLocalStateService", () => {
     await UserLocalStateService.clearForUser("uid-1");
 
     expect(mocks.clearPreVault).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearPreVaultSensitive).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearFinanceSetupDraft).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearKycIdentityDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearKaiNavTour).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");

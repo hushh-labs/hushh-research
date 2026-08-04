@@ -40,20 +40,27 @@ describe("Location setup route contract", () => {
     );
   });
 
-  it("redirects completed Location only after root setup is resolved", () => {
+  it("settles completed Location before its onboarding body can mount", () => {
     const coordinator = read(
       "components/onboarding/setup/setup-capability-coordinator.tsx",
+    );
+    const adapter = read(
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
     );
 
     expect(coordinator).toContain(
       "completedCapabilityIds: initialJourney.setupCapabilityIds",
     );
+    expect(coordinator).toContain("resolveCompletedSetupCapabilityEntry({");
+    expect(coordinator).toContain('completedEntry.kind === "acknowledge"');
+    expect(coordinator).toContain("setConfirmedCompletionKey(`${userId}:${capabilityId}`)");
     expect(coordinator).toContain(
-      "resolveCompletedSetupCapabilityTarget({",
+      "enabled && routeReady && !settlementBlocked && !isAlreadyComplete",
     );
-    expect(coordinator).toContain(
-      "PreVaultUserStateService.isSetupResolved(initialJourney)",
+    expect(adapter).toContain("if (coordinator.isAlreadyComplete)");
+    expect(adapter).toContain("<LocationOnboardingCompletedScreen");
+    expect(adapter.indexOf("if (coordinator.isAlreadyComplete)")).toBeLessThan(
+      adapter.indexOf("<CapabilityCinematicIntroGate"),
     );
-    expect(coordinator).toContain("replaceRoute(completedTarget)");
   });
 });

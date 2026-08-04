@@ -237,7 +237,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "Connections" },
+        { label: "AI access" },
       ],
     };
   }
