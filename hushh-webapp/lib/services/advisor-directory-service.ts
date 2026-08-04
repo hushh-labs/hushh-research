@@ -81,6 +81,11 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
     unknown
   >;
   if (!response.ok) {
+    // A 503 means this deployment has no directory wired up. That is our
+    // plumbing, not the reader's problem — "not configured on this backend" is
+    // a sentence no user should ever be shown.
+    if (response.status === 503) throw new Error("Not available yet.");
+
     const detail = payload?.detail as { message?: string } | string | undefined;
     const message =
       (typeof detail === "object" ? detail?.message : detail) ||

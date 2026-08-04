@@ -38,6 +38,80 @@ function LoadingRows() {
   );
 }
 
+/**
+ * The one way in when coordinates cannot answer the question — location was
+ * refused, or the coordinates are real but the directory covers nobody there.
+ * FINRA is a US register, so anyone outside the US has working GPS and an
+ * empty list; a ZIP is the only thing that helps them.
+ */
+function PostalCodeForm({
+  busy,
+  initialValue = "",
+  onSearch,
+}: {
+  busy: boolean;
+  initialValue?: string;
+  onSearch: (postalCode: string) => void;
+}) {
+  const [postalCode, setPostalCode] = useState(initialValue);
+
+  return (
+    <form
+      className="flex w-full gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmed = postalCode.trim();
+        if (trimmed) onSearch(trimmed);
+      }}
+    >
+      <Input
+        value={postalCode}
+        onChange={(event) => setPostalCode(event.target.value)}
+        placeholder="ZIP"
+        inputMode="numeric"
+        aria-label="ZIP code"
+        className="h-11"
+        data-testid="advisors-postal-input"
+      />
+      <Button
+        type="submit"
+        variant="none"
+        effect="fill"
+        size="lg"
+        disabled={busy || !postalCode.trim()}
+      >
+        Search
+      </Button>
+    </form>
+  );
+}
+
+/** A centred non-result: one line, and the single thing worth doing next. */
+function QuietBlock({
+  title,
+  subtitle,
+  testId,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  testId: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section
+      className="mx-auto flex w-full max-w-[26rem] flex-col items-center py-12 text-center"
+      data-testid={testId}
+    >
+      <h2 className="type-title3 text-foreground">{title}</h2>
+      {subtitle ? (
+        <p className="mt-2 type-callout text-muted-foreground">{subtitle}</p>
+      ) : null}
+      {children ? <div className="mt-6 w-full">{children}</div> : null}
+    </section>
+  );
+}
+
 /** One calm block: why we need location, and the single tap that grants it. */
 function LocationPrompt({
   denied,
@@ -50,7 +124,6 @@ function LocationPrompt({
   onUseLocation: () => void;
   onSearchPostalCode: (postalCode: string) => void;
 }) {
-  const [postalCode, setPostalCode] = useState("");
   const [showPostal, setShowPostal] = useState(denied);
 
   useEffect(() => {
@@ -86,33 +159,9 @@ function LocationPrompt({
       )}
 
       {showPostal ? (
-        <form
-          className="mt-6 flex w-full gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const trimmed = postalCode.trim();
-            if (trimmed) onSearchPostalCode(trimmed);
-          }}
-        >
-          <Input
-            value={postalCode}
-            onChange={(event) => setPostalCode(event.target.value)}
-            placeholder="ZIP"
-            inputMode="numeric"
-            aria-label="ZIP code"
-            className="h-11"
-            data-testid="advisors-postal-input"
-          />
-          <Button
-            type="submit"
-            variant="none"
-            effect="fill"
-            size="lg"
-            disabled={busy || !postalCode.trim()}
-          >
-            Search
-          </Button>
-        </form>
+        <div className="mt-6 w-full">
+          <PostalCodeForm busy={busy} onSearch={onSearchPostalCode} />
+        </div>
       ) : (
         <Button
           type="button"
@@ -229,7 +278,9 @@ export function AdvisorsNearby({
   if (!anchor) {
     return (
       <LocationPrompt
-        denied={location.status === "denied" || location.status === "unavailable"}
+        denied={
+          location.status === "denied" || location.status === "unavailable"
+        }
         busy={location.status === "locating"}
         onUseLocation={handleUseLocation}
         onSearchPostalCode={handlePostalCode}
@@ -255,56 +306,83 @@ export function AdvisorsNearby({
         <p className="type-footnote text-muted-foreground">{narrowed}</p>
       ) : null}
 
-      <SettingsGroup title={meta?.grouped ? "Offices" : "Advisors"} separatorInset>
-        {loading ? (
-          <LoadingRows />
-        ) : error ? (
-          <SettingsRow title={error} density="compact" tone="destructive" />
-        ) : cards.length === 0 ? (
-          <SettingsRow
-            title="None nearby"
-            description="Try a wider radius."
-            density="compact"
-            disabled
+      {error && !loading ? (
+        <QuietBlock title={error} testId="advisors-error">
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="lg"
+            onClick={() => void runSearch(anchor, radiusMi, 0)}
+          >
+            Try again
+          </Button>
+        </QuietBlock>
+      ) : null}
+
+      {!error && !loading && cards.length === 0 ? (
+        // Coordinates can be perfectly good and still match nobody — FINRA is a
+        // US register. Offer the one input that can actually help rather than a
+        // dead end.
+        <QuietBlock
+          title="Nothing nearby"
+          subtitle="Try a US ZIP."
+          testId="advisors-empty"
+        >
+          <PostalCodeForm
+            busy={loading}
+            initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+            onSearch={handlePostalCode}
           />
-        ) : (
-          cards.map((card) => {
-            const distance = formatDistance(card.distanceMiles);
-            return (
-              <SettingsRow
-                key={`${card.kind}-${card.id}`}
-                title={
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate">{card.name ?? "Advisor"}</span>
-                    {card.hasDisclosures ? (
-                      <span
-                        className="size-1.5 shrink-0 rounded-full bg-amber-500"
-                        role="img"
-                        aria-label="Has disclosures"
-                      />
-                    ) : null}
-                  </span>
-                }
-                description={formatAdvisorSubtitle(card) ?? undefined}
-                density="compact"
-                chevron={card.kind === "advisor"}
-                onClick={
-                  card.kind === "advisor"
-                    ? () => setSelected(card)
-                    : undefined
-                }
-                trailing={
-                  distance ? (
-                    <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
-                      {distance}
+        </QuietBlock>
+      ) : null}
+
+      {error || (!loading && cards.length === 0) ? null : (
+        <SettingsGroup
+          title={meta?.grouped ? "Offices" : "Advisors"}
+          separatorInset
+        >
+          {loading ? (
+            <LoadingRows />
+          ) : (
+            cards.map((card) => {
+              const distance = formatDistance(card.distanceMiles);
+              return (
+                <SettingsRow
+                  key={`${card.kind}-${card.id}`}
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate">{card.name ?? "Advisor"}</span>
+                      {card.hasDisclosures ? (
+                        <span
+                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                          role="img"
+                          aria-label="Has disclosures"
+                        />
+                      ) : null}
                     </span>
-                  ) : undefined
-                }
-              />
-            );
-          })
-        )}
-      </SettingsGroup>
+                  }
+                  description={formatAdvisorSubtitle(card) ?? undefined}
+                  density="compact"
+                  chevron={card.kind === "advisor"}
+                  onClick={
+                    card.kind === "advisor"
+                      ? () => setSelected(card)
+                      : undefined
+                  }
+                  trailing={
+                    distance ? (
+                      <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
+                        {distance}
+                      </span>
+                    ) : undefined
+                  }
+                />
+              );
+            })
+          )}
+        </SettingsGroup>
+      )}
 
       {meta?.hasMore && !loading ? (
         <div className="flex justify-center">
@@ -325,9 +403,11 @@ export function AdvisorsNearby({
         </div>
       ) : null}
 
-      <p className="type-caption text-center text-muted-foreground">
-        FINRA BrokerCheck
-      </p>
+      {cards.length > 0 ? (
+        <p className="type-caption text-center text-muted-foreground">
+          FINRA BrokerCheck
+        </p>
+      ) : null}
 
       <AdvisorDetailSurface
         card={selected}

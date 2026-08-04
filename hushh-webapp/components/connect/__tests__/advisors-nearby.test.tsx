@@ -237,6 +237,83 @@ describe("AdvisorsNearby", () => {
     expect(await screen.findByText("Within 1.6 mi.")).toBeTruthy();
   });
 
+  it("offers a ZIP when the coordinates are fine but match nobody", async () => {
+    // Someone in India has working GPS and an empty list — FINRA is US-only.
+    // A dead-end "none nearby" row leaves them with nothing to do.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 19.076, longitude: 72.8777 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(result({ items: [] }));
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    expect(await screen.findByTestId("advisors-empty")).toBeTruthy();
+    expect(screen.getByText("Nothing nearby")).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId("advisors-postal-input"), {
+      target: { value: "98033" },
+    });
+    fireEvent.click(screen.getByText("Search"));
+
+    await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
+    expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({
+      postalCode: "98033",
+    });
+  });
+
+  it("does not credit a source it showed nothing from", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 19.076, longitude: 72.8777 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(result({ items: [] }));
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    await screen.findByTestId("advisors-empty");
+    expect(screen.queryByText("FINRA BrokerCheck")).toBeNull();
+  });
+
+  it("lets the user retry a failure instead of stranding them", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    mocks.searchNearby.mockRejectedValueOnce(new Error("Not available yet."));
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    expect(await screen.findByTestId("advisors-error")).toBeTruthy();
+    expect(screen.getByText("Not available yet.")).toBeTruthy();
+
+    mocks.searchNearby.mockResolvedValue(result());
+    fireEvent.click(screen.getByText("Try again"));
+
+    expect(await screen.findByText("Christine Cote")).toBeTruthy();
+  });
+
+  it("keeps the radius control available when nothing came back", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(result({ items: [] }));
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    await screen.findByTestId("advisors-empty");
+    expect(screen.getByText("25 mi")).toBeTruthy();
+  });
+
   it("shows a failure without wiping the surface", async () => {
     mocks.locationState = {
       status: "ready",
