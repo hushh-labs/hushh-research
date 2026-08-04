@@ -54,6 +54,7 @@ steps:
           --build-arg NEXT_PUBLIC_APP_URL=$$NEXT_PUBLIC_APP_URL_VAL \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
+          --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -120,6 +121,9 @@ substitutions:
   _FRONTEND_SERVICE: hushh-webapp
   _REGION: us-central1
   _APP_ENV: production
+  # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
+  # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
+  _ONE_WALLET_CARD_ENABLED: "false"
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.2
   _DEPLOY_ENV: manual

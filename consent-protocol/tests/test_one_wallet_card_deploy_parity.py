@@ -14,7 +14,7 @@ production:
   provisioning the certificate — an irreversible act that consumes a finite
   Apple slot — would have changed nothing.
 
-The wiring is deliberately *optional* (``append_optional_secret`` probes with
+The wiring is deliberately *optional* (``add_secret`` probes with
 ``gcloud secrets describe`` and skips what is absent), so this contract can land
 and deploy safely long before the certificate exists. These tests exist so the
 name agreement cannot silently drift afterwards.
@@ -42,7 +42,7 @@ def test_the_deploy_passes_every_pem_through_to_cloud_run() -> None:
     cloudbuild = _read(CLOUDBUILD)
 
     for env_name in PEM_ENV_NAMES:
-        expected = f'append_optional_secret "${{_{env_name}_SECRET}}" "{env_name}"'
+        expected = f'add_secret "${{_{env_name}_SECRET}}" "{env_name}"'
         assert expected in cloudbuild, f"{env_name} is never wired into the deploy"
 
 
@@ -74,7 +74,7 @@ def test_the_deploy_names_match_the_names_the_runtime_reads() -> None:
 
 
 def test_the_pems_stay_optional_so_the_deploy_survives_their_absence() -> None:
-    """``append_optional_secret`` is what keeps an un-provisioned environment
+    """``add_secret`` is what keeps an un-provisioned environment
     deployable. Promoting these to the mandatory ``secrets=`` string would break
     every deploy in every project until the certificate is minted."""
     cloudbuild = _read(CLOUDBUILD)
