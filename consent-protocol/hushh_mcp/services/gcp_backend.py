@@ -117,6 +117,7 @@ class GcpBackend:
         image: Optional[str] = None,
         service_account: Optional[str] = None,
         live: Optional[bool] = None,
+        ingress: Optional[str] = None,
         min_instances: Optional[int] = None,
         max_instances: Optional[int] = None,
         client: Any = None,
@@ -146,6 +147,20 @@ class GcpBackend:
         )
         if self._max_instances < self._min_instances:
             self._max_instances = self._min_instances
+        # Ingress. The DEFAULT is "internal": the pod is not reachable from the public
+        # internet at all, and only the Hushh A2A gateway (Layer A) routes to it. That
+        # non-targetability is a load-bearing PCC property, so it is the default and
+        # stays the default everywhere it is not explicitly overridden.
+        #
+        # A development environment has to be able to OBSERVE a real pod over HTTP from
+        # outside the VPC, which "internal" forbids -- so the value is overridable. Note
+        # that "all" is still NOT public: no allUsers invoker binding is ever created by
+        # this backend, so Cloud Run keeps requiring a signed Google identity token and
+        # an anonymous request gets 403. "all" widens WHERE a caller may connect from,
+        # never WHO may invoke.
+        self._ingress = (
+            ingress if ingress is not None else (_env("HUSSH_POD_INGRESS") or "internal")
+        )
         # Live execution is OFF unless explicitly enabled AND credentials exist.
         self._live = bool(live) if live is not None else _flag("HUSSH_GCP_BACKEND_LIVE")
         # Live Cloud Run client: injected for tests; else built lazily from the SA.
@@ -177,6 +192,27 @@ class GcpBackend:
             template_annotations["hussh/attested-tier"] = "true"
         container: dict[str, Any] = {
             "image": self._image or "",
+            # An EXPLICIT HTTP startup probe, and it is load-bearing.
+            #
+            # Cloud Run's default startup probe is a TCP connect. Gunicorn's master
+            # binds :8080 before forking, so the TCP probe succeeds even when every
+            # worker then dies on import -- Cloud Run reported "Containers became
+            # healthy in 1.2s", Ready=True and ContainerHealthy=True for a pod that
+            # returned 503 to literally every request (observed in hushh-pda-dev,
+            # 2026-08-04). Because wait_ready(), get() and the reconcile worker all
+            # read that same Ready condition, a pod that cannot serve was reported
+            # `live` end to end -- a 200 on an empty page.
+            #
+            # Probing /health over HTTP makes Cloud Run's own condition honest, which
+            # fixes provisioning, status and reconciliation at the source instead of
+            # bolting a second health check onto each of the three readers.
+            "ports": [{"name": "http1", "containerPort": 8080}],
+            "startupProbe": {
+                "httpGet": {"path": "/health", "port": 8080},
+                "timeoutSeconds": 5,
+                "periodSeconds": 5,
+                "failureThreshold": 12,
+            },
             # Identity + pins only. No secrets: BYOK keys and consent tokens
             # arrive per-turn at runtime.
             "env": [
@@ -187,6 +223,39 @@ class GcpBackend:
                 {"name": "HUSSH_PROMPT_VERSION", "value": spec.prompt_version or ""},
             ],
         }
+        # The app refuses to import without APP_SIGNING_KEY (>=32 chars), so a pod
+        # cannot boot at all without one -- that is what made every request 503.
+        #
+        # It is mounted BY REFERENCE from Secret Manager, never rendered into the
+        # artifact, and it must NOT be the hub's key. APP_SIGNING_KEY is the symmetric
+        # HMAC-SHA256 key behind consent tokens, fabric grants, receipts and the audit
+        # chain; with HMAC the ability to verify IS the ability to forge, so handing
+        # the hub's key to every per-user pod would let one compromised pod mint
+        # consent, grants and audit entries for EVERY user -- the exact universal-forger
+        # position the PCC threat model exists to prevent.
+        #
+        # So this names a SEPARATE secret and is unset by default (no mount, behaviour
+        # unchanged). Dev points it at a pod-only key, which boots the runtime and
+        # proves the surface. Verifying hub-issued consent tokens inside a pod is a
+        # different problem that needs asymmetric signing (pod holds a public key only)
+        # or hub-side validation; it is NOT unblocked by mounting a key here.
+        # NOTE the smell this exposes: the pod mounts four routers and does no vault
+        # crypto, yet it cannot IMPORT without the vault data key, because
+        # get_core_security_settings() validates the full app's keyset eagerly. Scoping
+        # that validation to what a surface actually uses would let a pod hold strictly
+        # less; until then it must be handed both.
+        for env_name, secret_env in (
+            ("APP_SIGNING_KEY", "HUSSH_POD_SIGNING_KEY_SECRET"),
+            ("VAULT_DATA_KEY", "HUSSH_POD_VAULT_KEY_SECRET"),
+        ):
+            secret_name = _env(secret_env)
+            if secret_name:
+                container["env"].append(
+                    {
+                        "name": env_name,
+                        "valueFrom": {"secretKeyRef": {"name": secret_name, "key": "latest"}},
+                    }
+                )
         inner_spec: dict[str, Any] = {"containers": [container]}
         # Only pin a runtime service account when one is configured; an empty value
         # is rejected by the live API (and the project default is used otherwise).
@@ -208,9 +277,10 @@ class GcpBackend:
                     "hussh-env": _deploy_env_label(),
                     "hussh-purpose": _label_value(_env("HUSSH_POD_PURPOSE"), _POD_PURPOSE_DEFAULT),
                 },
-                # internal ingress: the pod is never publicly reachable; only the
-                # Hushh A2A gateway (Layer A) routes to it.
-                "annotations": {"run.googleapis.com/ingress": "internal"},
+                # Ingress: "internal" everywhere unless a dev environment explicitly
+                # widens it to observe a running pod. Invoker authz is unaffected --
+                # see the _ingress comment in __init__.
+                "annotations": {"run.googleapis.com/ingress": self._ingress},
             },
             "spec": {
                 "template": {
@@ -232,7 +302,7 @@ class GcpBackend:
             "service": name,
             "image": self._image,
             "tier": spec.tier,
-            "ingress": "internal",
+            "ingress": self._ingress,
         }
         if self._live:
             return await self._execute(spec, config)
@@ -311,7 +381,7 @@ class GcpBackend:
                 "url": url,
                 "ready": ready,
                 "tier": spec.tier,
-                "ingress": "internal",
+                "ingress": self._ingress,
             },
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
