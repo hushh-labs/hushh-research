@@ -73,7 +73,7 @@ def test_card_is_hushh_gold_with_black_text() -> None:
     assert body["backgroundColor"] == "rgb(212, 175, 55)"
     assert body["foregroundColor"] == "rgb(12, 12, 12)"
     assert body["labelColor"] == "rgb(32, 32, 32)"
-    assert body["passType"] == "storeCard"
+    assert body["passType"] == "generic"
 
 
 def test_every_image_is_the_real_icon_not_a_placeholder() -> None:
@@ -121,12 +121,45 @@ def test_front_of_card_stays_short_and_back_carries_the_detail() -> None:
 
 
 def test_absent_fields_do_not_emit_blank_rows() -> None:
-    body = client.build_pass_request(
-        _content(card_payload={"headline": "", "organisation": "", "location_label": ""})
-    )
+    blank = dict.fromkeys([key for key, _ in client._DISPLAY_ROWS], "")
+    body = client.build_pass_request(_content(card_payload=blank))
 
     assert body["secondaryFields"] == []
     assert body["auxiliaryFields"] == []
+    # The holder is still the hero even when nothing else was shared.
+    assert [f["value"] for f in body["primaryFields"]] == ["Ada Lovelace"]
+
+
+def test_a_sparse_card_still_fills_its_first_row() -> None:
+    """The defect this replaced: a name-and-email profile rendered one line
+    above an empty card because the slots were mapped to fields it lacked."""
+    body = client.build_pass_request(
+        _content(card_payload=dict.fromkeys(["headline", "organisation", "location_label"], ""))
+    )
+
+    # Contact detail is promoted forward when identity fields are absent,
+    # so the front of the card is never one line above a void.
+    assert [f["label"] for f in body["secondaryFields"]] == ["Email", "Phone"]
+
+
+def test_a_full_card_fills_all_four_rows_without_overflowing() -> None:
+    body = client.build_pass_request(_content())
+    rows = body["secondaryFields"] + body["auxiliaryFields"]
+
+    assert [f["label"] for f in rows] == ["Role", "Organisation", "Location", "Email"]
+    # Apple caps a generic pass with a square barcode at four combined.
+    assert len(rows) == client._MAX_FRONT_ROWS
+
+
+def test_the_logo_is_a_mark_not_a_wordmark() -> None:
+    """The signing service forces logoText to "HUSHH" and an empty string does
+    not suppress it, so a wordmark logo would render as "hussh HUSHH"."""
+    images = client.build_pass_request(_content())["images"]
+
+    for name in ("logo.png", "logo@2x.png", "logo@3x.png"):
+        raw = base64.b64decode(images[name])
+        with Image.open(io.BytesIO(raw)) as img:
+            assert img.width == img.height, f"{name} must be square (a mark, not a wordmark)"
 
 
 # ---------------------------------------------------------------------------
@@ -224,4 +257,4 @@ def test_the_request_body_is_json_serialisable() -> None:
     # httpx serialises at call time, so a non-serialisable field would surface
     # as a 503 in production rather than as a failure here.
     encoded = json.dumps(client.build_pass_request(_content()))
-    assert json.loads(encoded)["passType"] == "storeCard"
+    assert json.loads(encoded)["passType"] == "generic"
