@@ -98,6 +98,30 @@ describe("AdvisorDirectoryService.searchNearby", () => {
     ).rejects.toThrow("Try again shortly.");
   });
 
+  it("never shows the reader our own plumbing", async () => {
+    // A 503 means this deployment has no directory wired up. "not configured
+    // on this backend" is a sentence no user should be made to read.
+    mockApiFetch.mockResolvedValue(
+      jsonResponse(
+        {
+          detail: {
+            code: "ONE_ADVISORS_UNAVAILABLE",
+            message: "The advisor directory is not configured on this backend.",
+          },
+        },
+        503,
+      ),
+    );
+
+    await expect(
+      AdvisorDirectoryService.searchNearby({
+        idToken: "id-token",
+        latitude: 1,
+        longitude: 2,
+      }),
+    ).rejects.toThrow("Not available yet.");
+  });
+
   it("still fails cleanly when the error body is unreadable", async () => {
     mockApiFetch.mockResolvedValue({
       ok: false,
