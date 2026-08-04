@@ -1,71 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Brain, Copy } from "lucide-react";
+import { useState } from "react";
+import { Brain, Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { Textarea } from "@/components/ui/textarea";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import {
-  KycIdentityProfilePkmService,
+  KycIdentityProfileDraftService,
   type KycIdentityProfile,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
-import { useVault } from "@/lib/vault/vault-context";
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
   const [aboutMe, setAboutMe] = useState("");
   const [copied, setCopied] = useState(false);
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [profileAwaitingUnlock, setProfileAwaitingUnlock] =
-    useState<KycIdentityProfile | null>(null);
 
   const canContinue = aboutMe.trim().length > 5;
-
-  const saveProfileInBackground = useCallback(
-    async (profile: KycIdentityProfile) => {
-      if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
-
-      try {
-        const result = await KycIdentityProfilePkmService.saveProfile({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          profile,
-        });
-        if (!result.success) {
-          throw new Error(result.message);
-        }
-        toast.success("Identity profile saved securely.");
-      } catch {
-        toast.error(
-          "We couldn't save your identity details. Please try again.",
-        );
-      }
-    },
-    [user?.uid, vaultKey, vaultOwnerToken],
-  );
-
-  useEffect(() => {
-    if (!profileAwaitingUnlock || !vaultKey || !vaultOwnerToken) return;
-
-    const profile = profileAwaitingUnlock;
-    setProfileAwaitingUnlock(null);
-    setVaultOpen(false);
-    void saveProfileInBackground(profile);
-    onComplete();
-  }, [
-    onComplete,
-    profileAwaitingUnlock,
-    saveProfileInBackground,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
 
   const handlePrimary = () => {
     if (!canContinue) return;
@@ -77,13 +31,11 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
     const profile: KycIdentityProfile = {
       aboutMe: aboutMe.trim(),
     };
-    if (!vaultKey || !vaultOwnerToken) {
-      setProfileAwaitingUnlock(profile);
-      setVaultOpen(true);
-      return;
-    }
 
-    void saveProfileInBackground(profile);
+    // Capability setup is deliberately vault-free. Keep the sensitive draft
+    // only in process memory; the root Finish setup action is the one place
+    // that introduces the vault and flushes this profile after unlock.
+    KycIdentityProfileDraftService.stage(user.uid, profile);
     onComplete();
   };
 
@@ -171,7 +123,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                     title="Copy export prompt"
                   >
                     {copied ? (
-                      <span className="text-[10px] font-medium text-emerald-600 block px-1">Copied</span>
+                      <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
@@ -204,17 +156,6 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
             </div>
           </div>
         </div>
-
-        {user ? (
-          <VaultUnlockDialog
-            user={user}
-            open={vaultOpen}
-            onOpenChange={setVaultOpen}
-            title="Unlock to continue"
-            description="Enter your passphrase to save your personal details securely in your private vault."
-            onSuccess={() => setVaultOpen(false)}
-          />
-        ) : null}
       </main>
     </CapabilityCinematicIntroGate>
   );
