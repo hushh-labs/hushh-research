@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Iterable
 from typing import Any
 
 import httpx
@@ -76,6 +77,20 @@ def _coerce_int(value: Any) -> int | None:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def _unique(values: Iterable[str | None], limit: int = 12) -> list[str]:
+    """Order-preserving dedupe, dropping blanks and capping the list."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+        if len(out) >= limit:
+            break
+    return out
 
 
 class AdvisorDirectoryService:
@@ -273,7 +288,16 @@ class AdvisorDirectoryService:
 
         if not isinstance(payload, dict):
             raise AdvisorDirectoryError("That advisor could not be loaded.", status_code=502)
-        return {"profile": _normalize_profile(payload), "attribution": _ATTRIBUTION}
+
+        # The standalone endpoint answers {ok, profile, firm, attribution}; the
+        # same record arrives flat inside a stream `detail` frame. Accept both
+        # so this keeps working whichever one a caller hands us.
+        record = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
+        firm = payload.get("firm") if isinstance(payload.get("firm"), dict) else None
+        return {
+            "profile": _normalize_profile(record, firm=firm),
+            "attribution": _ATTRIBUTION,
+        }
 
 
 _ATTRIBUTION = {
@@ -375,10 +399,14 @@ def _normalize_row(row: dict[str, Any], *, grouped: bool) -> dict[str, Any]:
     }
 
 
-def _normalize_profile(profile: dict[str, Any]) -> dict[str, Any]:
+def _normalize_profile(
+    profile: dict[str, Any], *, firm: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    # The standalone endpoint states the current employer outright; a stream
+    # `detail` frame does not, so fall back to the flagged firm-history entry.
+    current_firm = _text(firm.get("firmName")) if isinstance(firm, dict) else None
     firm_history = profile.get("firmHistory")
-    current_firm = None
-    if isinstance(firm_history, list):
+    if not current_firm and isinstance(firm_history, list):
         for entry in firm_history:
             if isinstance(entry, dict) and entry.get("current"):
                 current_firm = _text(entry.get("firmName"))
@@ -397,28 +425,21 @@ def _normalize_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "isBarred": bool(profile.get("isBarred")),
         "hasDisclosures": bool(profile.get("hasDisclosures")),
         "disclosureCount": len(disclosures) if isinstance(disclosures, list) else 0,
-        "states": [
-            state
-            for state in (
-                _text(entry.get("state")) if isinstance(entry, dict) else None
-                for entry in (
-                    profile.get("registeredStates")
-                    if isinstance(profile.get("registeredStates"), list)
-                    else []
-                )
+        # One state appears once per registration scope (BC and IA), so the raw
+        # list double-counts. The UI shows a count, and "51 states" would be a
+        # lie — dedupe while preserving order.
+        "states": _unique(
+            _text(entry.get("state")) if isinstance(entry, dict) else None
+            for entry in (
+                profile.get("registeredStates")
+                if isinstance(profile.get("registeredStates"), list)
+                else []
             )
-            if state
-        ][:12],
-        "exams": [
-            category
-            for category in (
-                _text(entry.get("category")) if isinstance(entry, dict) else None
-                for entry in (
-                    profile.get("exams") if isinstance(profile.get("exams"), list) else []
-                )
-            )
-            if category
-        ][:8],
+        ),
+        "exams": _unique(
+            _text(entry.get("category")) if isinstance(entry, dict) else None
+            for entry in (profile.get("exams") if isinstance(profile.get("exams"), list) else [])
+        ),
         "office": _normalize_branch_address(first_branch),
         "reportUrl": _text(profile.get("reportUrl")),
     }

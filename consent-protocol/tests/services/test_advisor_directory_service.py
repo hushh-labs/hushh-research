@@ -246,7 +246,44 @@ async def test_unconfigured_backend_reports_unavailable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_profile_reads_the_standalone_endpoint_envelope(monkeypatch):
+    """The live endpoint wraps the record in {ok, profile, firm, attribution}.
+
+    Reading the payload as if it were flat produced an all-null profile, which
+    only showed up against the real service — so this pins the real envelope.
+    """
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "profile": {
+                    "crd": "862222",
+                    "name": "CHRISTINE NOELLE COTE",
+                    "yearsExperience": 47.5,
+                    "firmCount": 7,
+                    "hasDisclosures": True,
+                    "disclosures": [{"type": "Regulatory"}],
+                },
+                "firm": {"firmId": "149777", "firmName": "MORGAN STANLEY"},
+                "attribution": {"source": "FINRA BrokerCheck"},
+            },
+        )
+
+    profile = (await _service(monkeypatch, handler).profile("862222"))["profile"]
+
+    assert profile["crd"] == "862222"
+    assert profile["name"] == "CHRISTINE NOELLE COTE"
+    assert profile["firmName"] == "MORGAN STANLEY"
+    assert profile["yearsExperience"] == 47.5
+    assert profile["disclosureCount"] == 1
+
+
+@pytest.mark.asyncio
 async def test_profile_normalizes_current_firm_and_counts(monkeypatch):
+    """A stream `detail` frame carries the same record flat, with no firm block."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/advisors/862222"
         return httpx.Response(
