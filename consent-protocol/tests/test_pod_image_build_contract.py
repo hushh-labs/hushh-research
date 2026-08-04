@@ -193,3 +193,53 @@ def test_hub_deploy_sets_an_explicit_http_startup_probe(config: dict):
     period = int(probe.split("periodSeconds=")[1].split(",")[0])
     failures = int(probe.split("failureThreshold=")[1].split(",")[0].rstrip('"'))
     assert period * failures >= 240
+
+
+# --- the pod -> hub data path is dev-only ---------------------------------------------
+
+
+@pytest.mark.parametrize("deploy_env", NON_DEV_ENVS)
+def test_pod_hub_identity_auth_is_never_enabled_outside_dev(config: dict, deploy_env: str):
+    """The load-bearing one. Every pod shares a service account, so accepting a pod's ID
+    token proves "a hussh pod", not WHICH user's pod -- the agent id comes from the pod's
+    own assertion. In an environment holding real users, one compromised pod could read
+    another user's prompt. Dev carries synthetic users only, so the guard is what keeps
+    this honest.
+    """
+    script = _step(config, "deploy-backend")["args"][-1]
+    assert 'append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "${pod_identity_auth}"' in script
+
+    out = _bash(
+        'hub_url=""; pod_identity_auth=""; pod_allowed_sa=""\n'
+        f'if [[ "{deploy_env}" == "dev" ]]; then\n'
+        '  hub_url="https://svc-123.us-central1.run.app"\n'
+        '  pod_identity_auth="true"\n'
+        '  pod_allowed_sa="hussh-one-pod@proj.iam.gserviceaccount.com"\n'
+        "fi\n"
+        'echo "url=${hub_url} auth=${pod_identity_auth} sa=${pod_allowed_sa}"'
+    )
+    assert out.strip() == "url= auth= sa="
+
+
+def test_pod_hub_data_path_is_wired_in_dev():
+    out = _bash(
+        'hub_url=""; pod_identity_auth=""; pod_allowed_sa=""\n'
+        'if [[ "dev" == "dev" ]]; then\n'
+        '  hub_url="https://svc-123.us-central1.run.app"\n'
+        '  pod_identity_auth="true"\n'
+        '  pod_allowed_sa="hussh-one-pod@proj.iam.gserviceaccount.com"\n'
+        "fi\n"
+        'echo "url=${hub_url} auth=${pod_identity_auth} sa=${pod_allowed_sa}"'
+    )
+    assert out.strip() == (
+        "url=https://svc-123.us-central1.run.app auth=true "
+        "sa=hussh-one-pod@proj.iam.gserviceaccount.com"
+    )
+
+
+def test_hub_url_is_derived_not_hardcoded(config: dict):
+    """A hardcoded dev URL would silently point pods at the wrong hub from any other
+    project. The project-number form is the one deploy-dev.yml already relies on."""
+    script = _step(config, "deploy-backend")["args"][-1]
+    assert 'hub_url="https://${_BACKEND_SERVICE}-${PROJECT_NUMBER}.${_REGION}.run.app"' in script
+    assert "aqahj4iyha" not in script  # the dev-specific Cloud Run hash
