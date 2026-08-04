@@ -49,9 +49,16 @@ def _no_store(response: Response) -> None:
 
 
 def _handle(exc: AdvisorDirectoryError) -> HTTPException:
+    # The upstream limit is per-IP and every user shares this backend's egress
+    # address, so its Retry-After applies to the whole surface. Passing it on
+    # lets a client wait the stated time instead of hammering a closed door.
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": "ONE_ADVISORS_UNAVAILABLE", "message": str(exc)},
+        headers=headers,
     )
 
 

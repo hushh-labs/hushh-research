@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -67,7 +73,14 @@ function result(overrides: Record<string, unknown> = {}) {
       radiusAdjusted: false,
       truncated: false,
     },
-    attribution: { source: "FINRA BrokerCheck", url: "https://x" },
+    attribution: {
+      source: "FINRA BrokerCheck",
+      sourceUrl: "https://brokercheck.finra.org",
+      termsUrl: "https://brokercheck.finra.org/terms-and-conditions",
+      notice: "Data retrieved from FINRA BrokerCheck.",
+      errorReporting: "https://www.finra.org/investors/about-brokercheck",
+      retrievedAt: "2026-08-05T09:00:00.000Z",
+    },
     ...overrides,
   };
 }
@@ -262,6 +275,52 @@ describe("AdvisorsNearby", () => {
     expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({
       postalCode: "98033",
     });
+  });
+
+  it("carries the source credit the licence requires, not just a name", async () => {
+    // BrokerCheck's Terms permit reuse under §5 only with the source named, the
+    // Terms linked, a way to report an error, and the retrieval date shown.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 47.6769, longitude: -122.206 },
+      error: null,
+    };
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+    await screen.findByText("Christine Cote");
+
+    const footer = screen.getByTestId("advisors-attribution");
+    const href = (name: RegExp) =>
+      within(footer).getByRole("link", { name }).getAttribute("href");
+
+    expect(href(/FINRA BrokerCheck/i)).toBe("https://brokercheck.finra.org");
+    expect(href(/^Terms$/i)).toBe(
+      "https://brokercheck.finra.org/terms-and-conditions",
+    );
+    expect(href(/Report an error/i)).toBe(
+      "https://www.finra.org/investors/about-brokercheck",
+    );
+    expect(within(footer).getByText(/Retrieved/)).toBeTruthy();
+  });
+
+  it("says so when the data came from a cache rather than live", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 47.6769, longitude: -122.206 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(
+      result({ meta: { ...result().meta, cache: "warm" } }),
+    );
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+    await screen.findByText("Christine Cote");
+
+    expect(
+      within(screen.getByTestId("advisors-attribution")).getByText(/cached/),
+    ).toBeTruthy();
   });
 
   it("does not credit a source it showed nothing from", async () => {
