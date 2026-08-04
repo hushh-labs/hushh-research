@@ -284,6 +284,33 @@ steps:
         fi
         append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"
 
+        # The pod -> hub data path (docs/future/personal-agent/POD-HUB-DATA-PATH.md).
+        # A pod holds no Postgres credential, so it reads the data plane through the
+        # hub; render_deploy_config passes HUSSH_HUB_BASE_URL down to every pod it
+        # renders, which means the HUB has to know its own origin. The URL is derived
+        # rather than hardcoded, using the same stable
+        # https://{service}-{project_number}.{region}.run.app form deploy-dev.yml
+        # already uses for DEV_ONE_EMAIL_WEBHOOK_AUDIENCE.
+        #
+        # POD_HUB_IDENTITY_AUTH_ENABLED lets the hub accept a pod's Google ID token on
+        # the internal prompt route. It is DEV-ONLY and must stay that way: every pod
+        # shares one service account, so the token proves "a hussh pod", not WHICH
+        # user's pod, and the agent id comes from the pod's own assertion. Dev carries
+        # synthetic users only. Enabling it anywhere holding real users' holdings would
+        # let one compromised pod read another user's prompt -- that needs per-pod
+        # identity from the attested tier (M5) first.
+        hub_url=""
+        pod_identity_auth=""
+        pod_allowed_sa=""
+        if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+          hub_url="https://${_BACKEND_SERVICE}-${PROJECT_NUMBER}.${_REGION}.run.app"
+          pod_identity_auth="true"
+          pod_allowed_sa="hussh-one-pod@${PROJECT_ID}.iam.gserviceaccount.com"
+        fi
+        append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
+        append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "${pod_identity_auth}"
+        append_optional_env "POD_HUB_ALLOWED_SERVICE_ACCOUNT" "${pod_allowed_sa}"
+
         # Join with '|' (not ',') so env VALUES may themselves contain commas.
         # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
