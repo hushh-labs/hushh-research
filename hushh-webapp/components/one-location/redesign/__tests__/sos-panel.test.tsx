@@ -2,7 +2,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import {
+  isWindowsDesktopEmCallUnsupported,
+  SosPanel,
+} from "@/components/one-location/redesign/sos-panel";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 
 const recipient = (
@@ -43,6 +46,15 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
+  it("detects Windows desktop callers as unsupported for tel: links", () => {
+    expect(
+      isWindowsDesktopEmCallUnsupported({
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0",
+        platform: "Win32",
+      }),
+    ).toBe(true);
+  });
+
   it("renders the Save My Soul UI, selected recipients, and local dialer", () => {
     render(<SosPanel {...baseProps} />);
 
