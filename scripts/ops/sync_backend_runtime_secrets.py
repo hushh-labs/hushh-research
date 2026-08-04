@@ -184,6 +184,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
+        "advisors_api_base_url": args.advisors_api_base_url,
     }
     return _drop_empty(config)
 
@@ -232,6 +233,11 @@ def main() -> int:
     parser.add_argument("--db-bulk-batching-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
+    # Advisor directory base URL. Non-secret, so it belongs in the generated
+    # runtime config rather than in the deploy step, which sits close to Cloud
+    # Build's arg ceiling. Blank leaves it out entirely and the surface reports
+    # unavailable; the bearer key is a real secret and is mounted separately.
+    parser.add_argument("--advisors-api-base-url", default="")
     args = parser.parse_args()
 
     sync_summary: list[str] = []
