@@ -86,21 +86,18 @@ describe("LocationPickerMap", () => {
     });
   });
 
-  it("does not initialize Google Maps or geocode before renderer disclosure", async () => {
-    const acceptRenderer = vi.fn().mockResolvedValue(undefined);
-
+  it("opens the map directly without a pre-map disclosure step", async () => {
     function Harness() {
-      const [accepted, setAccepted] = useState(false);
+      const [accepted] = useState(false);
       return (
         <LocationPickerMap
           initialLatitude={28.6139}
           initialLongitude={77.209}
           initialAddress="New Delhi 110001, India"
+          // Even when the legacy disclosure flag is false, the picker now opens
+          // the interactive map immediately (the extra disclosure screen was
+          // removed) and initializes Google Maps right away.
           rendererDisclosureAccepted={accepted}
-          onAcceptRendererDisclosure={async () => {
-            await acceptRenderer();
-            setAccepted(true);
-          }}
           onConfirm={vi.fn()}
           onCancel={vi.fn()}
         />
@@ -109,20 +106,18 @@ describe("LocationPickerMap", () => {
 
     render(<Harness />);
 
-    expect(screen.getByTestId("saved-location-map-disclosure")).toBeTruthy();
+    // The old "Before the map opens" disclosure card is gone.
+    expect(screen.queryByTestId("saved-location-map-disclosure")).toBeNull();
     expect(
-      screen.getByText(/Google Maps receives the selected point/i),
-    ).toBeTruthy();
-    expect(mapConstructor).not.toHaveBeenCalled();
-    expect(browserGeocode).not.toHaveBeenCalled();
-    expect(mapsHookMock).toHaveBeenLastCalledWith({ enabled: false });
+      screen.queryByText(/Google Maps receives the selected point/i),
+    ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
-
-    await waitFor(() => expect(acceptRenderer).toHaveBeenCalledTimes(1));
+    // The map surface renders and Google Maps initializes immediately.
+    expect(screen.getByText(/Pin your entrance on the map/i)).toBeTruthy();
     await waitFor(() => expect(mapConstructor).toHaveBeenCalledTimes(1));
     expect(mapsHookMock).toHaveBeenLastCalledWith({ enabled: true });
   });
+
 
   it("blocks confirmation until the moved centre has a matching address", async () => {
     vi.useFakeTimers();

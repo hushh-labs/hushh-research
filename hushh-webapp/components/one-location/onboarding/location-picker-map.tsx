@@ -29,10 +29,14 @@ export interface LocationPickerMapProps {
   onConfirm: (picked: PickedLocation) => void;
   /** Dismiss the map without changing the captured point. */
   onCancel: () => void;
-  /** Google Maps may initialize only after this explicit renderer disclosure. */
+  /**
+   * Retained for API compatibility with existing callers. The map now opens
+   * directly (no separate "Before the map opens" disclosure step), so these are
+   * optional and unused by the picker.
+   */
   rendererDisclosureAccepted?: boolean;
-  /** Persist or session-acknowledge the shared renderer disclosure. */
-  onAcceptRendererDisclosure: () => Promise<void>;
+  onAcceptRendererDisclosure?: () => Promise<void>;
+
   confirmLabel?: string;
   cancelLabel?: string;
   className?: string;
@@ -74,8 +78,13 @@ export function LocationPickerMap({
   cancelLabel = "Cancel",
   className,
 }: LocationPickerMapProps) {
-  const { status } = useGoogleMaps({ enabled: rendererDisclosureAccepted });
+  // The map opens directly now (no pre-map disclosure gate), so Google Maps
+  // initializes as soon as the picker mounts.
+  void rendererDisclosureAccepted;
+  void onAcceptRendererDisclosure;
+  const { status } = useGoogleMaps({ enabled: true });
   const { resolvedTheme } = useTheme();
+
   const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -96,24 +105,90 @@ export function LocationPickerMap({
   const [hasInteracted, setHasInteracted] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [acceptingRenderer, setAcceptingRenderer] = useState(false);
-  const [rendererError, setRendererError] = useState<string | null>(null);
+
 
   useEffect(() => {
     if (hasInteractedRef.current) return;
     setAddress((initialAddress && initialAddress.trim()) || null);
   }, [initialAddress]);
 
-  const reverseGeocodeInBrowser = useCallback(
+  // Resolve the pinned coordinate to a human address entirely in the browser.
+  // Primary path is google.maps.Geocoder (classic Geocoding API). Some Maps
+  // keys (like this project's) enable the Maps JavaScript API + Places API (New)
+  // but NOT the classic Geocoding API, which makes Geocoder return nothing. In
+  // that case we fall back to the Places nearest-place lookup — the SAME source
+  // the backend/Your Map uses — so the address still resolves instead of
+  // showing "Address not found".
+  const reverseGeocodeViaNearestPlace = useCallback(
     async (lat: number, lng: number): Promise<string | null> => {
-      if (typeof google === "undefined" || !google.maps.Geocoder) return null;
-      const geocoder = geocoderRef.current ?? new google.maps.Geocoder();
-      geocoderRef.current = geocoder;
-      const response = await geocoder.geocode({ location: { lat, lng } });
-      return response.results[0]?.formatted_address?.trim() || null;
+      const places = (
+        google.maps as unknown as {
+          places?: {
+            Place?: {
+              searchNearby: (request: unknown) => Promise<{
+                places: Array<{
+                  formattedAddress?: string | null;
+                  displayName?: string | null;
+                }>;
+              }>;
+            };
+            SearchNearbyRankPreference?: { DISTANCE?: unknown };
+          };
+        }
+      ).places;
+      if (!places?.Place?.searchNearby) return null;
+      try {
+        const { places: results } = await places.Place.searchNearby({
+          fields: ["formattedAddress", "displayName"],
+          locationRestriction: {
+            center: { lat, lng },
+            // Keep the fallback tightly bounded so a distant landmark is never
+            // presented as the user's pinned spot (mirrors the backend radius).
+            radius: 100,
+          },
+          maxResultCount: 1,
+          rankPreference: places.SearchNearbyRankPreference?.DISTANCE,
+        });
+        const nearest = results?.[0];
+        if (!nearest) return null;
+        const formatted =
+          typeof nearest.formattedAddress === "string"
+            ? nearest.formattedAddress.trim()
+            : "";
+        if (formatted) return formatted;
+        const name =
+          typeof nearest.displayName === "string"
+            ? nearest.displayName.trim()
+            : "";
+        return name || null;
+      } catch {
+        return null;
+      }
     },
     [],
   );
+
+  const reverseGeocodeInBrowser = useCallback(
+    async (lat: number, lng: number): Promise<string | null> => {
+      if (typeof google === "undefined") return null;
+      if (google.maps.Geocoder) {
+        try {
+          const geocoder = geocoderRef.current ?? new google.maps.Geocoder();
+          geocoderRef.current = geocoder;
+          const response = await geocoder.geocode({ location: { lat, lng } });
+          const formatted =
+            response.results[0]?.formatted_address?.trim() || null;
+          if (formatted) return formatted;
+        } catch {
+          // Geocoding API not enabled / denied for this key — fall through to
+          // the Places nearest-place lookup below.
+        }
+      }
+      return reverseGeocodeViaNearestPlace(lat, lng);
+    },
+    [reverseGeocodeViaNearestPlace],
+  );
+
 
   const scheduleResolve = useCallback(
     (lat: number, lng: number) => {
@@ -265,22 +340,8 @@ export function LocationPickerMap({
     onConfirm({ latitude: lat, longitude: lng, address });
   }, [address, onConfirm]);
 
-  const handleAcceptRendererDisclosure = useCallback(async () => {
-    if (acceptingRenderer) return;
-    setAcceptingRenderer(true);
-    setRendererError(null);
-    try {
-      await onAcceptRendererDisclosure();
-    } catch {
-      setRendererError(
-        "Google Maps could not be prepared. Try again or skip this step.",
-      );
-    } finally {
-      setAcceptingRenderer(false);
-    }
-  }, [acceptingRenderer, onAcceptRendererDisclosure]);
-
   const unavailable = status === "error";
+
   const accuracyHint = unavailable
     ? "Review the captured point, then complete the address details on the next step."
     : typeof initialAccuracyM === "number" && Number.isFinite(initialAccuracyM)
@@ -291,78 +352,8 @@ export function LocationPickerMap({
           : "GPS is approximate here. Move the pin carefully to your entrance."
       : "Move the map so the pin tip sits on your entrance.";
 
-  if (!rendererDisclosureAccepted) {
-    return (
-      <div
-        className={cn("flex flex-col gap-4", className)}
-        data-testid="saved-location-map-disclosure"
-      >
-        <div className="flex items-center justify-between">
-          <p className="text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
-            Before the map opens
-          </p>
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="Close map"
-            className="press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]"
-          >
-            <X className="h-4 w-4" strokeWidth={2.4} />
-          </button>
-        </div>
-
-        <section className="rounded-3xl border border-black/[0.07] bg-[#f4f6fa] p-5 dark:border-white/[0.08] dark:bg-white/[0.05]">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-            <MapPin className="h-5 w-5" strokeWidth={2.3} aria-hidden />
-          </span>
-          <h3 className="mt-4 text-[20px] font-bold leading-tight text-[#111827] dark:text-[#f4f7fb]">
-            Adjust your entrance with Google Maps
-          </h3>
-          <p className="mt-2 text-[14px] leading-6 text-[#5b6472] dark:text-[#9aa6b6]">
-            Google Maps receives the selected point after you continue so it can
-            draw the map and suggest an address. Opening the map does not share
-            this point with nearby people; any later location sharing still
-            needs your approval.
-          </p>
-        </section>
-
-        {rendererError ? (
-          <p
-            role="alert"
-            className="rounded-xl bg-[#fff1f0] px-3 py-2 text-[12px] font-medium text-[#b42318] dark:bg-[#7a271a]/20 dark:text-[#ff9b91]"
-          >
-            {rendererError}
-          </p>
-        ) : null}
-
-        <div className="flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={() => void handleAcceptRendererDisclosure()}
-            disabled={acceptingRenderer}
-            className="press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent,#087ff5)] text-[16px] font-bold text-[color:var(--app-accent-fg,#ffffff)] transition-colors hover:bg-[color:var(--app-accent-hover,#0b62c4)] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {acceptingRenderer ? (
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            ) : (
-              <MapPin className="h-5 w-5" strokeWidth={2.4} aria-hidden />
-            )}
-            Use Google Maps
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={acceptingRenderer}
-            className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
-          >
-            {cancelLabel}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
+
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
@@ -378,7 +369,8 @@ export function LocationPickerMap({
         </button>
       </div>
 
-      <div className="relative h-[min(48vh,340px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] bg-[#eef2f7] dark:border-white/[0.1] dark:bg-[#10151d]">
+      <div className="relative h-[min(56vh,420px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] bg-[#eef2f7] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:bg-[#10151d] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+
         {unavailable ? (
           <div
             role="status"
@@ -412,34 +404,52 @@ export function LocationPickerMap({
               className="h-full w-full"
             />
 
-            {/* Fixed centre pin — the map moves beneath it, so the pin always
-                marks the chosen coordinate. */}
+            {/* Fixed centre marker — the map moves beneath it, so the pin
+                always marks the chosen coordinate. A polished Google-style
+                teardrop (accent fill + white ring) with a soft ground shadow
+                reads far better than a flat outline icon. */}
             <div
               className="pointer-events-none absolute inset-0 flex items-center justify-center"
               aria-hidden="true"
             >
-              {/* Offset up by half the pin height so the pin TIP (not its centre)
-                  marks the exact map centre; lift a little more while dragging. */}
               <div
                 className={cn(
-                  "flex flex-col items-center transition-transform duration-150 ease-out",
-                  dragging ? "-translate-y-[26px]" : "-translate-y-[20px]",
+                  "relative flex flex-col items-center transition-transform duration-150 ease-out",
+                  // Lift so the teardrop TIP sits exactly on the map centre.
+                  dragging ? "-translate-y-[30px]" : "-translate-y-[24px]",
                 )}
               >
-                <MapPin
-                  className="h-9 w-9 text-[color:var(--app-accent,#087ff5)] drop-shadow-[0_6px_8px_rgba(8,127,245,0.35)]"
-                  strokeWidth={2.4}
-                  fill="currentColor"
-                  fillOpacity={0.18}
-                />
+                <svg
+                  width="40"
+                  height="48"
+                  viewBox="0 0 40 48"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="drop-shadow-[0_6px_10px_rgba(16,24,40,0.35)]"
+                >
+                  {/* Teardrop body */}
+                  <path
+                    d="M20 1.5c-9.66 0-17.5 7.6-17.5 17 0 7.02 4.02 12.06 8.2 16.86 2.1 2.42 4.28 4.86 6.02 7.62.72 1.14 1.28 2.02 3.28 2.02s2.56-.88 3.28-2.02c1.74-2.76 3.92-5.2 6.02-7.62 4.18-4.8 8.2-9.84 8.2-16.86 0-9.4-7.84-17-17.5-17z"
+                    fill="var(--app-accent,#087ff5)"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                  />
+                  {/* Inner dot */}
+                  <circle cx="20" cy="18.5" r="6.2" fill="#ffffff" />
+                  <circle cx="20" cy="18.5" r="3" fill="var(--app-accent,#087ff5)" />
+                </svg>
+                {/* Ground shadow under the tip */}
                 <span
                   className={cn(
-                    "mt-0.5 h-2 w-2 rounded-full bg-black/40 blur-[1px] transition-all duration-150",
-                    dragging ? "scale-75 opacity-40" : "scale-100 opacity-60",
+                    "mt-[1px] rounded-full bg-black/45 blur-[2px] transition-all duration-150",
+                    dragging
+                      ? "h-[5px] w-[10px] opacity-35"
+                      : "h-[6px] w-[14px] opacity-55",
                   )}
                 />
               </div>
             </div>
+
 
             {onLocateMe ? (
               <button
