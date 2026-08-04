@@ -127,27 +127,46 @@ with no pod-identity auth.
 beside it — a transient refusal must not read as a permanent answer, and internals must
 not leak to the caller.
 
-**Not proven:** the hub *returning a row*. Standing up a hub-under-test on the branch
-image failed at startup:
+### Proven end to end, 2026-08-04, after the branch reached dev
+
+The dev lane deployed this branch (`efaccd616`) once the Cloud Build arg-limit fix landed,
+which put the pod-identity code and its flag on the running hub. The round trip then
+completed:
 
 ```
-RuntimeError: Required runtime tables are missing:
-  connection_scope_proposals, connection_scope_proposal_events
+GET  pod /api/one/agent-prompt
+  -> 404 {"code": "PROMPT_NOT_FOUND", "message": "No active prompt for this agent..."}
 ```
 
-The branch carries migrations the shared dev database does not have. Applying them
-mutates shared state that the team's dev backend also uses, so it needs a deliberate
-decision — either deploy the branch to dev through the normal lane (which runs
-migrations) or authorize the migration directly. Until then the success path is proven
-by unit tests only, not against the running artifact.
+That 404 is the proof, not a non-answer. It can only be produced **after** a successful
+hub query: the pod resolved to `HubPromptRepo`, minted a metadata-server ID token, the hub
+**accepted** that identity, queried `agent_prompt_versions` in Postgres, found no row for
+this synthetic agent, and `HubPromptRepo` mapped 404 to "no prompt configured". The
+progression across the session is the evidence — **401** (hub rejected the pod, running
+older code) → **503** (`PodHubUnavailable`) → **404 `PROMPT_NOT_FOUND`**. The hub's
+`/health/ready` independently reports `database: ok`.
 
-**Noticed while debugging, worth its own fix:** the hub start-up log shows
-`Default STARTUP TCP probe succeeded`. The HTTP-probe fix from
-[`POD-FLEET-LIVE-2026-08-04.md`](./POD-FLEET-LIVE-2026-08-04.md) was applied to
-`render_deploy_config`, which renders **pods**. The hub deploys via `gcloud run deploy`
-in `deploy/backend.cloudbuild.yaml` and still relies on the default TCP probe — so a hub
-whose workers die on import would also report itself healthy. Same defect, different
-surface, not yet fixed.
+So **pod → hub → Postgres works, with no database credential anywhere in the pod.**
+
+**Still not proven:** a **200 carrying a real prompt**, because no `agent_prompt_versions`
+row exists for a synthetic agent. That is a seeding gap, not a path gap — every hop is now
+demonstrated. Seed a row for a test agent to close it.
+
+**Noticed while debugging, now fixed:** the hub had the same false-health defect as the
+pod — its start-up log showed `Default STARTUP TCP probe succeeded`, because the
+HTTP-probe fix had only been applied to `render_deploy_config` (which renders **pods**),
+while the hub deploys via `gcloud run deploy`. It now carries an explicit
+`httpGet /health` startup probe on every lane, confirmed on the deployed dev revision:
+
+```
+startupProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 10, failureThreshold: 24}
+```
+
+**What made all of this reachable:** every backend deploy lane had been unable to deploy
+since 2026-07-28 — `deploy/backend.cloudbuild.yaml`'s `deploy-backend` step exceeded Cloud
+Build's 10,000-character per-arg cap, which gcloud enforces client-side, so no build was
+ever created. The step body now lives in `scripts/deploy/backend-deploy.sh` and a
+regression test asserts the limit. That fix is what let this branch reach dev at all.
 
 ## Configuration
 
