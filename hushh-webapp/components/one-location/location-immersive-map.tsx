@@ -1144,7 +1144,7 @@ export function LocationImmersiveMap() {
         className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
-          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
           aria-label="Back to Location"
           data-testid="one-location-map-close"
           disabled={closing}
@@ -1198,7 +1198,7 @@ export function LocationImmersiveMap() {
         ) : null}
         {rendererReady ? (
           <ShellActionSurface
-            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
             aria-label="Show my location"
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
