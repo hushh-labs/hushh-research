@@ -23,16 +23,22 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_consent_scope
 from hushh_mcp.constants import ConsentScope
-from hushh_mcp.runtime_settings import personal_agent_enabled
-from hushh_mcp.services.personal_agent_prompt_repo import PersonalAgentPromptRepo
+from hushh_mcp.runtime_settings import (
+    personal_agent_enabled,
+    pod_hub_allowed_service_account,
+    pod_hub_identity_auth_enabled,
+)
+from hushh_mcp.services.personal_agent_prompt_repo import resolve_prompt_repo
 from hushh_mcp.services.personal_agent_prompt_service import (
     DEFAULT_CHANNEL,
     PersonalAgentPromptService,
 )
+from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,65 @@ def _require_enabled() -> None:
 
 
 def _service() -> PersonalAgentPromptService:
-    return PersonalAgentPromptService(repo=PersonalAgentPromptRepo())
+    # The hub resolves to the DB repo; a pod resolves to the hub-backed repo, so a pod
+    # serving this route needs no database credential. resolve_prompt_repo() is the
+    # single place that decision is made.
+    return PersonalAgentPromptService(repo=resolve_prompt_repo())
+
+
+async def _pod_identity_agent_id(request: Request, authorization: Optional[str]) -> Optional[str]:
+    """Agent id for a verified POD caller, or None to fall through to consent auth.
+
+    Verifies a Google ID token minted for THIS service and issued to the one allowed pod
+    service account. What that proves is bounded: all pods share that account, so it
+    establishes "a hussh pod is calling", not which one -- the id itself comes from the
+    pod's asserted header. See ``pod_hub_identity_auth_enabled`` for why that is gated
+    off by default and why it must not carry real users.
+    """
+    if not pod_hub_identity_auth_enabled():
+        return None
+    allowed = pod_hub_allowed_service_account()
+    if not allowed:
+        logger.warning("pod_hub_auth.no_allowed_service_account configured; refusing")
+        return None
+    asserted = str(request.headers.get(POD_IDENTITY_HEADER) or "").strip()
+    if not asserted or not authorization:
+        return None
+
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        claims = await run_in_threadpool(
+            google_id_token.verify_oauth2_token, token, google_requests.Request()
+        )
+    except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply not a pod
+        logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
+        return None
+
+    if str(claims.get("email") or "") != allowed or not claims.get("email_verified"):
+        logger.warning("pod_hub_auth.rejected_identity email_matches=false")
+        return None
+    logger.info("pod_hub_auth.accepted asserted_agent_id=%s", asserted)
+    return asserted
+
+
+async def _authenticate_prompt_caller(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """Resolve the calling agent, by pod identity when enabled, else consent token.
+
+    The consent path is unchanged and remains the default: with the pod flag off this
+    delegates straight to ``_require_prompt_sync``, so an unauthenticated caller still
+    gets 401 exactly as before.
+    """
+    pod_agent_id = await _pod_identity_agent_id(request, authorization)
+    if pod_agent_id:
+        return {"agent_id": pod_agent_id, "auth": "pod-identity"}
+    token_data: dict = await _require_prompt_sync(request=request, authorization=authorization)
+    return token_data
 
 
 def _etag_matches(if_none_match: str, etag: str) -> bool:
@@ -66,7 +130,7 @@ async def get_agent_prompt(
     response: Response,
     channel: str = Query(DEFAULT_CHANNEL, max_length=64),
     if_none_match: Optional[str] = Header(default=None, alias="If-None-Match"),
-    token_data: dict = Depends(_require_prompt_sync),
+    token_data: dict = Depends(_authenticate_prompt_caller),
 ):
     """Return the caller-agent's OWN active system prompt (signed), or 304/404."""
     _require_enabled()

@@ -99,7 +99,14 @@ class PersonalAgentPromptService:
         prompt_text = str(row.get("prompt_text") or "")
         version = str(row.get("version") or "").strip()
         sha256 = compute_prompt_sha256(prompt_text)
-        signature = sign_prompt(aid, chan, version, sha256)
+        # A row that arrives ALREADY signed came from the signing authority (the hub,
+        # via HubPromptRepo). Relay that signature instead of re-signing: a pod holds a
+        # different APP_SIGNING_KEY, so a locally computed MAC would verify for nobody
+        # holding the hub's key, and would quietly downgrade an authority attestation
+        # into a self-attestation. The SHA is still recomputed above from the received
+        # bytes, so a tampered body is caught either way.
+        existing_signature = str(row.get("signature") or "").strip()
+        signature = existing_signature or sign_prompt(aid, chan, version, sha256)
         return ResolvedPrompt(
             agent_id=aid,
             channel=chan,
