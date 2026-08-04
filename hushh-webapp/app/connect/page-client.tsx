@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search as SearchIcon, UserRound, Users } from "lucide-react";
@@ -387,6 +387,21 @@ export default function ConnectPageClient() {
     [outgoingRequestIds, user],
   );
 
+  // Present connections in a stable, predictable order: alphabetical by the
+  // name the user sees (case-insensitive), falling back to the userId when a
+  // display name is absent. Locale compare keeps accented names sensibly placed.
+  const sortedConnections = useMemo(
+    () =>
+      [...connections].sort((a, b) =>
+        (a.displayName || a.userId).localeCompare(
+          b.displayName || b.userId,
+          undefined,
+          { sensitivity: "base" },
+        ),
+      ),
+    [connections],
+  );
+
   return (
     <AppPageShell
       as="main"
@@ -430,7 +445,7 @@ export default function ConnectPageClient() {
                   disabled
                 />
               ) : (
-                connections.map((connection) => (
+                sortedConnections.map((connection) => (
                   <SettingsRow
                     key={connection.connectionId}
                     icon={Users}
