@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   updateSavedLocationAddress: vi.fn(),
   captureCurrentPosition: vi.fn(),
   reverseGeocode: vi.fn(),
+  getMapState: vi.fn(),
+  updateMapPreferences: vi.fn(),
   toastError: vi.fn(),
 }));
 
@@ -51,15 +59,16 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
   addSavedLocation: mocks.addSavedLocation,
   removeSavedLocation: mocks.removeSavedLocation,
   updateSavedLocationAddress: mocks.updateSavedLocationAddress,
-  sortSavedLocationsForDisplay: (
-    locations: Array<Record<string, unknown>>,
-  ) => locations,
+  sortSavedLocationsForDisplay: (locations: Array<Record<string, unknown>>) =>
+    locations,
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     captureCurrentPosition: mocks.captureCurrentPosition,
     reverseGeocode: mocks.reverseGeocode,
+    getMapState: mocks.getMapState,
+    updateMapPreferences: mocks.updateMapPreferences,
   },
 }));
 
@@ -109,6 +118,18 @@ describe("SavedLocationsSection", () => {
       name: null,
       countryCode: "IN",
     });
+    mocks.getMapState.mockReset().mockResolvedValue({
+      preferences: {
+        presenceMode: "ghost",
+        rendererConsentVersion: "google-maps-renderer-v1",
+      },
+      freshnessSeconds: 60,
+      markers: [],
+    });
+    mocks.updateMapPreferences.mockReset().mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
+    });
     mocks.toastError.mockReset();
   });
 
@@ -119,7 +140,9 @@ describe("SavedLocationsSection", () => {
   it("loads the encrypted saved place into Settings without exposing coordinates", async () => {
     render(<SavedLocationsSection />);
 
-    expect(await screen.findByText("Kasturba Road, Bengaluru")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Kasturba Road, Bengaluru"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
@@ -127,6 +150,7 @@ describe("SavedLocationsSection", () => {
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner-token",
     });
+    expect(mocks.getMapState).toHaveBeenCalledWith("vault-owner-token");
   });
 
   it("fails closed while the vault is locked", async () => {
@@ -175,7 +199,9 @@ describe("SavedLocationsSection", () => {
     render(<SavedLocationsSection />);
     await screen.findByText("Kasturba Road, Bengaluru");
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
-    await waitFor(() => expect(mocks.captureCurrentPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mocks.captureCurrentPosition).toHaveBeenCalled(),
+    );
 
     await act(async () => {
       updateOneLocationControlState("user-123", (current) => ({
