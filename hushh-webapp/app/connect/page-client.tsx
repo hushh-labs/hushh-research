@@ -10,6 +10,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -28,6 +29,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
   type ConnectionInformationScopeCatalog,
@@ -37,10 +39,18 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 
+type ConnectTab = "people" | "nearby";
+
+const CONNECT_TABS = [
+  { value: "people", label: "People" },
+  { value: "nearby", label: "Around you" },
+];
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
 
+  const [tab, setTab] = useState<ConnectTab>("people");
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -65,6 +75,11 @@ export default function ConnectPageClient() {
     requestedHandles: string[];
     offeredHandles: string[];
   } | null>(null);
+
+  const getIdToken = useCallback(
+    async () => (user ? await user.getIdToken() : null),
+    [user],
+  );
 
   const loadConnections = useCallback(async (): Promise<
     ConnectionSummaryEntry[]
@@ -423,16 +438,22 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          title="Connect"
-          description="Find people on Hussh and send a connection request."
-          accent="neutral"
-        />
+        <PageHeader title="Connect" accent="neutral" />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
+            <SegmentedTabs
+              value={tab}
+              onValueChange={(value) => setTab(value as ConnectTab)}
+              options={CONNECT_TABS}
+            />
+
+            {tab === "nearby" ? (
+              <AdvisorsNearby getIdToken={getIdToken} />
+            ) : (
+              <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
               title={`My connections (${connections.length})`}
               separatorInset
@@ -615,7 +636,9 @@ export default function ConnectPageClient() {
                   </div>
                 ) : null}
               </SettingsGroup>
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </SurfaceStack>
       </AppPageContentRegion>

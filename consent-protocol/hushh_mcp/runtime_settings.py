@@ -91,6 +91,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
+    # Advisor directory base URL. Not a secret, so it travels in this config
+    # blob rather than as another line in the Cloud Build deploy step — that
+    # step's inline script sits close to Cloud Build's 10,000-character arg
+    # ceiling, and every line added there is borrowed against it. The bearer
+    # key is a real secret and stays in --set-secrets.
+    "advisors_api_base_url": "ADVISORS_API_BASE_URL",
 }
 
 
