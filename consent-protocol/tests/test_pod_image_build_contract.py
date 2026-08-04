@@ -168,3 +168,28 @@ def test_pod_image_repository_is_distinct_from_the_hub_image(pod_step: dict):
 def test_pod_dockerfile_exists(pod_step: dict):
     assert "--file consent-protocol/Dockerfile.pod" in pod_step["args"][-1]
     assert (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").is_file()
+
+
+# --- the hub's own readiness must not lie either -------------------------------------
+
+
+def test_hub_deploy_sets_an_explicit_http_startup_probe(config: dict):
+    """Same false-health defect as the pod, different surface.
+
+    Cloud Run's default startup probe is a TCP connect and gunicorn binds its port before
+    forking workers, so a hub revision whose workers die on import reports Ready and
+    ContainerHealthy while serving 503 (observed in hushh-pda-dev, 2026-08-04). Deploy
+    gates, uptime checks and the reconcile loop all read that condition, so it has to
+    mean what it says on every lane -- not only for pods, whose probe is set in
+    GcpBackend.render_deploy_config.
+    """
+    script = _step(config, "deploy-backend")["args"][-1]
+    assert "--startup-probe=httpGet.path=/health" in script
+    assert "tcpSocket" not in script
+
+    # The window must stay at least as generous as the default Cloud Run already
+    # allowed, so a revision that starts as fast as today's cannot newly fail a deploy.
+    probe = next(line for line in script.splitlines() if "--startup-probe=" in line)
+    period = int(probe.split("periodSeconds=")[1].split(",")[0])
+    failures = int(probe.split("failureThreshold=")[1].split(",")[0].rstrip('"'))
+    assert period * failures >= 240

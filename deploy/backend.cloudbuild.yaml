@@ -316,6 +316,21 @@ steps:
           "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min-instances=0"
           "--labels=${deploy_labels}"
+          # An EXPLICIT HTTP startup probe, on every lane.
+          #
+          # Cloud Run's default startup probe is a TCP connect, and gunicorn's master
+          # binds :8080 before forking. A revision whose workers die on import therefore
+          # passes the probe and is reported Ready + ContainerHealthy while returning 503
+          # to every request -- observed on a hub revision in hushh-pda-dev on 2026-08-04,
+          # and previously on a pod, which is why render_deploy_config already sets one.
+          # Anything reading the Ready condition (deploy gates, uptime checks, the
+          # reconcile loop) inherits that lie, so the probe is fixed at the source.
+          #
+          # 10s x 24 = 240s, which is the same window Cloud Run already allowed for the
+          # default probe -- so a revision that starts as fast as it does today cannot
+          # newly fail a deploy. What changes is that "started" now means "served /health"
+          # rather than "opened a socket".
+          "--startup-probe=httpGet.path=/health,periodSeconds=10,failureThreshold=24,timeoutSeconds=5"
           "--set-env-vars=^|^${env_var_string}"
           "--set-secrets=${secrets}"
         )
