@@ -63,6 +63,93 @@ def test_rendered_config_carries_identity_but_no_secrets():
         assert forbidden not in blob
 
 
+def test_startup_probe_is_http_not_the_tcp_default():
+    """The load-bearing fix for false health.
+
+    Cloud Run's default startup probe is a TCP connect, and gunicorn binds its port
+    before forking workers. A pod whose workers die on import therefore reported
+    Ready=True and "Containers became healthy in 1.2s" while serving 503 to every
+    request (hushh-pda-dev, 2026-08-04) -- and wait_ready(), get() and the reconcile
+    worker all read that same condition, so provision() returned status="live" for a
+    dead pod. An explicit HTTP probe is what makes the condition mean what it says.
+    """
+    container = _backend().render_deploy_config(_spec())["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    probe = container["startupProbe"]
+    assert probe["httpGet"]["path"] == "/health"
+    assert probe["httpGet"]["port"] == 8080
+    assert "tcpSocket" not in probe
+    # The probe port has to match a declared container port or Cloud Run rejects it.
+    assert container["ports"][0]["containerPort"] == 8080
+
+
+def test_ingress_defaults_to_internal_and_is_overridable():
+    """Default stays internal everywhere. The override exists so a dev environment can
+    observe a real pod over HTTP; it widens WHERE a caller connects from, never WHO may
+    invoke -- this backend never creates an allUsers binding."""
+    assert (
+        _backend().render_deploy_config(_spec())["metadata"]["annotations"][
+            "run.googleapis.com/ingress"
+        ]
+        == "internal"
+    )
+    widened = GcpBackend(project="p", image="i", service_account="sa@p", ingress="all")
+    cfg = widened.render_deploy_config(_spec())
+    assert cfg["metadata"]["annotations"]["run.googleapis.com/ingress"] == "all"
+    # The handle must report the ingress it actually deployed, not a hardcoded string.
+    blob = str(cfg)
+    assert "allUsers" not in blob and "allAuthenticatedUsers" not in blob
+
+
+def test_no_signing_keys_are_mounted_by_default(monkeypatch):
+    """Unset -> no mount at all, so behaviour is unchanged where it is not configured."""
+    monkeypatch.delenv("HUSSH_POD_SIGNING_KEY_SECRET", raising=False)
+    monkeypatch.delenv("HUSSH_POD_VAULT_KEY_SECRET", raising=False)
+    env = _backend().render_deploy_config(_spec())["spec"]["template"]["spec"]["containers"][0][
+        "env"
+    ]
+    names = {e["name"] for e in env}
+    assert "APP_SIGNING_KEY" not in names
+    assert "VAULT_DATA_KEY" not in names
+
+
+def test_signing_keys_are_mounted_by_reference_never_by_value(monkeypatch):
+    """The pod cannot import without these two keys, so it must be able to get them --
+    but only as a Secret Manager REFERENCE. Key material must never be rendered into
+    the deploy artifact, which is readable by anyone who can read the service."""
+    monkeypatch.setenv("HUSSH_POD_SIGNING_KEY_SECRET", "POD_DEV_SIGNING_KEY")
+    monkeypatch.setenv("HUSSH_POD_VAULT_KEY_SECRET", "POD_DEV_VAULT_KEY")
+    cfg = _backend().render_deploy_config(_spec())
+    env = {e["name"]: e for e in cfg["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+    for name, secret in (
+        ("APP_SIGNING_KEY", "POD_DEV_SIGNING_KEY"),
+        ("VAULT_DATA_KEY", "POD_DEV_VAULT_KEY"),
+    ):
+        assert env[name]["valueFrom"]["secretKeyRef"]["name"] == secret
+        # A literal value alongside valueFrom would be the material leaking in.
+        assert "value" not in env[name]
+
+
+def test_pod_keys_are_never_the_hubs_keys(monkeypatch):
+    """APP_SIGNING_KEY is the symmetric HMAC key behind consent tokens, fabric grants,
+    receipts and the audit chain; VAULT_DATA_KEY decrypts holdings. With HMAC the
+    ability to verify IS the ability to forge, so pointing a per-user pod at the hub's
+    own secrets would make one compromised pod a universal forger for every user."""
+    monkeypatch.setenv("HUSSH_POD_SIGNING_KEY_SECRET", "APP_SIGNING_KEY")
+    cfg = _backend().render_deploy_config(_spec())
+    env = {e["name"]: e for e in cfg["spec"]["template"]["spec"]["containers"][0]["env"]}
+    referenced = env["APP_SIGNING_KEY"]["valueFrom"]["secretKeyRef"]["name"]
+    # This test documents the danger rather than blocking the string: the guard that
+    # matters is operational (a pod-scoped secret, readable only by the pod SA). If
+    # this ever needs to be enforced in code, enforce it here.
+    assert referenced == "APP_SIGNING_KEY", (
+        "the backend does not filter the secret NAME -- whoever configures "
+        "HUSSH_POD_SIGNING_KEY_SECRET must point it at a pod-scoped key, never the hub's"
+    )
+
+
 def test_logical_tier_has_no_confidential_annotation():
     cfg = _backend().render_deploy_config(_spec(tier=TIER_LOGICAL))
     ann = cfg["spec"]["template"]["metadata"]["annotations"]
