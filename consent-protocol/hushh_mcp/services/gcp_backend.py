@@ -221,6 +221,12 @@ class GcpBackend:
                 {"name": "HUSSH_REGION", "value": spec.region or self._region},
                 {"name": "HUSSH_RUNTIME_VERSION", "value": spec.runtime_version or ""},
                 {"name": "HUSSH_PROMPT_VERSION", "value": spec.prompt_version or ""},
+                # The pod's ONE data-plane door. A pod holds no Postgres credential --
+                # the zero-role identity is the whole point -- so everything it needs
+                # from the data plane travels pod -> hub -> Postgres through this URL.
+                # Empty means the pod has no hub to read, and HubPromptRepo raises
+                # rather than pretending the record is missing.
+                {"name": "HUSSH_HUB_BASE_URL", "value": _env("HUSSH_HUB_BASE_URL") or ""},
             ],
         }
         # The app refuses to import without APP_SIGNING_KEY (>=32 chars), so a pod

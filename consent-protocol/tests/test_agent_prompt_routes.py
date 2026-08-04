@@ -52,7 +52,11 @@ def _build(monkeypatch, *, enabled=True, resolved=None, raises=None, agent_id="p
 
     app = FastAPI()
     app.include_router(ap.router)
-    app.dependency_overrides[ap._require_prompt_sync] = lambda: token_data
+    # The route's auth entry point is now _authenticate_prompt_caller, which resolves a
+    # pod's Google ID token when POD_HUB_IDENTITY_AUTH_ENABLED is on and otherwise
+    # delegates to _require_prompt_sync unchanged. Overriding the entry point keeps
+    # these tests about the route's behaviour rather than about either auth mechanism.
+    app.dependency_overrides[ap._authenticate_prompt_caller] = lambda: token_data
     return TestClient(app), seen
 
 

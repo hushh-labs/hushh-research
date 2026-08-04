@@ -72,3 +72,4 @@ tests/test_gcp_backend_cost_labels.py
 tests/test_personal_agent_reconcile_worker.py
 tests/test_health_ready_pod_fleet.py
 tests/test_pod_image_build_contract.py
+tests/test_pod_hub_data_path.py

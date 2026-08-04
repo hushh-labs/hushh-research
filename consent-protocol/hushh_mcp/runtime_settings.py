@@ -455,6 +455,29 @@ def a2a_agent_card_enabled() -> bool:
     return _bool_from_value(_clean_env("A2A_AGENT_CARD_ENABLED"), default=False)
 
 
+def pod_hub_identity_auth_enabled() -> bool:
+    """Feature flag: let the hub accept a POD's Google ID token on the internal
+    prompt-sync route, instead of a ``cap.agent.prompt.sync`` consent token.
+
+    Default **OFF**, and the default is the security position rather than caution.
+    Every pod runs as the SAME service account -- that is what lets that account hold
+    no project roles -- so an ID token proves "a hussh pod is calling", never WHICH
+    user's pod. Acceptance therefore rests on the pod's own asserted ``HUSSH_ID``,
+    which is trustworthy exactly as far as the pod is. That matches the ``logical``
+    tier's stated trust level and does NOT meet the bar for real users: turning this on
+    where pods hold real holdings would let one compromised pod read another user's
+    prompt. Cryptographic per-pod identity is the attested ``dedicated`` tier (M5).
+
+    See ``docs/future/personal-agent/POD-HUB-DATA-PATH.md``.
+    """
+    return _bool_from_value(_clean_env("POD_HUB_IDENTITY_AUTH_ENABLED"), default=False)
+
+
+def pod_hub_allowed_service_account() -> str:
+    """The one service-account email whose ID tokens the hub will accept from a pod."""
+    return _clean_env("POD_HUB_ALLOWED_SERVICE_ACCOUNT")
+
+
 def pod_mode() -> bool:
     """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
 
