@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests._deploy_contract import backend_deploy_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -11,7 +13,7 @@ def _read(path: str) -> str:
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -20,8 +22,12 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert '--to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"' in workflow
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
+    # The backend's guard now lives in scripts/deploy/backend-deploy.sh rather than in a
+    # YAML block scalar, so it is dedented by the 8 spaces that indentation used to add.
+    # The frontend below is still inline and keeps the original indentation — that
+    # difference is exactly why the two assertions no longer read identically.
     assert (
-        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
+        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n  cmd+=("--no-traffic")'
         in backend_build
     )
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
@@ -32,7 +38,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
     # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
@@ -46,7 +52,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
 
 
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
 
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
@@ -54,7 +60,7 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
 
 
 def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
@@ -81,7 +87,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 
 
 def test_hosted_backend_bounds_database_connection_fanout() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
