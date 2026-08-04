@@ -163,7 +163,7 @@ export function ProfileBasedPicksList({
         <SurfaceInset className="p-3 text-xs text-muted-foreground">
           {error
             ? "Profile picks are temporarily unavailable."
-            : "No profile picks available from current market context."}
+            : "No picks right now."}
         </SurfaceInset>
       ) : null}
 

@@ -27,7 +27,7 @@ export function NewsTape({ rows }: NewsTapeProps) {
     return (
       <SettingsGroup>
         <div className="px-4 py-4 text-sm text-muted-foreground">
-          No recent market headlines are available right now.
+          No headlines right now.
         </div>
       </SettingsGroup>
     );

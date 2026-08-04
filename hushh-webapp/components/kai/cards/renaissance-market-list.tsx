@@ -327,7 +327,7 @@ export function RiaPicksList({
     return (
       <SettingsGroup className={marketSettingsGroupClassName}>
         <div className="px-4 py-4 text-sm text-muted-foreground">
-          The default list is unavailable at the moment.
+          Picks unavailable right now.
         </div>
       </SettingsGroup>
     );
@@ -426,7 +426,7 @@ export function RiaPicksList({
                       <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Search symbol, company, sector, or thesis"
+                        placeholder="Symbol, company, or thesis"
                         autoComplete="off"
                         autoCorrect="off"
                         spellCheck={false}
@@ -586,7 +586,7 @@ export function RiaPicksList({
                     <Input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search symbol, company, sector, or thesis"
+                      placeholder="Symbol, company, or thesis"
                       autoComplete="off"
                       autoCorrect="off"
                       spellCheck={false}
@@ -922,7 +922,7 @@ export function RiaPicksList({
             >
               <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
                 {selectedRow.investment_thesis ||
-                  "Renaissance thesis is unavailable for this name right now."}
+                  "No thesis yet."}
               </div>
             </SettingsGroup>
           </div>

@@ -380,7 +380,7 @@ function KaiOnboardingPageContent({
         expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
       });
       toast.success(
-        "Finance preferences saved. Choose how to add your portfolio.",
+        "Preferences saved.",
       );
       setOnboardingRequiredCookie(true);
       setOnboardingFlowActiveCookie(true);
@@ -408,7 +408,7 @@ function KaiOnboardingPageContent({
       return {
         status: "failed" as const,
         summary:
-          "Finance preferences could not be finalized. Please try again.",
+          "Couldn't save your finance preferences. Try again.",
       };
     } finally {
       setSaving(false);

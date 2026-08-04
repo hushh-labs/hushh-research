@@ -153,9 +153,9 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   const description = useMemo(() => {
     if (!targetMethod) return "Switch from passphrase unlock to a faster secure method.";
     if (targetMethod === "generated_default_native_biometric") {
-      return "Use device biometric authentication first. Passphrase and recovery key remain available.";
+      return "Unlock with biometrics. Passphrase and recovery key still work.";
     }
-    return "Use passkey authentication first. Passphrase and recovery key remain available.";
+    return "Unlock with your passkey. Passphrase and recovery key still work.";
   }, [targetMethod]);
 
   async function handleNotNow() {

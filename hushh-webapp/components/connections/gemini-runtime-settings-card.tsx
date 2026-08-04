@@ -474,9 +474,9 @@ export function GeminiRuntimeSettingsCard({
       setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Your saved Gemini key was removed.");
+      toast.success("Gemini key removed.");
     } catch {
-      toast.error("Your Gemini key could not be removed.");
+      toast.error("Couldn't remove your key. Try again.");
     } finally {
       setIsRemoving(false);
     }

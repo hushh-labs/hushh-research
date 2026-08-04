@@ -12,7 +12,7 @@ export function SignalChips({ signals }: SignalChipsProps) {
     return (
       <Card variant="muted" effect="fill" preset="compact">
         <CardContent className="p-4 text-sm text-muted-foreground">
-          Signals are unavailable right now.
+          No signals right now.
         </CardContent>
       </Card>
     );

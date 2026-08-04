@@ -14,10 +14,10 @@ export function ConnectPortfolioCta() {
       <SurfaceCardContent className="space-y-4 p-6 text-center">
         <div className="space-y-2">
           <h3 className="text-lg font-semibold tracking-tight">
-            See insights tailored to your portfolio
+            Insights for your portfolio
           </h3>
           <p className="text-sm text-muted-foreground">
-            Unlock personalized analysis and real-time alerts.
+            Personalized analysis and real-time alerts.
           </p>
         </div>
 
@@ -41,7 +41,7 @@ export function ConnectPortfolioCta() {
           asChild
           showRipple={false}
         >
-          <Link href={ROUTES.KAI_HOME}>Or continue exploring</Link>
+          <Link href={ROUTES.KAI_HOME}>Keep exploring</Link>
         </Button>
       </SurfaceCardContent>
     </SurfaceCard>

@@ -179,7 +179,7 @@ export function RiaClientAccountDetail({
         <SettingsGroup
           embedded
           title="Account not available"
-          description="The account branch is not part of the current client workspace or has not been approved for this advisor view."
+          description="Not approved, or not in this workspace."
         >
           <SettingsRow
             title="Return to the client workspace"
@@ -248,7 +248,7 @@ export function RiaClientAccountDetail({
               <SectionHeader
                 eyebrow="Explorer"
                 title="Readable branch summary"
-                description="This view stays intentionally summary-first until richer account-level explorer payloads are available from the backend."
+                description="Summary only for now."
                 icon={Database}
                 accent="ria"
               />

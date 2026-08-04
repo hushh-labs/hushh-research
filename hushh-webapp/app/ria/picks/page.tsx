@@ -394,8 +394,7 @@ function UploadPanel({
         <div>
           <h3 className="text-sm font-semibold text-foreground">Upload a top-picks CSV</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            CSV parsing still works, but it now feeds the same live package save path as the inline
-            editor. Your current avoid and screening rules stay attached.
+            Your avoid and screening rules stay attached.
           </p>
         </div>
         <div className="space-y-3">
@@ -425,7 +424,7 @@ function UploadPanel({
               disabled={submitting || !fileContent.trim()}
             >
               <Upload className="mr-2 h-4 w-4" />
-              {submitting ? "Uploading..." : "Upload and replace top picks"}
+              {submitting ? "Uploading..." : "Replace top picks"}
             </Button>
             <Button asChild variant="none" effect="fade" size="sm">
               <a href="/templates/ria-picks-template.csv" download>
@@ -497,7 +496,7 @@ function ValidationIssuesPanel({
               </p>
             </div>
             <p className="text-sm text-muted-foreground">
-              Jump straight to invalid rows or filter the editor down to issues only.
+              Open a row to fix it.
             </p>
           </div>
           <Button
@@ -604,7 +603,7 @@ function TickerLookupField({
       displayValue={value}
       placeholder="Search SEC ticker"
       searchPlaceholder="Search SEC-backed symbol..."
-      emptyText="No valid SEC ticker matches this query."
+      emptyText="No matching ticker."
       invalid={invalid}
       allowClear
       loadOptions={loadTickerCommandOptions}
@@ -817,7 +816,7 @@ function TopPicksEditor({
                 <MobileEditorField label="Tier">
                   <CommandPickerField
                     title="Select tier"
-                    description="Choose the conviction band the investor debate should inherit."
+                    description="The conviction band this name carries."
                     value={row.tier}
                     placeholder="Tier"
                     options={TIER_COMMAND_OPTIONS}
@@ -830,7 +829,7 @@ function TopPicksEditor({
                 <MobileEditorField label="Investment thesis">
                   <PopupTextEditorField
                     title={`Investment thesis for ${row.ticker || `top pick ${displayIndex}`}`}
-                    description="Keep the list compact, then edit the full thesis in this focused editor."
+                    description="A line or two is enough."
                     value={row.investment_thesis}
                     placeholder="Why this name belongs in the live debate universe"
                     previewPlaceholder="Add the investment thesis"
@@ -878,7 +877,7 @@ function TopPicksEditor({
                   <TableCell className="px-3 py-2.5 align-top">
                     <CommandPickerField
                       title="Select tier"
-                      description="Choose the conviction band the investor debate should inherit."
+                      description="The conviction band this name carries."
                       value={row.tier}
                       placeholder="Tier"
                       options={TIER_COMMAND_OPTIONS}
@@ -1050,7 +1049,7 @@ function AvoidEditor({
                 <MobileEditorField label="Category">
                   <CommandPickerField
                     title={`Avoid category for ${row.ticker || `avoid row ${index + 1}`}`}
-                    description="Use a shared category language so the linked-investor debate reads consistently."
+                    description="Keep categories consistent across names."
                     value={row.category}
                     placeholder="Select category"
                     options={categoryOptions}
@@ -1062,7 +1061,7 @@ function AvoidEditor({
                 <MobileEditorField label="Reason">
                   <PopupTextEditorField
                     title={`Avoid reason for ${row.ticker || `avoid row ${displayIndex}`}`}
-                    description="Capture the exclusion logic in a focused editor instead of a cramped inline textarea."
+                    description="A short reason is enough."
                     value={row.why_avoid}
                     placeholder="Why this name should be screened out"
                     previewPlaceholder="Add the avoid reason"
@@ -1123,7 +1122,7 @@ function AvoidEditor({
                   <TableCell className="px-3 py-2.5 align-top">
                     <CommandPickerField
                       title={`Avoid category for ${row.ticker || "this avoid row"}`}
-                      description="Use a shared category language so the linked-investor debate reads consistently."
+                      description="Keep categories consistent across names."
                       value={row.category}
                       placeholder="Select category"
                       options={categoryOptions}
@@ -1134,7 +1133,7 @@ function AvoidEditor({
                   <TableCell className="px-3 py-2.5 align-top">
                     <PopupTextEditorField
                       title={`Avoid reason for ${row.ticker || "this avoid row"}`}
-                      description="Capture the exclusion logic in a focused editor instead of a cramped inline textarea."
+                      description="A short reason is enough."
                       value={row.why_avoid}
                       placeholder="Why this name should be screened out"
                       previewPlaceholder="Add the avoid reason"
@@ -1263,7 +1262,7 @@ function ScreeningEditor({
               <div className="space-y-3">
                 {filteredRows.length === 0 ? (
                   <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
-                    No rules yet. Add the rubric you want Kai to carry into the investor debate.
+                    No rules yet. Add what Kai should check.
                   </SurfaceInset>
                 ) : null}
                 {filteredRows.map((row) => (
@@ -1283,7 +1282,7 @@ function ScreeningEditor({
                       />
                       <PopupTextEditorField
                         title={`Rule detail for ${row.title || "this screening rule"}`}
-                        description="Explain the screening logic in plain language without squeezing it into the grid."
+                        description="What this rule does."
                         value={row.detail}
                         placeholder="Explain the rule in plain language"
                         previewPlaceholder="Add the rule detail"
@@ -1966,7 +1965,7 @@ export default function RiaPicksPage() {
     });
 
     if (nextTopRows.length === 0) {
-      packageErrors.push("Top picks cannot be empty. This list powers the linked-investor debate universe.");
+      packageErrors.push("Add at least one top pick.");
     }
 
     return {
@@ -2055,7 +2054,7 @@ export default function RiaPicksPage() {
       setSource("my");
       setEditing(true);
       setUploadOpen(false);
-      toast.success("Copied all Kai tabs into My list. Save to publish it.");
+      toast.success("Copied to My list. Save to publish.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to copy list");
     } finally {
@@ -2110,7 +2109,7 @@ export default function RiaPicksPage() {
       setValidationState(validation);
       if (validation.packageErrors.length > 0 || Object.keys(validation.rowErrors).length > 0) {
         setShowIssuesOnly(true);
-        toast.error("Fix the highlighted validation issues before saving.");
+        toast.error("Fix the highlighted issues first.");
         return;
       }
       await savePackage(payload);
@@ -2645,7 +2644,7 @@ export default function RiaPicksPage() {
                   <SurfaceCardContent className="p-4 sm:p-5">
                     <p className="text-sm font-medium text-foreground">Unlock required</p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      This advisor package is now stored in your PKM. Unlock the vault to view or edit it.
+                      Unlock the vault to view or edit it.
                     </p>
                   </SurfaceCardContent>
                 </SurfaceCard>

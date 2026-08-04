@@ -354,7 +354,7 @@ export function useSetupCapabilityCoordinator({
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to prepare setup:", error);
         if (!cancelled) {
-          toast.error("This setup could not be prepared. Please try again.");
+          toast.error("Setup didn't load. Try again.");
           replaceRoute(ROUTES.ONE_SETUP);
         }
       }
@@ -487,14 +487,14 @@ export function useSetupCapabilityCoordinator({
           toast.error(
             stale
               ? "Setup changed in another session. Please try again."
-              : "Setup could not be saved. Please try again.",
+              : "Setup didn't save. Try again.",
           );
         }
         return {
           status: stale ? "blocked" : "failed",
           summary: stale
             ? "This setup changed in another session. Returning to setup."
-            : "Setup could not be saved. Please try again.",
+            : "Setup didn't save. Try again.",
           ...(stale ? { routeAfter: ROUTES.ONE_SETUP } : {}),
         };
       } finally {
@@ -641,8 +641,8 @@ export function SetupCapabilityTerminalFooter({
       }
       supportingText={
         operationallyReady
-          ? "This capability is ready. You can return to setup."
-          : "You can return to this setup any time."
+          ? "You're all set here."
+          : "Come back any time."
       }
       variant={operationallyReady ? "blue-gradient" : "none"}
       effect={operationallyReady ? "fill" : "fade"}

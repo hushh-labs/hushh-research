@@ -81,7 +81,7 @@ export function OnboardingCapabilityStep({
       ? (copy?.exploreTitle ?? copy?.setupTitle ?? "")
       : (copy?.setupTitle ?? "");
   const blurb = completion
-    ? `Review this step, then ${finishActionLabel.toLowerCase()} and return to your setup home.`
+    ? "Last step, then back to setup."
     : isExploreOnly
       ? (copy?.exploreBlurb ?? copy?.setupBlurb ?? "")
       : (copy?.setupBlurb ?? "");
@@ -93,11 +93,11 @@ export function OnboardingCapabilityStep({
       : setupActionLabel;
   const skipActionLabel = `Skip ${capability?.title || "this"} setup`;
   const subline = completion
-    ? "Finish only when you are comfortable with this setup."
+    ? "Finish when you're ready."
     : isExploreOnly
-      ? "No additional setup is required."
+      ? "Nothing to set up."
       : needsVaultUnlock
-        ? "One will guide you through the private setup required next."
+        ? "One will guide you through the private setup next."
         : "A quick, one-time setup.";
 
   // Publish screen context so the onboarding guide can explain this exact step.
@@ -253,7 +253,7 @@ export function OnboardingCapabilityStep({
                 actionId="setup.capability_skip"
                 testId="one-setup-capability-skip"
                 purpose="returns to setup without recording this capability as complete."
-                supportingText="You can return to this setup whenever you are ready."
+                supportingText="Come back any time."
                 variant="none"
                 effect="fade"
               />

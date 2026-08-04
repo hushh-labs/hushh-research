@@ -19,7 +19,7 @@ export const RIA_COPY = {
     verification: {
       active: {
         label: "Ready",
-        title: "Your advisor workspace is ready.",
+        title: "You're all set.",
         description: "Relationships, picks, and requests — no setup needed.",
       },
       submitted: {
@@ -57,25 +57,25 @@ export const RIA_COPY = {
     },
     queue: {
       heading: "Priority queue",
-      description: "Only things that need your move appear here.",
-      loading: "Loading readiness and relationships.",
-      empty: "Nothing urgent. New actions land here.",
+      description: "Only what needs your move.",
+      loading: "Loading queue…",
+      empty: "Nothing urgent.",
       itemFallback: "Review the next step.",
       open: "Open",
     },
     iam: {
-      title: "RIA home needs the IAM rollout",
-      description: "This environment needs the IAM schema first.",
+      title: "Waiting on IAM schema",
+      description: "RIA home needs the IAM tables.",
     },
   },
 
   clients: {
     eyebrow: "Clients",
     title: "Client roster",
-    description: "One workspace per client — status, access, Kai, explorer.",
+    description: "One workspace per client.",
     section: {
       title: "Connected investors",
-      description: "Status, access, Kai, and explorer in one place.",
+      description: "Status, sharing, portfolio, information.",
     },
     loading: "Loading clients…",
     empty: "No connected investors yet.",
@@ -86,7 +86,7 @@ export const RIA_COPY = {
     },
     verifyGate: {
       eyebrow: "Verification required",
-      title: "Verify your advisor account first",
+      title: "Verify your account",
       description: "Finish verification in onboarding to access investors.",
       body: "Locked until verification is complete.",
     },
@@ -95,7 +95,7 @@ export const RIA_COPY = {
   picks: {
     eyebrow: "Picks",
     title: "Stock universe",
-    description: "Switch Kai's package and yours — avoid and screening stay.",
+    description: "The names your investors debate.",
     screening: {
       investable: {
         title: "Investable requirements",
@@ -113,7 +113,7 @@ export const RIA_COPY = {
     emptyMyList: {
       title: "Build your live package",
       description:
-        "Shape the package your investors debate. Start from Kai, edit tiers, or upload a CSV.",
+        "Start from Kai, edit tiers, or upload a CSV.",
     },
     avoidEmpty: {
       title: "Avoid list is empty",
@@ -129,7 +129,7 @@ export const RIA_COPY = {
     banner: {
       title: "This is your debate config",
       description:
-        "Kai's multi-agent debate scores every name against these screening rules and conviction bands.",
+        "Kai scores every name against these rules and conviction bands.",
     },
     disclaimer:
       "Agent Kai is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
@@ -141,7 +141,7 @@ export const RIA_COPY = {
     description: "Find a registered advisor. Connect with consent.",
     deckComplete: {
       title: "That's everyone for now",
-      description: "You've seen everyone. More join soon.",
+      description: "More advisors join soon.",
     },
     detail: {
       description: "Review before you connect.",

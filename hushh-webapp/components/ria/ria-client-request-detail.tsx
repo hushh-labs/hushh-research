@@ -168,7 +168,7 @@ export function RiaClientRequestDetail({
         <SettingsGroup
           embedded
           title="Request not available"
-          description="This request is not part of the current client workspace history or the identifier is no longer valid."
+          description="Not in this workspace, or no longer valid."
         >
           <SettingsRow
             title="Return to client access"

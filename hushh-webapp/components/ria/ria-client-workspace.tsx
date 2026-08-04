@@ -530,8 +530,8 @@ export function RiaClientWorkspace({
     >
       {iamUnavailable ? (
         <RiaCompatibilityState
-          title="Client workspace is unavailable in this environment"
-          description="The route is wired correctly, but this environment still needs the full IAM schema before advisor workspaces can read investor information."
+          title="Waiting on IAM schema"
+          description="Client workspaces need the IAM tables."
         />
       ) : null}
 
@@ -581,7 +581,7 @@ export function RiaClientWorkspace({
                 <div className="space-y-1">
                   <p className="text-sm font-semibold tracking-tight text-foreground">At a glance</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    The current relationship state and what is ready right now.
+                    Where this relationship stands.
                   </p>
                 </div>
                 <SettingsGroup embedded>
@@ -651,7 +651,7 @@ export function RiaClientWorkspace({
                 <div className="space-y-1">
                   <p className="text-sm font-semibold tracking-tight text-foreground">Current sharing</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    What the client already shares with you today.
+                    What the client shares with you.
                   </p>
                 </div>
                 <SettingsGroup embedded>
@@ -861,7 +861,7 @@ export function RiaClientWorkspace({
                   <div className="space-y-1">
                     <p className="text-sm font-semibold tracking-tight text-foreground">Portfolio</p>
                     <p className="text-sm leading-6 text-muted-foreground">
-                      A simple read that mirrors the client view.
+                      Mirrors what your client sees.
                     </p>
                   </div>
 
@@ -928,7 +928,7 @@ export function RiaClientWorkspace({
                     <SettingsGroup embedded>
                       {workspace.available_domains.length === 0 ? (
                         <div className="px-4 py-4 text-sm text-muted-foreground">
-                          No indexed domains are ready yet.
+                          Nothing ready to explore yet.
                         </div>
                       ) : (
                         workspace.available_domains.map((domain) => (

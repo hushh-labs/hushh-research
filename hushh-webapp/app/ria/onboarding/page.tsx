@@ -147,7 +147,7 @@ function resolveRiaSubmitErrorMessage(
   if (/verification provider unavailable/i.test(message)) {
     return options.localVerificationBypassEnabled
       ? "Live verification is unavailable. For UAT testing, go back to the licence step and use Bypass for dev/UAT."
-      : "Live verification is unavailable. Please try again later.";
+      : "Verification is unavailable. Try again later.";
   }
   return message;
 }
@@ -791,7 +791,7 @@ export default function RiaOnboardingPage({
       }
       if (verifyError instanceof RiaApiError && verifyError.status === 429) {
         updateDraft({ licenseVerificationStatus: "idle" });
-        setError("Too many verification attempts. Please wait a moment.");
+        setError("Too many attempts. Wait a moment.");
         return;
       }
       updateDraft({ licenseVerificationStatus: "error" });

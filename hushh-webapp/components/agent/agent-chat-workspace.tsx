@@ -3648,7 +3648,7 @@ export function AgentChatWorkspace({
       .find((message) => message.role === "user" && message.text.trim().length > 0);
     const retryText = previousUserMessage?.text.trim();
     if (!retryText) {
-      toast.error("No previous message found to retry.");
+      toast.error("Nothing to retry.");
       return;
     }
     if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;

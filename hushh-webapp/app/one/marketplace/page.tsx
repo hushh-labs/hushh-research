@@ -1087,8 +1087,7 @@ function OneMarketplacePageImpl() {
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  No shareable sections yet. Add some Memory (e.g. via onboarding or the PKM
-                  workspace), then each section will appear here to price and publish.
+                  No sections yet. Add Memory via onboarding or the PKM workspace.
                 </div>
               ) : (
                 sections.map((section) => {
@@ -1213,8 +1212,7 @@ function OneMarketplacePageImpl() {
               ) : listings.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  Nothing on the market yet. When people publish a safe profile summary, it appears
-                  here for requests.
+                  Nothing on the market yet.
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1272,8 +1270,7 @@ function OneMarketplacePageImpl() {
               {received.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  Nothing here yet. In the <span className="font-medium text-foreground">Buyer</span> tab,
-                  request an available slice — once the owner approves, the delivered data shows here.
+                  Nothing yet. Request a slice in the <span className="font-medium text-foreground">Buyer</span> tab.
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1311,7 +1308,7 @@ function OneMarketplacePageImpl() {
                                   {delivery?.status === "error"
                                     ? delivery.message
                                     : delivery?.status === "empty"
-                                      ? "Approved — the slice hasn’t been delivered yet. Check back shortly."
+                                      ? "Approved — not delivered yet. Check back soon."
                                       : "Approved — the encrypted safe summary was delivered to you."}
                                 </span>
                                 <Button

@@ -1420,7 +1420,7 @@ export function VaultFlow({
                     await finalizeUnlock(pendingUnlockKey);
                   }}
                 >
-                  Not now, continue with passphrase
+                  Not now
                 </Button>
               </div>
             </div>

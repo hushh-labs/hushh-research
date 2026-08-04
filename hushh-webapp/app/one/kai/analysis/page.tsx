@@ -1058,7 +1058,7 @@ export function KaiAnalysisPageContent() {
           <KaiWorkspaceHeader
               workspace="analysis"
               title="Analysis"
-              description="Review the live debate and detailed recommendation."
+              description="Live debate and recommendation."
               actions={
                 <>
                   {liveIntentReady ? (
@@ -1220,7 +1220,7 @@ export function KaiAnalysisPageContent() {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
-                    Your summary will appear as soon as the first recommendation is ready.
+                    Summary appears after the first recommendation.
                   </div>
                 )}
               </div>
@@ -1236,7 +1236,7 @@ export function KaiAnalysisPageContent() {
                   />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
-                    Detailed analysis will appear once the first recommendation is complete.
+                    Details appear after the first recommendation.
                   </div>
                 )}
               </div>
@@ -1266,7 +1266,7 @@ export function KaiAnalysisPageContent() {
                   ) : null}
                 </span>
               }
-              description="Review saved debates and reopen a previous decision."
+              description="Reopen a past debate."
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
