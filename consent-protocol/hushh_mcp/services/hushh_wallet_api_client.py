@@ -70,7 +70,11 @@ _ICON_SCALES = {"icon.png": 29, "icon@2x.png": 58, "icon@3x.png": 87}
 # it sounds: the service substitutes a blank placeholder square.
 _LOGO_SCALES = {"logo.png": 50, "logo@2x.png": 100, "logo@3x.png": 150}
 
-_ICON_SOURCE = Path(__file__).with_name("assets") / "hushh_pass_icon.png"
+# NOT a directory named `assets`: the repo-root .gcloudignore excludes
+# `assets/` at any depth for the frontend's large media, which silently
+# stripped this icon from the Cloud Build context and shipped a
+# placeholder pass. `test_pass_assets_reach_the_deployed_image` guards it.
+_ICON_SOURCE = Path(__file__).with_name("pass_assets") / "hushh_pass_icon.png"
 
 _REQUEST_TIMEOUT_SECONDS = 15.0
 
