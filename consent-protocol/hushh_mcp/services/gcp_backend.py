@@ -227,6 +227,12 @@ class GcpBackend:
                 # Empty means the pod has no hub to read, and HubPromptRepo raises
                 # rather than pretending the record is missing.
                 {"name": "HUSSH_HUB_BASE_URL", "value": _env("HUSSH_HUB_BASE_URL") or ""},
+                # The personal-agent kill-switch, on for a pod by construction: a pod
+                # exists only because the feature was enabled to provision it, and the
+                # route it mounts 404s without this. Leaving it unset would ship pods
+                # whose only real surface is dead. It gates this pod alone -- the hub's
+                # own copy of the flag is set by its deploy config, not by this.
+                {"name": "PERSONAL_AGENT_ENABLED", "value": "1"},
             ],
         }
         # The app refuses to import without APP_SIGNING_KEY (>=32 chars), so a pod

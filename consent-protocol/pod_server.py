@@ -44,6 +44,7 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_settings import pod_mode  # noqa: E402
+from hushh_mcp.services.pod_hub_client import PodHubUnavailable  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,17 @@ async def _db_unavailable(_request: Request, _exc: DatabaseUnavailableError) -> 
 @app.exception_handler(DatabaseExecutionError)
 async def _db_exec_error(_request: Request, _exc: DatabaseExecutionError) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": "database error"})
+
+
+@app.exception_handler(PodHubUnavailable)
+async def _hub_unavailable(_request: Request, _exc: PodHubUnavailable) -> JSONResponse:
+    """A pod reads the data plane THROUGH the hub, so a hub outage is this pod's
+    dependency outage -- the same shape as the DB handlers above, and for the same
+    reason: 503 says "ask again", where an unhandled 500 both leaks a traceback and
+    invites a caller to treat the failure as a permanent answer. Observed for real in
+    hushh-pda-dev on 2026-08-04, where a hub that refused the pod surfaced as a raw 500.
+    """
+    return JSONResponse(status_code=503, content={"detail": "hub unavailable"})
 
 
 for _router in _POD_ROUTERS:

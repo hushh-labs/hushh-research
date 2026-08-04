@@ -104,6 +104,51 @@ inoperative* in a pod rather than half-wired.
 if DB is unavailable". The implementation fails closed except for a VAULT_OWNER grace
 period — the docstring is stale, the code is right.)
 
+## Verified live in `hushh-pda-dev`, 2026-08-04 — and what is still unproven
+
+A pod on the branch image was pointed at the dev hub and asked for its prompt. The pod's
+own traceback is the evidence, because it names every hop:
+
+```
+api/routes/one/agent_prompt.py   get_agent_prompt
+  personal_agent_prompt_service  get_active_prompt
+    personal_agent_prompt_repo   HubPromptRepo.get_active
+      PodHubUnavailable: hub returned HTTP 401 for the prompt read
+```
+
+**Proven:** `resolve_prompt_repo()` selected `HubPromptRepo` (not the DB repo) inside a
+pod; the pod minted a metadata-server ID token and reached the hub over the network; the
+outage raised rather than being reported as "no prompt"; and **no database call appears
+anywhere in the path.** The 401 is correct — the *deployed* dev hub runs an older SHA
+with no pod-identity auth.
+
+**Found by running it:** that outage surfaced as a raw **500** with a traceback.
+`pod_server.py` now maps `PodHubUnavailable` to a clean **503**, matching the DB handlers
+beside it — a transient refusal must not read as a permanent answer, and internals must
+not leak to the caller.
+
+**Not proven:** the hub *returning a row*. Standing up a hub-under-test on the branch
+image failed at startup:
+
+```
+RuntimeError: Required runtime tables are missing:
+  connection_scope_proposals, connection_scope_proposal_events
+```
+
+The branch carries migrations the shared dev database does not have. Applying them
+mutates shared state that the team's dev backend also uses, so it needs a deliberate
+decision — either deploy the branch to dev through the normal lane (which runs
+migrations) or authorize the migration directly. Until then the success path is proven
+by unit tests only, not against the running artifact.
+
+**Noticed while debugging, worth its own fix:** the hub start-up log shows
+`Default STARTUP TCP probe succeeded`. The HTTP-probe fix from
+[`POD-FLEET-LIVE-2026-08-04.md`](./POD-FLEET-LIVE-2026-08-04.md) was applied to
+`render_deploy_config`, which renders **pods**. The hub deploys via `gcloud run deploy`
+in `deploy/backend.cloudbuild.yaml` and still relies on the default TCP probe — so a hub
+whose workers die on import would also report itself healthy. Same defect, different
+surface, not yet fixed.
+
 ## Configuration
 
 | Variable | Where | Meaning |

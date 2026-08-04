@@ -67,3 +67,33 @@ def test_pod_info_reports_pod_role():
     info = pod_server.pod_info()
     assert info["role"] == "sovereign-pod"
     assert "central" in info["controlPlane"]
+
+
+def test_a_hub_outage_is_a_clean_503_not_a_raw_500():
+    """A pod reads the data plane THROUGH the hub, so a hub outage is a dependency
+    outage and must answer like one -- the same shape as the DB handlers beside it.
+
+    This was observed for real in hushh-pda-dev on 2026-08-04: a hub that refused the
+    pod surfaced as an unhandled 500 with a traceback, which both leaks internals and
+    invites a caller to read a transient refusal as a permanent answer.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from hushh_mcp.services.pod_hub_client import PodHubUnavailable
+
+    handler = pod_server.app.exception_handlers.get(PodHubUnavailable)
+    assert handler is not None, "pod_server must map a hub outage to a handled response"
+
+    app = FastAPI()
+    app.add_exception_handler(PodHubUnavailable, handler)
+
+    @app.get("/boom")
+    async def _boom():
+        raise PodHubUnavailable("hub returned HTTP 401 for the prompt read")
+
+    resp = TestClient(app, raise_server_exceptions=False).get("/boom")
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "hub unavailable"}
+    # The failure reason must not leak upstream internals to the caller.
+    assert "401" not in resp.text
