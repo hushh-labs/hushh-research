@@ -716,7 +716,9 @@ export function SavedLocationsSection() {
         rendererDisclosureAccepted={rendererDisclosureAccepted}
         onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
         collectAddressDetails
+        startWithMapPicker
         initialCategory={editingLocation?.category ?? null}
+
         initialCustomLabel={
           editingLocation?.category === "other" ? editingLocation.label : null
         }
