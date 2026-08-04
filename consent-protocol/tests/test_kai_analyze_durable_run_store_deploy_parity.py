@@ -27,6 +27,8 @@ import json
 import re
 from pathlib import Path
 
+from tests._deploy_contract import backend_deploy_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Steady-state expectation for the production durable run store. See the
@@ -105,7 +107,7 @@ def test_backend_cloudbuild_plumbs_flag_to_runtime() -> None:
     """The substitution set in the deploy workflows only takes effect if the
     Cloud Build backend config plumbs it into the Cloud Run runtime env. Guard
     both the wiring and the empty default (empty => runtime default OFF)."""
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     assert f'append_optional_env "{_FLAG.lstrip("_")}" "${{{_FLAG}}}"' in backend_build, (
         f"{_FLAG} not plumbed into Cloud Run env in backend.cloudbuild.yaml"
     )

@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests._deploy_contract import backend_deploy_script
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOUDBUILD = REPO_ROOT / "deploy" / "backend.cloudbuild.yaml"
 
@@ -106,7 +108,7 @@ def test_guard_is_exact_equality_not_a_prefix_match(pod_step: dict):
 def test_pod_env_vars_are_empty_outside_dev(config: dict, deploy_env: str):
     """`append_optional_env` skips empty values, so empty means the variable is never
     set and GcpBackend keeps resolving to nothing — byte-identical to before."""
-    script = _step(config, "deploy-backend")["args"][-1]
+    script = backend_deploy_script()
     assert 'append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"' in script
     assert 'append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"' in script
 
@@ -143,7 +145,7 @@ def test_pod_env_vars_are_set_in_dev():
 def test_pod_service_account_is_the_zero_role_identity(config: dict):
     """It must be the purpose-built pod account, never the runtime or default compute
     account — those carry real permissions a per-user pod must not inherit."""
-    script = _step(config, "deploy-backend")["args"][-1]
+    script = backend_deploy_script()
     assert 'pod_sa="hussh-one-pod@${PROJECT_ID}.iam.gserviceaccount.com"' in script
     assert "consent-protocol-runtime@" not in script.split("pod_sa=")[1][:200]
     assert "-compute@developer.gserviceaccount.com" not in script
@@ -183,7 +185,7 @@ def test_hub_deploy_sets_an_explicit_http_startup_probe(config: dict):
     mean what it says on every lane -- not only for pods, whose probe is set in
     GcpBackend.render_deploy_config.
     """
-    script = _step(config, "deploy-backend")["args"][-1]
+    script = backend_deploy_script()
     assert "--startup-probe=httpGet.path=/health" in script
     assert "tcpSocket" not in script
 
@@ -206,7 +208,7 @@ def test_pod_hub_identity_auth_is_never_enabled_outside_dev(config: dict, deploy
     another user's prompt. Dev carries synthetic users only, so the guard is what keeps
     this honest.
     """
-    script = _step(config, "deploy-backend")["args"][-1]
+    script = backend_deploy_script()
     assert 'append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "${pod_identity_auth}"' in script
 
     out = _bash(
@@ -247,7 +249,7 @@ def test_hub_url_is_read_from_cloud_run_not_constructed(config: dict):
     a proven cause. Reading status.url needs no substitution at all, which is why it is
     the shape pinned here.
     """
-    script = _step(config, "deploy-backend")["args"][-1]
+    script = backend_deploy_script()
     assert 'gcloud run services describe "${_BACKEND_SERVICE}"' in script
     assert "--format='value(status.url)'" in script
     assert "aqahj4iyha" not in script  # the dev-specific Cloud Run hash
@@ -255,3 +257,91 @@ def test_hub_url_is_read_from_cloud_run_not_constructed(config: dict):
     assignment = script.split("hub_url=", 1)[1][:200]
     assert ".run.app" not in assignment
     assert "PROJECT_NUMBER" not in assignment
+
+
+# --- the limit that broke every lane, now guarded --------------------------------------
+
+# Cloud Build's hard cap on a single build-step arg.
+_CLOUD_BUILD_MAX_ARG = 10_000
+# Warn well before the cliff: the deploy-backend body grew ~1,000 chars in a single
+# commit, so a threshold close to the limit would give no useful runway.
+_ARG_WARN_THRESHOLD = 8_000
+
+_CLOUDBUILD_CONFIGS = [
+    "deploy/backend.cloudbuild.yaml",
+    "deploy/frontend.cloudbuild.yaml",
+    "deploy/dev.autodeploy.backend.cloudbuild.yaml",
+]
+
+
+@pytest.mark.parametrize("config_path", _CLOUDBUILD_CONFIGS)
+def test_no_cloud_build_step_arg_exceeds_the_limit(config_path: str):
+    """Every step arg in every cloudbuild config must stay under 10,000 characters.
+
+    This is the regression guard for a real outage. `deploy-backend`'s inline body
+    crossed the limit on 2026-07-28 (commit 363a9932d, 9,559 -> 10,569) and from that
+    moment EVERY backend deploy failed at submission on all three lanes -- dev, uat and
+    production -- with:
+
+        INVALID_ARGUMENT: invalid .steps field: build step 2 arg 1 too long (max: 10000)
+
+    Nothing caught it for a week, because gcloud enforces the cap client-side before any
+    Build resource exists: there is no failed build to look at, no log to read, and the
+    lanes had simply not been dispatched. `deploy/backend.cloudbuild.yaml` is shared by
+    all three workflows, so a single file put production in that state.
+
+    Had this assertion existed, it would have failed on the commit that introduced it.
+    """
+    path = REPO_ROOT / config_path
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for index, step in enumerate(config.get("steps") or []):
+        for arg_index, arg in enumerate(step.get("args") or []):
+            size = len(arg)
+            assert size < _CLOUD_BUILD_MAX_ARG, (
+                f"{config_path} step {index} ({step.get('id')}) arg {arg_index} is "
+                f"{size} chars, over Cloud Build's {_CLOUD_BUILD_MAX_ARG} limit -- "
+                f"gcloud will reject this config and NO build will be created. Move the "
+                f"body into a script, as scripts/deploy/backend-deploy.sh does."
+            )
+            assert size < _ARG_WARN_THRESHOLD, (
+                f"{config_path} step {index} ({step.get('id')}) arg {arg_index} is "
+                f"{size} chars — under the {_CLOUD_BUILD_MAX_ARG} limit but past the "
+                f"{_ARG_WARN_THRESHOLD} warning line. Extract it now, before a later "
+                f"commit pushes it over and breaks every deploy lane at once."
+            )
+
+
+def test_the_extracted_deploy_script_receives_every_variable_it_reads():
+    """`set -u` plus a missing `env:` entry would fail the deploy at runtime.
+
+    Cloud Build substitutes ${_FOO} in the config, never inside a file from the source
+    tarball, so the script reads real environment variables handed over by the step's
+    `env:` list. Any variable referenced but not passed would be unbound.
+    """
+    import re
+
+    config = yaml.safe_load(CLOUDBUILD.read_text(encoding="utf-8"))
+    step = _step(config, "deploy-backend")
+    script = backend_deploy_script()
+
+    passed = {entry.split("=", 1)[0] for entry in (step.get("env") or [])}
+    body = "\n".join(
+        line for line in script.splitlines() if not line.lstrip().startswith("#")
+    )
+    referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", body))
+    referenced |= set(re.findall(r"\$\{?(PROJECT_ID)\}?", body))
+
+    missing = sorted(referenced - passed)
+    assert not missing, f"referenced in the script but absent from the step's env: {missing}"
+
+
+def test_the_step_keeps_its_substitution_tokens_in_the_yaml():
+    """deploy-dev.yml's skew guard greps this YAML for "${_KEY}" and SILENTLY DROPS any
+    substitution it cannot find — the deploy would then run on template defaults with no
+    error at all. Keeping the tokens in the `env:` list is what preserves that guard."""
+    raw = CLOUDBUILD.read_text(encoding="utf-8")
+    for key in ("_DEPLOY_ENV", "_IMAGE_TAG", "_BACKEND_SERVICE", "_RUNTIME_SERVICE_ACCOUNT"):
+        assert f"${{{key}}}" in raw, (
+            f"{key} lost its ${{...}} token in the YAML; deploy-dev.yml's skew guard "
+            f"would silently drop it and the deploy would use the template default."
+        )
