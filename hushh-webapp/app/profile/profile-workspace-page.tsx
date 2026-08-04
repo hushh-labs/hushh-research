@@ -34,6 +34,7 @@ import {
   Trash2,
   User,
   UserRound,
+  Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -111,6 +112,8 @@ import {
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
+import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
+import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildProfileRoute,
@@ -201,6 +204,12 @@ const PROFILE_LABELS = {
   accountAccess: "Account access",
   setup: "Set up One",
 } as const;
+
+/**
+ * Read once at module scope: `NEXT_PUBLIC_*` is inlined at build time, so this
+ * cannot change across renders and does not belong in state or a memo.
+ */
+const walletCardEntryEnabled = isWalletCardEntryEnabled();
 
 function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
   if (!manifest) return null;
@@ -3001,6 +3010,15 @@ function ProfilePageContent() {
           title="Sign-in provider"
           description={provider.name}
         />
+        {walletCardEntryEnabled ? (
+          <SettingsRow
+            icon={Wallet}
+            title={WALLET_CARD_COPY.profileEntry.title}
+            description={WALLET_CARD_COPY.profileEntry.description}
+            chevron
+            onClick={() => router.push(ROUTES.ONE_WALLET_CARD)}
+          />
+        ) : null}
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow

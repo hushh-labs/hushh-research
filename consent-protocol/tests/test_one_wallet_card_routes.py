@@ -559,9 +559,7 @@ def test_pass_route_returns_the_friendly_503_when_signing_material_is_absent(
     body = response.json()
     assert body["status"] == "unavailable"
     assert body["code"] == one_wallet_card.WALLET_PASS_UNAVAILABLE_CODE
-    assert body["message"] == (
-        "We couldn't create your Wallet pass right now. Please try again in a moment."
-    )
+    assert body["message"] == ("Couldn't create your pass. Try again in a moment.")
     _assert_public_headers(response)
 
 
