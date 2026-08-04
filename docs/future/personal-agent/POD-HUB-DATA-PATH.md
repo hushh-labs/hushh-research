@@ -162,11 +162,19 @@ while the hub deploys via `gcloud run deploy`. It now carries an explicit
 startupProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 10, failureThreshold: 24}
 ```
 
-**What made all of this reachable:** every backend deploy lane had been unable to deploy
-since 2026-07-28 — `deploy/backend.cloudbuild.yaml`'s `deploy-backend` step exceeded Cloud
+**What made all of this reachable:** the dev deploy lane had been unable to deploy since
+2026-07-28 — `deploy/backend.cloudbuild.yaml`'s `deploy-backend` step exceeded Cloud
 Build's 10,000-character per-arg cap, which gcloud enforces client-side, so no build was
 ever created. The step body now lives in `scripts/deploy/backend-deploy.sh` and a
 regression test asserts the limit. That fix is what let this branch reach dev at all.
+
+The blast radius was **not** uniform across lanes, and an earlier draft of this note
+overstated it. Cloud Build applies substitutions *before* enforcing the cap, so each lane
+submits a different length from the same file: at `ba39d0342` the body measured 10,282
+for UAT and 10,208 for dev (both over) but **8,937 for production** (under). Production
+kept deploying throughout; UAT and dev could not. Measuring the raw YAML — which is only
+an upper bound — is what produced the wrong conclusion. `test_cloudbuild_step_arg_limit.py`
+now asserts the substituted length per lane for exactly this reason.
 
 ## Configuration
 
