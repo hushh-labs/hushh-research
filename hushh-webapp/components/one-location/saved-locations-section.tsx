@@ -6,6 +6,7 @@ import {
   Home,
   Loader2,
   MapPin,
+  Pencil,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -14,10 +15,13 @@ import {
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
+import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
   duplicateSavedLocationMessage,
+
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
   loadSavedLocations,
@@ -25,8 +29,15 @@ import {
   sortSavedLocationsForDisplay,
   type SavedLocation,
   type SavedLocationCategory,
+  updateSavedLocation,
   updateSavedLocationAddress,
 } from "@/lib/one-location/saved-locations";
+import {
+  buildSavedLocationAddress,
+  inferPostalCode,
+  type SavedLocationAddressDetails,
+} from "@/lib/one-location/saved-location-address";
+
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
@@ -77,9 +88,47 @@ export function SavedLocationsSection() {
   const [saveLocationAddressLoading, setSaveLocationAddressLoading] =
     useState(false);
   const [saveLocationSaving, setSaveLocationSaving] = useState(false);
+  // When set, the modal is editing an existing saved place (Settings edit flow)
+  // instead of adding a new one. Holds the id + pre-fill values for the modal.
+  const [editingLocation, setEditingLocation] = useState<SavedLocation | null>(
+    null,
+  );
+  const [rendererDisclosureAccepted, setRendererDisclosureAccepted] =
+    useState(false);
+
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
-  vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+  const addressResolutionIdRef = useRef(0);
+
+  // Keep a "latest session" ref so async callbacks can detect when the vault
+  // session changed mid-flight. Updated in an effect (not during render) to
+  // satisfy the react-hooks/refs rule.
+  useEffect(() => {
+    vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+  }, [userId, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRendererDisclosureAccepted(false);
+    if (!vaultOwnerToken) return () => undefined;
+
+    void OneLocationService.getMapState(vaultOwnerToken)
+      .then((state) => {
+        if (cancelled) return;
+        setRendererDisclosureAccepted(
+          state.preferences.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+        );
+      })
+      .catch(() => {
+        // Fail closed: show the disclosure again when canonical state cannot
+        // be read instead of assuming a prior acceptance.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultOwnerToken]);
 
   const hasVaultAccess = Boolean(
     isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -144,6 +193,7 @@ export function SavedLocationsSection() {
   useEffect(() => {
     if (hasVaultAccess) return;
     captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
     setLocations([]);
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
@@ -159,6 +209,7 @@ export function SavedLocationsSection() {
   useEffect(() => {
     if (!locationControl.paused) return;
     captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
     setCapturing(false);
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
@@ -178,6 +229,7 @@ export function SavedLocationsSection() {
       return;
     }
 
+    addressResolutionIdRef.current += 1;
     setCapturing(true);
     const captureRequestId = captureRequestIdRef.current + 1;
     captureRequestIdRef.current = captureRequestId;
@@ -195,6 +247,8 @@ export function SavedLocationsSection() {
       setSaveLocationAddress(null);
       setSaveLocationAddressLoading(true);
       setSaveLocationModalOpen(true);
+      const addressResolutionId = addressResolutionIdRef.current + 1;
+      addressResolutionIdRef.current = addressResolutionId;
 
       try {
         const place = await OneLocationService.reverseGeocode({
@@ -204,6 +258,7 @@ export function SavedLocationsSection() {
         });
         if (
           captureRequestIdRef.current !== captureRequestId ||
+          addressResolutionIdRef.current !== addressResolutionId ||
           !isCurrentVaultSession(session) ||
           readOneLocationControlState(userId).paused
         ) {
@@ -215,6 +270,7 @@ export function SavedLocationsSection() {
       } catch {
         if (
           captureRequestIdRef.current !== captureRequestId ||
+          addressResolutionIdRef.current !== addressResolutionId ||
           !isCurrentVaultSession(session)
         ) {
           return;
@@ -223,6 +279,7 @@ export function SavedLocationsSection() {
       } finally {
         if (
           captureRequestIdRef.current === captureRequestId &&
+          addressResolutionIdRef.current === addressResolutionId &&
           isCurrentVaultSession(session)
         ) {
           setSaveLocationAddressLoading(false);
@@ -256,19 +313,30 @@ export function SavedLocationsSection() {
   ]);
 
   const handleSave = useCallback(
-    async (category: SavedLocationCategory, label: string) => {
-      if (
-        !userId ||
-        !vaultKey ||
-        !vaultOwnerToken ||
-        !saveLocationPoint
-      ) {
+    async (
+      category: SavedLocationCategory,
+      label: string,
+      details?: SavedLocationAddressDetails,
+    ) => {
+      if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
         toast.error("Unlock your vault and capture the location again.");
         return;
       }
 
+      // Fold the structured entrance details into the single encrypted address
+      // string (same contract onboarding uses), so Home/Work/Other saved from
+      // Settings carry the house/flat, landmark and postal code too.
+      const composedAddress = details
+        ? buildSavedLocationAddress(saveLocationAddress, details)
+        : saveLocationAddress;
+
+      const editing = editingLocation;
+      // Only guard against a *different* saved place occupying the same spot.
+      // When editing, re-saving the same place must not trip the duplicate gate.
       const duplicate = findDuplicateSavedLocation(
-        locations,
+        editing
+          ? locations.filter((location) => location.id !== editing.id)
+          : locations,
         saveLocationPoint,
       );
       if (duplicate) {
@@ -279,21 +347,30 @@ export function SavedLocationsSection() {
       setSaveLocationSaving(true);
       const session = { userId, vaultKey, vaultOwnerToken };
       try {
-        const next = await addSavedLocation({
-          context: { userId, vaultKey, vaultOwnerToken },
-          input: {
-            category,
-            label,
-            latitude: saveLocationPoint.latitude,
-            longitude: saveLocationPoint.longitude,
-            address: saveLocationAddress,
-          },
-        });
+        const input = {
+          category,
+          label,
+          latitude: saveLocationPoint.latitude,
+          longitude: saveLocationPoint.longitude,
+          address: composedAddress,
+        };
+        const next = editing
+          ? await updateSavedLocation({
+              context: { userId, vaultKey, vaultOwnerToken },
+              id: editing.id,
+              input,
+            })
+          : await addSavedLocation({
+              context: { userId, vaultKey, vaultOwnerToken },
+              input,
+            });
         if (!isCurrentVaultSession(session)) return;
+        addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
-        toast.success("Location saved securely.");
+        setEditingLocation(null);
+        toast.success(editing ? "Location updated." : "Location saved securely.");
       } catch (error) {
         if (!isCurrentVaultSession(session)) return;
         toast.error(
@@ -308,6 +385,7 @@ export function SavedLocationsSection() {
       }
     },
     [
+      editingLocation,
       saveLocationAddress,
       saveLocationPoint,
       locations,
@@ -317,6 +395,31 @@ export function SavedLocationsSection() {
       vaultOwnerToken,
     ],
   );
+
+  // Open the same add/pin/details flow pre-filled to EDIT an existing place.
+  const handleEditSavedLocation = useCallback(
+    (location: SavedLocation) => {
+      if (!hasVaultAccess) {
+        toast.error("Unlock your vault before editing a saved location.");
+        return;
+      }
+      addressResolutionIdRef.current += 1;
+      captureRequestIdRef.current += 1;
+      setEditingLocation(location);
+      setSaveLocationPoint({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracyM: null,
+        capturedAt: new Date().toISOString(),
+        sourcePlatform: "web",
+      });
+      setSaveLocationAddress(location.address ?? null);
+      setSaveLocationAddressLoading(false);
+      setSaveLocationModalOpen(true);
+    },
+    [hasVaultAccess],
+  );
+
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -340,13 +443,7 @@ export function SavedLocationsSection() {
         }
       }
     },
-    [
-      isCurrentVaultSession,
-      removingId,
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    ],
+    [isCurrentVaultSession, removingId, userId, vaultKey, vaultOwnerToken],
   );
 
   const handleRepairAddress = useCallback(
@@ -361,11 +458,7 @@ export function SavedLocationsSection() {
           lng: location.longitude,
         });
         if (!isCurrentVaultSession(session)) return;
-        const address = (
-          place.formattedAddress ||
-          place.name ||
-          ""
-        ).trim();
+        const address = (place.formattedAddress || place.name || "").trim();
         if (!address) {
           toast.error("No street address was found for this location.");
           return;
@@ -387,14 +480,64 @@ export function SavedLocationsSection() {
         }
       }
     },
-    [
-      isCurrentVaultSession,
-      repairingId,
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    ],
+    [isCurrentVaultSession, repairingId, userId, vaultKey, vaultOwnerToken],
   );
+
+  // Drag-to-pin confirm: adopt the owner-confirmed coordinate and address,
+  // replacing the coarse GPS fix for the Settings "Add place" flow.
+  const handlePickExactSavedLocation = useCallback((picked: PickedLocation) => {
+    addressResolutionIdRef.current += 1;
+    setSaveLocationPoint((current) => ({
+      latitude: picked.latitude,
+      longitude: picked.longitude,
+      accuracyM: null,
+      capturedAt: new Date().toISOString(),
+      sourcePlatform: current?.sourcePlatform ?? "web",
+    }));
+    setSaveLocationAddress(picked.address);
+    setSaveLocationAddressLoading(false);
+  }, []);
+
+  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  const locateMeForSavedLocation = useCallback(async () => {
+    try {
+      const point = await OneLocationService.captureCurrentPosition();
+      return { latitude: point.latitude, longitude: point.longitude };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Reverse-geocode wrapper the map picker calls on every settle.
+  const reverseGeocodeForSavedLocation = useCallback(
+    async (lat: number, lng: number): Promise<string | null> => {
+      if (!vaultOwnerToken) return null;
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken,
+          lat,
+          lng,
+        });
+        return place.formattedAddress || place.name || null;
+      } catch {
+        return null;
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  const acceptSavedLocationMapRenderer = useCallback(async () => {
+    if (!vaultOwnerToken) {
+      throw new Error("Unlock your vault before opening Google Maps.");
+    }
+    const next = await OneLocationService.updateMapPreferences({
+      vaultOwnerToken,
+      rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    });
+    setRendererDisclosureAccepted(
+      next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    );
+  }, [vaultOwnerToken]);
 
   if (!userId || loadedUserId !== userId) return null;
 
@@ -514,18 +657,31 @@ export function SavedLocationsSection() {
                 ) : null}
                 <button
                   type="button"
+                  aria-label={`Edit ${location.label}`}
+                  title="Edit place"
+                  onClick={() => handleEditSavedLocation(location)}
+                  disabled={
+                    removingId !== null ||
+                    repairingId !== null ||
+                    capturing ||
+                    locationControl.paused
+                  }
+                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-black/[0.05] hover:text-[#087ff5] disabled:opacity-45 dark:text-muted-foreground"
+                >
+                  <Pencil className="h-[17px] w-[17px]" strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
                   aria-label={`Remove ${location.label}`}
                   onClick={() => void handleRemove(location.id)}
                   disabled={removingId !== null}
                   className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] disabled:opacity-45 dark:text-muted-foreground"
                 >
+
                   {removingId === location.id ? (
                     <Loader2 className="h-[18px] w-[18px] animate-spin" />
                   ) : (
-                    <Trash2
-                      className="h-[18px] w-[18px]"
-                      strokeWidth={2}
-                    />
+                    <Trash2 className="h-[18px] w-[18px]" strokeWidth={2} />
                   )}
                 </button>
               </div>
@@ -546,13 +702,51 @@ export function SavedLocationsSection() {
         address={saveLocationAddress}
         loadingAddress={saveLocationAddressLoading}
         saving={saveLocationSaving}
-        onSave={(category, label) => void handleSave(category, label)}
+        mapInitial={
+          saveLocationPoint
+            ? {
+                latitude: saveLocationPoint.latitude,
+                longitude: saveLocationPoint.longitude,
+              }
+            : null
+        }
+        reverseGeocode={reverseGeocodeForSavedLocation}
+        onLocateMe={locateMeForSavedLocation}
+        onPickExactLocation={handlePickExactSavedLocation}
+        rendererDisclosureAccepted={rendererDisclosureAccepted}
+        onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
+        collectAddressDetails
+        startWithMapPicker
+        initialCategory={editingLocation?.category ?? null}
+
+        initialCustomLabel={
+          editingLocation?.category === "other" ? editingLocation.label : null
+        }
+        initialDetails={
+          editingLocation
+            ? {
+                houseOrFlat: "",
+                buildingColor: "",
+                landmark: "",
+                postalCode: inferPostalCode(editingLocation.address),
+              }
+            : null
+        }
+        saveLabel={editingLocation ? "Update location" : "Save location"}
+        onSave={(category, label, details) =>
+          void handleSave(category, label, details)
+        }
         onSkip={() => {
           if (saveLocationSaving) return;
+          addressResolutionIdRef.current += 1;
           setSaveLocationModalOpen(false);
           setSaveLocationPoint(null);
+          setSaveLocationAddress(null);
+          setSaveLocationAddressLoading(false);
+          setEditingLocation(null);
         }}
       />
+
     </>
   );
 }

@@ -6,11 +6,12 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 export const KYC_IDENTITY_PKM_DOMAIN = "identity" as const;
 
 export type KycIdentityProfile = {
-  legalName: string;
-  dateOfBirth: string;
-  citizenshipCountryCode: string;
-  citizenshipCountryName: string;
-  employmentStatus: KycEmploymentStatus;
+  legalName?: string;
+  dateOfBirth?: string;
+  citizenshipCountryCode?: string;
+  citizenshipCountryName?: string;
+  employmentStatus?: KycEmploymentStatus;
+  aboutMe?: string;
 };
 
 export type KycEmploymentStatus =
@@ -59,7 +60,7 @@ export class KycIdentityProfilePkmService {
   static saveProfile(
     params: KycIdentityProfilePkmWriteParams,
   ): Promise<PkmWriteCoordinatorResult> {
-    if (!isValidDateOfBirth(params.profile.dateOfBirth)) {
+    if (params.profile.dateOfBirth && !isValidDateOfBirth(params.profile.dateOfBirth)) {
       return Promise.reject(new Error("Date of birth must be a real past date."));
     }
 
@@ -80,12 +81,13 @@ export class KycIdentityProfilePkmService {
           ...(context.currentDomainData ?? {}),
           identity_profile: {
             ...asRecord(context.currentDomainData?.identity_profile),
-            full_name: params.profile.legalName,
-            legal_name: params.profile.legalName,
-            date_of_birth: params.profile.dateOfBirth,
-            citizenship_country_code: params.profile.citizenshipCountryCode,
-            country_of_citizenship: params.profile.citizenshipCountryName,
-            employment_status: params.profile.employmentStatus,
+            full_name: params.profile.legalName ?? "",
+            legal_name: params.profile.legalName ?? "",
+            date_of_birth: params.profile.dateOfBirth ?? "",
+            citizenship_country_code: params.profile.citizenshipCountryCode ?? "",
+            country_of_citizenship: params.profile.citizenshipCountryName ?? "",
+            employment_status: params.profile.employmentStatus ?? "not_currently_employed",
+            about_me: params.profile.aboutMe ?? "",
             updated_at: savedAt,
             schema_version: 2,
           },
@@ -109,7 +111,7 @@ const pendingProfiles = new Map<string, KycIdentityProfile>();
 
 export class KycIdentityProfileDraftService {
   static stage(userId: string, profile: KycIdentityProfile): void {
-    if (!isValidDateOfBirth(profile.dateOfBirth)) return;
+    if (profile.dateOfBirth && !isValidDateOfBirth(profile.dateOfBirth)) return;
     pendingProfiles.set(userId, profile);
   }
 

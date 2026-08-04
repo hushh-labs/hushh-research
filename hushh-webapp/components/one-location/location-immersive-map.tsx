@@ -64,8 +64,8 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
+import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
-const RENDERER_CONSENT_VERSION = "google-maps-renderer-v1";
 const MAP_ID = "one-location-private-map";
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
@@ -361,13 +361,7 @@ export function LocationImmersiveMap() {
     router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
       scroll: false,
     });
-  }, [
-    demoMode,
-    nearbyCheckInAvailable,
-    rendererReady,
-    router,
-    searchParams,
-  ]);
+  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
 
   const closeNearbyCheckIn = useCallback(() => {
     setNearbyCheckInOpen(false);
@@ -593,7 +587,8 @@ export function LocationImmersiveMap() {
         if (cancelled) return;
         setPreferences(state.preferences);
         setAcceptedRenderer(
-          state.preferences.rendererConsentVersion === RENDERER_CONSENT_VERSION,
+          state.preferences.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
         );
       })
       .catch(() => {
@@ -965,7 +960,7 @@ export function LocationImmersiveMap() {
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
-        rendererConsentVersion: RENDERER_CONSENT_VERSION,
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
       setPreferences(next);
       setAcceptedRenderer(true);
@@ -1173,8 +1168,7 @@ export function LocationImmersiveMap() {
           currentOwner.vaultOwnerToken === ownerSnapshot.vaultOwnerToken &&
           currentPresence.presence?.checkedInAt === presenceCheckedInAt &&
           currentPresence.attendees.some(
-            (item) =>
-              item.participantAlias === attendee.participantAlias,
+            (item) => item.participantAlias === attendee.participantAlias,
           )
         );
       };
