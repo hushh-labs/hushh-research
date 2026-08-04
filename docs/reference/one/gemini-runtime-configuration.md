@@ -2,13 +2,13 @@
 
 ## Visual Context
 
-This is the Connections-owned configuration boundary beneath the
+This is the AI access configuration boundary beneath the
 [One Reference Index](./README.md), [One Agent Hierarchy](./one-agent-hierarchy.md), and the
 [One Voice Runtime Architecture](./one-voice-runtime-architecture.md).
 
 ## Current Contract
 
-Connections owns private runtime configuration, not an additional One
+AI access owns private runtime configuration, not an additional One
 specialist. It appears before feature setup at `/one/setup/connections` and
 can be reopened at `/one/connect/settings`. It is not a `/one` dashboard tile and
 does not publish a voice or Search action.
@@ -21,25 +21,32 @@ does not publish a voice or Search action.
 The key transport is explicit: `developer_api` uses the Google AI Studio
 endpoint, while `vertex_api_key` uses the Google Cloud Vertex endpoint and
 requires a project and location. A key is never classified from its shape.
-OAuth grants and service-account JSON are not accepted. Existing encrypted
+Google OAuth is intentionally not presented as an active setup choice yet: the
+current server-run ADK provider seam has no approved Developer API OAuth
+transport or configured Google OAuth client. It must not be represented as a
+working route until both are in place. Service-account JSON is not accepted. Existing encrypted
 Gemini configuration remains readable after the UI move from Profile; legacy
 BYOK values default to `developer_api`, so no storage migration is required.
 
 ## Lifecycle
 
-1. A person chooses managed Gemini or BYOK in Connections.
-2. BYOK opens the canonical vault create/unlock flow.
+1. A person chooses managed Gemini or BYOK in AI access.
+2. During setup, a BYOK credential is held only in process memory. A refresh,
+   lock, sign-out, or account deletion clears it.
 3. The backend performs a bounded probe against the selected Google endpoint
-   before the browser encrypts the key into
+   without storing the credential.
+4. Finish setup is the only durable boundary: it requires the canonical vault
+   create/unlock flow, encrypts every staged setup draft, and only then writes
+   the key into
    `pkm:runtime_secrets.llm.gemini_api_key`, the selected mode at
    `pkm:runtime_secrets.llm.credential_mode`, and endpoint metadata in
    encrypted runtime configuration references.
-4. Typed private-agent turns resolve the current unlocked-vault key only for
+5. Typed private-agent turns resolve the current unlocked-vault key only for
    that request through the existing provider factory.
-5. Live voice sends its mode and, only for BYOK, the current key in the first
+6. Live voice sends its mode and, only for BYOK, the current key in the first
    authenticated WebSocket frame. The relay creates a connection-local runner
    and immediately drops the raw reference.
-6. Key removal, mode change, vault lock, backgrounding, or reconnect closes a
+7. Key removal, mode change, vault lock, backgrounding, or reconnect closes a
    BYOK voice session. The next session must resolve configuration again.
 
 The value never appears in a URL, relay ticket, browser storage, native
@@ -80,7 +87,8 @@ same in both modes.
 
 - BYOK does not power CRM mapping, portfolio ingestion, consent execution, or
   other Hussh-operated background workflows in v1.
-- Connections the agent never reads or receives the key.
+- The AI access surface never reads or receives the key after staging it for
+  encrypted storage.
 - Gmail is a disabled child of `agent_connections`; it remains a dormant route
   and manifest but is absent from One, voice, Search, and generated discovery.
 

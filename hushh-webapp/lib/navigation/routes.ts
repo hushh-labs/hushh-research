@@ -268,12 +268,21 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
+export type CompletedSetupCapabilityEntry =
+  | { kind: "continue" }
+  | { kind: "acknowledge"; target: string }
+  | { kind: "redirect"; target: string };
+
 /**
- * Completed Location setup reopens its product workspace only after the root
- * setup journey is resolved. While `/one/setup` is still active, the authored
- * setup route remains replayable just like every other capability.
+ * Resolve a durable completion before a capability setup body mounts.
+ *
+ * Location is the only capability with a first-run flow that can finish while
+ * the root setup hub remains active. Re-entering that completed row briefly
+ * acknowledges the saved result and returns to the hub; it must never replay
+ * permissions, contacts, or the circle confirmation. Once root setup itself
+ * is resolved, the canonical Location workspace remains the handoff target.
  */
-export function resolveCompletedSetupCapabilityTarget({
+export function resolveCompletedSetupCapabilityEntry({
   capabilityId,
   completedCapabilityIds,
   rootSetupResolved,
@@ -281,11 +290,17 @@ export function resolveCompletedSetupCapabilityTarget({
   capabilityId: string;
   completedCapabilityIds: readonly string[];
   rootSetupResolved: boolean;
-}): string | null {
-  if (!rootSetupResolved || !completedCapabilityIds.includes(capabilityId)) {
-    return null;
+}): CompletedSetupCapabilityEntry {
+  if (
+    capabilityId !== "location" ||
+    !completedCapabilityIds.includes(capabilityId)
+  ) {
+    return { kind: "continue" };
   }
-  return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
+
+  return rootSetupResolved
+    ? { kind: "redirect", target: ROUTES.ONE_LOCATION }
+    : { kind: "acknowledge", target: ROUTES.ONE_SETUP };
 }
 
 /**

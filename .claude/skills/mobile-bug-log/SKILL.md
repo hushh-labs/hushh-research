@@ -212,15 +212,11 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 The app has a backend UAT-test phone path so QA can log in without SMS, with a FULL prod-like experience (real backend/vault/app — only the OTP is bypassed).
 - **Backend (already live on `consent-protocol` / `hushh-pda-uat`):** `ENVIRONMENT=uat`, secret `HUSHH_UAT_PHONE_TEST_CODE=000000`, secret `HUSHH_UAT_PHONE_TEST_NUMBERS` (comma/`;`/newline-separated allowlist, ref `:latest` → durable across CI deploys). Handler: `consent-protocol/api/routes/account.py` `/api/account/phone/uat-test/{start,confirm}`. Frontend: `ApiService.*UatPhoneTestVerification`, `AccountIdentityService.*UatTestPhoneVerification`.
 - **Native was gated off (`!isNative`) — fixed in `0c19110c2`:** `lib/firebase/auth-context.tsx` `startPhoneVerification` now tries the UAT-test start on native too, and `confirmPhoneVerification` routes `uat-test-phone:` verification ids to the UAT-test confirm before the real Firebase native link. Prod-safe (backend returns ineligible when not UAT/allowlisted → falls through to real Firebase).
-- **Add numbers (Secret write + Cloud Run deploy — auth config, run manually / outside auto-mode):**
-  ```bash
-  P=hushh-pda-uat
-  CUR="$(gcloud secrets versions access latest --secret=HUSHH_UAT_PHONE_TEST_NUMBERS --project=$P)"
-  NEW="+1XXXXXXXXXX,+1YYYYYYYYYY"   # append; keep existing
-  printf '%s' "${CUR},${NEW}" | gcloud secrets versions add HUSHH_UAT_PHONE_TEST_NUMBERS --data-file=- --project=$P
-  gcloud run services update consent-protocol --region=us-central1 --project=$P --update-secrets=HUSHH_UAT_PHONE_TEST_NUMBERS=HUSHH_UAT_PHONE_TEST_NUMBERS:latest
-  ```
-  Use real-looking numbers (team convention; not 555). 2026-07-05: 20 numbers `+19898989898…+19898989879` prepared for QA (secret write pending user run — auto-mode blocked it).
+- **Allowlist changes are governed operations:** never read or print the secret value and never
+  mutate Cloud Run directly from this bug log. Follow
+  `.codex/skills/repo-operations/references/admin-release-sop.md` and the current UAT phone-test
+  runbook; use the governed workflow so secret rotation, revision provenance, and rollback evidence
+  remain auditable.
 
 ## Palette invariant (so bugs don't reintroduce blue)
 Onboarding + agent chat + profile use the luxury palette: onyx `#0A0908`, champagne gold `#D4AF6A` (dark), deep gold `#9C7434` (light), cream `#F4EAD6`, ivory `#FAF6EE`, ink `#17130C`, positive `#12A150`, destructive `#C94F44`. **No indigo/blue** (`#5E5CE6`/`#8583ff`) on redesigned mobile surfaces. The `/one` dashboard uses the 2a pastel blocks. See [[hushh-research-mobile-branch]].

@@ -1,6 +1,6 @@
 ---
 name: ship-discipline
-description: The Hushh engineering operating standard — how we build and ship, all the time. The continuous ship loop (gate → PR → CI → merge → UAT → verify → prod → verify live → notify), verify-end-to-end before claiming done, the audit → grade → remediate → re-grade loop to an A+ bar, honest red/amber/green status reporting, reach-first discoverability, and consent-first data ethics. Modeled on Jeff Dean and Andrej Karpathy. Use for ANY non-trivial coding, shipping, deploy, refactor, review, or status-report task — and re-read before claiming something is "done" or assigning a grade.
+description: The Hushh engineering operating standard for building, verifying, and reporting work. Release transitions are explicit user-authorized operations governed by the canonical Admin release SOP; ordinary code changes do not imply UAT or production deployment.
 allowed-tools: Read, Grep, Glob, Bash, Edit, Write
 paths:
   - .claude/skills/ship-discipline/**
@@ -29,19 +29,22 @@ paths:
 
 ---
 
-## 1. The continuous ship loop (never skip a stage)
+## 1. The governed delivery loop
 
-Every substantive change follows the full path. Done means **live and verified**, not "merged."
+Every substantive change follows the applicable portion of this path. A merge, UAT deploy,
+production deploy, or public release is a separate authority transition and happens only when the
+user explicitly requests it. Follow
+`.codex/skills/repo-operations/references/admin-release-sop.md` for any such transition.
 
 ```
-gate → PR → CI green → merge → UAT → verify UAT → prod → verify prod live → notify/index
+gate → PR → CI green → merge → [authorized UAT] → [authorized production] → verify → notify/index
 ```
 
 - **Gate before PR:** typecheck (`tsc --noEmit`), lint, the full test suite, and — for anything with a runtime surface — a real build. Green locally before you ask CI.
 - **One PR, one idea.** Prefer single-file, additive, reversible changes. Small diffs review fast and roll back clean.
 - **Keep `main` green.** A red `main` blocks the whole team. If you find it red, fixing it is priority zero — above your own task.
 - **Never cancel someone else's build.** Pass the no-cancel-inflight flag on deploys. If contention cancels yours, retry through it (auto-retry loop), don't retaliate.
-- **Pin the SHA** through UAT → prod so prod promotes exactly what UAT validated.
+- **Pin the SHA** for each authorized environment transition; UAT and production retain independent authority gates.
 - **Batch deploys** when several changes are ready, to reduce pipeline thrash.
 
 ## 2. Verify end-to-end — "done" has evidence

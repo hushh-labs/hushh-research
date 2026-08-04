@@ -41,6 +41,7 @@ vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   KycIdentityProfileDraftService: {
     stage: mocks.stageProfile,
   },
+  isValidDateOfBirth: (value: string) => value === "1994-04-15",
 }));
 
 vi.mock("sonner", () => ({
@@ -97,6 +98,25 @@ describe("KycIdentityPreface", () => {
     );
     expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("does not let a future date advance KYC setup", () => {
+    render(<KycIdentityPreface onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.change(screen.getByLabelText("Legal name"), {
+      target: { value: "Avery Example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    fireEvent.change(screen.getByLabelText("Date of birth"), {
+      target: { value: "2099-01-01" },
+    });
+
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter a real date of birth in the past.",
+    );
   });
 
   it("lets a user skip questions without writing a partial identity profile", () => {

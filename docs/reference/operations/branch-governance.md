@@ -1,5 +1,9 @@
 # Branch Governance
 
+The canonical state-changing operator procedure is the
+[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This page defines branch policy and governed cohorts; it does not redefine the
+exact-head Admin PR landing or environment dispatch sequence.
 
 ## Lane decision: WHO authored the code (the one rule that prevents drift)
 
@@ -59,8 +63,8 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 
 1. **If you are a maintainer shipping your own code to `main`, branch from `origin/main`** and open your PR directly into `main` — do not route maintainer milestones through `integration/pr-train` (that couples them to train-only commits and makes a clean landing on `main` impossible). Branch from `integration/pr-train` only when your work is genuinely train-lane work (e.g. coordinating a contributor train).
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
-3. Merge all normal feature/fix/docs work into `integration/pr-train`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
+3. Merge non-maintainer contributor and agent feature/fix/docs work into `integration/pr-train`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean; direct maintainer PRs use the same CI, queue, and post-merge gates.
 5. Non-maintainer feature, contributor, or agent PRs must not target `main`; CI blocks them unless the head branch is `integration/pr-train` (or a registered promote branch). Governed maintainers (anyone in `main.review_bypass_users` / `main.merge_queue_bypass_users`) may open a direct PR into `main` from any branch; the `CI Status Gate`, merge queue, and `Main Post-Merge Smoke Gate` still apply, so this removes only the train detour, not the safety gates.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
@@ -258,7 +262,7 @@ at workflow runtime.
 6. Block force-pushes.
 7. Block branch deletion.
 8. Require at least 1 independent PR approval and approval of the most recent push.
-9. Use this branch as the only normal PR landing branch.
+9. Use this branch as the normal PR landing branch for non-maintainer contributor and agent work.
 
 ### `main`
 
@@ -272,7 +276,7 @@ at workflow runtime.
 8. Block branch deletion.
 9. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
 10. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
-11. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
+11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
 Current operating note:
 
@@ -289,7 +293,7 @@ Current operating note:
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
-- direct pushes to `main` are not the default bypass model; the preferred path is a green `integration/pr-train` promotion PR plus bypass merge when justified
+- direct pushes to `main` are not the bypass model; use a green PR, either a governed maintainer-authored direct-main PR or a green `integration/pr-train` promotion PR, and bypass merge only when explicitly justified
 - CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches

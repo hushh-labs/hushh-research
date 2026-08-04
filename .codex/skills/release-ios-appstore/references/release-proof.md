@@ -111,9 +111,10 @@ queued or processing work "done".
 
 - TestFlight distribution (same UAT-backed binary, no review): the `ship-ios-testflight` skill.
 - iOS native/Capacitor/entitlement/plist issues: `mobile-native`.
-- UAT/prod Cloud Run + web deploy scope: `uat-scoped-deploy`.
+- UAT Cloud Run + web deploy scope: `uat-scoped-deploy`; production Cloud Run authority: `repo-operations` and the canonical Admin release SOP.
 - Publish-safety, consent, or secret-boundary findings: `security-audit`.
 - Broad or ambiguous intake: back to `repo-operations`.
 
-The publish-safety blockers that must clear before Gate 2 live in the uncommitted KT audit
-(KT/hushh-one-publish-safety-audit.md) — a working doc, not a repo artifact; confirm with the user.
+The durable Gate 2 checklist is the **Publish-safety blockers** section of
+`docs/guides/mobile/release-ios-appstore.md`. Treat that committed runbook as authority; external
+working notes may add evidence but cannot waive or replace it.

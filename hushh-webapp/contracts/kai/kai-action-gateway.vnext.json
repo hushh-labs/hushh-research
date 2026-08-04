@@ -218,7 +218,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_setup_connections",
-      "surface_title": "Connections Setup",
+      "surface_title": "AI access setup",
       "docs_references": [],
       "contract_file": "hushh-webapp/app/one/setup/connections/page.voice-action-contract.json",
       "defaults": {
@@ -4590,16 +4590,16 @@
     {
       "action_id": "setup.finish_connections",
       "surface_id": "one_setup_connections",
-      "label": "Finish Connections setup",
+      "label": "Finish AI access setup",
       "aliases": [
-        "finish connections setup",
-        "finish connections",
+        "finish AI access setup",
+        "finish AI access",
         "keep this gemini option",
         "continue with this runtime"
       ],
       "search_keywords": [
         "finish",
-        "connections",
+        "AI access",
         "gemini",
         "runtime"
       ],
@@ -4669,7 +4669,7 @@
           {
             "type": "action",
             "action_id": "setup.finish_connections",
-            "label": "Finish Connections setup",
+            "label": "Finish AI access setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",
@@ -11293,21 +11293,21 @@
     {
       "action_id": "setup.open_connections",
       "surface_id": "one_setup_hub",
-      "label": "Set up Connections",
+      "label": "Set up AI access",
       "aliases": [
-        "set up connections",
+        "set up AI access",
         "choose gemini",
         "configure one",
         "use my gemini key"
       ],
       "search_keywords": [
-        "connections",
+        "AI access",
         "gemini",
         "runtime",
         "key",
         "setup"
       ],
-      "meaning": "Opens Connections setup so the person can choose Hushh managed Gemini or validate and save their own Gemini key.",
+      "meaning": "Opens AI access setup so the person can choose Hushh managed Gemini or validate and protect their own Gemini access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11371,7 +11371,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connections",
-            "label": "Set up Connections",
+            "label": "Set up AI access",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connections",
@@ -11957,7 +11957,7 @@
         "protect",
         "setup"
       ],
-      "meaning": "Validates the Connections choice, then requires the private vault to be created or unlocked before One opens home.",
+      "meaning": "Validates the AI access choice, then requires the private vault to be created or unlocked before One opens home.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

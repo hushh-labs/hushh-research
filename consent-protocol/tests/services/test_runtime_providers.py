@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.runtime_providers import (
-    GeminiByokTransportUnsupportedError,
     build_managed_gemini_adk_model,
     build_managed_runtime_client,
     build_runtime_client,
@@ -277,7 +276,7 @@ def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
     ]
 
 
-def test_factory_rejects_unrehearsed_google_cloud_vertex_api_key_transport(monkeypatch):
+def test_factory_builds_google_cloud_vertex_api_key_transport(monkeypatch):
     calls: list[dict] = []
 
     monkeypatch.setattr(
@@ -285,16 +284,22 @@ def test_factory_rejects_unrehearsed_google_cloud_vertex_api_key_transport(monke
         lambda **kwargs: calls.append(kwargs) or types.SimpleNamespace(kind="vertex-api-key"),
     )
 
-    with pytest.raises(GeminiByokTransportUnsupportedError):
-        build_runtime_client(
-            "gemini",
-            "K1",
-            gemini_byok_transport="vertex_api_key",
-            vertex_project="customer-vertex-project",
-            vertex_location="us-central1",
-        )
+    client = build_runtime_client(
+        "gemini",
+        "K1",
+        gemini_byok_transport="vertex_api_key",
+        vertex_project="customer-vertex-project",
+        vertex_location="us-central1",
+    )
 
-    assert calls == []
+    assert client.kind == "vertex-api-key"
+    assert calls == [
+        {
+            "vertexai": True,
+            "api_key": "K1",
+            "http_options": {"base_url": "https://us-central1-aiplatform.googleapis.com/"},
+        }
+    ]
 
 
 def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):

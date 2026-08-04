@@ -90,6 +90,8 @@ import {
 } from "@/lib/voice/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
 import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 
 // =============================================================================
 // TYPES
@@ -123,6 +125,8 @@ interface KaiFlowProps {
   /** Static setup retains the route publisher; feature state is additive chrome. */
   voicePublisherRole?: VoiceSurfacePublisherRole;
   dashboardSection?: PortfolioDashboardSection;
+  /** Root setup stages a reviewed portfolio for its one vault boundary. */
+  deferSensitiveActionsUntilSetupFinalized?: boolean;
 }
 
 interface AnalysisResult {
@@ -691,6 +695,7 @@ export function KaiFlow({
   onSetupConnectorAttemptSettled,
   voicePublisherRole = "route",
   dashboardSection = "overview",
+  deferSensitiveActionsUntilSetupFinalized = false,
 }: KaiFlowProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -766,6 +771,17 @@ export function KaiFlow({
           await onSetupSourceSettled(source, callbackAttemptId),
         );
         if (!settled) {
+          // A source deferred by the master Finish setup transaction resumes
+          // after the root journey is already resolved. In that case the
+          // adapter correctly refuses to mutate the old capability attempt;
+          // fall through to the normal post-setup destination instead of
+          // trapping the user in an already-finished setup route.
+          const journey = await PreVaultUserStateService.bootstrapState(userId, {
+            force: true,
+          }).catch(() => null);
+          if (PreVaultUserStateService.isSetupResolved(journey)) {
+            return false;
+          }
           // Do not fall through to Kai when the setup adapter cannot verify the
           // active journey. Keeping the chooser visible lets the person retry
           // rather than hiding the required terminal Finish step.
@@ -1818,6 +1834,18 @@ export function KaiFlow({
       }
 
       if (!vaultKey || !effectiveVaultOwnerToken) {
+        if (deferSensitiveActionsUntilSetupFinalized && mode === "import") {
+          PreVaultSensitiveDraftService.stageFinanceIntent(userId, {
+            kind: "statement",
+            file,
+          });
+          setError(null);
+          toast.info(
+            "Your statement will import after you finish setting up your private vault.",
+          );
+          router.push(ROUTES.ONE_SETUP);
+          return;
+        }
         setPendingImportFile(file);
         setResumeImportAfterVault(false);
         setVaultDialogOpen(true);
@@ -3057,6 +3085,9 @@ export function KaiFlow({
       userId,
       vaultKey,
       effectiveVaultOwnerToken,
+      deferSensitiveActionsUntilSetupFinalized,
+      mode,
+      router,
       tokenExpiresAt,
       unlockVault,
       setBusyOperation,
@@ -3341,6 +3372,17 @@ export function KaiFlow({
     async (environment?: string | null) => {
       let onboardingAttemptId: string | undefined;
       if (!vaultKey || !effectiveVaultOwnerToken) {
+        if (deferSensitiveActionsUntilSetupFinalized && mode === "import") {
+          PreVaultSensitiveDraftService.stageFinanceIntent(userId, {
+            kind: "plaid",
+            environment: environment ?? null,
+          });
+          toast.info(
+            "Plaid will open after you finish setting up your private vault.",
+          );
+          router.push(ROUTES.ONE_SETUP);
+          return;
+        }
         setPendingPlaidConnection(true);
         setResumePlaidAfterVault(false);
         setVaultDialogOpen(true);
@@ -3542,6 +3584,7 @@ export function KaiFlow({
     },
     [
       effectiveVaultOwnerToken,
+      deferSensitiveActionsUntilSetupFinalized,
       finishFinanceSetupIfActive,
       loadPlaidStatusSnapshot,
       mode,
@@ -3614,7 +3657,11 @@ export function KaiFlow({
       }));
       setState("reviewing");
       setError(null);
-      toast.success("Sample brokerage information loaded. Review and save to Vault.");
+      toast.success(
+        vaultKey
+          ? "Sample brokerage information loaded. Review and save to Vault."
+          : "Sample brokerage information loaded. Review it and continue setup when ready.",
+      );
     } catch (preloadError) {
       console.error("[KaiFlow] Failed to preload schema data:", preloadError);
       toast.error("Could not load sample information. Please try again.");
@@ -3622,7 +3669,12 @@ export function KaiFlow({
       setPendingSchemaPreload(false);
       setIsPreloadingSchema(false);
     }
-  }, [effectiveVaultOwnerToken, isPreloadingSchema, setState]);
+  }, [
+    effectiveVaultOwnerToken,
+    isPreloadingSchema,
+    setState,
+    vaultKey,
+  ]);
 
   useEffect(() => {
     if (!resumePreloadAfterVault) return;
@@ -3634,6 +3686,42 @@ export function KaiFlow({
     vaultKey,
     effectiveVaultOwnerToken,
     handlePreloadSchema,
+  ]);
+
+  // A setup selection can survive only this JavaScript process. After the
+  // master Finish setup transaction has unlocked the vault, consume it once
+  // and start the existing authorized import/Link path. Before this point no
+  // stream, Plaid token, OAuth resume record, or background snapshot exists.
+  useEffect(() => {
+    if (
+      !deferSensitiveActionsUntilSetupFinalized ||
+      mode !== "import" ||
+      !vaultKey ||
+      !effectiveVaultOwnerToken
+    ) {
+      return;
+    }
+    const intent = PreVaultSensitiveDraftService.consumeFinanceIntent(userId);
+    if (!intent) return;
+
+    if (intent.kind === "statement") {
+      void handleFileUpload(intent.file);
+      return;
+    }
+    if (intent.kind === "plaid") {
+      void handleConnectPlaid(intent.environment);
+      return;
+    }
+    void handlePreloadSchema();
+  }, [
+    deferSensitiveActionsUntilSetupFinalized,
+    effectiveVaultOwnerToken,
+    handleConnectPlaid,
+    handleFileUpload,
+    handlePreloadSchema,
+    mode,
+    userId,
+    vaultKey,
   ]);
 
   // Route new analysis starts through the comparison preview first.
@@ -3752,6 +3840,26 @@ export function KaiFlow({
           vaultKey={vaultKey ?? undefined}
           vaultOwnerToken={effectiveVaultOwnerToken}
           onSaveComplete={handleSaveComplete}
+          onStageForFinish={
+            deferSensitiveActionsUntilSetupFinalized &&
+            mode === "import" &&
+            !vaultKey
+              ? async (portfolio) => {
+                  await FinanceSetupDraftService.stage({
+                    userId,
+                    portfolio: portfolio as unknown as Record<string, unknown>,
+                  });
+                }
+              : undefined
+          }
+          onStageComplete={
+            deferSensitiveActionsUntilSetupFinalized && mode === "import"
+              ? async () => {
+                  if (await finishFinanceSetupIfActive("statement")) return;
+                  router.push(ROUTES.ONE_SETUP);
+                }
+              : undefined
+          }
           onReimport={handleReimport}
           onBack={() => setState("import_required")}
         />

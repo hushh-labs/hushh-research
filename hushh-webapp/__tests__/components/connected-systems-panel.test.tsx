@@ -268,6 +268,43 @@ describe("ConnectedSystemsPanel", () => {
     );
   });
 
+  it("uses the same fixed row frame for branded and fallback CRM marks", () => {
+    const { container, rerender } = render(
+      <ConnectedSystemLogo
+        system={{
+          ...system,
+          customerDisplayName: "Hussh",
+          displayName: "Hussh",
+          target: "Hussh",
+        }}
+      />,
+    );
+
+    const fallback = container.querySelector(
+      '[data-slot="connected-system-logo"]',
+    );
+    if (!(fallback instanceof HTMLElement)) {
+      throw new Error("Fallback CRM logo frame was not rendered.");
+    }
+    expect(fallback).toHaveAttribute("data-logo-kind", "fallback");
+    expect(fallback).toHaveClass("h-11", "w-[4.75rem]", "rounded-[14px]");
+
+    rerender(
+      <ConnectedSystemLogo
+        system={{ ...system, customerDisplayName: "Chase" }}
+      />,
+    );
+
+    const branded = container.querySelector(
+      '[data-slot="connected-system-logo"]',
+    );
+    if (!(branded instanceof HTMLElement)) {
+      throw new Error("Branded CRM logo frame was not rendered.");
+    }
+    expect(branded).toHaveAttribute("data-logo-kind", "brand");
+    expect(branded).toHaveClass("h-11", "w-[4.75rem]", "rounded-[14px]");
+  });
+
   it("lists dynamically registered CRM systems without requiring vault unlock", async () => {
     render(
       <ConnectedSystemsPanel

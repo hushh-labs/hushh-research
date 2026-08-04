@@ -162,8 +162,69 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
     assert 'if [ "$upstream_failed" = "true" ]' in workflow
     assert (
         workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
-        == 2
+        == 1
     )
+    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+
+
+def test_production_release_verifies_provenance_and_publishes_evidence() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    promote_position = workflow.index("- name: Promote deployed revisions to production traffic")
+    backend_provenance_position = workflow.index(
+        "- name: Verify production backend deployment provenance"
+    )
+    frontend_provenance_position = workflow.index(
+        "- name: Verify production frontend deployment provenance"
+    )
+    assert promote_position < backend_provenance_position < frontend_provenance_position
+    assert workflow.count("scripts/ci/verify-cloudrun-revision-provenance.py") >= 2
+    assert "--expected-env production" in workflow
+    assert "--expected-source deploy-production" in workflow
+    assert "--report-path /tmp/prod-backend-provenance.json" in workflow
+    assert "--report-path /tmp/prod-frontend-provenance.json" in workflow
+    assert "- name: Write production release status artifact" in workflow
+    assert "- name: Upload production deploy artifacts" in workflow
+    release_status_path = "/" + "tmp/prod-release-status.json"
+    assert release_status_path in workflow
+    assert "if-no-files-found: error" in workflow
+    assert (
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.candidate-state.outputs.backend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision'
+        in workflow
+    )
+    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+
+
+def test_production_partial_promotion_failure_rolls_back_every_selected_service() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    promote_failure = workflow.index('if [ "$PROMOTE_OUTCOME" = "failure" ]; then')
+    provenance_failure = workflow.index(
+        'if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ]'
+    )
+    classification = workflow[promote_failure:provenance_failure]
+    assert (
+        'if [ "$DEPLOY_BACKEND" = "true" ]; then\n              backend_failure=true'
+        in classification
+    )
+    assert (
+        'if [ "$DEPLOY_FRONTEND" = "true" ]; then\n              frontend_failure=true'
+        in classification
+    )
+    assert "steps.classify.outputs.backend_failure == 'true'" in workflow
+    assert "steps.classify.outputs.frontend_failure == 'true'" in workflow
 
 
 def test_production_wif_has_one_keyless_setup_path() -> None:

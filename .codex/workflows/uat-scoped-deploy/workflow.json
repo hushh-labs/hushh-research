@@ -14,6 +14,7 @@
     "deploy/README.md",
     "deploy/frontend.cloudbuild.yaml",
     "deploy/backend.cloudbuild.yaml",
+    ".codex/skills/repo-operations/references/admin-release-sop.md",
     ".codex/skills/uat-scoped-deploy/references/deploy-proof.md"
   ],
   "required_commands": [
@@ -52,7 +53,7 @@
     "repo-operations"
   ],
   "common_failures": [
-    "Using scope=all for frontend-only or backend-only changes",
+    "Forcing scope from only the latest diff instead of the target-to-deployed-service baselines",
     "Describing Cloud Run services with an assumed region",
     "Treating queued or in-progress deploys as complete",
     "Reporting deploy success without revision, label, traffic, or log evidence"

@@ -16,6 +16,7 @@
   "required_reads": [
     "docs/reference/operations/ci.md",
     "docs/reference/operations/branch-governance.md",
+    ".codex/skills/repo-operations/references/admin-release-sop.md",
     "docs/reference/quality/pr-impact-checklist.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md"
   ],
