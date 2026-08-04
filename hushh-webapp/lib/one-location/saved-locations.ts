@@ -332,11 +332,97 @@ export async function addSavedLocation(params: {
   return locations;
 }
 
+/**
+ * Update an existing saved place in place — its category, label, address, and
+ * (optionally) its pinned coordinate. Home and Work stay singletons, and the
+ * duplicate check excludes the entry being edited so re-saving the same place
+ * does not falsely trip the "already saved" guard. Used by the Settings edit
+ * flow so a place can be added OR updated with the same pin + details screens.
+ */
+export async function updateSavedLocation(params: {
+  context: SavedLocationVaultContext;
+  id: string;
+  input: {
+    category: SavedLocationCategory;
+    label?: string | null;
+    latitude: number;
+    longitude: number;
+    address?: string | null;
+  };
+}): Promise<SavedLocation[]> {
+  const { id, input } = params;
+  if (!id) {
+    throw new Error("This saved place could not be identified.");
+  }
+  if (
+    !Number.isFinite(input.latitude) ||
+    input.latitude < -90 ||
+    input.latitude > 90 ||
+    !Number.isFinite(input.longitude) ||
+    input.longitude < -180 ||
+    input.longitude > 180
+  ) {
+    throw new Error("The captured location is invalid. Try again.");
+  }
+
+  const label =
+    cleanText(input.label, MAX_LABEL_LENGTH) ||
+    defaultLabelForCategory(input.category);
+  // Home/Work use fixed ids; keep the existing id for "other" so identity and
+  // ordering are preserved across an edit.
+  const nextId =
+    input.category === "home" || input.category === "work"
+      ? input.category
+      : id;
+  const entry: SavedLocation = {
+    id: nextId,
+    category: input.category,
+    label,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    address: cleanText(input.address, MAX_ADDRESS_LENGTH),
+    savedAt: new Date().toISOString(),
+  };
+
+  let duplicateLocation: SavedLocation | null = null;
+
+  const locations = await mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_edit_confirm",
+    mutate: (existing) => {
+      // Drop the entry being edited (by its old id and its new id) so the
+      // duplicate check below never matches the place against itself.
+      const withoutSelf = existing.filter(
+        (location) => location.id !== id && location.id !== nextId,
+      );
+      const duplicate = findDuplicateSavedLocation(withoutSelf, entry);
+      duplicateLocation = duplicate;
+      if (duplicate) {
+        return existing;
+      }
+      if (input.category === "home" || input.category === "work") {
+        return [
+          entry,
+          ...withoutSelf.filter(
+            (location) => location.category !== input.category,
+          ),
+        ];
+      }
+      return [...withoutSelf, entry];
+    },
+  });
+  if (duplicateLocation) {
+    throw new DuplicateSavedLocationError(duplicateLocation);
+  }
+  return locations;
+}
+
 /** Remove a saved place from encrypted PKM. */
 export async function removeSavedLocation(params: {
   context: SavedLocationVaultContext;
   id: string;
 }): Promise<SavedLocation[]> {
+
   return mutateSavedLocations({
     context: params.context,
     source: "one_location_saved_place_remove_confirm",

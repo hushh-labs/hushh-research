@@ -61,8 +61,17 @@ export type SaveLocationModalProps = {
   startWithMapPicker?: boolean;
   /** Follow pin confirmation with the complete entrance/address detail step. */
   collectAddressDetails?: boolean;
+  /** Pre-select a category when editing an existing saved place. */
+  initialCategory?: SavedLocationCategory | null;
+  /** Pre-fill the custom label (for an "Other" place) when editing. */
+  initialCustomLabel?: string | null;
+  /** Pre-fill the structured address detail fields when editing. */
+  initialDetails?: SavedLocationAddressDetails | null;
+  /** Copy shown on the primary action button (e.g. "Save" vs "Update"). */
+  saveLabel?: string;
   /** Explain that a pre-vault draft is held only for the active setup session. */
   deferredUntilVault?: boolean;
+
   /** Accuracy reported for the initial device fix, never persisted or displayed raw. */
   initialAccuracyM?: number | null;
   /** Existing durable acceptance of the shared Google Maps renderer disclosure. */
@@ -151,8 +160,13 @@ export function SaveLocationModal({
   onPickExactLocation,
   startWithMapPicker = false,
   collectAddressDetails = false,
+  initialCategory = null,
+  initialCustomLabel = null,
+  initialDetails = null,
+  saveLabel = "Save location",
   deferredUntilVault = false,
   initialAccuracyM = null,
+
   rendererDisclosureAccepted = false,
   onAcceptRendererDisclosure,
   onSave,
@@ -182,15 +196,26 @@ export function SaveLocationModal({
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
   const postalCodeEditedRef = useRef(false);
 
-  // Reset internal selection each time the modal (re)opens.
+  // Reset internal selection each time the modal (re)opens. When editing an
+  // existing saved place, seed the category/label/detail fields from the
+  // provided initial values so the same add flow doubles as an update flow.
   useEffect(() => {
     if (open) {
-      postalCodeEditedRef.current = false;
-      setCategory(null);
-      setCustomLabel("");
+      // Treat provided initial details (edit mode) as already user-authored so
+      // the inferred-postal effect does not clobber them.
+      postalCodeEditedRef.current = Boolean(
+        initialDetails &&
+          (initialDetails.postalCode || initialDetails.houseOrFlat),
+      );
+      setCategory(initialCategory ?? null);
+      setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
-      setAddressDetails({ ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS });
+      setAddressDetails(
+        initialDetails
+          ? { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS, ...initialDetails }
+          : { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS },
+      );
       setPlaceQuery("");
       setPlaceSuggestions([]);
       setPlaceSearching(false);
@@ -198,7 +223,11 @@ export function SaveLocationModal({
       setSelectingPlaceId(null);
       setRendererDisclosureReady(false);
     }
+    // Initial* props are read once per open; excluded to avoid mid-session
+    // resets while the modal is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
 
   useEffect(() => {
     if (!open || !editingPlace || !onSearchPlaces) return;
@@ -645,7 +674,7 @@ export function SaveLocationModal({
                 ) : (
                   <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
                 )}
-                Save location
+                {saveLabel}
               </button>
               <button
                 type="button"
@@ -658,6 +687,7 @@ export function SaveLocationModal({
             </div>
           </>
         ) : (
+
           <>
             <button
               type="button"
@@ -870,7 +900,7 @@ export function SaveLocationModal({
                 ) : (
                   <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
                 )}
-                Save location
+                {saveLabel}
               </button>
               <button
                 type="button"
@@ -883,6 +913,7 @@ export function SaveLocationModal({
             </div>
           </>
         )}
+
       </DialogContent>
     </Dialog>
   );
