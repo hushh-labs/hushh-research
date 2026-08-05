@@ -113,6 +113,12 @@ class RateLimits:
     # the limit is sized for browse-and-page, not for scraping the directory.
     ONE_ADVISORS_DIRECTORY_READ = "20/minute"  # noqa: S105
 
+    # Insurance agent directory (Nationwide locator proxy). Same reasoning as
+    # the advisor directory, and deliberately the same number: both are browsed
+    # the same way from the same tab, and a caller allowed to page one of them
+    # at this rate has no reason to be held to a different rate on the other.
+    ONE_INSURANCE_AGENTS_DIRECTORY_READ = "20/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's

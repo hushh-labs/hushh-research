@@ -105,6 +105,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # ceiling, and every line added there is borrowed against it. The bearer
     # key is a real secret and stays in --set-secrets.
     "advisors_api_base_url": "ADVISORS_API_BASE_URL",
+    # Insurance agent directory base URL. Non-secret, same reasoning as
+    # the advisor base URL directly above; the bearer key is a real
+    # secret and is mounted through --set-secrets instead.
+    "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
 }
 
 
