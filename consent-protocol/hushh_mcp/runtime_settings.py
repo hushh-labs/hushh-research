@@ -413,6 +413,56 @@ def pod_idle_reap_hours() -> int:
     return value if value > 0 else _POD_IDLE_REAP_HOURS_DEFAULT
 
 
+# A warm pod is a PAID always-on instance, so its silence is a fault and should be
+# noticed in minutes, not hours. 300s tolerates several missed 60s heartbeats plus a
+# revision roll, which is the difference between "we are deploying" and "it is down".
+_POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT = 60
+_POD_WARM_STALE_SECONDS_DEFAULT = 300
+
+
+def pod_heartbeat_interval_seconds() -> int:
+    """How often a pod reports in to the hub.
+
+    Read by the POD, not the hub. The hub's staleness threshold
+    (:func:`pod_warm_stale_seconds`) must stay comfortably above this or every
+    normal gap between beats reads as a fault; the default pair leaves room for
+    four consecutive misses.
+
+    Fails safe to 60 on unset/blank/non-numeric/non-positive. A zero here would be a
+    tight loop hammering the hub from every pod in the fleet at once."""
+    value = _int_from_value(
+        _clean_env("HUSSH_POD_HEARTBEAT_INTERVAL_SECONDS"),
+        _POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT,
+    )
+    return value if value > 0 else _POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT
+
+
+def pod_warm_stale_seconds() -> int:
+    """Silence after which a WARM pod is considered stale and worth probing.
+
+    Applies to ``liveness_mode='warm'`` rows only. An economy (scale-to-zero) pod is
+    SUPPOSED to be silent when idle, so this threshold is meaningless for it and the
+    evaluator never applies it there -- see ``pod_liveness_service``.
+
+    Fails safe to 300 on unset/blank/non-numeric/non-positive. A zero would mark the
+    entire warm fleet stale on the first pass and trigger a fleet-wide probe."""
+    value = _int_from_value(
+        _clean_env("HUSSH_POD_WARM_STALE_SECONDS"), _POD_WARM_STALE_SECONDS_DEFAULT
+    )
+    return value if value > 0 else _POD_WARM_STALE_SECONDS_DEFAULT
+
+
+def pod_autoheal_enabled() -> bool:
+    """Kill-switch for auto-healing an unreachable pod by replacing its service.
+
+    Default **OFF**, and independently of ``PERSONAL_AGENT_RECONCILE_ENABLED``,
+    because healing MUTATES a live host: it rolls a new revision under someone's
+    running agent. Detection and reporting are safe to run long before anyone is
+    willing to let the fleet restart itself, so the two are separate switches and
+    liveness evaluation stays useful with this off."""
+    return _bool_from_value(_clean_env("HUSSH_POD_AUTOHEAL_ENABLED"), default=False)
+
+
 def personal_agent_reconcile_enabled() -> bool:
     """Kill-switch for the personal-agent reconcile sweep (retry stalls, reap idle).
 

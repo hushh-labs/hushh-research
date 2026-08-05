@@ -17,6 +17,7 @@ from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .opportunity_signals import router as opportunity_signals_router
 from .personal_agent import router as personal_agent_router
+from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_relay import router as pod_relay_router
 from .runtime import router as runtime_router
 from .webauthn import router as webauthn_router
@@ -40,6 +41,7 @@ router.include_router(personal_agent_router)
 # Hub-only: the private relay is the sole authorized door to a pod. A pod must
 # NEVER mount this -- a pod serving the relay could proxy to other pods. The
 # allowlist in pod_server.py keeps it off the pod surface.
+router.include_router(pod_heartbeat_router)
 router.include_router(pod_relay_router)
 router.include_router(runtime_router)
 router.include_router(webauthn_router)

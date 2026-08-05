@@ -24,21 +24,16 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_consent_scope
+from api.routes.one.pod_identity_auth import verify_pod_identity
 from hushh_mcp.constants import ConsentScope
-from hushh_mcp.runtime_settings import (
-    personal_agent_enabled,
-    pod_hub_allowed_service_account,
-    pod_hub_identity_auth_enabled,
-)
+from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_prompt_repo import resolve_prompt_repo
 from hushh_mcp.services.personal_agent_prompt_service import (
     DEFAULT_CHANNEL,
     PersonalAgentPromptService,
 )
-from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -64,39 +59,12 @@ def _service() -> PersonalAgentPromptService:
 async def _pod_identity_agent_id(request: Request, authorization: Optional[str]) -> Optional[str]:
     """Agent id for a verified POD caller, or None to fall through to consent auth.
 
-    Verifies a Google ID token minted for THIS service and issued to the one allowed pod
-    service account. What that proves is bounded: all pods share that account, so it
-    establishes "a hussh pod is calling", not which one -- the id itself comes from the
-    pod's asserted header. See ``pod_hub_identity_auth_enabled`` for why that is gated
-    off by default and why it must not carry real users.
+    The verification itself now lives in ``pod_identity_auth`` because the heartbeat
+    route needs the identical check, and two copies of a security check are two
+    things that can drift apart. This wrapper stays so the route's own auth ladder
+    still reads top to bottom in one file.
     """
-    if not pod_hub_identity_auth_enabled():
-        return None
-    allowed = pod_hub_allowed_service_account()
-    if not allowed:
-        logger.warning("pod_hub_auth.no_allowed_service_account configured; refusing")
-        return None
-    asserted = str(request.headers.get(POD_IDENTITY_HEADER) or "").strip()
-    if not asserted or not authorization:
-        return None
-
-    token = authorization.removeprefix("Bearer ").strip()
-    try:
-        from google.auth.transport import requests as google_requests
-        from google.oauth2 import id_token as google_id_token
-
-        claims = await run_in_threadpool(
-            google_id_token.verify_oauth2_token, token, google_requests.Request()
-        )
-    except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply not a pod
-        logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
-        return None
-
-    if str(claims.get("email") or "") != allowed or not claims.get("email_verified"):
-        logger.warning("pod_hub_auth.rejected_identity email_matches=false")
-        return None
-    logger.info("pod_hub_auth.accepted asserted_agent_id=%s", asserted)
-    return asserted
+    return await verify_pod_identity(request, authorization)
 
 
 async def _authenticate_prompt_caller(

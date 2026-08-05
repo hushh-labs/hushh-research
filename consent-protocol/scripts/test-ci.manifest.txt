@@ -89,3 +89,7 @@ tests/test_cloudbuild_step_arg_limit.py
 tests/test_pod_no_trace_reset.py
 tests/test_compute_backend_parity.py
 tests/test_pod_observability_contract.py
+tests/test_pod_liveness_service.py
+tests/test_pod_liveness_worker.py
+tests/test_pod_heartbeat_route.py
+tests/test_pod_heartbeat_loop.py

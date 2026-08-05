@@ -59,6 +59,7 @@ class PersonalAgentRegistryRepo:
         space_id: Optional[str] = None,
         backend_metadata: Optional[dict] = None,
         attestation_ref: Optional[str] = None,
+        liveness_mode: Optional[str] = None,
     ) -> None:
         # None fields are dropped so a PENDING/logical row (phone-verify seam, or the
         # NullBackend) leaves them at the schema NULL default; a full provision with a
@@ -76,6 +77,9 @@ class PersonalAgentRegistryRepo:
             "space_id": space_id,
             "backend_metadata": backend_metadata,
             "attestation_ref": attestation_ref,
+            # Pinned from the handle at creation. None (any backend that does not
+            # report one) leaves the schema default rather than guessing a tier.
+            "liveness_mode": liveness_mode,
             "status": status,
         }
         data = {k: v for k, v in data.items() if v is not None}
@@ -117,6 +121,117 @@ class PersonalAgentRegistryRepo:
         )
         rows = response.data or []
         return rows[0] if rows else None
+
+    # -- liveness (migration 905) ---------------------------------------------
+
+    async def record_heartbeat(self, *, hushh_id: str) -> bool:
+        """A pod said it is alive. Returns whether a row was actually matched.
+
+        Keyed by ``hushh_id`` because that is the only identity a pod knows about
+        itself -- it holds no user id, by design, so the heartbeat cannot be written
+        by user. ``hushh_id`` is UNIQUE (migration 900), so this touches one row.
+
+        The boolean return is load-bearing rather than decorative: a heartbeat for a
+        HusshID with no row means a pod is running that the registry does not know
+        about -- an orphan, which is a real and billable condition. Swallowing that
+        as success would hide it, so the caller gets the fact and logs it.
+
+        Writes ``health_state='healthy'`` alongside the timestamp. A pod that
+        successfully authenticated to the hub and reported in IS healthy by the only
+        definition available here, and leaving the verdict stale while the
+        observation advances is how the two columns would drift apart.
+
+        Deliberately does NOT touch ``updated_at``. That column tracks lifecycle
+        transitions and is what the onboarding surface reads to answer "how long has
+        this been provisioning"; a heartbeat every 60s would reset it continuously
+        and destroy that meaning.
+        """
+        normalized = str(hushh_id or "").strip()
+        if not normalized:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update(
+                {
+                    "last_heartbeat_at": now,
+                    "health_state": "healthy",
+                    # Any successful heartbeat clears the failure streak. A pod that
+                    # is answering again is not "still failing, but less" -- the
+                    # streak counts CONSECUTIVE failures and must restart at zero, or
+                    # a pod that flaps would eventually cross the heal threshold on
+                    # accumulated non-consecutive blips.
+                    "liveness_failures": 0,
+                }
+            )
+            .eq("hushh_id", normalized)
+            .execute()
+        )
+        return bool(response.data)
+
+    async def set_health_state(
+        self,
+        *,
+        user_id: str,
+        health_state: str,
+        liveness_failures: Optional[int] = None,
+        probed: bool = False,
+        healed: bool = False,
+    ) -> None:
+        """Record the hub's VERDICT about a pod (and, optionally, that it probed/healed).
+
+        Separate from :meth:`record_heartbeat` because the two have different
+        authors: a heartbeat is the pod's own claim, this is the hub's judgment about
+        it. Keeping the writers separate is what stops a judgment from ever
+        masquerading as an observation -- ``last_heartbeat_at`` is never written
+        here, so no amount of hub-side reasoning can fabricate evidence that a pod
+        spoke.
+        """
+        data: dict[str, Any] = {"health_state": health_state}
+        if liveness_failures is not None:
+            data["liveness_failures"] = int(liveness_failures)
+        now = datetime.now(timezone.utc).isoformat()
+        if probed:
+            data["last_probe_at"] = now
+        if healed:
+            data["last_healed_at"] = now
+        self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+
+    async def set_liveness_mode(self, *, user_id: str, liveness_mode: str) -> None:
+        """Pin the rule by which this pod's silence is to be read.
+
+        Called at provision time with the mode the pod was ACTUALLY created with, so
+        a later change to ``HUSSH_POD_MIN_INSTANCES`` cannot retroactively re-judge a
+        fleet that was built under the old setting. See migration 905 for why this
+        is per-row rather than read from the environment.
+        """
+        normalized = str(liveness_mode or "").strip()
+        if normalized not in ("warm", "economy"):
+            return
+        self._db().table(_REGISTRY).update({"liveness_mode": normalized}).eq(
+            "user_id", user_id
+        ).execute()
+
+    async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
+        """Rows that own (or are standing up) a host, for the liveness sweep to judge.
+
+        Returns the candidates and nothing more -- no cutoff arithmetic, no staleness
+        verdict. Which of these is actually stale depends on the per-row
+        ``liveness_mode`` and on separate warm/economy thresholds, and that policy
+        belongs to the evaluator, not to a query. Pushing a single cutoff into SQL
+        here is exactly the shortcut that would apply the warm rule to the economy
+        tier and start waking sleeping pods.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("*")
+            .in_("status", list(_ACTIVE_POD_STATUSES))
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
 
     async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
         """How many rows currently hold (or are standing up) a pod. The cap's denominator.

@@ -381,6 +381,10 @@ class PersonalAgentProvisioningService:
                         backend=handle.backend,
                         backend_metadata=handle.backend_metadata,
                         attestation_ref=handle.attestation_ref,
+                        # The backend is the only component that knows the minScale
+                        # this pod actually got, so it is the only honest source for
+                        # how this pod's silence should later be read.
+                        liveness_mode=(handle.backend_metadata or {}).get("livenessMode"),
                     )
                 await self._registry.upsert(**fields)
 
