@@ -254,8 +254,16 @@ class SqlitePkmWriteEngine:
 
     @staticmethod
     def _wipe_domain(conn: sqlite3.Connection, user_id: str, domain: str) -> None:
-        for table in ("pkm_blobs", "pkm_manifests", "pkm_manifest_paths", "pkm_scope_registry"):
-            conn.execute(f"DELETE FROM {table} WHERE user_id=? AND domain=?", (user_id, domain))  # noqa: S608
+        # Literal statements rather than an interpolated table loop: nothing here
+        # is ever built from input, and the scanner should be able to SEE that.
+        conn.execute("DELETE FROM pkm_blobs WHERE user_id=? AND domain=?", (user_id, domain))
+        conn.execute("DELETE FROM pkm_manifests WHERE user_id=? AND domain=?", (user_id, domain))
+        conn.execute(
+            "DELETE FROM pkm_manifest_paths WHERE user_id=? AND domain=?", (user_id, domain)
+        )
+        conn.execute(
+            "DELETE FROM pkm_scope_registry WHERE user_id=? AND domain=?", (user_id, domain)
+        )
 
     def _merge_summary(
         self,
