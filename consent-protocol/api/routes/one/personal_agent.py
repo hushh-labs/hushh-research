@@ -11,6 +11,7 @@ registry.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -89,11 +90,39 @@ _STATE_BY_REGISTRY_STATUS: dict[str, str] = {
 # client's own state handling a function of our schema.
 _DEFAULT_STATE = "reserved"
 
+# ``personal_agent_registry.health_state`` (migration 905) -> the ``health`` this
+# endpoint reports, and it is deliberately a SEPARATE field from ``state`` above.
+#
+# The two answer different questions. ``state`` is where the agent is in its
+# lifecycle: reserved, provisioning, active. ``health`` is whether the pod behind an
+# already-active agent is answering right now. Collapsing them into one enum would
+# destroy information in both directions -- "provisioned but unreachable" would be
+# indistinguishable from "still provisioning" (one is a fault, the other is normal
+# progress), and a client could no longer tell "your agent exists and is broken"
+# from "your agent does not exist yet".
+#
+# ``sleeping`` is a first-class value, not a synonym for degraded. An economy-tier
+# pod that has scaled to zero is working exactly as designed, and telling its owner
+# it is unhealthy would be false. The honest sentence is "asleep, wakes when you
+# need it".
+_HEALTH_BY_REGISTRY_HEALTH_STATE: dict[str, str] = {
+    "healthy": "healthy",
+    "degraded": "degraded",
+    "unreachable": "unreachable",
+    "sleeping": "sleeping",
+}
 
-@router.get("/status")
-async def personal_agent_status(
-    user_id: str = Depends(require_firebase_auth),
-):
+# Lifecycle states for which a pod actually exists, so health is a meaningful
+# question. Asking whether a `reserved` agent is reachable is a category error --
+# there is no host yet to be reachable or not.
+_STATES_WITH_A_HOST = ("active", "connecting")
+
+
+async def resolve_personal_agent_status(
+    *,
+    user_id: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+) -> dict:
     """The caller's own personal-agent state — honest even while the feature is off.
 
     Deliberately NOT flag-gated and never 404: an Apple-grade product meets the
@@ -108,9 +137,10 @@ async def personal_agent_status(
     ``reserved`` rather than an error or a raw DB value. That is deliberate. The home
     must never break, and it must never over-claim.
     """
+    repo = registry or PersonalAgentRegistryRepo()
     row = None
     try:
-        row = await PersonalAgentRegistryRepo().get(user_id)
+        row = await repo.get(user_id)
     except Exception as exc:  # fail safe: never break the home on a registry hiccup
         logger.warning("personal_agent.status_read_failed err=%s", type(exc).__name__)
 
@@ -137,7 +167,41 @@ async def personal_agent_status(
     hushh_id = (row or {}).get("hushh_id")
     if hushh_id:
         result["hushhId"] = hushh_id
+
+    # Health is reported ONLY when there is a host to have health and the liveness
+    # sweep has actually reached a verdict. `unknown` (the column default, and the
+    # state of every row until the sweep is switched on) is deliberately omitted
+    # rather than sent as "unknown" or defaulted to "healthy":
+    #
+    #   * defaulting to healthy would be a claim we cannot support -- the same class
+    #     of lie as a 200 on an empty page, and the exact failure this whole
+    #     workstream exists to stop;
+    #   * shipping "unknown" would put a word on screen that no client can act on,
+    #     and would make an un-swept fleet look degraded when nothing is wrong.
+    #
+    # Absent means absent. A client renders health when it is there and says nothing
+    # when it is not, which is the truthful reading in both cases.
+    if state in _STATES_WITH_A_HOST:
+        health = _HEALTH_BY_REGISTRY_HEALTH_STATE.get(
+            str((row or {}).get("health_state") or "").strip()
+        )
+        if health:
+            result["health"] = health
+            # Only alongside a real verdict: a timestamp on its own invites a client
+            # to compute its own staleness rule, which is precisely the tier-aware
+            # judgment that must not be re-derived per caller.
+            last_seen = (row or {}).get("last_heartbeat_at")
+            if last_seen:
+                result["lastSeenAt"] = str(last_seen)
     return result
+
+
+@router.get("/status")
+async def personal_agent_status_route(
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """The caller's own personal-agent state. Thin shell over the testable core."""
+    return await resolve_personal_agent_status(user_id=user_id)
 
 
 @router.post("/provision")
