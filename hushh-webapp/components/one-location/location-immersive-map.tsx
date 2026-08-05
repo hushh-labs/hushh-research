@@ -1570,13 +1570,6 @@ export function LocationImmersiveMap() {
                         : "Sharing privately now"}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void showEveryone()}
-                  >
-                    Show everyone
-                  </Button>
                 </div>
               ) : null}
 

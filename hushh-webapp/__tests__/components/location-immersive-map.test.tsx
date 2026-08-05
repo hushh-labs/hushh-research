@@ -318,6 +318,7 @@ describe("LocationImmersiveMap demo experience", () => {
     const jordanButton = screen.getByRole("button", {
       name: "Show Jordan Lee on the map",
     });
+    expect(screen.getAllByRole("button", { name: /everyone/i })).toHaveLength(1);
     fireEvent.click(jordanButton);
     expect(jordanButton).toHaveClass(
       "bg-[var(--app-accent)]",
