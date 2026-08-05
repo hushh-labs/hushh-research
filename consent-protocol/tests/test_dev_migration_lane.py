@@ -37,6 +37,7 @@ EXPECTED_PARKED_MIGRATIONS = (
     "902_personal_agent_tombstone_hushh_id_index.sql",
     "903_webauthn_credentials.sql",
     "904_consent_audit_receipts.sql",
+    "905_personal_agent_liveness.sql",
 )
 
 
@@ -49,14 +50,20 @@ def _migration_version(filename: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_dev_manifest_parses_and_lists_exactly_five_existing_files() -> None:
+def test_dev_manifest_lists_every_parked_file_and_nothing_else() -> None:
+    """The manifest and the directory must agree in BOTH directions.
+
+    Asserting a literal count here only ever restated the expected tuple, and it
+    broke on every added migration without catching anything the tuple comparison
+    missed. Comparing against the real directory is what has teeth: a file dropped
+    into ``parked/`` but never manifested would silently never apply in dev, and a
+    manifest entry with no file would fail the lane at deploy time instead of here.
+    """
     ordered = migrate._load_dev_manifest(migrate.DEV_MANIFEST_PATH)
 
     assert ordered == EXPECTED_PARKED_MIGRATIONS
-    assert len(ordered) == 5
-
-    for filename in ordered:
-        assert (PARKED_DIR / filename).is_file(), f"parked migration missing: {filename}"
+    on_disk = sorted(p.name for p in PARKED_DIR.glob("*.sql"))
+    assert sorted(ordered) == on_disk, "db/migrations/parked/ and the dev manifest disagree"
 
 
 def test_dev_manifest_is_in_numeric_order() -> None:
@@ -64,7 +71,10 @@ def test_dev_manifest_is_in_numeric_order() -> None:
     versions = [_migration_version(name) for name in EXPECTED_PARKED_MIGRATIONS]
 
     assert versions == sorted(versions)
-    assert versions == [900, 901, 902, 903, 904]
+    assert len(set(versions)) == len(versions), "duplicate migration number in the parked band"
+    # The band itself is the contract: staying in 900+ is what keeps these files
+    # from colliding with main's fast-moving migration head on every branch sync.
+    assert all(900 <= version < 1000 for version in versions)
 
 
 def test_dev_manifest_declares_the_same_dev_project_as_the_gate() -> None:
@@ -116,7 +126,8 @@ def test_parked_entries_build_from_the_parked_dir() -> None:
     ordered = migrate._load_dev_manifest(migrate.DEV_MANIFEST_PATH)
     entries = build_manifest_entries(migrate.PARKED_MIGRATIONS_DIR, ordered)
 
-    assert [entry.migration_id for entry in entries] == ["900", "901", "902", "903", "904"]
+    expected_ids = [name.split("_", 1)[0] for name in EXPECTED_PARKED_MIGRATIONS]
+    assert [entry.migration_id for entry in entries] == expected_ids
     assert [entry.filename for entry in entries] == list(EXPECTED_PARKED_MIGRATIONS)
     assert all(entry.sql.strip() for entry in entries)
     assert all(len(entry.checksum_sha256) == 64 for entry in entries)

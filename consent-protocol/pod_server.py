@@ -25,8 +25,10 @@ the *runtime surface* — the security-relevant property — now.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from typing import Any
 
 # A pod is a pod: assert pod-mode BEFORE importing app code that may read it.
 os.environ.setdefault("HUSSH_POD_MODE", "1")
@@ -47,8 +49,15 @@ from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noq
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
-from hushh_mcp.runtime_settings import pod_mode  # noqa: E402
-from hushh_mcp.services.pod_hub_client import PodHubUnavailable  # noqa: E402
+from hushh_mcp.runtime_settings import (  # noqa: E402
+    pod_heartbeat_interval_seconds,
+    pod_mode,
+)
+from hushh_mcp.services.pod_hub_client import (  # noqa: E402
+    PodHubClient,
+    PodHubUnavailable,
+    hub_base_url,
+)
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
     pod_keypair,
@@ -163,3 +172,67 @@ async def _pod_startup() -> None:
     # before the hub can ask for it and two concurrent requests cannot race to
     # create two different ones.
     pod_keypair()
+
+    _start_heartbeat_loop()
+
+
+# -- heartbeat ---------------------------------------------------------------
+#
+# The pod tells the hub it is alive; the hub never polls the fleet. Polling would
+# cost an authenticated round trip per pod per interval, and on the scale-to-zero
+# tier the poll itself is what wakes the pod -- so the health check would keep the
+# whole economy fleet running and bill for the privilege. A push costs one small
+# request from a process that is already awake, and it makes silence meaningful:
+# an idle economy pod simply stops beating, which is the truth about it.
+
+
+async def _heartbeat_once(client: Any) -> bool:
+    """Send one beat. Returns whether the hub recorded it. Never raises."""
+    try:
+        response = await asyncio.to_thread(client.post, "/api/one/pod/heartbeat")
+    except PodHubUnavailable as exc:
+        logger.info("pod.heartbeat_unavailable %s", type(exc).__name__)
+        return False
+    except Exception as exc:  # noqa: BLE001 - a heartbeat must never take the pod down
+        logger.info("pod.heartbeat_failed %s", type(exc).__name__)
+        return False
+    status = getattr(response, "status_code", 0)
+    if status != 200:
+        # Logged, not raised. A 404 here means the hub has no registry row for this
+        # HusshID -- this pod is an orphan -- and that is worth seeing in the pod's
+        # own logs as well as the hub's, because the two halves get read by
+        # different people.
+        logger.warning("pod.heartbeat_rejected status=%s", status)
+        return False
+    return True
+
+
+async def _heartbeat_loop(interval_seconds: int) -> None:
+    """Beat forever. Every failure is swallowed deliberately.
+
+    A pod whose heartbeat path is broken must keep SERVING -- the person's agent
+    answering their questions matters more than the hub's view of it being current.
+    Letting this task die would also be self-defeating: the pod would go silent, the
+    hub would judge it unreachable, and auto-heal would restart a pod that was
+    working fine.
+    """
+    client = PodHubClient()
+    while True:
+        await _heartbeat_once(client)
+        await asyncio.sleep(interval_seconds)
+
+
+def _start_heartbeat_loop() -> None:
+    """Attach the heartbeat task, unless this pod has no hub to talk to."""
+    if not hub_base_url():
+        # Local/test runs have no hub. Beating into the void would log a failure
+        # every interval and teach whoever reads those logs to ignore them.
+        logger.info("pod.heartbeat_disabled reason=no_hub_base_url")
+        return
+    interval = pod_heartbeat_interval_seconds()
+    try:
+        asyncio.get_running_loop().create_task(_heartbeat_loop(interval))
+    except RuntimeError:  # pragma: no cover - startup always has a loop
+        logger.info("pod.heartbeat_no_event_loop")
+        return
+    logger.info("pod.heartbeat_started interval_seconds=%s", interval)

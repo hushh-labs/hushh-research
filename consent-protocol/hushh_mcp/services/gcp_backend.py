@@ -373,6 +373,12 @@ class GcpBackend:
             "image": self._image,
             "tier": spec.tier,
             "ingress": self._ingress,
+            # The rule by which this pod's silence must be read, captured at creation
+            # from the minScale it is actually getting. Stored per row (migration 905)
+            # because HUSSH_POD_MIN_INSTANCES can change later, and re-judging a
+            # running fleet against a setting it was not built under would either
+            # mass-alarm on sleeping pods or silently stop watching paid ones.
+            "livenessMode": _liveness_mode(self._min_instances),
         }
         if self._live:
             return await self._execute(spec, config)
@@ -452,9 +458,23 @@ class GcpBackend:
                 "ready": ready,
                 "tier": spec.tier,
                 "ingress": self._ingress,
+                # Same contract as the plan path: the live handle must carry the
+                # liveness rule too, or a pod created live would fall back to the
+                # column default instead of recording what it was really given.
+                "livenessMode": _liveness_mode(self._min_instances),
             },
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
+
+
+def _liveness_mode(min_instances: int) -> str:
+    """``warm`` when a paid instance is held, ``economy`` when the pod scales to zero.
+
+    The distinction is the whole basis of tier-aware liveness: a warm pod's silence
+    is a fault, an economy pod's silence is its healthy steady state. See
+    ``pod_liveness_service`` and migration 905.
+    """
+    return "warm" if int(min_instances) >= 1 else "economy"
 
 
 def _env(name: str) -> Optional[str]:
