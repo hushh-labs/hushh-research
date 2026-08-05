@@ -231,6 +231,30 @@ jobs:
           fi
         if: always()
 
+  scope-resolution:
+    name: "Scope Resolution"
+    # Deliberately NO `if:` and the same `needs:` as the test lanes. Those lanes
+    # skipped on every dispatch run while the scope they gate on read `true` from
+    # two different jobs, so this job separates the two possible causes: if it runs,
+    # `needs` is fine and the lane conditions are at fault; if it skips too, the
+    # `needs` edge is. It is not in ci-status's `needs`, so it can never change the
+    # gate's verdict -- it only makes the decision legible.
+    needs: [paths, preflight-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print the scope inputs the lane conditions read
+        run: |
+          echo "event_name          = [${{ github.event_name }}]"
+          echo "inputs.scope        = [${{ github.event.inputs.scope }}]"
+          echo "paths.frontend      = [${{ needs.paths.outputs.frontend }}]"
+          echo "paths.backend       = [${{ needs.paths.outputs.backend }}]"
+          echo "preflight.frontend  = [${{ needs['preflight-gate'].outputs.frontend }}]"
+          echo "preflight.backend   = [${{ needs['preflight-gate'].outputs.backend }}]"
+          echo "paths.result        = [${{ needs.paths.result }}]"
+          echo "preflight.result    = [${{ needs['preflight-gate'].result }}]"
+          echo "backend-lane cond   = [${{ (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' || github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' && needs.paths.outputs.backend == 'true') }}]"
+
   preflight-gate:
     name: "Preflight Gate"
     needs:
