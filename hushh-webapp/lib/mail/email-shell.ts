@@ -32,7 +32,7 @@ export const PALETTE = {
 } as const;
 
 export const BRAND = {
-  name: "Hushh",
+  name: "Hussh",
   logoUrl: "https://www.hushhtech.com/images/hushh-logo-email.png",
   siteUrl: "https://hushh.ai/",
   supportEmail: "support@hushh.ai",

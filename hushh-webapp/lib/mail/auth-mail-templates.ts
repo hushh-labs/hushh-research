@@ -83,7 +83,7 @@ export function buildWelcomeMail(context: AuthMailContext): BuiltAuthMail {
       heading: name ? `${name}, you're in.` : "You're in.",
       paragraphs: ["One is your private agent. Your data stays yours."],
       cta: { label: "Open One", url: context.appUrl },
-      footNote: "You received this because a Hushh account was just created with this address.",
+      footNote: "You received this because a Hussh account was just created with this address.",
     }),
   };
 }
@@ -134,8 +134,8 @@ export function buildPhoneConflictMail(context: PhoneConflictContext): BuiltAuth
       heading: name ? `${name}, that number is taken.` : "That number is taken.",
       paragraphs: [
         maskedEmail
-          ? "It is already verified on another Hushh account — often one you made earlier and forgot."
-          : "It is already verified on another Hushh account.",
+          ? "It is already verified on another Hussh account — often one you made earlier and forgot."
+          : "It is already verified on another Hussh account.",
       ],
       details,
       cta: { label: "Sign in to that account", url: context.signInUrl },

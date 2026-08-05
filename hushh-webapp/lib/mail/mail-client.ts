@@ -1,7 +1,7 @@
 /**
  * Server-side client for `hushh-mail-api`.
  *
- * The API key authorises sending under Hushh's SPF and DKIM, so it stays on the
+ * The API key authorises sending under the Hussh Workspace SPF and DKIM identity, so it stays on the
  * server: this module must never be imported from a client component, and the
  * route handlers that use it never echo the key or the endpoint back.
  *
