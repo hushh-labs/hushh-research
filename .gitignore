@@ -165,3 +165,7 @@ ehthumbs_vista.db
 
 # local scratch space - never commit (may contain credentials/keys)
 /tmp/
+
+# Staged into the docker build context by deploy/backend.cloudbuild.yaml.
+# The real tree lives at the repo root; this copy is a build artifact.
+consent-protocol/contracts/

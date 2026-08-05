@@ -13,9 +13,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-_GATEWAY_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
-)
+from hushh_mcp.contracts_root import contracts_path, require_contracts_root
+
+
+def _gateway_path() -> Path | None:
+    # Resolved per call rather than at import: the tree lives in a different place in
+    # a repo checkout than in the image, and a module-level constant froze the wrong
+    # one into the build. See hushh_mcp/contracts_root.py.
+    return contracts_path("kai", "kai-action-gateway.vnext.json")
 
 
 def _strings(value: Any) -> list[str]:
@@ -65,9 +70,11 @@ def _normalize(raw: Any) -> dict[str, Any] | None:
 
 @lru_cache(maxsize=1)
 def load_action_gateway() -> dict[str, Any]:
-    if not _GATEWAY_PATH.exists():
+    gateway_path = _gateway_path()
+    if gateway_path is None or not gateway_path.exists():
+        require_contracts_root("action_gateway")
         return {"schema_version": "kai.action_gateway.vnext", "actions": [], "source": "missing"}
-    raw = json.loads(_GATEWAY_PATH.read_text(encoding="utf-8"))
+    raw = json.loads(gateway_path.read_text(encoding="utf-8"))
     raw_actions = raw.get("actions") if isinstance(raw, dict) else []
     actions = [entry for entry in (_normalize(item) for item in raw_actions or []) if entry]
     return {
@@ -76,7 +83,7 @@ def load_action_gateway() -> dict[str, Any]:
         else "kai.action_gateway.vnext",
         "actions": actions,
         "source": "file",
-        "path": str(_GATEWAY_PATH),
+        "path": str(gateway_path),
     }
 
 

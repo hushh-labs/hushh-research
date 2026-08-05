@@ -20,6 +20,13 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        # The build context is `consent-protocol`, but the generated contracts tree
+        # lives at the REPO ROOT. Stage it into the context so `COPY . .` lands it at
+        # /app/contracts. Without this the action gateway, the route-orchestration
+        # index and One's persona catalogue all resolve a path that does not exist in
+        # the image and degrade SILENTLY to empty. See hushh_mcp/contracts_root.py.
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
         # Ensure gcr.io auth is available to the buildx container driver.
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
@@ -70,6 +77,10 @@ steps:
           echo "pod image: skipped (_BUILD_POD_IMAGE='${_BUILD_POD_IMAGE}')"
           exit 0
         fi
+        # Same contracts staging as the hub image above -- a pod runs the same agent
+        # code and reads the same generated contracts.
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder
