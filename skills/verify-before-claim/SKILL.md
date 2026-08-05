@@ -254,6 +254,33 @@ unconfigured), **populated** (must carry a real value), and **never inline** (mu
 reference). And where a platform genuinely cannot reach parity, record the divergence in the
 architecture doc rather than rendering a slot that lies about what works.
 
+## 2g. A missing CLI is not a missing capability
+
+`which gcloud` returning nothing does not mean there is no GCP access. It means there is
+no `gcloud` binary. Those are different claims, and collapsing them produced a confident,
+wrong "I cannot reach the dev project from here" in a session where an operator service-
+account key with **full** access was sitting in the environment the whole time — and where
+the repo already had a credentialed REST client and a read-only fleet inspector built on
+it.
+
+Two habits, both cheap:
+
+- **Probe for the capability, not for one implementation of it.** The question is never
+  "is the CLI installed" but "can this environment reach the thing". Ask the repo first:
+  something that already talks to the service is the sanctioned path and tells you both
+  that access exists and how it is meant to be used. `grep` for the service name before
+  concluding anything about access.
+- **Search the space of plausible names, not the names you expect.** The key was
+  `GCP_DEPLOY_SA_KEY_B64`; the search was for `GOOGLE_*` and `GCLOUD_*`, so it found
+  nothing and the nothing was read as proof. A negative result from a narrow pattern is
+  evidence about the pattern, not about the world. Widen it once before believing it.
+
+The general form: **absence of evidence gathered with one probe is not evidence of
+absence.** Before reporting that a capability, credential, route, or file does not exist,
+state which probe you ran, and ask whether a differently-shaped one would find it. This is
+the same failure as §2d's count-that-did-not-move — a check that succeeds at looking
+rather than at finding.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
