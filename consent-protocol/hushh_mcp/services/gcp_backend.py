@@ -233,6 +233,15 @@ class GcpBackend:
                 # whose only real surface is dead. It gates this pod alone -- the hub's
                 # own copy of the flag is set by its deploy config, not by this.
                 {"name": "PERSONAL_AGENT_ENABLED", "value": "1"},
+                # The consent-token VERIFYING keys (Ed25519, public half only --
+                # public material is safe in plain config). This is what lets a
+                # pod check a token's authenticity at its own door without ever
+                # holding anything that could forge one. Empty when the hub has
+                # no asymmetric issuance configured yet.
+                {
+                    "name": "CONSENT_ED25519_PUBLIC_KEYS",
+                    "value": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
+                },
             ],
         }
         # The app refuses to import without APP_SIGNING_KEY (>=32 chars), so a pod
