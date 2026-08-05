@@ -19,7 +19,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import {
+  LINKED_MAIL_CLAIM,
+  sendCapabilityLinkedMail,
   sendPhoneConflictMail,
+  sendSignedOutMail,
   sendSignInMail,
   WELCOME_MAIL_CLAIM,
 } from "@/lib/mail/auth-mail-service";
@@ -27,6 +30,16 @@ import {
 export const dynamic = "force-dynamic";
 
 const E164_PATTERN = /^\+[1-9]\d{6,14}$/;
+
+const SUPPORTED_EVENTS = new Set([
+  "signed_in",
+  "signed_out",
+  "phone_conflict",
+  "capabilities_linked",
+]);
+
+/** A report carrying more ids than the catalog holds is malformed, not generous. */
+const MAX_REPORTED_CAPABILITIES = 32;
 
 /**
  * Guards against a client loop turning into a mail loop. This is per instance
@@ -88,9 +101,10 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
     event?: string;
     phoneNumber?: string;
+    capabilities?: unknown[];
   };
   const event = String(body.event ?? "").trim();
-  if (event !== "signed_in" && event !== "phone_conflict") {
+  if (!SUPPORTED_EVENTS.has(event)) {
     return NextResponse.json({ error: "Unsupported event" }, { status: 400 });
   }
 
@@ -115,6 +129,43 @@ export async function POST(request: NextRequest) {
         },
       });
       return NextResponse.json(outcome);
+    }
+
+    if (event === "signed_out") {
+      const sessionStamp = user.metadata?.lastSignInTime ?? "";
+      if (seenRecently(`signed_out:${user.uid}:${sessionStamp}`)) {
+        return NextResponse.json({ status: "skipped", reason: "duplicate_request" });
+      }
+      return NextResponse.json(await sendSignedOutMail(user));
+    }
+
+    if (event === "capabilities_linked") {
+      const reported = Array.isArray(body.capabilities) ? body.capabilities : null;
+      if (!reported || reported.length > MAX_REPORTED_CAPABILITIES) {
+        return NextResponse.json({ error: "Invalid capabilities" }, { status: 400 });
+      }
+
+      const result = await sendCapabilityLinkedMail(user, reported.map(String), {
+        markCapabilitiesMailed: async (uid, capabilityIds) => {
+          // Re-read: this request may have raced another that also added ids,
+          // and writing a stale set would resend what the other already mailed.
+          const current = await auth.getUser(uid).catch(() => user);
+          const existing = (current.customClaims ?? {}) as Record<string, unknown>;
+          const merged = [
+            ...new Set([
+              ...(Array.isArray(existing[LINKED_MAIL_CLAIM])
+                ? (existing[LINKED_MAIL_CLAIM] as unknown[]).map(String)
+                : []),
+              ...capabilityIds,
+            ]),
+          ].sort();
+          await auth.setCustomUserClaims(uid, {
+            ...existing,
+            [LINKED_MAIL_CLAIM]: merged,
+          });
+        },
+      });
+      return NextResponse.json(result);
     }
 
     const phoneNumber = String(body.phoneNumber ?? "").trim();

@@ -24,8 +24,11 @@ import "server-only";
 
 import type { auth as adminAuth } from "firebase-admin";
 
+import { MAILABLE_CAPABILITY_IDS } from "@/lib/mail/account-activity-copy";
 import {
+  buildCapabilityLinkedMail,
   buildPhoneConflictMail,
+  buildSignedOutMail,
   buildWelcomeBackMail,
   buildWelcomeMail,
   type BuiltAuthMail,
@@ -37,7 +40,12 @@ const FIRST_SIGN_IN_TOLERANCE_MS = 60_000;
 
 export const WELCOME_MAIL_CLAIM = "hushhWelcomeMailAt";
 
-type AuthMailKind = "welcome" | "welcome_back" | "phone_conflict";
+type AuthMailKind =
+  | "welcome"
+  | "welcome_back"
+  | "phone_conflict"
+  | "signed_out"
+  | "capability_linked";
 
 export type AuthMailOutcome =
   | { status: "sent"; kind: AuthMailKind; messageId: string | null }
@@ -94,6 +102,140 @@ async function deliver(
 export interface SignInMailDeps {
   /** Marks the welcome mail as sent, durably. Failures must not resend. */
   markWelcomeSent: (uid: string, atEpochSeconds: number) => Promise<void>;
+}
+
+/**
+ * The end of a session. Keyed on the sign-in it closes, so one session produces
+ * exactly one sign-in mail and one sign-out mail however many times the client
+ * retries either.
+ */
+export async function sendSignedOutMail(user: UserRecord): Promise<AuthMailOutcome> {
+  const to = String(user.email ?? "").trim();
+  if (!to) return { status: "skipped", reason: "no_email" };
+
+  const sessionStamp = String(
+    (parseTime(user.metadata?.lastSignInTime) ?? new Date()).getTime(),
+  );
+
+  return deliver(
+    "signed_out",
+    to,
+    buildSignedOutMail({ displayName: user.displayName, signedOutAt: new Date() }),
+    `one-signout:${user.uid}:${sessionStamp}`,
+  );
+}
+
+export const LINKED_MAIL_CLAIM = "hushhLinkedMailed";
+
+/**
+ * Cap per request so a first report, or a burst of linking, cannot turn into a
+ * wall of mail. Anything over the cap is left unmarked and picked up by the
+ * next report rather than dropped.
+ */
+const LINKED_MAIL_MAX_PER_REQUEST = 3;
+
+export interface CapabilityLinkMailDeps {
+  /** Persists the full mailed-capability set, durably. */
+  markCapabilitiesMailed: (uid: string, capabilityIds: string[]) => Promise<void>;
+}
+
+export interface CapabilityLinkResult {
+  status: "sent" | "seeded" | "skipped" | "not_configured" | "failed";
+  mailed: string[];
+  reason?: string;
+}
+
+function readMailedCapabilities(user: UserRecord): string[] | null {
+  const raw = (user.customClaims as Record<string, unknown> | undefined)?.[
+    LINKED_MAIL_CLAIM
+  ];
+  if (!Array.isArray(raw)) return null;
+  return raw.map((entry) => String(entry)).filter(Boolean);
+}
+
+/**
+ * Mail the capabilities that have newly become connected.
+ *
+ * The client reports the whole connected set rather than firing an event per
+ * link. There are nine ways to connect something — Gmail OAuth return, Plaid
+ * return, a location grant, KYC, and so on — and hooking each one means the one
+ * that gets added next year is silently missed. Diffing a reported set against
+ * a durable record covers every path, including a link made on another device.
+ *
+ * The first report for an account **seeds without mailing**. Somebody who
+ * connected Gmail months ago should not receive "Gmail is connected" the first
+ * time this ships.
+ */
+export async function sendCapabilityLinkedMail(
+  user: UserRecord,
+  connectedCapabilityIds: string[],
+  deps: CapabilityLinkMailDeps,
+): Promise<CapabilityLinkResult> {
+  const to = String(user.email ?? "").trim();
+  if (!to) return { status: "skipped", mailed: [], reason: "no_email" };
+
+  const connected = [
+    ...new Set(
+      connectedCapabilityIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => MAILABLE_CAPABILITY_IDS.includes(id)),
+    ),
+  ].sort();
+
+  const alreadyMailed = readMailedCapabilities(user);
+
+  // No record yet: this account predates the feature (or is reporting for the
+  // first time). Record what is already connected and stay quiet.
+  if (alreadyMailed === null) {
+    await deps.markCapabilitiesMailed(user.uid, connected);
+    return { status: "seeded", mailed: [] };
+  }
+
+  const fresh = connected.filter((id) => !alreadyMailed.includes(id));
+  if (fresh.length === 0) return { status: "skipped", mailed: [], reason: "nothing_new" };
+
+  const batch = fresh.slice(0, LINKED_MAIL_MAX_PER_REQUEST);
+  const linkedAt = new Date();
+  const mailed: string[] = [];
+  let lastFailure = "";
+
+  for (const capabilityId of batch) {
+    const mail = buildCapabilityLinkedMail({
+      displayName: user.displayName,
+      capabilityId,
+      linkedAt,
+    });
+    if (!mail) continue;
+
+    const outcome = await deliver(
+      "capability_linked",
+      to,
+      mail,
+      `one-linked:${user.uid}:${capabilityId}`,
+    );
+    if (outcome.status === "sent") {
+      mailed.push(capabilityId);
+      continue;
+    }
+    if (outcome.status === "not_configured") {
+      return { status: "not_configured", mailed: [] };
+    }
+    lastFailure = outcome.status === "failed" ? outcome.reason : "";
+    // Stop on the first failure: the rest stay unmarked and are retried by the
+    // next report rather than being marked as mailed when they were not.
+    break;
+  }
+
+  // Record only what actually went out, so a failure retries instead of being
+  // silently swallowed.
+  if (mailed.length > 0) {
+    await deps.markCapabilitiesMailed(user.uid, [...alreadyMailed, ...mailed].sort());
+  }
+
+  if (mailed.length === 0) {
+    return { status: "failed", mailed: [], reason: lastFailure || "send_failed" };
+  }
+  return { status: "sent", mailed };
 }
 
 /**

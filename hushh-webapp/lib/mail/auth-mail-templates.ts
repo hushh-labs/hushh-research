@@ -14,6 +14,12 @@
  */
 
 import {
+  CAPABILITY_LINKED_COPY,
+  capabilityTitle,
+  PHONE_CONFLICT_COPY,
+  SIGNED_OUT_COPY,
+} from "@/lib/mail/account-activity-copy";
+import {
   buildEmailShell,
   ONE_APP_URL,
   type DetailRow,
@@ -127,19 +133,75 @@ export function buildPhoneConflictMail(context: PhoneConflictContext): BuiltAuth
   if (maskedEmail) details.push({ label: "Account", value: maskedEmail });
 
   return {
-    subject: "That number is on another account",
+    subject: PHONE_CONFLICT_COPY.subject,
     ...buildEmailShell({
       previewText: "The number you entered is verified on a different account.",
       eyebrow: "Account check",
-      heading: name ? `${name}, that number is taken.` : "That number is taken.",
+      heading: PHONE_CONFLICT_COPY.heading(name),
       paragraphs: [
         maskedEmail
-          ? "It is already verified on another Hussh account — often one you made earlier and forgot."
-          : "It is already verified on another Hussh account.",
+          ? PHONE_CONFLICT_COPY.withAccount
+          : PHONE_CONFLICT_COPY.withoutAccount,
       ],
       details,
-      cta: { label: "Sign in to that account", url: `${ONE_APP_URL}/login` },
-      footNote: "Didn't try this? Ignore this email — nothing changed.",
+      cta: { label: PHONE_CONFLICT_COPY.action, url: `${ONE_APP_URL}/login` },
+      footNote: PHONE_CONFLICT_COPY.footNote,
+    }),
+  };
+}
+
+export interface SignedOutContext extends AuthMailContext {
+  signedOutAt: Date;
+}
+
+/**
+ * The close of a session, and the other half of the sign-in mail: between them
+ * a person can see a session open and shut without opening the app.
+ */
+export function buildSignedOutMail(context: SignedOutContext): BuiltAuthMail {
+  const name = firstNameOf(context.displayName);
+  return {
+    subject: SIGNED_OUT_COPY.subject,
+    ...buildEmailShell({
+      previewText: "Your session on this device is closed.",
+      eyebrow: "Sign-out",
+      heading: SIGNED_OUT_COPY.heading(name),
+      paragraphs: [SIGNED_OUT_COPY.body],
+      details: [{ label: "Signed out", value: formatSignInMoment(context.signedOutAt) }],
+      cta: { label: SIGNED_OUT_COPY.action, url: `${ONE_APP_URL}/login` },
+      footNote: SIGNED_OUT_COPY.footNote,
+    }),
+  };
+}
+
+export interface CapabilityLinkedContext extends AuthMailContext {
+  /** Catalog id. Rejected unless it resolves to a known title. */
+  capabilityId: string;
+  linkedAt: Date;
+}
+
+/**
+ * A connection was made. Sent once per capability, ever — reconnecting the same
+ * one is not news, and mailing it every time would train people to ignore these.
+ */
+export function buildCapabilityLinkedMail(
+  context: CapabilityLinkedContext,
+): BuiltAuthMail | null {
+  const title = capabilityTitle(context.capabilityId);
+  // No title means the id is not in the catalog. Refuse rather than send a
+  // subject line built from a caller-supplied slug.
+  if (!title) return null;
+
+  return {
+    subject: CAPABILITY_LINKED_COPY.subject(title),
+    ...buildEmailShell({
+      previewText: CAPABILITY_LINKED_COPY.body(title),
+      eyebrow: "Connection",
+      heading: CAPABILITY_LINKED_COPY.heading(title),
+      paragraphs: [CAPABILITY_LINKED_COPY.body(title)],
+      details: [{ label: "Connected", value: formatSignInMoment(context.linkedAt) }],
+      cta: { label: CAPABILITY_LINKED_COPY.action, url: `${ONE_APP_URL}/one/profile` },
+      footNote: CAPABILITY_LINKED_COPY.footNote,
     }),
   };
 }

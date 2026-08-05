@@ -1751,8 +1751,13 @@ export class ApiService {
    * resolves against the Python backend — targets the web origin explicitly.
    */
   static async notifyAuthMail(
-    event: "signed_in" | "phone_conflict",
-    options?: { phoneNumber?: string; idToken?: string },
+    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    options?: {
+      phoneNumber?: string;
+      /** Full set of currently connected capability ids; the server diffs it. */
+      capabilities?: string[];
+      idToken?: string;
+    },
   ): Promise<boolean> {
     try {
       const idToken = options?.idToken || (await this.getFirebaseToken());
@@ -1765,6 +1770,7 @@ export class ApiService {
         body: JSON.stringify({
           event,
           ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
+          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
         }),
       });
       return response.ok;
