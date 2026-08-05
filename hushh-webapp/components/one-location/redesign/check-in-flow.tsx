@@ -37,8 +37,10 @@ import {
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
+import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
 import type { LocationHubViewModel } from "./location-redesign-hub";
+
 
 /** Check-in durations. "until_stop" maps to the maximum supported window. */
 const CHECK_IN_DURATIONS: { value: string; label: string }[] = [
@@ -383,22 +385,47 @@ export function CheckInFlow({
             );
           })}
           {circleSelection ? (
-            <p className="border-t border-black/[0.06] px-4 py-2.5 text-[12px] leading-5 text-muted-foreground dark:border-white/[0.08]">
-              Current ready members only. Future members are not added to this
-              check-in.
-              {circleSelection.excluded.filter(
-                (item) => item.reason !== "self",
-              ).length
-                ? ` ${
-                    circleSelection.excluded.filter(
-                      (item) => item.reason !== "self",
-                    ).length
-                  } not ready.`
-                : ""}
-            </p>
+            <>
+              <p className="border-t border-black/[0.06] px-4 py-2.5 text-[12px] leading-5 text-muted-foreground dark:border-white/[0.08]">
+                Current ready members only. Future members are not added to this
+                check-in.
+                {circleSelection.excluded.filter(
+                  (item) => item.reason !== "self",
+                ).length
+                  ? ` ${
+                      circleSelection.excluded.filter(
+                        (item) => item.reason !== "self",
+                      ).length
+                    } not ready.`
+                  : ""}
+              </p>
+              {/* Grow this Circle in-context: invite an existing connection or
+                  share the invite code, so a user can pull loved ones in right
+                  before they check in — especially when few members are ready. */}
+              <div className="border-t border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+                <CircleGrowActions
+                  circleId={circleSelection.circle.id}
+                  circleName={circleSelection.circle.name}
+                  busy={busy || Boolean(circleLoadingId)}
+                  canInvite={
+                    circleSelection.circle.viewerCapabilities
+                      ?.canInviteMembers ??
+                    circleSelection.circle.role === "owner"
+                  }
+                  onShareCode={vm.onShareNamedCircleCodeById}
+                  onLoadEligibleConnections={
+                    vm.onLoadNamedCircleEligibleConnections
+                  }
+                  onInviteConnections={vm.onInviteNamedCircleConnections}
+                  onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
+                  testId="check-in-circle-grow-actions"
+                />
+              </div>
+            </>
           ) : null}
         </div>
       ) : null}
+
       <div className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}>
         <Search className="h-3.5 w-3.5 shrink-0 text-black/35 dark:text-white/40" />
         <input

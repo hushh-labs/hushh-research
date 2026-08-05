@@ -194,6 +194,16 @@ owner/link metadata plus the attached public location snapshot.
   current phone-verified, recipient-key-ready members as individual SMS
   contacts. It never follows future membership automatically, and the user may
   remove any person independently.
+- Check-In and SMS contacts surface an in-context "grow this Circle" affordance
+  (shared `CircleGrowActions`) beside a selected/added Circle: "Invite people"
+  reuses the same targeted `one_location_circle_member_invites` acceptance flow,
+  and "Share code" reuses the member-visible 12-character code via the platform
+  share sheet. These are pure relationship-consent entry points — inviting or
+  sharing a code grants no location, SMS, or trusted-edge authority, and a new
+  member is never retroactively added to an in-flight check-in or SMS snapshot.
+  Members without invite capability still get "Share code" alone; owners/members
+  with view-but-uncached codes generate one on demand before sharing.
+
 - `connection_origins` records each independent direct, imported, legacy, or
   named-Circle source for a canonical connection. Leaving, removal, or Circle
   deletion revokes only the matching named-Circle origins and recomputes the

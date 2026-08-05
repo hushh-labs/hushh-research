@@ -248,6 +248,9 @@ export type LocationHubViewModel = {
     circle: OneLocationCircleDetail,
     code: string,
   ) => Promise<void>;
+  /** Share a Circle's invite code from a surface that only knows its id. */
+  onShareNamedCircleCodeById: (circleId: string) => Promise<void>;
+
   onRemoveNamedCircleMember: (
     circleId: string,
     memberUserId: string,
@@ -718,7 +721,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
+            onShareCircleCode={vm.onShareNamedCircleCodeById}
+            onLoadCircleEligibleConnections={
+              vm.onLoadNamedCircleEligibleConnections
+            }
+            onInviteCircleConnections={vm.onInviteNamedCircleConnections}
+            onCancelCircleMemberInvite={vm.onCancelNamedCircleMemberInvite}
           />
+
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}

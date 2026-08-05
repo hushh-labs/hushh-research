@@ -14,9 +14,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type {
+  OneLocationCircleEligibleConnections,
   OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
+import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
+
 
 const AVATAR_TONES = [
   "bg-[#2f80ed]",
@@ -38,7 +41,19 @@ type SmsContactsFlowProps = {
   recipientLabel: (recipient: OneLocationRecipient) => string;
   recipientSubtitle: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
+  // Grow-this-Circle handlers so a user can invite loved ones or share the
+  // invite code right where they add a Circle to SMS contacts.
+  onShareCircleCode: (circleId: string) => Promise<void>;
+  onLoadCircleEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onInviteCircleConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onCancelCircleMemberInvite: (inviteId: string) => Promise<void>;
 };
+
 
 function initials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean);
@@ -137,7 +152,12 @@ export function SmsContactsFlow({
   recipientLabel,
   recipientSubtitle,
   isRecipientShareReady,
+  onShareCircleCode,
+  onLoadCircleEligibleConnections,
+  onInviteCircleConnections,
+  onCancelCircleMemberInvite,
 }: SmsContactsFlowProps) {
+
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -235,8 +255,33 @@ export function SmsContactsFlow({
               This adds a snapshot of current ready members. Anyone who joins
               later is never added to SMS automatically.
             </p>
+            {/* Grow a Circle in-context: invite an existing connection or share
+                the invite code so loved ones can join before they become SMS
+                contacts. Membership never auto-adds anyone to SMS. */}
+            {circles.map((circle) => (
+              <div key={`grow-${circle.id}`} className="mt-3 px-1">
+                <p className="mb-1.5 text-[12px] font-semibold text-black/50">
+                  Grow {circle.name}
+                </p>
+                <CircleGrowActions
+                  circleId={circle.id}
+                  circleName={circle.name}
+                  busy={Boolean(busyKey)}
+                  canInvite={
+                    circle.viewerCapabilities?.canInviteMembers ??
+                    circle.role === "owner"
+                  }
+                  onShareCode={onShareCircleCode}
+                  onLoadEligibleConnections={onLoadCircleEligibleConnections}
+                  onInviteConnections={onInviteCircleConnections}
+                  onCancelMemberInvite={onCancelCircleMemberInvite}
+                  testId={`sms-circle-grow-actions-${circle.id}`}
+                />
+              </div>
+            ))}
           </>
         ) : null}
+
 
         <p className="mb-2 mt-6 px-1 text-[11px] font-bold uppercase tracking-[0.35px] text-black/40">
           Alerted on SMS

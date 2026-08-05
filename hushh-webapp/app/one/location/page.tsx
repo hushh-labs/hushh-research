@@ -54,7 +54,9 @@ import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-
 import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
   type ConnectionRequestResult,
+  type OnboardingCircleInvite,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import {
   addSavedLocation,
@@ -4735,6 +4737,128 @@ export function OneLocationAgentPageContent({
     [],
   );
 
+  // Onboarding (third screen, before the contact list): find-or-create the
+  // person's first owned Circle and return its active, member-visible invite
+  // code so a brand-new user can immediately copy/share a joinable code. Called
+  // by the onboarding flow when the Invite screen opens. Provisioning is quiet
+  // (no create/rotate toasts) since it runs implicitly during setup. The code is
+  // re-readable by active members and is never persisted in client storage/URLs.
+  const handlePrepareOnboardingCircleInvite =
+    useCallback(async (): Promise<OnboardingCircleInvite> => {
+      if (!vaultOwnerToken) {
+        throw new Error("Unlock One before preparing your circle code.");
+      }
+      const ownerName = String(
+        auth.user?.displayName || auth.user?.email || "",
+      ).trim();
+      const firstName = ownerName.split(/\s+/)[0] || "";
+      const defaultCircleName = firstName
+        ? `${firstName}'s Circle`
+        : "My Circle";
+
+      // Reuse the person's first owned Circle so re-entering onboarding never
+      // spawns duplicates; fall back to any membership, else create one.
+      let targetCircleId: string | null = null;
+      try {
+        const circles = await OneLocationService.listCircles(vaultOwnerToken);
+        targetCircleId =
+          circles.find((circle) => circle.role === "owner")?.id ??
+          circles[0]?.id ??
+          null;
+      } catch {
+        // A listing hiccup shouldn't block setup — fall through to create.
+        targetCircleId = null;
+      }
+
+      let circle: OneLocationCircleDetail;
+      if (targetCircleId) {
+        circle = await OneLocationService.getCircle({
+          vaultOwnerToken,
+          circleId: targetCircleId,
+        });
+      } else {
+        circle = await OneLocationService.createNamedCircle({
+          vaultOwnerToken,
+          name: defaultCircleName,
+          kind: "family",
+        });
+        scheduleNamedCircleStateRefresh();
+      }
+
+      let code = circle.activeInviteCode?.code ?? null;
+      if (!code) {
+        const generated = await OneLocationService.createNamedCircleInviteCode({
+          vaultOwnerToken,
+          circleId: circle.id,
+          rotate: false,
+        });
+        code = generated.code;
+      }
+      if (!code) {
+        throw new Error("Could not prepare an invite code for your circle.");
+      }
+
+      return { circleId: circle.id, circleName: circle.name, code };
+    }, [auth.user, scheduleNamedCircleStateRefresh, vaultOwnerToken]);
+
+  // Onboarding invite screen: reuse the same native/web share sheet copy the
+  // Circle detail screen uses, so the shared message is consistent everywhere.
+  const handleShareOnboardingCircleInvite = useCallback(
+    async (invite: OnboardingCircleInvite) => {
+      try {
+        const delivery = await shareNamedCircleCode({
+          title: `Join ${invite.circleName} on One`,
+          text: `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          dialogTitle: "Share Circle code",
+        });
+        if (delivery === "copied") toast.success("Circle code copied.");
+      } catch (error) {
+        if (isShareCancellationError(error)) return;
+        toast.error("Could not open the share sheet.");
+      }
+    },
+    [],
+  );
+
+  // Share a Circle's invite code from a surface that only knows the circle id
+
+  // (Check-In, SMS contacts, share composer). Loads the circle, reuses its
+  // active member-visible code, and — for members allowed to view/rotate a code
+  // when none is cached — generates one on demand before opening the share
+  // sheet. Never fabricates a code the viewer is not permitted to see.
+  const handleShareNamedCircleCodeById = useCallback(
+    async (circleId: string): Promise<void> => {
+      const circle = await handleLoadNamedCircle(circleId);
+      const capabilities = circle.viewerCapabilities;
+      const canViewInviteCode =
+        capabilities?.canViewInviteCode ?? circle.role === "owner";
+      const canRotateInviteCode =
+        capabilities?.canRotateInviteCode ?? circle.role === "owner";
+      if (!canViewInviteCode) {
+        throw new Error(
+          "Ask the Circle owner to share the invite code for this Circle.",
+        );
+      }
+      let code = circle.activeInviteCode?.code ?? null;
+      if (!code && canRotateInviteCode) {
+        const generated = await handleGenerateNamedCircleCode(circleId, false);
+        code = generated.code;
+      }
+      if (!code) {
+        throw new Error(
+          "This Circle has no invite code yet. Ask the owner to create one.",
+        );
+      }
+      await handleShareNamedCircleCode(circle, code);
+    },
+    [
+      handleGenerateNamedCircleCode,
+      handleLoadNamedCircle,
+      handleShareNamedCircleCode,
+    ],
+  );
+
+
   const handleRemoveNamedCircleMember = useCallback(
     async (circleId: string, memberUserId: string) => {
       if (!vaultOwnerToken) throw new Error("Unlock One before changing a Circle.");
@@ -6562,7 +6686,13 @@ export function OneLocationAgentPageContent({
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
+          onPrepareOnboardingCircleInvite={
+            handlePrepareOnboardingCircleInvite
+          }
+          onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
+          onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />
+
         <SaveLocationModal
           open={saveLocationModalOpen}
           address={saveLocationAddress}
@@ -6677,7 +6807,9 @@ export function OneLocationAgentPageContent({
     onGenerateNamedCircleCode: handleGenerateNamedCircleCode,
     onCopyNamedCircleCode: handleCopyNamedCircleCode,
     onShareNamedCircleCode: handleShareNamedCircleCode,
+    onShareNamedCircleCodeById: handleShareNamedCircleCodeById,
     onRemoveNamedCircleMember: handleRemoveNamedCircleMember,
+
     onLoadNamedCircleEligibleConnections:
       handleLoadNamedCircleEligibleConnections,
     onInviteNamedCircleConnections: handleInviteNamedCircleConnections,

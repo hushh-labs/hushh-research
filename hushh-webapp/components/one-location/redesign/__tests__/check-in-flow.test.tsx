@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
 
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import type { LocationHubViewModel } from "@/components/one-location/redesign/location-redesign-hub";
@@ -116,8 +123,17 @@ function buildViewModel(
     onResolveNamedCircleRecipients: vi
       .fn()
       .mockResolvedValue(familySelection),
+    onShareNamedCircleCodeById: vi.fn().mockResolvedValue(undefined),
+    onLoadNamedCircleEligibleConnections: vi.fn().mockResolvedValue({
+      eligibleConnections: [],
+      pendingInvites: [],
+      remainingCapacity: 0,
+    }),
+    onInviteNamedCircleConnections: vi.fn().mockResolvedValue(undefined),
+    onCancelNamedCircleMemberInvite: vi.fn().mockResolvedValue(undefined),
     onCheckIn: vi.fn(),
     onShowMyLocation: vi.fn(),
+
     recipientLabel: (recipient) => recipient.displayName,
     isRecipientShareReady: (recipient) =>
       Boolean(
@@ -168,4 +184,22 @@ describe("CheckInFlow Circle targeting", () => {
       "circle-family",
     );
   });
+
+  it("lets a user grow the selected Circle by sharing its invite code", async () => {
+    const onShareNamedCircleCodeById = vi.fn().mockResolvedValue(undefined);
+    const vm = buildViewModel({ onShareNamedCircleCodeById });
+
+    render(<CheckInFlow vm={vm} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Family/i }));
+    const grow = await screen.findByTestId("check-in-circle-grow-actions");
+    fireEvent.click(
+      within(grow).getByRole("button", { name: /Share code/i }),
+    );
+
+    await waitFor(() =>
+      expect(onShareNamedCircleCodeById).toHaveBeenCalledWith("circle-family"),
+    );
+  });
 });
+
