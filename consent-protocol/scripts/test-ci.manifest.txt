@@ -22,6 +22,7 @@ tests/test_kai_analyze_run_store.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_pkm_write_engine_seam.py
+tests/test_pkm_engine_conformance_postgres.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
