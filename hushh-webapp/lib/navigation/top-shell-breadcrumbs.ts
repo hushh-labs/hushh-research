@@ -713,12 +713,26 @@ function resolveTopShellBreadcrumbInner(
         searchParams?.get("source") === "nearby";
       const nearbyReturnToken =
         searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
+      // Preserve the originating hub tab so the single top-bar (and OS/hardware)
+      // back button returns the user to the tab the flow was opened FROM —
+      // "Create a new link" from Links returns to Links, "Invite trusted person"
+      // from People returns to People — instead of always dropping to the
+      // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
+      // when it appends `?action=`, so it is available here. SMS contacts is
+      // only ever reached from Settings, so it retraces to the Settings flow.
+      const hubView = String(searchParams?.get("view") || "").trim();
+      const hubBackHref =
+        action === "sms-contacts"
+          ? `${ROUTES.ONE_LOCATION}?action=settings`
+          : hubView
+            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
+            : ROUTES.ONE_LOCATION;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
             : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
-          : ROUTES.ONE_LOCATION,
+          : hubBackHref,
         width: "profile",
         align: "center",
         items: [
@@ -730,6 +744,7 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+
     return {
       backHref:
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
