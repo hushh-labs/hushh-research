@@ -541,6 +541,17 @@ jobs:
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
+          # The resolved scope, read from BOTH hops. `paths` decides it; `preflight-gate`
+          # re-exports it, and every lane's `if:` reads it from there. Printing both makes
+          # a value lost between the two visible, instead of it silently disabling every
+          # test lane while the gate still reports success.
+          SCOPE_FRONTEND="${{ needs.paths.outputs.frontend }}"
+          SCOPE_BACKEND="${{ needs.paths.outputs.backend }}"
+          GATE_FRONTEND="${{ needs['preflight-gate'].outputs.frontend }}"
+          GATE_BACKEND="${{ needs['preflight-gate'].outputs.backend }}"
+          printf 'scope(paths):          frontend=%s backend=%s\n' "$SCOPE_FRONTEND" "$SCOPE_BACKEND"
+          printf 'scope(preflight-gate): frontend=%s backend=%s\n' "$GATE_FRONTEND" "$GATE_BACKEND"
+
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
@@ -565,4 +576,48 @@ jobs:
             echo "One or more CI jobs failed."
             exit 1
           fi
-          echo "All required CI jobs passed or were intentionally skipped."
+
+          # Coverage, not merely outcomes.
+          #
+          # `skipped` counts as passing above, which is right for lanes that skip by
+          # EVENT (dco-check, pr-base-policy and main-freshness-gate exist only on
+          # pull_request). It is wrong for lanes that skip by SCOPE: a workflow_dispatch
+          # run resolved scope=all, then skipped protocol-check, mcp-package-check,
+          # web-core-check, web-targeted-check and integration-check -- every lane that
+          # runs a test -- and this gate reported "All required CI jobs passed."
+          #
+          # That is the same shape of lie as a secret scan bounded to zero commits: a
+          # control reporting success over an empty set. A lane may skip only when the
+          # resolved scope says it was not needed; if the scope asked for it and it did
+          # not run, the gate has nothing to attest and must say so.
+          missing=""
+          require_ran() {
+            if [ "$2" = "skipped" ]; then
+              missing="${missing} $1"
+            fi
+          }
+
+          if [ "$SCOPE_BACKEND" = "true" ]; then
+            require_ran "protocol-check" "$PROTOCOL"
+            require_ran "mcp-package-check" "$MCP_PACKAGE"
+          fi
+          if [ "$SCOPE_FRONTEND" = "true" ]; then
+            require_ran "web-core-check" "$WEB_CORE"
+            require_ran "web-targeted-check" "$WEB_TARGETED"
+          fi
+          if [ "$SCOPE_BACKEND" = "true" ] || [ "$SCOPE_FRONTEND" = "true" ]; then
+            require_ran "integration-check" "$INTEGRATION"
+          fi
+
+          if [ -n "$missing" ]; then
+            echo "CI Status Gate FAILED: the resolved scope required lane(s) that never ran:${missing}"
+            echo "  scope(paths):          frontend=${SCOPE_FRONTEND} backend=${SCOPE_BACKEND}"
+            echo "  scope(preflight-gate): frontend=${GATE_FRONTEND} backend=${GATE_BACKEND}"
+            echo "  If the two scope lines disagree, the lane conditions read the second one"
+            echo "  and the value was lost between the jobs. Fix the wiring -- do not relax"
+            echo "  this check: green here would attest that the suite passed when the suite"
+            echo "  never ran."
+            exit 1
+          fi
+
+          echo "All required CI jobs passed, and every lane the scope asked for actually ran."
