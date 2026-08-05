@@ -66,6 +66,96 @@ class GcpRunClient:
         r.raise_for_status()
         return dict(r.json())
 
+    @staticmethod
+    def merge_for_replace(
+        current: dict[str, Any],
+        desired: dict[str, Any],
+        *,
+        revision_nonce: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Build the PUT body for an in-place replace. Pure -- no I/O, so it is tested.
+
+        Three things have to be true at once and none of them are automatic:
+
+        1. **System-managed metadata survives.** The live object carries fields the
+           caller's rendered config has never heard of (``uid``, ``creationTimestamp``,
+           ``serving.knative.dev/creator``, operation ids). ``replaceService`` only
+           permits ``spec`` plus metadata labels/annotations to change, so the body is
+           built by overlaying the desired spec onto the LIVE object rather than
+           posting the rendered config as if it were whole.
+
+        2. **``resourceVersion`` is carried forward.** That is what makes the PUT an
+           optimistic-concurrency update: if anything else wrote to the service since
+           the read, the API rejects this instead of silently clobbering it.
+
+        3. **The revision template genuinely differs.** Cloud Run mints a new revision
+           only when the template changes. A heal that replays the identical template
+           is accepted, changes nothing, and restarts NOTHING -- the container keeps
+           running with whatever broke it, while the caller logs a successful heal.
+           ``revision_nonce`` stamps the template so the new revision is real, and it
+           doubles as a durable record of when this pod was last healed.
+        """
+        merged = dict(current)
+        merged["spec"] = desired.get("spec") or {}
+
+        current_meta = dict(current.get("metadata") or {})
+        desired_meta = dict(desired.get("metadata") or {})
+        # Labels and annotations are the only metadata the API lets us modify; take
+        # the desired values but keep any the live object has that we do not render,
+        # so a replace never strips a field someone else set.
+        for key in ("labels", "annotations"):
+            if desired_meta.get(key):
+                current_meta[key] = {**(current_meta.get(key) or {}), **desired_meta[key]}
+        merged["metadata"] = current_meta
+
+        if revision_nonce:
+            template = dict(merged["spec"].get("template") or {})
+            template_meta = dict(template.get("metadata") or {})
+            template_meta["annotations"] = {
+                **(template_meta.get("annotations") or {}),
+                "hussh/restart-nonce": revision_nonce,
+            }
+            template["metadata"] = template_meta
+            merged["spec"] = {**merged["spec"], "template": template}
+
+        # `status` is server-owned; sending a stale copy back is at best ignored and
+        # at worst rejected.
+        merged.pop("status", None)
+        return merged
+
+    def replace_service(
+        self,
+        name: str,
+        body: dict[str, Any],
+        *,
+        revision_nonce: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Replace a live service in place (PUT), rolling it onto a fresh revision.
+
+        This is the RESTART primitive, and it is deliberately not ``delete`` +
+        ``create``. Deleting a Cloud Run service drops its URL, and the hub has that
+        URL recorded; a restart that changes the address is not a restart, it is a
+        migration the owner never asked for. A PUT keeps the service, its name, and
+        its URL, and swaps only the revision underneath.
+
+        Raises if the service does not exist. A replace is not a create -- conflating
+        the two is how "restart my agent" quietly becomes "provision a new one",
+        which is a different act with different consequences for the caller.
+        """
+        import requests  # type: ignore[import-untyped]
+
+        current = self.get_service(name)
+        if current is None:
+            raise RuntimeError(f"cannot replace {name}: no such Cloud Run service")
+
+        merged = self.merge_for_replace(current, body, revision_nonce=revision_nonce)
+        r = requests.put(
+            f"{self._base}/services/{name}", headers=self._headers(), json=merged, timeout=60
+        )
+        r.raise_for_status()
+        logger.info("gcp_run.replaced name=%s nonce_present=%s", name, bool(revision_nonce))
+        return dict(r.json())
+
     def get_service(self, name: str) -> Optional[dict[str, Any]]:
         import requests  # type: ignore[import-untyped]
 
