@@ -35,4 +35,16 @@ regexes = [
   # apps/one-mac/docs/threat-model.md.
   '''ai\.hushh\.one\.consent\.wrapping\.v1''',
   '''ai\.hushh\.one\.consent\.data-key\.v1''',
+  # The NAME of the env var that carries the consent signing key, not the key.
+  # `generic-api-key` fires on `PRIVATE_KEY_ENV = "CONSENT_ED25519_PRIVATE_KEY"`
+  # (hushh_mcp/consent/token_signing.py) because the constant reads like a secret
+  # and the literal clears the entropy bar at 4.06. The name is public by
+  # necessity — it appears in deploy configs, runbooks and the backend parity
+  # test — so the finding can never be anything but noise.
+  #
+  # Anchored on purpose, and matched against the SECRET rather than the file. A
+  # path allowlist would blind the scanner to a real key landing in that same
+  # file; this exempts one exact string and nothing else, so an actual Ed25519
+  # key assigned to that variable still trips the rule.
+  '''^CONSENT_ED25519_PRIVATE_KEY$''',
 ]
