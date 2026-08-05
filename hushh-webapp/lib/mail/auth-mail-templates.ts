@@ -15,11 +15,10 @@
 
 import {
   buildEmailShell,
+  ONE_APP_URL,
   type DetailRow,
   type RenderedEmail,
 } from "@/lib/mail/email-shell";
-// The same masking the phone screen shows, so the mail and the screen agree.
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 
 export type AuthMailEvent = "welcome" | "welcome_back" | "phone_conflict";
 
@@ -68,8 +67,6 @@ export function formatSignInMoment(at: Date): string {
 }
 
 export interface AuthMailContext {
-  /** Origin of the app the mail links back to, e.g. https://one.hushh.ai */
-  appUrl: string;
   displayName?: string | null;
 }
 
@@ -82,7 +79,7 @@ export function buildWelcomeMail(context: AuthMailContext): BuiltAuthMail {
       eyebrow: "Welcome",
       heading: name ? `${name}, you're in.` : "You're in.",
       paragraphs: ["One is your private agent. Your data stays yours."],
-      cta: { label: "Open One", url: context.appUrl },
+      cta: { label: "Open One", url: ONE_APP_URL },
       footNote: "You received this because a Hussh account was just created with this address.",
     }),
   };
@@ -102,28 +99,31 @@ export function buildWelcomeBackMail(context: WelcomeBackContext): BuiltAuthMail
       heading: name ? `Welcome back, ${name}.` : "Welcome back.",
       paragraphs: ["Good to see you again."],
       details: [{ label: "Signed in", value: formatSignInMoment(context.signedInAt) }],
-      cta: { label: "Open One", url: context.appUrl },
+      cta: { label: "Open One", url: ONE_APP_URL },
       footNote: "Not you? Reply to this email and we will secure the account.",
     }),
   };
 }
 
 export interface PhoneConflictContext extends AuthMailContext {
-  /** The number that was entered, in E.164. Masked before it is rendered. */
+  /**
+   * The number that was entered, in E.164. Shown in full: the recipient typed
+   * it a moment ago on their own screen, so masking it hides nothing from them
+   * and only makes the mail harder to act on. The account that holds it is a
+   * different matter and stays masked.
+   */
   attemptedPhoneNumber: string;
   /** Address on the account that already holds the number. Masked before use. */
   linkedAccountEmail?: string | null;
-  /** Where the person signs in to the other account. */
-  signInUrl: string;
 }
 
 export function buildPhoneConflictMail(context: PhoneConflictContext): BuiltAuthMail {
   const name = firstNameOf(context.displayName);
-  const maskedPhone = maskPhoneNumber(context.attemptedPhoneNumber);
+  const phoneNumber = String(context.attemptedPhoneNumber ?? "").trim();
   const maskedEmail = maskEmail(context.linkedAccountEmail);
 
   const details: DetailRow[] = [];
-  if (maskedPhone) details.push({ label: "Number", value: maskedPhone });
+  if (phoneNumber) details.push({ label: "Number", value: phoneNumber });
   if (maskedEmail) details.push({ label: "Account", value: maskedEmail });
 
   return {
@@ -138,7 +138,7 @@ export function buildPhoneConflictMail(context: PhoneConflictContext): BuiltAuth
           : "It is already verified on another Hussh account.",
       ],
       details,
-      cta: { label: "Sign in to that account", url: context.signInUrl },
+      cta: { label: "Sign in to that account", url: `${ONE_APP_URL}/login` },
       footNote: "Didn't try this? Ignore this email — nothing changed.",
     }),
   };

@@ -101,7 +101,6 @@ export interface SignInMailDeps {
  */
 export async function sendSignInMail(
   user: UserRecord,
-  context: { appUrl: string },
   deps: SignInMailDeps,
 ): Promise<AuthMailOutcome> {
   const to = String(user.email ?? "").trim();
@@ -124,7 +123,7 @@ export async function sendSignInMail(
     const outcome = await deliver(
       "welcome",
       to,
-      buildWelcomeMail({ appUrl: context.appUrl, displayName: user.displayName }),
+      buildWelcomeMail({ displayName: user.displayName }),
       `one-welcome:${user.uid}`,
     );
     if (outcome.status === "sent") {
@@ -146,7 +145,6 @@ export async function sendSignInMail(
     "welcome_back",
     to,
     buildWelcomeBackMail({
-      appUrl: context.appUrl,
       displayName: user.displayName,
       signedInAt,
     }),
@@ -164,7 +162,6 @@ export async function sendSignInMail(
 export async function sendPhoneConflictMail(
   user: UserRecord,
   context: {
-    appUrl: string;
     attemptedPhoneNumber: string;
     linkedAccountEmail: string | null;
   },
@@ -179,11 +176,9 @@ export async function sendPhoneConflictMail(
     "phone_conflict",
     to,
     buildPhoneConflictMail({
-      appUrl: context.appUrl,
       displayName: user.displayName,
       attemptedPhoneNumber: context.attemptedPhoneNumber,
       linkedAccountEmail: context.linkedAccountEmail,
-      signInUrl: `${context.appUrl}/login`,
     }),
     // One mail per person per number: a repeated attempt on the same number is
     // the same fact, and re-sending it would be noise.

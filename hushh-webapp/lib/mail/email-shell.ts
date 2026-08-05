@@ -31,10 +31,20 @@ export const PALETTE = {
   faint: "#9ca3af",
 } as const;
 
+/**
+ * Every link in an auth mail points at the product, never at the origin that
+ * happened to send it. A UAT deploy mails real inboxes, and "Open One" landing
+ * on uat.one.hushh.ai is a dead end for the person who receives it.
+ */
+export const ONE_APP_URL = "https://one.hushh.ai";
+
 export const BRAND = {
-  name: "Hussh",
-  logoUrl: "https://www.hushhtech.com/images/hushh-logo-email.png",
-  siteUrl: "https://hushh.ai/",
+  name: "One",
+  // The app's own icon — the same mark as the browser tab and the home screen.
+  // A PNG because Gmail and Outlook do not render SVG, and served from the
+  // product origin so it resolves for every recipient.
+  logoUrl: `${ONE_APP_URL}/quiet-emoji-icon.png`,
+  siteUrl: ONE_APP_URL,
   supportEmail: "support@hushh.ai",
   address: "HushOne, Inc.",
 } as const;
@@ -194,10 +204,22 @@ ${preheader(previewText || heading)}
 
             <tr>
               <td align="left" style="padding:0 0 20px;">
-                <a href="${escapeHtml(siteUrl)}" style="text-decoration:none;">
-                  <img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(BRAND.name)}" width="112" height="32"
-                       style="display:block;border:0;outline:none;height:32px;width:auto;max-width:160px;" />
-                </a>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="padding:0 10px 0 0;line-height:0;">
+                      <a href="${escapeHtml(siteUrl)}" style="text-decoration:none;">
+                        <img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(BRAND.name)}" width="36" height="36"
+                             style="display:block;border:0;outline:none;width:36px;height:36px;border-radius:9px;" />
+                      </a>
+                    </td>
+                    <td style="vertical-align:middle;">
+                      <a href="${escapeHtml(siteUrl)}"
+                         style="font-family:${FONT_STACK};font-size:19px;font-weight:700;letter-spacing:-0.01em;color:${PALETTE.ink};text-decoration:none;">
+                        ${escapeHtml(BRAND.name)}
+                      </a>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
 

@@ -7,7 +7,7 @@ vi.mock("@/lib/mail/mail-client", () => ({
 }));
 
 const MODULE_PATH = "@/lib/mail/auth-mail-service";
-const APP_URL = "https://uat.one.hushh.ai";
+const APP_URL = "https://one.hushh.ai";
 
 type FakeUser = {
   uid: string;
@@ -54,7 +54,7 @@ describe("sign-in mail", () => {
     const { sendSignInMail } = await loadService();
     const markWelcomeSent = vi.fn().mockResolvedValue(undefined);
 
-    const outcome = await sendSignInMail(asRecord(makeUser()), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(makeUser()), {
       markWelcomeSent,
     });
 
@@ -73,7 +73,7 @@ describe("sign-in mail", () => {
     const { sendSignInMail } = await loadService();
     const markWelcomeSent = vi.fn();
 
-    const outcome = await sendSignInMail(asRecord(makeUser()), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(makeUser()), {
       markWelcomeSent,
     });
 
@@ -86,7 +86,7 @@ describe("sign-in mail", () => {
     const markWelcomeSent = vi.fn().mockRejectedValue(new Error("claims unavailable"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const outcome = await sendSignInMail(asRecord(makeUser()), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(makeUser()), {
       markWelcomeSent,
     });
 
@@ -101,7 +101,7 @@ describe("sign-in mail", () => {
     const { sendSignInMail, WELCOME_MAIL_CLAIM } = await loadService();
     const user = makeUser({ customClaims: { [WELCOME_MAIL_CLAIM]: 1_754_000_000 } });
 
-    const outcome = await sendSignInMail(asRecord(user), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(user), {
       markWelcomeSent: vi.fn(),
     });
 
@@ -118,7 +118,7 @@ describe("sign-in mail", () => {
       },
     });
 
-    const outcome = await sendSignInMail(asRecord(user), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(user), {
       markWelcomeSent: vi.fn(),
     });
 
@@ -134,7 +134,7 @@ describe("sign-in mail", () => {
   it("skips an account with no email rather than failing", async () => {
     const { sendSignInMail } = await loadService();
 
-    const outcome = await sendSignInMail(asRecord(makeUser({ email: null })), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(makeUser({ email: null })), {
       markWelcomeSent: vi.fn(),
     });
 
@@ -146,7 +146,7 @@ describe("sign-in mail", () => {
     sendMail.mockResolvedValue({ status: "not_configured" });
     const { sendSignInMail } = await loadService();
 
-    const outcome = await sendSignInMail(asRecord(makeUser()), { appUrl: APP_URL }, {
+    const outcome = await sendSignInMail(asRecord(makeUser()), {
       markWelcomeSent: vi.fn(),
     });
 
@@ -191,7 +191,6 @@ describe("phone conflict mail", () => {
     const { sendPhoneConflictMail } = await loadService();
 
     const outcome = await sendPhoneConflictMail(asRecord(makeUser()), {
-      appUrl: APP_URL,
       attemptedPhoneNumber: "+919876543210",
       linkedAccountEmail: "ankit.old@gmail.com",
     });
@@ -208,7 +207,6 @@ describe("phone conflict mail", () => {
     const { sendPhoneConflictMail } = await loadService();
 
     const outcome = await sendPhoneConflictMail(asRecord(makeUser()), {
-      appUrl: APP_URL,
       attemptedPhoneNumber: "+12",
       linkedAccountEmail: null,
     });

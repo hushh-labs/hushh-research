@@ -10,7 +10,7 @@ import {
   maskEmail,
 } from "@/lib/mail/auth-mail-templates";
 
-const APP_URL = "https://uat.one.hushh.ai";
+const APP_URL = "https://one.hushh.ai";
 
 describe("email shell primitives", () => {
   it("escapes markup so caller data cannot inject HTML", () => {
@@ -28,7 +28,7 @@ describe("email shell primitives", () => {
   });
 
   it("uses the vendor font stack and never a webfont", () => {
-    const { html } = buildWelcomeMail({ appUrl: APP_URL, displayName: "Ankit" });
+    const { html } = buildWelcomeMail({ displayName: "Ankit" });
     expect(html).toContain(FONT_STACK);
     expect(html).not.toContain("fonts.googleapis.com");
     expect(html).not.toContain("@font-face");
@@ -62,7 +62,7 @@ describe("masking", () => {
 
 describe("welcome mail", () => {
   it("greets by first name and offers one action", () => {
-    const mail = buildWelcomeMail({ appUrl: APP_URL, displayName: "Ankit Kumar Singh" });
+    const mail = buildWelcomeMail({ displayName: "Ankit Kumar Singh" });
     expect(mail.subject).toBe("Welcome to One");
     expect(mail.html).toContain("Ankit, you&#39;re in.");
     expect(mail.html).toContain(`href="${APP_URL}/"`);
@@ -71,7 +71,7 @@ describe("welcome mail", () => {
   });
 
   it("falls back to a neutral greeting without a name", () => {
-    const mail = buildWelcomeMail({ appUrl: APP_URL, displayName: null });
+    const mail = buildWelcomeMail({ displayName: null });
     expect(mail.html).toContain("You&#39;re in.");
     expect(mail.text).toContain("You're in.");
   });
@@ -80,7 +80,6 @@ describe("welcome mail", () => {
 describe("welcome back mail", () => {
   it("states when the sign-in happened", () => {
     const mail = buildWelcomeBackMail({
-      appUrl: APP_URL,
       displayName: "Ankit",
       signedInAt: new Date("2026-08-05T09:12:00Z"),
     });
@@ -92,45 +91,62 @@ describe("welcome back mail", () => {
 });
 
 describe("phone conflict mail", () => {
-  it("names the other account only as a masked address", () => {
+  it("shows the number in full and the other account only masked", () => {
     const mail = buildPhoneConflictMail({
-      appUrl: APP_URL,
       displayName: "Ankit",
       attemptedPhoneNumber: "+919876543210",
       linkedAccountEmail: "ankit.old@gmail.com",
-      signInUrl: `${APP_URL}/login`,
     });
     expect(mail.subject).toBe("That number is on another account");
-    expect(mail.html).toContain("an•••@gmail.com");
-    expect(mail.html).not.toContain("ankit.old@gmail.com");
-    // The full number never appears, even though the recipient typed it.
-    expect(mail.html).not.toContain("9876543210");
-    expect(mail.text).toContain("Number: 919876 •• •• 3210");
+    // The recipient typed this number a moment ago, so masking it would hide
+    // nothing from them and only make the mail harder to act on.
+    expect(mail.text).toContain("Number: +919876543210");
+    expect(mail.html).toContain("+919876543210");
+    // The other account is somebody else's, and stays a hint.
     expect(mail.text).toContain("Account: an•••@gmail.com");
+    expect(mail.html).not.toContain("ankit.old@gmail.com");
     expect(mail.html).toContain(`href="${APP_URL}/login"`);
   });
 
-  it("omits the account row when the owning account cannot be resolved", () => {
+  it("omits the account row for a phone-only owner with no address to show", () => {
     const mail = buildPhoneConflictMail({
-      appUrl: APP_URL,
       displayName: null,
       attemptedPhoneNumber: "+919876543210",
       linkedAccountEmail: null,
-      signInUrl: `${APP_URL}/login`,
     });
     expect(mail.text).not.toContain("Account:");
-    expect(mail.text).toContain("Number: 919876 •• •• 3210");
+    expect(mail.text).toContain("Number: +919876543210");
   });
+});
 
-  it("refuses a javascript: sign-in URL rather than rendering it", () => {
-    const mail = buildPhoneConflictMail({
-      appUrl: APP_URL,
-      displayName: null,
+describe("every link points at the product", () => {
+  // The regression this guards: a UAT deploy mails real inboxes, and a link
+  // built from the sending origin lands them on uat.one.hushh.ai.
+  const mails = [
+    buildWelcomeMail({ displayName: "Ankit" }),
+    buildWelcomeBackMail({ displayName: "Ankit", signedInAt: new Date("2026-08-05T09:12:00Z") }),
+    buildPhoneConflictMail({
+      displayName: "Ankit",
       attemptedPhoneNumber: "+919876543210",
-      linkedAccountEmail: null,
-      signInUrl: "javascript:alert(1)",
-    });
-    expect(mail.html).not.toContain("javascript:");
-    expect(mail.html).not.toContain("Sign in to that account");
+      linkedAccountEmail: "ankit.old@gmail.com",
+    }),
+  ];
+
+  it.each(mails.map((mail, index) => [index, mail] as const))(
+    "mail %i links only to one.hushh.ai",
+    (_index, mail) => {
+      const hrefs = [...mail.html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+      expect(hrefs.length).toBeGreaterThan(0);
+      for (const href of hrefs) {
+        expect(href.startsWith("https://one.hushh.ai") || href.startsWith("mailto:")).toBe(true);
+      }
+      expect(mail.html).not.toContain("uat.");
+      expect(mail.text).not.toContain("uat.");
+    },
+  );
+
+  it("loads the One app icon, not another product's logo", () => {
+    expect(mails[0].html).toContain('src="https://one.hushh.ai/quiet-emoji-icon.png"');
+    expect(mails[0].html).not.toContain("hushhtech.com");
   });
 });

@@ -23,7 +23,6 @@ import {
   sendSignInMail,
   WELCOME_MAIL_CLAIM,
 } from "@/lib/mail/auth-mail-service";
-import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -95,8 +94,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unsupported event" }, { status: 400 });
   }
 
-  const appUrl = resolveRuntimeFrontendUrl() || new URL(request.url).origin;
-
   try {
     const { auth } = await import("@/lib/firebase/admin");
     const user = await auth.getUser(identity.userId);
@@ -107,7 +104,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "skipped", reason: "duplicate_request" });
       }
 
-      const outcome = await sendSignInMail(user, { appUrl }, {
+      const outcome = await sendSignInMail(user, {
         markWelcomeSent: async (uid, atEpochSeconds) => {
           // Merge: replacing the claim set would drop anything another feature
           // adds later.
@@ -144,7 +141,6 @@ export async function POST(request: NextRequest) {
     }
 
     const outcome = await sendPhoneConflictMail(user, {
-      appUrl,
       attemptedPhoneNumber: phoneNumber,
       linkedAccountEmail: owner.email ?? null,
     });

@@ -166,7 +166,7 @@ describe("POST /api/auth/mail", () => {
       customClaims: { somethingElse: true },
       metadata: { creationTime: "", lastSignInTime: "Wed, 05 Aug 2026 09:12:00 GMT" },
     });
-    sendSignInMail.mockImplementation(async (_user, _ctx, deps) => {
+    sendSignInMail.mockImplementation(async (_user, deps) => {
       await deps.markWelcomeSent("uid-1", 1_754_000_000);
       return { status: "sent", kind: "welcome", messageId: "<a>" };
     });
