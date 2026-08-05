@@ -69,6 +69,15 @@ _AGENCY_STREAM = _ndjson(
                 "products": ["Auto", "Commercial", "Farm", "Home"],
                 "agencyType": "Standard Independent",
                 "tier": None,
+                "hours": {
+                    "additionalText": "",
+                    "days": [
+                        {"day": "MONDAY", "intervals": [{"start": 900, "end": 1700}]},
+                        {"day": "TUESDAY", "intervals": [{"start": 900, "end": 1700}]},
+                        {"day": "SATURDAY", "intervals": []},
+                    ],
+                    "reopenDate": "",
+                },
                 "distanceMiles": 0.22,
             }
         ],
@@ -252,3 +261,39 @@ async def test_truncated_paging_is_reported_rather_than_promised(monkeypatch):
         "state": "WA",
         "zip": "98033",
     }
+
+
+@pytest.mark.asyncio
+async def test_posted_hours_are_carried_through(monkeypatch):
+    service = _service(
+        monkeypatch,
+        lambda request: httpx.Response(200, content=_AGENCY_STREAM),
+    )
+    card = (await service.search(postal_code="98033"))["items"][0]
+
+    assert card["hours"]["days"][0] == {
+        "day": "MONDAY",
+        "intervals": [{"start": 900, "end": 1700}],
+    }
+    # A day with no intervals is a real answer — closed — so it is kept, not dropped.
+    assert {"day": "SATURDAY", "intervals": []} in card["hours"]["days"]
+
+
+def test_an_agency_that_posts_nothing_gets_no_hours_block():
+    """About nine in ten post nothing; an empty block would render a bare heading."""
+    assert iads._normalize_hours({"additionalText": "", "days": [], "reopenDate": ""}) is None
+    assert iads._normalize_hours(None) is None
+
+
+def test_a_note_without_a_schedule_still_survives():
+    block = iads._normalize_hours(
+        {"additionalText": "Existing customers: call 1-800-282-1446", "days": []}
+    )
+    assert block == {"days": [], "note": "Existing customers: call 1-800-282-1446"}
+
+
+def test_a_junk_day_name_is_dropped_rather_than_rendered():
+    block = iads._normalize_hours(
+        {"days": [{"day": "FUNDAY", "intervals": [{"start": 900, "end": 1700}]}]}
+    )
+    assert block is None

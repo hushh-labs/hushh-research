@@ -369,6 +369,51 @@ def _normalize_address(address: Any) -> dict[str, Any] | None:
     return block if any(block.values()) else None
 
 
+_WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
+
+
+def _normalize_hours(hours: Any) -> dict[str, Any] | None:
+    """Opening hours, kept as posted rather than judged against a clock.
+
+    The locator gives times as bare HHMM integers with no timezone, and the
+    reader is routinely in a different one — this app is used from India against
+    US agencies. So no "open now" is derived anywhere: that would need the
+    agency's timezone, which is not in the payload, and a wrong answer here
+    sends someone to call a closed office.
+
+    About one agency in ten posts anything at all, so the whole block is dropped
+    when empty rather than rendering an "Hours" heading with nothing under it.
+    """
+    if not isinstance(hours, dict):
+        return None
+
+    days: list[dict[str, Any]] = []
+    for entry in hours.get("days") if isinstance(hours.get("days"), list) else []:
+        if not isinstance(entry, dict):
+            continue
+        day = _text(entry.get("day"))
+        if not day or day.upper() not in _WEEKDAYS:
+            continue
+        intervals = [
+            {"start": start, "end": end}
+            for start, end in (
+                (_coerce_int(i.get("start")), _coerce_int(i.get("end")))
+                for i in (
+                    entry.get("intervals") if isinstance(entry.get("intervals"), list) else []
+                )
+                if isinstance(i, dict)
+            )
+            if start is not None and end is not None
+        ]
+        # A day with no intervals is a real answer — "closed" — so it is kept.
+        days.append({"day": day.upper(), "intervals": intervals})
+
+    note = _text(hours.get("additionalText"))
+    if not days and not note:
+        return None
+    return {"days": days, "note": note}
+
+
 def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     """Flatten one locator row onto the card shape the app renders."""
     distance_miles = _coerce_float(row.get("distanceMiles"))
@@ -395,6 +440,7 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
         "products": products,
         "agencyType": _text(row.get("agencyType")),
         "tier": _text(row.get("tier")),
+        "hours": _normalize_hours(row.get("hours")),
         "distanceMiles": distance_miles,
         "address": address,
         "city": address.get("city") if address else None,

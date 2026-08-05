@@ -4,6 +4,7 @@ import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   agencyStatusLabel,
+  formatAgentHours,
   type InsuranceAgentCard,
 } from "@/lib/services/insurance-agent-directory-service";
 
@@ -37,6 +38,8 @@ export function InsuranceAgentDetailSurface({
       .join(", ") ??
     null;
 
+  const hours = formatAgentHours(card);
+
   return (
     <AdaptiveDetailSurface
       open={open}
@@ -68,6 +71,11 @@ export function InsuranceAgentDetailSurface({
 
         {address ? (
           <p className="type-callout text-muted-foreground">{address}</p>
+        ) : null}
+
+        {hours ? (
+          // Posted hours, not an open/closed verdict — see formatAgentHours.
+          <p className="type-callout text-muted-foreground">{hours}</p>
         ) : null}
 
         {card.website ? (

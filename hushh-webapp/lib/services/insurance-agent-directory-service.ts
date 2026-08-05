@@ -20,6 +20,11 @@ export type InsuranceAgentAddress = {
   formatted: string | null;
 };
 
+export type InsuranceAgentHours = {
+  days: { day: string; intervals: { start: number; end: number }[] }[];
+  note: string | null;
+};
+
 export type InsuranceAgentCard = {
   id: string;
   name: string | null;
@@ -29,6 +34,7 @@ export type InsuranceAgentCard = {
   products: string[];
   agencyType: string | null;
   tier: string | null;
+  hours: InsuranceAgentHours | null;
   distanceMiles: number | null;
   address: InsuranceAgentAddress | null;
   city: string | null;
@@ -174,6 +180,70 @@ export function formatAgentSubtitle(card: InsuranceAgentCard): string | null {
   if (products.length) return products.join(" · ");
   // No products listed: fall back to where it is, so the row is never bare.
   return card.city ?? null;
+}
+
+const DAY_LABELS: Record<string, string> = {
+  MONDAY: "Mon",
+  TUESDAY: "Tue",
+  WEDNESDAY: "Wed",
+  THURSDAY: "Thu",
+  FRIDAY: "Fri",
+  SATURDAY: "Sat",
+  SUNDAY: "Sun",
+};
+const DAY_ORDER = Object.keys(DAY_LABELS);
+
+/** 800 -> "8am", 1730 -> "5:30pm". Bare HHMM is how the locator posts them. */
+function formatClock(value: number): string {
+  const hour24 = Math.floor(value / 100);
+  const minute = value % 100;
+  const suffix = hour24 >= 12 ? "pm" : "am";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return minute ? `${hour12}:${String(minute).padStart(2, "0")}${suffix}` : `${hour12}${suffix}`;
+}
+
+/**
+ * "Mon–Fri 9am–5pm" — the hours exactly as the agency posted them.
+ *
+ * Deliberately NOT "open now". The locator sends bare HHMM with no timezone,
+ * and this app is read from India against US agencies, so any open/closed
+ * verdict computed from the reader's clock would be wrong by half a day — and
+ * a wrong one sends someone to call a closed office.
+ *
+ * Consecutive days sharing the same interval collapse into a range, because the
+ * alternative is a seven-line table on a surface whose job is one phone call.
+ */
+export function formatAgentHours(
+  card: InsuranceAgentCard,
+): string | null {
+  const days = card.hours?.days ?? [];
+  const open = DAY_ORDER.map((day) => {
+    const entry = days.find((d) => d.day === day);
+    const interval = entry?.intervals[0];
+    return interval ? { day, label: `${formatClock(interval.start)}–${formatClock(interval.end)}` } : null;
+  });
+
+  const groups: { from: string; to: string; label: string }[] = [];
+  for (const slot of open) {
+    if (!slot) continue;
+    const last = groups[groups.length - 1];
+    const contiguous =
+      last &&
+      last.label === slot.label &&
+      DAY_ORDER.indexOf(slot.day) === DAY_ORDER.indexOf(last.to) + 1;
+    if (contiguous) last.to = slot.day;
+    else groups.push({ from: slot.day, to: slot.day, label: slot.label });
+  }
+
+  if (!groups.length) return card.hours?.note ?? null;
+
+  return groups
+    .map(({ from, to, label }) =>
+      from === to
+        ? `${DAY_LABELS[from]} ${label}`
+        : `${DAY_LABELS[from]}–${DAY_LABELS[to]} ${label}`,
+    )
+    .join(" · ");
 }
 
 /** The one `agencyType` that is a standing default rather than a distinction. */
