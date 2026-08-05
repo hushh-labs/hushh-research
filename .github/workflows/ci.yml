@@ -233,13 +233,24 @@ jobs:
 
   scope-resolution:
     name: "Scope Resolution"
-    # Deliberately NO `if:` and the same `needs:` as the test lanes. Those lanes
-    # skipped on every dispatch run while the scope they gate on read `true` from
-    # two different jobs, so this job separates the two possible causes: if it runs,
-    # `needs` is fine and the lane conditions are at fault; if it skips too, the
-    # `needs` edge is. It is not in ci-status's `needs`, so it can never change the
-    # gate's verdict -- it only makes the decision legible.
+    # Standing tripwire for INHERITED SKIPS, and the job that found one.
+    #
+    # It carries the same `needs` and the same status guard as the test lanes, and
+    # its own condition is otherwise trivially true -- so it runs whenever the lanes
+    # are structurally able to run. If it is ever reported `skipped` again, the lanes
+    # are being skipped by the dependency graph rather than by scope, which is
+    # exactly the fault it caught: `preflight-gate` depends on three jobs that only
+    # exist on pull_request, GitHub propagates their skip to every descendant, and
+    # `if: always()` rescues only the job that declares it -- never its children. No
+    # rewrite of a lane's scope condition could have fixed that, and three attempts
+    # confirmed it.
+    #
+    # Not in ci-status's `needs`, so it can never change the gate's verdict; it only
+    # makes the decision legible.
     needs: [paths, preflight-gate]
+    if: >-
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -309,9 +320,11 @@ jobs:
     name: "Web Core (Next.js)"
     needs: [paths, preflight-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
       github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.frontend == 'true')
+      needs.paths.outputs.frontend == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -356,9 +369,11 @@ jobs:
     name: "Web Targeted Contracts"
     needs: [paths, preflight-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
       github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.frontend == 'true')
+      needs.paths.outputs.frontend == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -394,9 +409,11 @@ jobs:
     name: "Protocol (Python)"
     needs: [paths, preflight-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
       github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.backend == 'true')
+      needs.paths.outputs.backend == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -420,9 +437,11 @@ jobs:
     name: "MCP Package"
     needs: [paths, preflight-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
       github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.backend == 'true')
+      needs.paths.outputs.backend == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -449,9 +468,11 @@ jobs:
     name: "Integration"
     needs: [paths, preflight-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.scope != '') ||
+      !cancelled() && needs.paths.result == 'success' &&
+      needs['preflight-gate'].result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && github.event.inputs.scope != '') ||
       (github.event_name != 'workflow_dispatch' && (needs.paths.outputs.frontend == 'true' ||
-      needs.paths.outputs.backend == 'true'))
+      needs.paths.outputs.backend == 'true')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -629,6 +650,16 @@ jobs:
           # control reporting success over an empty set. A lane may skip only when the
           # resolved scope says it was not needed; if the scope asked for it and it did
           # not run, the gate has nothing to attest and must say so.
+          # Only meaningful when the lanes were actually allowed to start. If
+          # preflight-gate failed, every lane skips ON PURPOSE and the run is already
+          # red for the real reason; adding "these lanes never ran" on top would bury
+          # the actual failure under a consequence of it.
+          if [ "$PREFLIGHT" != "success" ]; then
+            echo "Coverage check skipped: preflight-gate=${PREFLIGHT}, so the lanes were"
+            echo "  never eligible to run. The failure above is the one to read."
+            exit 0
+          fi
+
           missing=""
           require_ran() {
             if [ "$2" = "skipped" ]; then
