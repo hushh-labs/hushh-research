@@ -199,3 +199,51 @@ def test_the_signing_key_is_never_rendered_inline(caps: Capabilities):
 def test_the_vault_key_is_on_no_platform(caps: Capabilities):
     """A pod performs no vault crypto -- every consumer of that key is hub-only."""
     assert not caps.declares("VAULT_DATA_KEY")
+
+
+# --- sizing must be chosen, never inherited ---------------------------------------------
+
+
+def test_the_pod_size_is_declared_not_inherited():
+    """A rendered pod must state its own CPU and memory.
+
+    With no ``resources`` block Cloud Run applies its own default of 1 vCPU / 512 MiB
+    -- which is how a per-user pod came to cost ~$65/user/month against a measured
+    211.9 MB idle footprint. An unstated size is not a neutral choice; it is the
+    platform choosing for us, and it changes when the platform changes.
+
+    Asserted on the GCP shape specifically because that is where the block lives;
+    CloudHub sizes through vCores in its own descriptor, which the AMC extractor
+    already covers.
+    """
+    container = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())[
+        "spec"
+    ]["template"]["spec"]["containers"][0]
+    limits = (container.get("resources") or {}).get("limits") or {}
+    assert limits.get("cpu"), "no CPU limit rendered -- the pod inherits a platform default"
+    assert limits.get("memory"), "no memory limit rendered -- the pod inherits a platform default"
+
+
+def test_boot_gets_extra_cpu_so_steady_state_does_not_have_to():
+    """Startup CPU boost is what makes a smaller steady-state CPU request honest.
+
+    Boot is the one CPU-bound moment (3.94 s measured, 58% of it `google.adk`);
+    everything after is spent waiting on model APIs. Without the boost, shrinking CPU
+    would trade cost against the cold start a warm floor exists to avoid.
+    """
+    annotations = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())[
+        "spec"
+    ]["template"]["metadata"]["annotations"]
+    assert annotations.get("run.googleapis.com/startup-cpu-boost") == "true"
+
+
+def test_a_pod_never_scales_past_one_writer():
+    """maxScale is a correctness bound, not a cost knob.
+
+    The pod's storage engine assumes a single writer per pod. A second instance would
+    put two writers on one logical store, which no amount of retry logic makes safe.
+    """
+    annotations = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())[
+        "spec"
+    ]["template"]["metadata"]["annotations"]
+    assert annotations["autoscaling.knative.dev/maxScale"] == "1"

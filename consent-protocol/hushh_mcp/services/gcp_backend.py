@@ -120,6 +120,8 @@ class GcpBackend:
         ingress: Optional[str] = None,
         min_instances: Optional[int] = None,
         max_instances: Optional[int] = None,
+        cpu: Optional[str] = None,
+        memory: Optional[str] = None,
         client: Any = None,
         credentials: Any = None,
     ) -> None:
@@ -147,6 +149,12 @@ class GcpBackend:
         )
         if self._max_instances < self._min_instances:
             self._max_instances = self._min_instances
+        # Pod sizing, chosen rather than inherited from a platform default. Tunable per
+        # tier so the economy tier can go smaller and the attested tier larger, without
+        # either of them silently falling back to whatever Cloud Run happens to default
+        # to that quarter.
+        self._cpu = cpu if cpu is not None else (_env("HUSSH_POD_CPU") or "500m")
+        self._memory = memory if memory is not None else (_env("HUSSH_POD_MEMORY") or "1Gi")
         # Ingress. The DEFAULT is "internal": the pod is not reachable from the public
         # internet at all, and only the Hushh A2A gateway (Layer A) routes to it. That
         # non-targetability is a load-bearing PCC property, so it is the default and
@@ -183,7 +191,17 @@ class GcpBackend:
             # Default minScale=1 -> the pod keeps a warm instance so the agent
             # endpoint answers in real time (no ~10s cold start). Per-tier tunable.
             "autoscaling.knative.dev/minScale": str(self._min_instances),
+            # maxScale stays at 1 for CORRECTNESS, not cost. The pod's storage engine
+            # assumes a single writer per pod (SQLite `BEGIN IMMEDIATE` over one file,
+            # with the sealed commit log as the system of record). A second instance
+            # would put two writers on one logical store. This is not a tuning knob.
             "autoscaling.knative.dev/maxScale": str(self._max_instances),
+            # Startup CPU boost: extra CPU while the container starts, and only then.
+            # Boot is the one genuinely CPU-bound moment in a pod's life -- measured at
+            # 3.94 s, of which `google.adk` alone is 58% -- while steady state is spent
+            # waiting on model APIs. Boosting startup is what lets the steady-state CPU
+            # request come down without making the pod feel slower.
+            "run.googleapis.com/startup-cpu-boost": "true",
         }
         if dedicated:
             # Confidential/attested tier markers (Apple-PCC parity: attested,
@@ -208,11 +226,28 @@ class GcpBackend:
             # bolting a second health check onto each of the three readers.
             "ports": [{"name": "http1", "containerPort": 8080}],
             "startupProbe": {
+                # /health, NEVER /health/ready. Readiness includes a database check and
+                # a pod holds no database credential by design, so it answers 503 -- a
+                # startup probe pointed one path further would mean no pod ever starts.
                 "httpGet": {"path": "/health", "port": 8080},
                 "timeoutSeconds": 5,
                 "periodSeconds": 5,
                 "failureThreshold": 12,
             },
+            # Sizing is CHOSEN here, not inherited. Without this block Cloud Run applies
+            # its own default of 1 vCPU / 512 MiB, which is how a per-user pod ended up
+            # costing ~$65/user/month on a request nobody made.
+            #
+            # cpu 500m: the workload is network-bound -- it waits on model APIs far more
+            # than it computes -- and the one CPU-bound moment, boot, is covered by the
+            # startup boost above.
+            #
+            # memory 1Gi, deliberately ABOVE the 512 MiB default even though a pod
+            # measured 211.9 MB. That measurement is IDLE: taken before any specialist
+            # loaded and before any model call, so it is a floor and not a ceiling. An
+            # OOM restart destroys the always-alive property the warm floor is paid for,
+            # and memory is the cheapest axis to buy safety on.
+            "resources": {"limits": {"cpu": self._cpu, "memory": self._memory}},
             # Identity + pins only. No secrets: BYOK keys and consent tokens
             # arrive per-turn at runtime.
             "env": [
