@@ -49,8 +49,17 @@ export type SosPanelProps = {
   active: boolean;
   busy: boolean;
   onTrigger: (message?: string | null) => void;
+  /**
+   * Stop a live SMS/SOS session: revokes the location grants created by the
+   * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
+   * from `onClose` (which only closes the screen without stopping sharing).
+   */
+  onStopSos: () => void;
+  /** True while the stop request is in flight (shows a spinner on Cancel). */
+  stopBusy: boolean;
   onClose: () => void;
   onEditContacts: () => void;
+
   recipientLabel: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
   emergency: EmergencyInfo | null;
@@ -76,6 +85,8 @@ export function SosPanel({
   active,
   busy,
   onTrigger,
+  onStopSos,
+  stopBusy,
   onClose,
   onEditContacts,
   recipientLabel,
@@ -84,6 +95,7 @@ export function SosPanel({
   emergencyStatus,
   onResolveEmergencyNumber,
 }: SosPanelProps) {
+
   const [messageSelection, setMessageSelection] =
     useState<SmsMessageSelection>(null);
   const [customMessage, setCustomMessage] = useState("");
@@ -359,6 +371,26 @@ export function SosPanel({
 
 
         <div className="mt-auto">
+          {/* While an SMS/SOS session is live, the primary action becomes
+              stopping it. Cancelling here revokes the location grants created by
+              the alert AND clears the incident, so "SENT · Live now" resets and
+              the change is mirrored in Active shares (and vice-versa). */}
+          {active ? (
+            <button
+              type="button"
+              onClick={onStopSos}
+              disabled={stopBusy}
+              aria-label="Cancel SMS alert and stop sharing your location"
+              data-testid="sos-cancel-alert"
+              className="press-scale mb-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] disabled:opacity-60"
+            >
+              {stopBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
+              {stopBusy ? "Cancelling…" : "Cancel SMS Alert"}
+            </button>
+          ) : null}
+
           <p className="truncate px-2 text-center text-[13px] text-white/70">
             {names ? `SMS goes to ${names}` : "No SMS contacts selected"} ·{" "}
             <button

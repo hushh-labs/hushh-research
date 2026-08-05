@@ -1656,6 +1656,8 @@ function SosFlow({
       active={vm.sosActive}
       busy={vm.sosBusy}
       onTrigger={vm.onTriggerSos}
+      onStopSos={vm.onStopSos}
+      stopBusy={vm.sosBusy}
       onClose={onClose}
       onEditContacts={onEditContacts}
       recipientLabel={vm.recipientLabel}
