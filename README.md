@@ -64,7 +64,7 @@ flowchart TD
 
 ---
 
-## Platform Architecture
+## Visual Map
 
 ```mermaid
 flowchart TB
