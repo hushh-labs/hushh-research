@@ -283,8 +283,8 @@ jobs:
   # ============================================================================
   web-core-check:
     name: "Web Core (Next.js)"
-    needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    needs: [paths, preflight-gate]
+    if: needs.paths.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -327,8 +327,8 @@ jobs:
 
   web-targeted-check:
     name: "Web Targeted Contracts"
-    needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    needs: [paths, preflight-gate]
+    if: needs.paths.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -362,8 +362,8 @@ jobs:
   # ============================================================================
   protocol-check:
     name: "Protocol (Python)"
-    needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    needs: [paths, preflight-gate]
+    if: needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -385,8 +385,8 @@ jobs:
 
   mcp-package-check:
     name: "MCP Package"
-    needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    needs: [paths, preflight-gate]
+    if: needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -411,8 +411,8 @@ jobs:
   # ============================================================================
   integration-check:
     name: "Integration"
-    needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true' || needs.preflight-gate.outputs.backend == 'true'
+    needs: [paths, preflight-gate]
+    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -613,10 +613,10 @@ jobs:
             echo "CI Status Gate FAILED: the resolved scope required lane(s) that never ran:${missing}"
             echo "  scope(paths):          frontend=${SCOPE_FRONTEND} backend=${SCOPE_BACKEND}"
             echo "  scope(preflight-gate): frontend=${GATE_FRONTEND} backend=${GATE_BACKEND}"
-            echo "  If the two scope lines disagree, the lane conditions read the second one"
-            echo "  and the value was lost between the jobs. Fix the wiring -- do not relax"
-            echo "  this check: green here would attest that the suite passed when the suite"
-            echo "  never ran."
+            echo "  The lane conditions read the FIRST line (needs.paths.outputs). The second"
+            echo "  is printed only to show the re-export still agrees; a disagreement means"
+            echo "  the scope is being lost between jobs. Fix the wiring -- do not relax this"
+            echo "  check: green here would attest that the suite passed when it never ran."
             exit 1
           fi
 
