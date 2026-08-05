@@ -30,6 +30,8 @@ const baseProps = {
   active: false,
   busy: false,
   onTrigger: vi.fn(),
+  onStopSos: vi.fn(),
+  stopBusy: false,
   onClose: vi.fn(),
   onEditContacts: vi.fn(),
   recipientLabel: (value: OneLocationRecipient) => value.displayName,
@@ -342,5 +344,49 @@ describe("SosPanel", () => {
     fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
     act(() => vi.advanceTimersByTime(2_000));
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows 'Cancel SMS Alert' only while a session is active and calls onStopSos", () => {
+    const onStopSos = vi.fn();
+    const { rerender } = render(
+      <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
+    );
+    // Idle state: no cancel affordance, core reads "SMS".
+    expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
+    expect(screen.getByText("SMS")).toBeInTheDocument();
+
+    // Active ("SENT · Live now") state: the cancel button appears.
+    rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
+    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByText("Live now")).toBeInTheDocument();
+    const cancel = screen.getByRole("button", {
+      name: "Cancel SMS alert and stop sharing your location",
+    });
+    expect(cancel).toHaveTextContent("Cancel SMS Alert");
+    fireEvent.click(cancel);
+    expect(onStopSos).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables 'Cancel SMS Alert' and shows a spinner while stopping", () => {
+    const onStopSos = vi.fn();
+    render(
+      <SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />,
+    );
+    const cancel = screen.getByTestId("sos-cancel-alert");
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveTextContent("Cancelling…");
+    fireEvent.click(cancel);
+    expect(onStopSos).not.toHaveBeenCalled();
+  });
+
+  it("resets the core to 'SMS' once the session is no longer active (external revoke sync)", () => {
+    const { rerender } = render(<SosPanel {...baseProps} active />);
+    expect(screen.getByText("SENT")).toBeInTheDocument();
+    // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
+    // which flips `active` back to false and must reset the SMS screen.
+    rerender(<SosPanel {...baseProps} active={false} />);
+    expect(screen.getByText("SMS")).toBeInTheDocument();
+    expect(screen.queryByText("Live now")).toBeNull();
+    expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 });
