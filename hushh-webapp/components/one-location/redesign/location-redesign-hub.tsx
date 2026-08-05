@@ -579,7 +579,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
   const startShareComposer = vm.startShareComposer;
-  const setShareReviewOpen = vm.setShareReviewOpen;
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
