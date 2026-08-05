@@ -748,7 +748,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resetShareDraft,
     router,
     searchParams,
-    setShareReviewOpen,
+    vm,
   ]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
