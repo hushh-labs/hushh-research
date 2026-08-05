@@ -24,7 +24,7 @@ flowchart TD
 
 ## Core Message
 
-Hussh is the trust infrastructure for personal AI. One is the user's personal operating layer. Kai, Nav, and KYC are specialists that One can summon when the task requires finance reasoning, privacy and consent guidance, or identity verification.
+Hussh is the trust infrastructure for private AI. One is the user's private operating layer. Kai, Nav, and KYC are specialists that One can summon when the task requires finance reasoning, privacy and consent guidance, or identity verification.
 
 The architecture should scale into enterprise and private compute without losing the trust boundary. Salesforce, MuleSoft, Agentforce, Mac Mini, OpenClaw, MLX, App Intents, and BYOA are useful channels only if they stay subordinate to Hussh consent, PKM, vault, and audit authority.
 
