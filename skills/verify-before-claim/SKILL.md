@@ -207,6 +207,53 @@ a list?** Enumerated inclusion hides in manifests, allow-lists, `include:` globs
 `paths:` filters, suite indexes, and route registries. Every one of them fails the same
 silent way — by succeeding.
 
+## 2e. A guard that has never failed proves nothing
+
+A green assertion has two explanations and they are indistinguishable from the exit code:
+the property holds, or **the assertion cannot detect its absence**. A test written after the
+fix, run once, and observed passing has never discriminated between them.
+
+So make it fail on purpose, once, before you trust it:
+
+- **Revert the fix and watch the guard go red.** Not "reason that it would" — run it. The
+  `pwm_documents` cleanup guard was written, passed first run, and only became evidence when
+  the fix was temporarily backed out and it failed with the exact sentence it was written to
+  produce (`private intelligence would survive a reset: ['pwm_documents']`). That failure is
+  the proof; the pass afterwards is just the consequence.
+- **Prove the oracle against the known-good implementation first.** A conformance suite that
+  has never run green against the *existing* engine cannot tell you the new one is correct —
+  it only tells you both agree with the suite's bugs. Order matters: oracle, then port.
+- **When porting or adding a platform, watch it fail against the unported one.** A parity
+  test authored alongside the parity fix proves nothing about either. Written first, it
+  failed on exactly four capabilities on Anypoint and on nothing else on GCP — that
+  *selectivity* is what made the subsequent green meaningful.
+
+The number is a free assertion here too (§2d): a guard you expect to fail that passes
+immediately is a finding, not luck.
+
+## 2f. Interface parity is not capability parity
+
+A contract test over a seam with N implementations usually asserts *shape*: the methods
+exist, the types match, the calls return. That is worth having and it is not what the seam
+promises. An implementation can satisfy every signature and still produce an artifact that
+cannot do the job — the interface stays green while the platforms silently diverge.
+
+The Anypoint backend passed the interchangeability contract for months while rendering a pod
+with no hub to read, no key to verify consent with, no model to call, and its feature flag
+off. Every method was correct. The pod was inert.
+
+When implementations produce **differently-shaped outputs** (a knative Service vs an AMC
+descriptor), you cannot assert parity by comparing them. Give each implementation a small
+**extractor** that reduces its own shape to the same handful of semantic facts, and assert
+against that reduction. Adding a platform then costs one extractor, not a rewrite — and the
+assertions state capabilities in the language of the domain rather than of one vendor.
+
+Distinguish three things explicitly, or the test becomes vacuous:
+**present** (the slot exists, so the platform is configurable — it may be empty when
+unconfigured), **populated** (must carry a real value), and **never inline** (must arrive by
+reference). And where a platform genuinely cannot reach parity, record the divergence in the
+architecture doc rather than rendering a slot that lies about what works.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
