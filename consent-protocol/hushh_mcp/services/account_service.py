@@ -152,6 +152,7 @@ class AccountService:
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
+            "pwm_documents": text("DELETE FROM pwm_documents WHERE user_id = :user_id"),
             "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
             "one_location_access_requests": text(
                 """
@@ -546,6 +547,10 @@ class AccountService:
                 "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
+                # The preference world model is private intelligence about the owner,
+                # keyed by user_id. It belongs in the pod, so a reset must not leave a
+                # copy behind on the control plane.
+                "pwm_documents",
                 "one_wallet_cards",
             ],
             params=params,
@@ -815,6 +820,7 @@ class AccountService:
             "kai_gmail_receipts": False,
             "kai_gmail_sync_runs": False,
             "kai_receipt_memory_artifacts": False,
+            "pwm_documents": False,
             "kai_funding_trade_events": False,
             "kai_funding_trade_intents": False,
             "kai_funding_transfer_events": False,
@@ -890,6 +896,8 @@ class AccountService:
                         "kai_gmail_connections",
                         "kai_receipt_memory_artifacts",
                         "kai_portfolio_source_preferences",
+                        # Private intelligence about the owner -- must leave no trace.
+                        "pwm_documents",
                         "consent_export_refresh_jobs",
                         "consent_exports",
                         "connected_system_audit_events",
