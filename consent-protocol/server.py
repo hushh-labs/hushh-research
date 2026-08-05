@@ -374,6 +374,15 @@ app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
+# Wallet Profile: owner management under /api/one/wallet-card plus the two
+# unauthenticated public surfaces (card resolve + signed .pkpass). Gated by
+# ONE_WALLET_CARD_ENABLED; when off every route in the router answers 404, so
+# registering it unconditionally is safe.
+from api.routes import one_wallet_card  # noqa: E402
+
+app.include_router(one_wallet_card.router)
+logger.info("one_wallet_card.routes_registered")
+
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )

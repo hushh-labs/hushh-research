@@ -26,6 +26,14 @@ vi.mock("@/components/onboarding/setup/capability-cinematic-intro", () => ({
   ),
 }));
 
+// The permission ask is a gate of its own, covered by its own test. Here it is
+// a passthrough so these cases stay about which step the coordinator renders.
+vi.mock("@/components/onboarding/setup/location-permission-primer", () => ({
+  LocationPermissionPrimerGate: ({ children }: { children: ReactNode }) => (
+    <div data-testid="location-permission-primer-gate">{children}</div>
+  ),
+}));
+
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: () => <div>Preparing location setup…</div>,
   useSetupCapabilityCoordinator: () => ({

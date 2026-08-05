@@ -13,8 +13,11 @@ def test_point_contract_migration_is_registered_and_updates_current_comments():
     rollback = (MIGRATIONS / "rollback" / f"{name[:-4]}_down.sql").read_text(encoding="utf-8")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    assert manifest["ordered_migrations"][-1] == name
-    assert manifest["groups"]["iam"][-1] == name
+    # Membership, not last-position: the intent is that this migration is
+    # registered for release, and asserting it is *last* makes every subsequent
+    # migration fail this unrelated test.
+    assert name in manifest["ordered_migrations"]
+    assert name in manifest["groups"]["iam"]
     assert "final captured check-in point" in sql
     assert "decrypted captured check-in points" in sql
     assert "selected public-place anchors" in rollback
@@ -27,4 +30,6 @@ def test_current_schema_contracts_require_point_contract_migration():
         "prod_core_schema.json",
     ):
         contract = json.loads((CONTRACTS / name).read_text(encoding="utf-8"))
-        assert contract["expected_migration_version"] == 131
+        # Floor, not equality: every later migration bumps this number, so an
+        # exact assertion turns an unrelated migration into a false failure.
+        assert contract["expected_migration_version"] >= 131
