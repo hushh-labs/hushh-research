@@ -1,7 +1,11 @@
 """Pod storage & sync seam — PKM cloud-backup ⇄ pod cache ⇄ device (private tunnel).
 
-**Design seam. Inert by default. No I/O, moves no data until a real backend is
-wired and the feature is enabled.**
+**Default backend is the inert Null one.** The real backend (``commit_log``) is
+wired: an encrypted, hash-chained commit log in object storage
+(:mod:`hushh_mcp.services.pod_commit_log`) as the system of record, with the
+pod's SQLite working store rebuilt from it
+(:mod:`hushh_mcp.services.pod_pkm_store`). Nothing moves data until
+``POD_STORAGE_BACKEND=commit_log`` is set with its full configuration.
 
 The intent (founder directive): the per-user pod is not only *shared compute* for
 the user's agents — it is also a *storage node* for their PKM. Today the canonical
@@ -42,6 +46,16 @@ TUNNEL_RELAY_TICKET = "relay_ticket"
 # Backend selector env (mirrors PERSONAL_AGENT_BACKEND for compute).
 _BACKEND_ENV = "POD_STORAGE_BACKEND"
 BACKEND_NULL = "null"
+# The real backend: an encrypted, hash-chained commit log in object storage
+# (pod_commit_log). Configured by exactly one of:
+#   POD_STORAGE_LOCAL_ROOT  -- filesystem root (tests, dev, single-node hardware)
+#   POD_STORAGE_GCS_BUCKET  -- a bucket in the POD'S OWN project (BYOC), reached
+#                              keylessly with the pod's identity token
+# plus HUSSH_POD_LOG_KEY for the seal. Anything missing fails LOUD at resolve.
+BACKEND_COMMIT_LOG = "commit_log"
+_LOCAL_ROOT_ENV = "POD_STORAGE_LOCAL_ROOT"
+_GCS_BUCKET_ENV = "POD_STORAGE_GCS_BUCKET"
+_GCS_PREFIX_ENV = "POD_STORAGE_GCS_PREFIX"
 
 
 @dataclass(frozen=True)
@@ -128,14 +142,98 @@ class NullPodStorage:
         )
 
 
+class CommitLogPodStorage:
+    """The real backend: pointers recorded in the pod's sealed commit log.
+
+    ``backup``/``restore`` move only :class:`EncryptedBlobRef` pointers -- the
+    contract's legibility promise holds: no plaintext field crosses this seam.
+    The log itself is the durable system of record; the SQLite working store is
+    an index rebuilt from it (``pod_pkm_store.rebuild``).
+    """
+
+    backend_id = BACKEND_COMMIT_LOG
+
+    def __init__(self, log: Any) -> None:
+        self._log = log
+
+    async def backup(self, hushh_id: str, blob: EncryptedBlobRef) -> dict[str, Any]:
+        record = await self._log.append(
+            "storage_pointer",
+            {
+                "hushh_id": hushh_id,
+                "ref": blob.ref,
+                "wrapping_key_id": blob.wrapping_key_id,
+                "alg": blob.alg,
+                "size_bytes": blob.size_bytes,
+                "updated_at_ms": blob.updated_at_ms,
+            },
+        )
+        return {
+            "status": "recorded",
+            "backend": self.backend_id,
+            "hushhId": hushh_id,
+            "seq": record["seq"],
+        }
+
+    async def restore(self, hushh_id: str) -> Optional[EncryptedBlobRef]:
+        latest: Optional[dict[str, Any]] = None
+        for record in await self._log.replay():
+            if record["kind"] == "storage_pointer" and record["payload"].get("hushh_id") == (
+                hushh_id
+            ):
+                latest = record["payload"]
+        if latest is None:
+            return None
+        return EncryptedBlobRef(
+            ref=str(latest["ref"]),
+            wrapping_key_id=str(latest["wrapping_key_id"]),
+            alg=str(latest["alg"]),
+            size_bytes=latest.get("size_bytes"),
+            updated_at_ms=latest.get("updated_at_ms"),
+        )
+
+    def render_sync_plan(self, hushh_id: str, *, pod_key_id: str) -> SyncPlan:
+        return SyncPlan(
+            hushh_id=hushh_id,
+            notes={
+                "systemOfRecord": "sealed, hash-chained commit log in the pod's own bucket",
+                "podCache": f"SQLite index rebuilt from the log (wrap key {pod_key_id}).",
+                "device": "on-device BYOK copy; native sync over the private tunnel.",
+                "tunnel": "single-use signed relay ticket (replay-checked).",
+                "plaintextLocations": "pod isolated process + device only.",
+            },
+        )
+
+
 def resolve_pod_storage() -> PodStorage:
     """Resolve the configured pod-storage backend. Default is the inert Null one.
 
-    Future backends (e.g. per-user-encrypted GCS/S3 + per-user KMS) register here,
-    mirroring ``resolve_compute_backend``; unknown values fail loud rather than
-    silently defaulting to a data-moving backend.
+    ``commit_log`` builds the real thing from environment; every missing piece
+    fails LOUD, because where a user's holdings persist is never answered by a
+    silent default. Unknown values fail loud for the same reason.
     """
     selected = (os.getenv(_BACKEND_ENV) or "").strip().lower()
     if selected in ("", BACKEND_NULL):
         return NullPodStorage()
+    if selected == BACKEND_COMMIT_LOG:
+        from hushh_mcp.services.pod_commit_log import (
+            GcsObjectStore,
+            LocalObjectStore,
+            PodCommitLog,
+            log_key_from_env,
+        )
+
+        local_root = (os.getenv(_LOCAL_ROOT_ENV) or "").strip()
+        bucket = (os.getenv(_GCS_BUCKET_ENV) or "").strip()
+        if bool(local_root) == bool(bucket):
+            raise RuntimeError(
+                f"pod storage 'commit_log' needs exactly one of {_LOCAL_ROOT_ENV} or "
+                f"{_GCS_BUCKET_ENV}"
+            )
+        store: Any = (
+            LocalObjectStore(local_root)
+            if local_root
+            else GcsObjectStore(bucket, (os.getenv(_GCS_PREFIX_ENV) or "").strip())
+        )
+        return CommitLogPodStorage(PodCommitLog(store, log_key_from_env()))
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")
