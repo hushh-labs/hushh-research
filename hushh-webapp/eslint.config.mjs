@@ -133,6 +133,8 @@ export default [
       "lib/services/**/*",
       "lib/api/**/*",
       "lib/auth/**/*",
+      // Server-only transport to hushh-mail-api; never reachable from a browser
+      "lib/mail/**/*",
       // SSE streaming components use fetch() for EventSource polyfill
       "components/kai/debate-stream-view.tsx",
     ],
