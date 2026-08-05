@@ -284,7 +284,10 @@ jobs:
   web-core-check:
     name: "Web Core (Next.js)"
     needs: [paths, preflight-gate]
-    if: needs.paths.outputs.frontend == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
+      needs.paths.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -328,7 +331,10 @@ jobs:
   web-targeted-check:
     name: "Web Targeted Contracts"
     needs: [paths, preflight-gate]
-    if: needs.paths.outputs.frontend == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
+      needs.paths.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -363,7 +369,10 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [paths, preflight-gate]
-    if: needs.paths.outputs.backend == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
+      needs.paths.outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -386,7 +395,10 @@ jobs:
   mcp-package-check:
     name: "MCP Package"
     needs: [paths, preflight-gate]
-    if: needs.paths.outputs.backend == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
+      github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
+      needs.paths.outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -412,7 +424,10 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [paths, preflight-gate]
-    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.scope != '') ||
+      (github.event_name != 'workflow_dispatch' && (needs.paths.outputs.frontend == 'true' ||
+      needs.paths.outputs.backend == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
