@@ -47,6 +47,39 @@ function seenRecently(key: string): boolean {
   return false;
 }
 
+/**
+ * Per-account ceiling on conflict mail.
+ *
+ * The client only asks for this after a real Firebase conflict, but the route
+ * is reachable directly by anyone signed in, and it will happily look up any
+ * number. Two things follow from that and both are capped here: the mail names
+ * a masked address, so an unbounded caller could walk numbers to learn which
+ * ones are registered; and every send spends from a Workspace daily quota
+ * shared with the welcome mail, so a loop could starve real signups.
+ *
+ * Per instance, so the true ceiling is this times the instance count. That is
+ * a backstop against a runaway or casual prober, not a strict global quota —
+ * an exact one needs shared state the frontend does not have today.
+ */
+const CONFLICT_SENDS = new Map<string, number[]>();
+const CONFLICT_WINDOW_MS = 60 * 60_000;
+const CONFLICT_MAX_PER_WINDOW = 3;
+
+function conflictQuotaExhausted(uid: string): boolean {
+  const now = Date.now();
+  const recent = (CONFLICT_SENDS.get(uid) ?? []).filter(
+    (at) => now - at < CONFLICT_WINDOW_MS,
+  );
+  if (recent.length >= CONFLICT_MAX_PER_WINDOW) {
+    CONFLICT_SENDS.set(uid, recent);
+    return true;
+  }
+  recent.push(now);
+  if (CONFLICT_SENDS.size >= RECENT_MAX_ENTRIES) CONFLICT_SENDS.clear();
+  CONFLICT_SENDS.set(uid, recent);
+  return false;
+}
+
 export async function POST(request: NextRequest) {
   const identity = await validateFirebaseToken(request.headers.get("Authorization"));
   if (!identity.valid || !identity.userId) {
@@ -95,18 +128,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "skipped", reason: "duplicate_request" });
     }
 
-    // Resolve the account that actually holds the number. Absent is normal —
-    // the number may sit on a just-deleted account — and the mail still goes
-    // out, only without the account hint.
-    const linkedAccountEmail = await auth
-      .getUserByPhoneNumber(phoneNumber)
-      .then((owner) => (owner.uid === user.uid ? null : owner.email ?? null))
-      .catch(() => null);
+    // Only mail when a different account genuinely holds the number. Sending
+    // otherwise would be both wrong — "that number is taken" when it is not —
+    // and an invitation to walk the number space. The owner may legitimately
+    // have no email of its own (a phone-only account), which is a real
+    // conflict with no hint to offer, so absence of an owner and absence of an
+    // address are kept apart.
+    const owner = await auth.getUserByPhoneNumber(phoneNumber).catch(() => null);
+    if (!owner || owner.uid === user.uid) {
+      return NextResponse.json({ status: "skipped", reason: "no_conflicting_account" });
+    }
+
+    if (conflictQuotaExhausted(user.uid)) {
+      return NextResponse.json({ status: "skipped", reason: "rate_limited" });
+    }
 
     const outcome = await sendPhoneConflictMail(user, {
       appUrl,
       attemptedPhoneNumber: phoneNumber,
-      linkedAccountEmail,
+      linkedAccountEmail: owner.email ?? null,
     });
     return NextResponse.json(outcome);
   } catch (error) {
