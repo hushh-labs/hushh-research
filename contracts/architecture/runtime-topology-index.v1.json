@@ -29,7 +29,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_connected_systems_agent"
       }
     },
@@ -62,7 +62,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_consent_agent"
       }
     },
@@ -95,7 +95,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_email_agent"
       }
     },
@@ -4498,7 +4498,7 @@
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "e939f772b53a77b36b5be73a4a4e9c3e36562cc5e078ac35950582855b21f9c5",
     "data_plane": "44bd317c8f79739f5b180b2683f117e4c14eef8aabd5f0259d8f5b3e24f49fa2",
-    "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
+    "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "a9aa3bdab7af5e90ba1b58e246d53d89425eb29f9e46eab33064204ae1cc6c7c",
     "route_layout": "bc33f99445d51fd79b22a7d42f364a87509b9b5c90699c5a86566ac8b9e67a64",
@@ -4512,7 +4512,7 @@
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
-    "in_process_specialists": 3,
+    "in_process_specialists": 6,
     "one_specialist_tools": 5,
     "physical_routes": 118,
     "semantic_routes": 14,

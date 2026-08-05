@@ -36,7 +36,7 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
 
-from hushh_mcp.adk_bridge.contract import A2ATask
+from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
@@ -639,6 +639,40 @@ async def resolve_onboarding_goal(
     return {"status": "ok", "goal": goal.model_dump()}
 
 
+def _first_party_authority(
+    user_id: str, consent_token: str, conversation_id: Optional[str]
+) -> Optional[A2AAuthorityContext]:
+    """The attenuated authority One forwards on a FIRST-PARTY hop.
+
+    Ingress-validated by construction: One only reaches here with a session
+    whose consent token already passed validation, so the caller is the signed-in
+    owner acting on their own agent. The context carries the INVOCATION capability
+    only -- the scope the token already proves -- and deliberately NO information
+    grant refs, export refs, or action capabilities.
+
+    That emptiness is the honest boundary, not an oversight: a specialist that
+    needs to read holdings (`information=True`) or act (`action=True`) still fails
+    closed through ``require_attenuated_authority`` until real grant/export refs
+    are threaded from a consent grant. This seam makes the invocation-authority
+    path real and exercised; it does not fabricate authority One has not been
+    granted.
+    """
+    # Deferred import: adk_bridge.delegation pulls the specialist agents, which
+    # import back through this module -- a module-level import here is a cycle.
+    from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
+
+    validation = validate_a2a_consent_token("agent_one", consent_token)
+    if not validation.ok or not validation.user_id:
+        return None
+    return A2AAuthorityContext(
+        subject_user_id=user_id,
+        tenant_id=user_id,
+        task_id=conversation_id or f"one-{int(time.time() * 1000)}",
+        caller_kind="first_party",
+        invocation_capabilities=(validation.required_scope.value,),
+    )
+
+
 def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2ATask]:
     """Build a specialist task from governed session state.
 
@@ -658,6 +692,7 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
         conversation_id=conversation_id,
         message=request,
         timezone=timezone_name,
+        authority=_first_party_authority(user_id, consent_token, conversation_id),
     )
 
 

@@ -80,6 +80,7 @@ tests/test_pod_hub_data_path.py
 tests/test_contracts_root_resolution.py
 tests/test_pod_key_collection.py
 tests/test_pod_key_custody.py
+tests/test_pod_fleet_wiring.py
 tests/test_consent_token_asymmetric.py
 tests/test_personal_agent_autoprovision.py
 tests/test_one_location_db_error_detail_cwe209.py
