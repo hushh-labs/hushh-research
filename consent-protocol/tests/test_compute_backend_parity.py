@@ -114,20 +114,55 @@ def caps(request: pytest.FixtureRequest) -> Capabilities:
 
 # --- capabilities every platform must declare ------------------------------------------
 
-# The pod's only data-plane door (it holds no database credential), the consent
-# verifying keys it checks tokens against at its own door, and the model access the
-# fleet inside it needs. A platform missing any of these renders a pod that cannot
-# do its job, however well-formed the artifact is.
+# The pod's only data-plane door (it holds no database credential) and the consent
+# verifying keys it checks tokens against at its own door. A platform missing
+# either renders a pod that cannot do its job, however well-formed the artifact is.
 REQUIRED_SLOTS = (
     "HUSSH_HUB_BASE_URL",
     "CONSENT_ED25519_PUBLIC_KEYS",
-    "GOOGLE_GENAI_USE_VERTEXAI",
 )
 
 
 @pytest.mark.parametrize("slot", REQUIRED_SLOTS)
 def test_every_platform_declares_the_capability(caps: Capabilities, slot: str):
     assert caps.declares(slot), f"platform does not declare {slot}"
+
+
+def test_every_platform_declares_how_the_pod_reaches_a_model(caps: Capabilities):
+    """Model access is a CAPABILITY, not one vendor's env var.
+
+    Two credential modes exist and they are orthogonal to the provider
+    (`runtime_providers/factory.py`): **managed** Vertex workload ADC, which needs
+    an ambient Google identity and therefore a project and location; and **BYOK**,
+    the user's own key, which is turn-bounded, arrives with the request, and is
+    isolated from backend ADC by construction.
+
+    So the artifact must say *which mode this platform is in* -- and be consistent
+    with it. Asserting a literal `GOOGLE_GENAI_USE_VERTEXAI == "true"` would encode
+    the GCP answer as the universal one and force CloudHub, which has no Vertex, to
+    render config that does nothing.
+    """
+    mode = caps.properties.get("GOOGLE_GENAI_USE_VERTEXAI")
+    assert mode in {"true", "false"}, "the platform does not declare a model-access mode"
+
+    if mode == "true":
+        # Managed Vertex ADC: the ambient identity needs somewhere to point.
+        assert caps.properties.get("GOOGLE_CLOUD_PROJECT"), "managed Vertex needs a project"
+        assert caps.properties.get("GOOGLE_CLOUD_LOCATION"), "managed Vertex needs a location"
+    else:
+        # BYOK: the key is turn-bounded, so there is nothing to render -- and
+        # rendering a project/location here would imply an identity that does not
+        # exist on this platform.
+        assert not caps.properties.get("GOOGLE_CLOUD_PROJECT"), (
+            "a BYOK platform must not render a managed Vertex project"
+        )
+
+
+def test_no_platform_renders_a_model_credential(caps: Capabilities):
+    """A BYOK key is turn-bounded and never belongs in a deploy artifact."""
+    lowered = caps.blob.lower()
+    for forbidden in ("api_key", "apikey", "gemini_key", "anthropic_api"):
+        assert forbidden not in lowered, f"{forbidden} was rendered into the deploy artifact"
 
 
 def test_every_platform_pins_the_pod_identity(caps: Capabilities):

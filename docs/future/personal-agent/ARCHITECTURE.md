@@ -313,7 +313,8 @@ regulated primary** + validated — see §2. Kept side-by-side to prevent drift.
 | Provisioning | logical stamp; dedicated = Cloud Run/GKE deploy | logical stamp; dedicated = AMC deploy | **at parity** via `ComputeBackend` |
 | Orchestration | ADK agents on Cloud Run/GKE | ADK/enterprise flow on Mule runtime | **at parity** (same ADK contract) |
 | Config (on-the-fly) | Cloud Run/GKE manifest (dedicated only) | Mule descriptor (dedicated only) | **at parity** via `render_deploy_config` |
-| Pod capabilities in the artifact | hub door, consent verifying keys, model slot, flag on, internal-only, signing key by reference | same slots in the AMC descriptor | **at parity**, held by `test_compute_backend_parity.py` (see §9.6) |
+| Pod capabilities in the artifact | hub door, consent verifying keys, flag on, internal-only, signing key by reference | same slots in the AMC descriptor | **at parity**, held by `test_compute_backend_parity.py` |
+| Model access (credential mode) | **managed** Vertex workload ADC — ambient SA identity, project + location rendered | **BYOK** — user's own AI connection, turn-bounded key, nothing rendered | **at parity as a capability**; different mechanism by platform (§9.6) |
 | APIs | identical provision/deprovision/get contract | same | **one contract** |
 | Deploy (CI/CD) | GCP Cloud Build → backend | GCP Cloud Build → backend | **at parity** (dev lane only) |
 | Observability | Cloud Monitoring/Logging/Trace | Anypoint Monitoring | **normalize to one event schema** |
@@ -343,16 +344,25 @@ regulated primary** + validated — see §2. Kept side-by-side to prevent drift.
    elastic burst, and BYOC.
 5. **Gateway.** Anypoint's AI/Omni Gateway is batteries-included; GCP's equivalent is
    Apigee + Model Armor, composed. Same capability, more assembly on GCP.
-6. **Model access has no ambient identity on Anypoint.** On Cloud Run the pod reaches
-   Vertex *as itself* — its own service account carries `aiplatform.user`, so there is no
-   credential to render and none to leak. CloudHub has no equivalent identity to borrow,
-   so the pod there can only reach a model when a compute project is configured for it
-   explicitly. The **slot is present on both** (that is what `render_deploy_config` parity
-   means, and what the parity test enforces); the toggle turns on only when that project
-   exists, which keeps a dark-shipped Anypoint pod inert rather than claiming an identity
-   it does not have. Closing this needs an explicit credential path on CloudHub — it is a
-   real gap, recorded rather than rendered away, and Anypoint live provisioning is gated
-   regardless.
+6. **Model access uses a different credential mode per platform — both already exist.**
+   Two modes exist in `runtime_providers/factory.py` and they are **orthogonal to the
+   provider**: **managed** Vertex workload ADC, and **BYOK**, the user's own turn-bounded
+   key, isolated from backend ADC and environment keys by construction.
+   - **GCP** uses the managed mode: the pod reaches Vertex *as itself*, its service
+     account carrying `aiplatform.user`, so there is no credential to render or leak.
+   - **CloudHub has no Vertex and no ambient Google identity**, so it uses **BYOK — the
+     user's own AI connection, the same path Gemini BYOK takes today** (the onboarding
+     already surfaces these integrations). The key is turn-bounded: it arrives with the
+     request, so **nothing credential-shaped is rendered into the artifact at all**. The
+     capability is satisfied at *runtime* on this platform rather than at deploy time.
+
+   This is a **divergence in mechanism, not a capability gap** — and on the sovereignty
+   axis BYOK is the stronger of the two, since the pod never holds a standing model
+   credential. Parity is therefore asserted as *"the artifact declares which mode this
+   platform is in, and is consistent with it"* — managed renders a project and location,
+   BYOK renders neither and must not imply an identity it does not have. Encoding the GCP
+   answer (`GOOGLE_GENAI_USE_VERTEXAI == "true"`) as the universal one would have forced
+   CloudHub to carry config that does nothing.
 
 ## 10. BYO + onboarding (frontend)
 

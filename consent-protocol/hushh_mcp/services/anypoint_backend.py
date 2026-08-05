@@ -124,16 +124,19 @@ class AnypointBackend:
             # that could forge one.
             "CONSENT_ED25519_PUBLIC_KEYS": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
         }
-        # Model access. The divergence from Cloud Run is real and is not papered
-        # over: on CloudHub there is no ambient Google identity to borrow, so the
-        # pod can only reach Vertex when a compute project is explicitly configured
-        # for it. The slot is always present (the platform is configurable); the
-        # toggle turns on only when that project exists, which keeps a dark-shipped
-        # pod inert rather than claiming an identity it does not have.
-        vertex_project = _env("HUSSH_POD_VERTEX_PROJECT") or ""
-        properties["GOOGLE_GENAI_USE_VERTEXAI"] = "true" if vertex_project else "false"
-        properties["GOOGLE_CLOUD_PROJECT"] = vertex_project
-        properties["GOOGLE_CLOUD_LOCATION"] = _env("HUSSH_POD_VERTEX_LOCATION") or spec.region or ""
+        # Model access on CloudHub is BYOK -- the user's own AI connection, exactly
+        # the path Gemini BYOK already takes today. There is no Vertex here and no
+        # ambient Google identity to borrow, so this renders FALSE deliberately:
+        # the runtime provider factory reads this name, and it must not attempt
+        # managed Vertex ADC on a platform that has none.
+        #
+        # No project, no location, and above all NO KEY. A BYOK key is turn-bounded
+        # -- it arrives with the request and is isolated from backend ADC and
+        # environment keys by construction (`runtime_providers/factory.py`) -- so a
+        # credential in this artifact would be both wrong and a leak. On this
+        # platform the capability is satisfied at RUNTIME, not at deploy time,
+        # which is why the slot is a mode declaration and never a credential.
+        properties["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
 
         # APP_SIGNING_KEY arrives BY REFERENCE, never as a value -- with HMAC the
         # power to verify is the power to forge, so a rendered key would put a
