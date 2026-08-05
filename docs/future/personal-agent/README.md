@@ -33,6 +33,7 @@ Companion contracts: [ARCHITECTURE.md](./ARCHITECTURE.md), [ROADMAP.md](./ROADMA
 | [`EXECUTION-LOG.md`](./EXECUTION-LOG.md) | **What shipped, when** — the milestone → change → commit → validation ledger. |
 | [`DEV-LIVE-EXECUTION-PLAN.md`](./DEV-LIVE-EXECUTION-PLAN.md) | **Authoritative, unexecuted** — real per-developer pods in `hushh-pda-dev`, a dev-only migration lane, background provisioning in the activity feed, and local-first onboarding with vault as the final step. |
 | [`BYOC-USER-GCP.md`](./BYOC-USER-GCP.md) | The **user-owned-GCP (BYOC)** tier — the pod in the *user's* cloud via keyless Workload Identity Federation + a least-privilege bootstrap. |
+| [`MULTI-POD-DEV-SIMULATION.md`](./MULTI-POD-DEV-SIMULATION.md) | **The fleet test** — every invariant and edge case for running N per-user pods in dev, measured capacity (~212 MB/pod, flat to 20), the probe suite, and the five verified defects found by running it. |
 | [`CONTROL-PLANE-SPLIT.md`](./CONTROL-PLANE-SPLIT.md) | **The hub is the only door to a pod** — the owner-authorized private relay, the metadata-only audit ledger, and migration-by-reset (what "no trace with 🤫 hussh" covers and how it is held). |
 | [`../identity-assurance/README.md`](../identity-assurance/README.md) | M14 companion — WebAuthn/FIDO2 + Titan/YubiKey passkey login + NIST 800-63B AAL mapping. |
 | [`../apple-a-plus/PLAN.md`](../apple-a-plus/PLAN.md) | The Apple/Jobs "A+" grading loop for the "your sovereign agent is alive" throughline. |

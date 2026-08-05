@@ -169,3 +169,4 @@ ehthumbs_vista.db
 # Staged into the docker build context by deploy/backend.cloudbuild.yaml.
 # The real tree lives at the repo root; this copy is a build artifact.
 consent-protocol/contracts/
+consent-protocol/.sim/
