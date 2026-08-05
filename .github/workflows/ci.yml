@@ -55,10 +55,25 @@ jobs:
             DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
             git fetch origin "$DEFAULT_BRANCH" --quiet || true
             if git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
-              echo "--ancestry-path origin/$DEFAULT_BRANCH..${{ github.sha }}"
-            else
-              echo "${{ github.sha }}"
+              # The base must be the MERGE BASE, never the default branch's current
+              # tip. `--ancestry-path origin/main..<sha>` keeps only commits that
+              # descend from main's tip -- and a branch cut before that tip has none,
+              # so the range resolves to ZERO commits and the scan reports success
+              # having inspected nothing. Measured on this repo: 0 commits via the
+              # tip, 26 via the merge base, for the same head SHA. A control that
+              # passes because it looked at nothing is worse than one that fails.
+              # `scripts/ci/secret-scan.sh` has always used the merge base; this
+              # helper is the copy that drifted.
+              MERGE_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" "${{ github.sha }}" 2>/dev/null || true)"
+              if [ -n "$MERGE_BASE" ]; then
+                echo "--ancestry-path ${MERGE_BASE}..${{ github.sha }}"
+                return
+              fi
             fi
+            # Last resort only: no default branch to compare against, or no shared
+            # history with it. A bare SHA scans ALL reachable history, which is loud
+            # and slow -- deliberately so. Failing noisily beats passing vacuously.
+            echo "${{ github.sha }}"
           }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -89,6 +104,10 @@ jobs:
             # of full history and failed on 61 pre-existing historical findings that
             # no PR run would ever see. That made the CI Status Gate unobtainable on
             # a dispatch run for any branch.
+            #
+            # Bounded is necessary and NOT sufficient: the range must also CONTAIN the
+            # branch's commits. See resolve_from_default_branch above for the empty-range
+            # trap, and secret-scan.sh for the guard that refuses a vacuous scan.
             LOG_OPTS="$(resolve_from_default_branch)"
           fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
