@@ -100,12 +100,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM relationship_share_events",
         "DELETE FROM relationship_share_grants",
         "DELETE FROM ria_pick_share_artifacts",
-        "DELETE FROM ria_pick_uploads",
         "DELETE FROM advisor_investor_relationships",
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
         "DELETE FROM one_location_referrals",
         "DELETE FROM one_location_public_invite_submissions",
@@ -123,6 +123,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_envelopes",
         "DELETE FROM one_location_share_grants",
         "DELETE FROM one_location_recipient_keys",
+        "DELETE FROM one_wallet_cards",
         "DELETE FROM actor_verified_email_aliases",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
@@ -174,6 +175,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM one_location_share_grants") < executed_sql.index(
         "DELETE FROM actor_identity_cache"
+    )
+    # The public Wallet Profile card holds denormalized PII (name/email/phone/links) and
+    # is resolvable from an unauthenticated endpoint, so it must be removed while the
+    # account still exists — before the identity spine is torn down. Contract §2.
+    assert executed_sql.index("DELETE FROM one_wallet_cards") < executed_sql.index(
+        "DELETE FROM actor_profiles"
     )
 
 
@@ -244,6 +251,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
+        "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
         "DELETE FROM one_location_circle_member_invites",
         "DELETE FROM one_location_circle_invite_codes",
@@ -252,6 +260,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM one_location_circles",
         "DELETE FROM connection_requests",
         "DELETE FROM connections",
+        "DELETE FROM one_wallet_cards",
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql

@@ -103,6 +103,23 @@ class RateLimits:
 
     # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
     ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
+    # UAT-only One Location nearby-presence simulation. The roster is a stable,
+    # bounded sample, and these per-principal limits additionally bound polling,
+    # check-in churn, and alias-based connection attempts. Shared enforcement
+    # keeps the existing RATE_LIMIT_STORAGE_URI Redis-later seam.
+    ONE_LOCATION_NEARBY_READ = "8/minute"  # noqa: S105
+    ONE_LOCATION_NEARBY_WRITE = "6/minute"  # noqa: S105
+    ONE_LOCATION_NEARBY_CONNECT = "10/minute"  # noqa: S105
+    # Provider-backed search/details incur external cost. Keep a separate,
+    # comfortably interactive bucket so search cannot consume nearby roster or
+    # check-in budgets while still bounding scripted abuse per signed owner.
+    ONE_LOCATION_MAPS_PROVIDER = "30/minute"  # noqa: S105
+
+    # Advisor directory (FINRA BrokerCheck proxy). Every miss is an upstream
+    # call against a quota we own, so this stays bounded per principal. Paging
+    # is served from the upstream's own ranking cache and is therefore cheap;
+    # the limit is sized for browse-and-page, not for scraping the directory.
+    ONE_ADVISORS_DIRECTORY_READ = "20/minute"  # noqa: S105
 
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;

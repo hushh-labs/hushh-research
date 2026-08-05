@@ -800,7 +800,9 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.screen_metadata.available_action_ids,
   );
   const vaultReady = Boolean(
-    structured.vault.unlocked && structured.vault.token_valid,
+    structured.vault.unlocked &&
+      structured.vault.token_available &&
+      structured.vault.token_valid,
   );
   const portfolioReady = Boolean(app?.portfolio.has_portfolio_data);
   const freshness = vaultReady

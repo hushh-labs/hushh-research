@@ -190,5 +190,11 @@ describe("AgentPopoverProvider surface ownership", () => {
       "data-closing",
       "true",
     );
+    const closingDialog = screen.getByRole("dialog", { hidden: true });
+    expect(closingDialog.parentElement).toHaveClass("opacity-0");
+    expect(closingDialog).toHaveClass(
+      "ease-[cubic-bezier(0.64,0,0.78,0)]",
+    );
+    expect(closingDialog.className).not.toContain("sm:ring-1");
   });
 });

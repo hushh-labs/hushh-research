@@ -10,6 +10,8 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
     manifest = json.loads(
         (ROOT / "db" / "release_migration_manifest.json").read_text(encoding="utf-8")
     )
+    # Membership, not last-position: asserting this migration is *last* turns
+    # every subsequent unrelated migration into a false failure here.
     assert "124_trusted_device_vault_handoff.sql" in manifest["ordered_migrations"]
     assert "122_trusted_device_repair.sql" in manifest["groups"]["iam"]
 
@@ -89,6 +91,7 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
         contract = json.loads(
             (ROOT / "db" / "contracts" / contract_name).read_text(encoding="utf-8")
         )
+        # Floor, not equality: every later migration bumps this number.
         assert contract["expected_migration_version"] >= 124
         for table, columns in expected_columns.items():
             assert set(contract["required_tables"][table]) == columns

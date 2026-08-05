@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -44,7 +44,13 @@ describe("PublicLocationRequestPageClient", () => {
       expect(mocks.resolvePublicInvite).toHaveBeenCalledWith("public-token"),
     );
 
-    expect(await screen.findByTitle("Public location map")).toBeTruthy();
+    const map = await screen.findByTitle("Public location map");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Recenter public location map" }),
+    );
+
+    expect(screen.getByTitle("Public location map")).not.toBe(map);
+    expect(mocks.resolvePublicInvite).toHaveBeenCalledTimes(1);
     expect(screen.queryByPlaceholderText("Your name")).toBeNull();
     expect(screen.queryByPlaceholderText("Phone number")).toBeNull();
     expect(screen.queryByPlaceholderText("Optional message")).toBeNull();

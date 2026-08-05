@@ -30,13 +30,32 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 vi.mock("@/components/profile/connected-systems-panel", () => ({
+  ConnectedSystemLogo: () => <span aria-label="CRM logo" />,
+  crmTypeDisplayLabel: (system?: { systemType?: string }) =>
+    system?.systemType || "",
   ConnectedSystemsPanel: ({
     onSystemResolved,
   }: {
-    onSystemResolved?: (system: { displayName: string }) => void;
+    onSystemResolved?: (system: {
+      systemId: string;
+      displayName: string;
+      status: string;
+      target: string;
+      objectTypeDefault: string;
+      transport: string;
+      systemType?: string;
+    }) => void;
   }) => {
     useEffect(() => {
-      onSystemResolved?.({ displayName: "Customer CRM" });
+      onSystemResolved?.({
+        systemId: "customer-crm",
+        displayName: "Customer CRM",
+        status: "connected",
+        target: "Customer CRM",
+        objectTypeDefault: "Contact",
+        transport: "mcp",
+        systemType: "Salesforce",
+      });
     }, [onSystemResolved]);
     return <div>CRM body</div>;
   },
@@ -67,5 +86,6 @@ describe("ConnectedSystemDetailClient", () => {
       screen.queryByRole("heading", { name: "Connected system" }),
     ).toBeNull();
     expect(screen.getAllByText("Customer CRM")).toHaveLength(1);
+    expect(screen.getByText("Salesforce")).toBeTruthy();
   });
 });

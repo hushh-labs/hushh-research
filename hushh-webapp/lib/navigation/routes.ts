@@ -72,6 +72,7 @@ export const ROUTES = {
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",
   PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
+  PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
@@ -107,6 +108,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
+  /** Owner setup and management for the Apple Wallet profile pass. */
+  ONE_WALLET_CARD: "/one/wallet-card",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -139,6 +142,7 @@ export const ROUTES = {
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
   LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
+  /** Compatibility redirect only; new RIA entry points use the profile tab. */
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -266,29 +270,39 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
+export type CompletedSetupCapabilityEntry =
+  | { kind: "continue" }
+  | { kind: "acknowledge"; target: string }
+  | { kind: "redirect"; target: string };
+
 /**
- * Completed Location setup reopens its product workspace only after the root
- * setup journey is resolved. While `/one/setup` is still active, the authored
- * setup route remains replayable just like every other capability.
+ * Resolve a durable completion before a capability setup body mounts.
+ *
+ * Location is the only capability with a first-run flow that can finish while
+ * the root setup hub remains active. Re-entering that completed row briefly
+ * acknowledges the saved result and returns to the hub; it must never replay
+ * permissions, contacts, or the circle confirmation. Once root setup itself
+ * is resolved, the canonical Location workspace remains the handoff target.
  */
-export function resolveCompletedSetupCapabilityTarget(
-  {
-    capabilityId,
-    completedCapabilityIds,
-    rootSetupResolved,
-  }: {
-    capabilityId: string;
-    completedCapabilityIds: readonly string[];
-    rootSetupResolved: boolean;
-  },
-): string | null {
+export function resolveCompletedSetupCapabilityEntry({
+  capabilityId,
+  completedCapabilityIds,
+  rootSetupResolved,
+}: {
+  capabilityId: string;
+  completedCapabilityIds: readonly string[];
+  rootSetupResolved: boolean;
+}): CompletedSetupCapabilityEntry {
   if (
-    !rootSetupResolved ||
+    capabilityId !== "location" ||
     !completedCapabilityIds.includes(capabilityId)
   ) {
-    return null;
+    return { kind: "continue" };
   }
-  return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
+
+  return rootSetupResolved
+    ? { kind: "redirect", target: ROUTES.ONE_LOCATION }
+    : { kind: "acknowledge", target: ROUTES.ONE_SETUP };
 }
 
 /**
@@ -441,13 +455,12 @@ export function buildConnectedSystemRoute(
 ) {
   const normalized = String(systemId ?? "").trim();
   if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
-  // Connected systems are runtime-configured. Keep their selection on the
-  // statically exported workspace route so every registered CRM works in
-  // Capacitor without a cold navigation to an unbuilt dynamic path.
-  return withQuery(ROUTES.CONNECTED_SYSTEMS, {
-    system: normalized,
-    agentActionId: entries?.agentActionId,
-  });
+  return withQuery(
+    `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`,
+    {
+      agentActionId: entries?.agentActionId,
+    },
+  );
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(
@@ -611,6 +624,15 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * Public Wallet Profile prefix. Deliberately a module-local constant rather
+ * than a ROUTES entry: `/c` is a token namespace with no page of its own, so it
+ * needs neither a native-route-inventory classification nor a ROUTES-derived
+ * app-route-layout entry. Precedent: the location public-invite prefix is
+ * likewise not a ROUTES value.
+ */
+const WALLET_CARD_PUBLIC_PREFIX = "/c";
+
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
@@ -625,7 +647,25 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
+  );
+}
+
+/**
+ * Routes that must emit no analytics at all (Wallet Profile contract §7).
+ *
+ * A visitor scanning someone's Wallet Profile QR never agreed to anything with
+ * us — they are not a user, they arrived from a stranger's printed code, and we
+ * do not get to measure them. Deliberately much narrower than `isPublicRoute`:
+ * the marketing and auth routes there are ours to instrument.
+ */
+export function isAnalyticsExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
 }
 

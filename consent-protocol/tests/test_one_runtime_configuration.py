@@ -114,21 +114,46 @@ async def test_gemini_validation_returns_safe_failure_taxonomy(
 
 
 @pytest.mark.asyncio
-async def test_vertex_api_key_transport_is_explicitly_disabled() -> None:
+async def test_vertex_api_key_transport_requires_explicit_endpoint_metadata() -> None:
     with pytest.raises(HTTPException) as raised:
         await runtime.validate_gemini_credential(
             request=_request(),
             body=runtime.GeminiCredentialValidationRequest(
                 credential="test-key",
                 transport="vertex_api_key",
-                vertex_project="hushh-pda-dev",
-                vertex_location="global",
+                vertex_project=None,
+                vertex_location=None,
             ),
             _firebase_uid="user-1",
         )
 
     assert raised.value.status_code == 422
     assert raised.value.detail == {
-        "code": "GEMINI_BYOK_TRANSPORT_UNSUPPORTED",
-        "status": "vertex_api_key_disabled",
+        "code": "GEMINI_CREDENTIAL_VALIDATION_FAILED",
+        "status": "invalid_vertex_configuration",
     }
+
+
+@pytest.mark.asyncio
+async def test_vertex_api_key_transport_probes_the_explicit_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generate_content = AsyncMock(return_value=SimpleNamespace(text="OK"))
+    client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)),
+    )
+    monkeypatch.setattr(runtime, "build_runtime_client", lambda *_args, **_kwargs: client)
+
+    result = await runtime.validate_gemini_credential(
+        request=_request(),
+        body=runtime.GeminiCredentialValidationRequest(
+            credential="test-key",
+            transport="vertex_api_key",
+            vertex_project="customer-vertex-project",
+            vertex_location="us-central1",
+        ),
+        _firebase_uid="user-1",
+    )
+
+    assert result.status == "ready"
+    generate_content.assert_awaited_once()

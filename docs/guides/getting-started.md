@@ -76,7 +76,7 @@ cd hushh-research
 `./bin/hushh bootstrap` is the only supported onboarding entrypoint. It:
 
 - installs frontend and backend dependencies
-- hydrates the three canonical runtime profiles when cloud access is available
+- hydrates the selected runtime profile when cloud access is available
 - activates the selected profile into `hushh-webapp/.env.local` and `consent-protocol/.env`
 - runs the environment doctor
 
@@ -87,6 +87,13 @@ Seeded files:
 - active frontend runtime in `hushh-webapp/.env.local`
 
 `./bin/hushh bootstrap` and `./bin/hushh web` now both default to `local`.
+
+For agent-driven local work, bootstrap prefers refreshable `gcloud` credentials
+and then refreshable Application Default Credentials (ADC). This avoids treating
+an expired interactive CLI session as permission to use stale local values. It
+does not override Google Workspace session policy: reauthenticate ADC with
+`gcloud auth application-default login` when it expires. Do not use local
+service-account key files; hosted deployment uses GitHub OIDC/WIF separately.
 
 That local-first path is the recommended maintainer and contributor baseline:
 

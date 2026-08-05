@@ -1,6 +1,6 @@
 # Hushh One MCP for OpenClaw
 
-OpenClaw bundle plugin for the Hussh One consent MCP. It lets OpenClaw agents search a user's available Personal Knowledge Model scopes, request explicit consent in Hussh One/Kai, poll approval status, and retrieve a scoped export through the Hussh MCP bridge.
+OpenClaw bundle plugin for the Hushh One private agent consent MCP. It lets OpenClaw agents search a user's available Personal Knowledge Model scopes, request explicit consent in the One private agent or Kai, poll approval status, and retrieve a scoped export through the Hushh MCP bridge.
 
 This bundle does not grant direct access to personal information. The developer token identifies the external app, and the user still approves each scoped request in Hussh.
 
@@ -11,7 +11,7 @@ This bundle does not grant direct access to personal information. The developer 
 - No native OpenClaw plugin code
 - No bundled secrets
 
-The package includes a minimal `openclaw.plugin.json` because the current ClawHub package publish API requires plugin package metadata. OpenClaw still detects this package as a Codex bundle through `.codex-plugin/plugin.json`.
+This is a Codex bundle, detected through `.codex-plugin/plugin.json`. ClawHub requires a lightweight `openclaw.plugin.json` for package publishing, but this package intentionally contains no native OpenClaw runtime entrypoint.
 
 This is published on ClawHub as a plugin package named `@hushh/one-mcp`. Search for it under ClawHub **Plugins**, not **Skills**. The included skill is named `hushh-one-pkm`; it can also be published separately for Skills-tab discovery, but installing that skill alone does not add the MCP server config.
 

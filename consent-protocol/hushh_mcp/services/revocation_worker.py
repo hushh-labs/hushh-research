@@ -186,12 +186,17 @@ class ConsentRevocationWorker:
 async def _revocation_loop(
     worker: ConsentRevocationWorker,
     interval_seconds: float,
+    expire_capabilities: Callable[[], Awaitable[int]] | None = None,
 ) -> None:
-    """Run scan_and_revoke() on a fixed interval until cancelled."""
+    """Run temporal consent and proposal-expiry projections until cancelled."""
     logger.info("[%s] Revocation loop started (interval=%ss)", _LABEL, interval_seconds)
     while True:
         try:
             await worker.scan_and_revoke()
+            if expire_capabilities is not None:
+                expired = await expire_capabilities()
+                if expired:
+                    logger.info("[%s] connection_capabilities.expired count=%s", _LABEL, expired)
         except asyncio.CancelledError:
             logger.info("[%s] Revocation loop cancelled", _LABEL)
             return
@@ -204,6 +209,7 @@ def start_revocation_loop(
     *,
     fetch_expired: Callable[[], Awaitable[list[ExpiredConsent]]],
     revoke: Callable[[str], Awaitable[None]],
+    expire_capabilities: Callable[[], Awaitable[int]] | None = None,
     interval_seconds: float = 300.0,
 ) -> asyncio.Task:
     """
@@ -226,6 +232,6 @@ def start_revocation_loop(
         revoke=revoke,
     )
     return asyncio.create_task(
-        _revocation_loop(worker, interval_seconds),
+        _revocation_loop(worker, interval_seconds, expire_capabilities),
         name="consent-revocation-worker",
     )

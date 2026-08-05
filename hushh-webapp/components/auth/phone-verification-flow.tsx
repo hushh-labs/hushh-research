@@ -10,6 +10,14 @@ import {
   useState,
 } from "react";
 import type { User } from "firebase/auth";
+import {
+  getCountryCallingCode,
+  isSupportedCountry,
+  Metadata,
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js/core";
+import mobilePhoneMetadata from "libphonenumber-js/mobile/metadata";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -48,7 +56,9 @@ import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
-const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
+// Country metadata owns national-number length and validity.
+const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
+const E164_MAX_DIGITS = 15;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -91,6 +101,22 @@ type StartVerificationOutcome =
 
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
+// Offer metadata-backed plans and keep NANP area codes in the national number.
+const PHONE_COUNTRY_OPTIONS: readonly CountryPhoneOption[] =
+  COUNTRY_PHONE_OPTIONS.filter((option) =>
+    isSupportedCountry(option.value as CountryCode, mobilePhoneMetadata),
+  ).map((option) => ({
+    ...option,
+    dialCode: `+${getCountryCallingCode(
+      option.value as CountryCode,
+      mobilePhoneMetadata,
+    )}`,
+  }));
+const DEFAULT_PHONE_COUNTRY_OPTION =
+  PHONE_COUNTRY_OPTIONS.find(
+    (option) => option.value === DEFAULT_COUNTRY_VALUE,
+  ) ?? PHONE_COUNTRY_OPTIONS[0]!;
+
 function getCountryOptionLabel(option: {
   label: string;
   dialCode: string;
@@ -100,15 +126,15 @@ function getCountryOptionLabel(option: {
 
 function getCountryOption(value: string): CountryPhoneOption {
   return (
-    COUNTRY_PHONE_OPTIONS.find((option) => option.value === value) ??
-    COUNTRY_PHONE_OPTIONS[0]!
+    PHONE_COUNTRY_OPTIONS.find((option) => option.value === value) ??
+    DEFAULT_PHONE_COUNTRY_OPTION
   );
 }
 
 function getCountryOptionForPhoneNumber(
   phoneNumber: string,
 ): CountryPhoneOption | undefined {
-  const matchingOptions = COUNTRY_PHONE_OPTIONS.filter((option) =>
+  const matchingOptions = PHONE_COUNTRY_OPTIONS.filter((option) =>
     phoneNumber.startsWith(option.dialCode),
   ).sort((left, right) => right.dialCode.length - left.dialCode.length);
   const firstMatch = matchingOptions[0];
@@ -132,7 +158,60 @@ function sanitizeDialCode(value: string): string {
 }
 
 function sanitizeLocalPhoneNumber(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 15);
+  return value.replace(/\D/g, "");
+}
+
+type MobileNumberTypeMetadata = {
+  possibleLengths: () => number[];
+};
+
+type MobileAwareMetadata = Metadata & {
+  type: (type: "MOBILE") => MobileNumberTypeMetadata | undefined;
+};
+
+const mobileNumberLengthCache = new Map<
+  string,
+  { minimum: number; maximum: number }
+>();
+
+export function getMobileNumberLengthRange(countryValue: string): {
+  minimum: number;
+  maximum: number;
+} {
+  const dialCode = getCountryOption(countryValue).dialCode;
+  const cacheKey = `${countryValue}:${dialCode}`;
+  const cached = mobileNumberLengthCache.get(cacheKey);
+  if (cached) return cached;
+
+  const fallbackMaximum = Math.max(
+    1,
+    E164_MAX_DIGITS - dialCode.replace(/\D/g, "").length,
+  );
+  let range = { minimum: 1, maximum: fallbackMaximum };
+
+  try {
+    const metadata = new Metadata(mobilePhoneMetadata);
+    metadata.selectNumberingPlan(countryValue as CountryCode);
+    // The package exposes this metadata view at runtime but not in its TS API.
+    const mobileType = (metadata as MobileAwareMetadata).type("MOBILE");
+    const possibleLengths = (mobileType?.possibleLengths() ?? [])
+      .filter(
+        (length) =>
+          Number.isInteger(length) && length > 0 && length <= fallbackMaximum,
+      )
+      .sort((left, right) => left - right);
+    if (possibleLengths.length > 0) {
+      range = {
+        minimum: possibleLengths[0]!,
+        maximum: possibleLengths[possibleLengths.length - 1]!,
+      };
+    }
+  } catch {
+    // Invalid programmatic values use the E.164 bound above.
+  }
+
+  mobileNumberLengthCache.set(cacheKey, range);
+  return range;
 }
 
 function composePhoneNumber(
@@ -154,12 +233,20 @@ export function derivePhoneFields(phoneNumber?: string | null): {
     };
   }
 
-  const matchingOption = getCountryOptionForPhoneNumber(normalizedPhone);
+  const parsedPhone = parsePhoneNumberFromString(
+    normalizedPhone,
+    mobilePhoneMetadata,
+  );
+  const parsedCountry = parsedPhone?.country;
+  const matchingOption =
+    (parsedCountry
+      ? PHONE_COUNTRY_OPTIONS.find((option) => option.value === parsedCountry)
+      : undefined) ?? getCountryOptionForPhoneNumber(normalizedPhone);
 
   if (matchingOption) {
     return {
       countryValue: matchingOption.value,
-      localPhoneNumber: sanitizeLocalPhoneNumber(
+      localPhoneNumber: parsedPhone?.nationalNumber ?? sanitizeLocalPhoneNumber(
         normalizedPhone.slice(matchingOption.dialCode.length),
       ),
     };
@@ -171,6 +258,56 @@ export function derivePhoneFields(phoneNumber?: string | null): {
       normalizedPhone.replace(/^\+\d{1,4}/, ""),
     ),
   };
+}
+
+export function getPhoneNumberValidationError(
+  phoneNumber?: string | null,
+  countryValue?: string,
+): string | null {
+  const normalizedPhone = String(phoneNumber ?? "").trim();
+  if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
+    return "Enter a valid country code and phone number.";
+  }
+
+  const fields = derivePhoneFields(normalizedPhone);
+  const resolvedCountry = countryValue ?? fields.countryValue;
+  const countryOption = getCountryOption(resolvedCountry);
+  const nationalNumber = normalizedPhone.startsWith(countryOption.dialCode)
+    ? sanitizeLocalPhoneNumber(
+        normalizedPhone.slice(countryOption.dialCode.length),
+      )
+    : fields.localPhoneNumber;
+  const lengthRange = getMobileNumberLengthRange(resolvedCountry);
+
+  if (nationalNumber.length < lengthRange.minimum) {
+    return `Enter a complete mobile number for ${countryOption.label}.`;
+  }
+  if (nationalNumber.length > lengthRange.maximum) {
+    return `Enter no more than ${lengthRange.maximum} digits for ${countryOption.label}.`;
+  }
+
+  const parsedPhone = parsePhoneNumberFromString(
+    normalizedPhone,
+    mobilePhoneMetadata,
+  );
+  if (parsedPhone?.number !== normalizedPhone) {
+    return `Enter the mobile number without a local leading prefix after ${countryOption.dialCode}.`;
+  }
+  if (!parsedPhone?.isValid()) {
+    return `Enter a valid mobile number for ${countryOption.label}.`;
+  }
+
+  return null;
+}
+
+export function maskPhoneNumberForOtp(
+  phoneNumber?: string | null,
+): string {
+  const localPhoneNumber = derivePhoneFields(phoneNumber).localPhoneNumber;
+  if (!localPhoneNumber) return "";
+  if (localPhoneNumber.length <= 4) return localPhoneNumber;
+
+  return `${"•".repeat(localPhoneNumber.length - 4)} ${localPhoneNumber.slice(-4)}`;
 }
 
 export function resolvePhoneInputChange(value: string): {
@@ -207,6 +344,7 @@ export function PhoneVerificationFlow({
   const [countryComboboxOpen, setCountryComboboxOpen] = useState(false);
   const suppressNextCountryFocusOpenRef = useRef(false);
   const [localPhoneNumber, setLocalPhoneNumber] = useState("");
+  const [phoneNumberError, setPhoneNumberError] = useState<string | null>(null);
   const [submittedPhoneNumber, setSubmittedPhoneNumber] = useState(
     currentPhoneNumber || "",
   );
@@ -225,6 +363,7 @@ export function PhoneVerificationFlow({
     const nextFields = derivePhoneFields(currentPhoneNumber);
     setSelectedCountry(nextFields.countryValue);
     setLocalPhoneNumber(nextFields.localPhoneNumber);
+    setPhoneNumberError(null);
     setSubmittedPhoneNumber(currentPhoneNumber || "");
     setCountryQuery("");
     setVerificationCode("");
@@ -241,12 +380,12 @@ export function PhoneVerificationFlow({
   );
   const selectedCountryOption = useMemo(
     () =>
-      COUNTRY_PHONE_OPTIONS.find((option) => option.value === selectedCountry),
+      PHONE_COUNTRY_OPTIONS.find((option) => option.value === selectedCountry),
     [selectedCountry],
   );
   const selectedCountryLabel = useMemo(
     () =>
-      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!),
+      getCountryOptionLabel(selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION),
     [selectedCountryOption],
   );
   const countryInputValue = countryComboboxOpen
@@ -255,10 +394,10 @@ export function PhoneVerificationFlow({
   const filteredCountryOptions = useMemo(() => {
     const normalizedQuery = countryQuery.trim().toLowerCase();
     if (!normalizedQuery) {
-      return COUNTRY_PHONE_OPTIONS;
+      return PHONE_COUNTRY_OPTIONS;
     }
 
-    return COUNTRY_PHONE_OPTIONS.filter((option) => {
+    return PHONE_COUNTRY_OPTIONS.filter((option) => {
       const searchableText = [
         option.label,
         option.dialCode,
@@ -271,12 +410,16 @@ export function PhoneVerificationFlow({
     });
   }, [countryQuery]);
   const activeDialCode = useMemo(
-    () => selectedCountryOption?.dialCode ?? COUNTRY_PHONE_OPTIONS[0]!.dialCode,
+    () => selectedCountryOption?.dialCode ?? DEFAULT_PHONE_COUNTRY_OPTION.dialCode,
     [selectedCountryOption],
   );
   const normalizedPhoneInput = useMemo(
     () => composePhoneNumber(activeDialCode, localPhoneNumber),
     [activeDialCode, localPhoneNumber],
+  );
+  const mobileNumberLengthRange = useMemo(
+    () => getMobileNumberLengthRange(selectedCountry),
+    [selectedCountry],
   );
 
   const handleCountrySelection = useCallback((value: string | null) => {
@@ -284,7 +427,7 @@ export function PhoneVerificationFlow({
       return;
     }
 
-    const nextOption = COUNTRY_PHONE_OPTIONS.find(
+    const nextOption = PHONE_COUNTRY_OPTIONS.find(
       (option) => option.value === value,
     );
     if (!nextOption) {
@@ -292,9 +435,15 @@ export function PhoneVerificationFlow({
     }
 
     setSelectedCountry(nextOption.value);
+    const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
+    setPhoneNumberError(
+      localPhoneNumber.length > maximum
+        ? `Enter no more than ${maximum} digits for ${nextOption.label}.`
+        : null,
+    );
     setCountryQuery("");
     setCountryComboboxOpen(false);
-  }, []);
+  }, [localPhoneNumber.length]);
 
   useLocalOnboardingActionHandler("phone_mandate.select_country", (slots) => {
     const requested = String(
@@ -410,13 +559,37 @@ export function PhoneVerificationFlow({
 
   const handlePhoneNumberChange = useCallback((value: string) => {
     const nextInput = resolvePhoneInputChange(value);
+    const nextCountry = nextInput.countryValue ?? selectedCountry;
+    const nextOption = getCountryOption(nextCountry);
+    const maximum = getMobileNumberLengthRange(nextCountry).maximum;
+    if (nextInput.localPhoneNumber.length > maximum) {
+      // Reject instead of truncating into a different recipient.
+      setPhoneNumberError(
+        `Enter no more than ${maximum} digits for ${nextOption.label}.`,
+      );
+      return;
+    }
     if (nextInput.countryValue) {
-      const nextOption = getCountryOption(nextInput.countryValue);
       setSelectedCountry(nextOption.value);
       setCountryQuery("");
     }
     setLocalPhoneNumber(nextInput.localPhoneNumber);
-  }, []);
+    setPhoneNumberError(null);
+  }, [selectedCountry]);
+
+  const handlePhoneNumberPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLInputElement>) => {
+      const pastedValue = event.clipboardData.getData("text");
+      const selectionStart = event.currentTarget.selectionStart ?? 0;
+      const selectionEnd =
+        event.currentTarget.selectionEnd ?? localPhoneNumber.length;
+      const nextValue = `${localPhoneNumber.slice(0, selectionStart)}${pastedValue}${localPhoneNumber.slice(selectionEnd)}`;
+      // Intercept before maxLength can clip a complete international paste.
+      event.preventDefault();
+      handlePhoneNumberChange(nextValue);
+    },
+    [handlePhoneNumberChange, localPhoneNumber],
+  );
 
   const handleStartVerification = useCallback(
     async (
@@ -429,10 +602,23 @@ export function PhoneVerificationFlow({
       const normalizedPhone = (
         phoneNumberOverride ?? normalizedPhoneInput
       ).trim();
-      if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
-        morphyToast.error("Enter a valid country code and phone number.");
+      const validationCountry = phoneNumberOverride
+        ? derivePhoneFields(normalizedPhone).countryValue
+        : selectedCountry;
+      if (!phoneNumberOverride && phoneNumberError) {
+        morphyToast.error(phoneNumberError);
         return "invalid";
       }
+      const validationError = getPhoneNumberValidationError(
+        normalizedPhone,
+        validationCountry,
+      );
+      if (validationError) {
+        setPhoneNumberError(validationError);
+        morphyToast.error(validationError);
+        return "invalid";
+      }
+      setPhoneNumberError(null);
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
         trackEvent("phone_verification_completed", {
@@ -501,6 +687,8 @@ export function PhoneVerificationFlow({
       mode,
       normalizedPhoneInput,
       onCompleted,
+      phoneNumberError,
+      selectedCountry,
       startVerification,
       busy,
     ],
@@ -825,14 +1013,29 @@ export function PhoneVerificationFlow({
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel-national"
+                  maxLength={mobileNumberLengthRange.maximum}
                   value={localPhoneNumber}
+                  aria-invalid={Boolean(phoneNumberError)}
+                  aria-describedby={
+                    phoneNumberError ? "phone-flow-number-error" : undefined
+                  }
                   onChange={(event) =>
                     handlePhoneNumberChange(event.target.value)
                   }
+                  onPaste={handlePhoneNumberPaste}
                   placeholder="6505550101"
                   className={FLOW_CONTROL_CLASS_NAME}
                 />
               </InputGroup>
+              {phoneNumberError ? (
+                <FieldDescription
+                  id="phone-flow-number-error"
+                  role="alert"
+                  className="text-sm font-semibold text-destructive"
+                >
+                  {phoneNumberError}
+                </FieldDescription>
+              ) : null}
             </Field>
           </FieldGroup>
 
@@ -876,7 +1079,7 @@ export function PhoneVerificationFlow({
           <p className="text-center text-sm leading-6 text-muted-foreground">
             Enter the code sent to{" "}
             <span className="font-semibold text-foreground">
-              {maskPhoneNumber(submittedPhoneNumber)}
+              {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
             .
           </p>

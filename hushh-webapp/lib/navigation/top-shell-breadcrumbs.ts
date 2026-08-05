@@ -13,6 +13,11 @@ import {
   resolveProfileRouteState,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import {
+  buildNearbyCheckInResumeHref,
+  isNearbyPrivateReturnToken,
+  NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
+} from "@/lib/one-location/nearby-private-navigation";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -52,16 +57,13 @@ function oneLocationActionLabel(action: string): string {
     share: "Share location",
     ask: "Ask someone",
     invite: "Invite to Circle",
-    "create-circle": "Create circle",
-    "join-circle": "Join circle",
-    "circle-detail": "Circle details",
     "temp-link": "Public link",
     "check-in": "Check-In",
+    "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
     sos: "Safety",
-    "sms-contacts": "SMS contacts",
     settings: "Settings",
     privacy: "Settings",
   };
@@ -131,13 +133,13 @@ function profileOriginCrumbLabel(backHref: string): string {
   return labels[path] ?? "One";
 }
 
-
 function profileDetailLabel(detail: string | null): string | null {
   if (!detail) return null;
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
@@ -179,6 +181,8 @@ export interface ResolveTopShellBreadcrumbOptions {
    * retrace to the hub so the first onboarding pass is unchanged.
    */
   setupDismissed?: boolean;
+  /** Public display metadata supplied by the loaded CRM registry. */
+  connectedSystemLabel?: string | null;
 }
 
 export function resolveTopShellBreadcrumb(
@@ -186,7 +190,11 @@ export function resolveTopShellBreadcrumb(
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
   options?: ResolveTopShellBreadcrumbOptions,
 ): TopShellBreadcrumbConfig | null {
-  const config = resolveTopShellBreadcrumbInner(pathname, searchParams);
+  const config = resolveTopShellBreadcrumbInner(
+    pathname,
+    searchParams,
+    options?.connectedSystemLabel,
+  );
   if (!config || !options?.setupDismissed) return config;
   // Once onboarding is dismissed, a product/agent surface must never send BACK
   // into the setup funnel. Setup-internal pages (the hub, connections, a
@@ -207,8 +215,11 @@ export function resolveTopShellBreadcrumb(
 function resolveTopShellBreadcrumbInner(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+  connectedSystemLabel?: string | null,
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
+  const resolvedConnectedSystemLabel =
+    String(connectedSystemLabel || "").trim() || "CRM";
 
   if (pathname === ROUTES.CONNECT_SETTINGS) {
     return {
@@ -226,7 +237,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "Connections" },
+        { label: "AI access" },
       ],
     };
   }
@@ -291,7 +302,9 @@ function resolveTopShellBreadcrumbInner(
     const ticker = String(searchParams?.get("ticker") || "")
       .trim()
       .toUpperCase();
-    const view = String(searchParams?.get("view") || "").trim().toLowerCase();
+    const view = String(searchParams?.get("view") || "")
+      .trim()
+      .toLowerCase();
 
     if (debateId) {
       return {
@@ -411,13 +424,39 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
-  // RIA workspace home (level 2 for the adviser persona): back returns to /one.
-  if (pathname === ROUTES.RIA_HOME) {
+  // Profile is the RIA home. `/ria` remains a compatibility redirect only.
+  if (pathname === ROUTES.RIA_HOME || pathname === ROUTES.RIA_PROFILE) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "RIA" }],
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA" },
+        { label: "Profile" },
+      ],
+    };
+  }
+
+  // Debate config is a read-only sub-view of Picks (/ria/picks?view=debate):
+  // it deepens one level below Picks, so back returns to Picks, not RIA home.
+  // Checked before the generic riaSubroutes loop, which would otherwise match
+  // the query-stripped /ria/picks pathname and flatten it to a 3-crumb Picks.
+  if (
+    (pathname === ROUTES.RIA_PICKS ||
+      pathname.startsWith(`${ROUTES.RIA_PICKS}/`)) &&
+    searchParams?.get("view") === "debate"
+  ) {
+    return {
+      backHref: ROUTES.RIA_PICKS,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA", href: ROUTES.RIA_PROFILE },
+        { label: "Picks", href: ROUTES.RIA_PICKS },
+        { label: "Debate" },
+      ],
     };
   }
 
@@ -431,12 +470,12 @@ function resolveTopShellBreadcrumbInner(
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
       return {
-        backHref: ROUTES.RIA_HOME,
+        backHref: ROUTES.RIA_PROFILE,
         width: "content",
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label },
         ],
       };
@@ -535,8 +574,9 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // The setup hub itself (`/one/setup`). Back returns to the One home so a user
-  // who opened setup from the dashboard can step out without completing it.
+  // The setup hub itself (`/one/setup`) follows completed phone verification.
+  // There is no confirmed previous step in this root flow, so never offer a
+  // top-shell path that can retrace a person into phone verification.
   if (pathname === ROUTES.ONE_SETUP) {
     const returnHref =
       normalizeInternalRouteHref(searchParams?.get("return_to")) || ROUTES.HOME;
@@ -544,17 +584,17 @@ function resolveTopShellBreadcrumbInner(
       backHref: returnHref,
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: returnHref }, { label: "Setup" }],
     };
   }
 
   if (pathname === ROUTES.RIA_CLIENTS) {
     return {
-      backHref: ROUTES.RIA_HOME,
+      backHref: ROUTES.RIA_PROFILE,
       width: "profile",
       align: "center",
-      items: [{ label: "RIA", href: ROUTES.RIA_HOME }, { label: "Clients" }],
+      items: [{ label: "RIA", href: ROUTES.RIA_PROFILE }, { label: "Clients" }],
     };
   }
 
@@ -572,7 +612,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace" },
         ],
@@ -586,7 +626,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Account detail" },
@@ -600,7 +640,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Request detail" },
@@ -668,15 +708,31 @@ function resolveTopShellBreadcrumbInner(
     // removed to fix the "two back buttons" UX.
     const action = String(searchParams?.get("action") || "").trim();
     if (action) {
-      const returnsToPeople = [
-        "create-circle",
-        "join-circle",
-        "circle-detail",
-      ].includes(action);
+      const returnToNearbyCheckIn =
+        action === "private-check-in" &&
+        searchParams?.get("source") === "nearby";
+      const nearbyReturnToken =
+        searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
+      // Preserve the originating hub tab so the single top-bar (and OS/hardware)
+      // back button returns the user to the tab the flow was opened FROM —
+      // "Create a new link" from Links returns to Links, "Invite trusted person"
+      // from People returns to People — instead of always dropping to the
+      // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
+      // when it appends `?action=`, so it is available here. SMS contacts is
+      // only ever reached from Settings, so it retraces to the Settings flow.
+      const hubView = String(searchParams?.get("view") || "").trim();
+      const hubBackHref =
+        action === "sms-contacts"
+          ? `${ROUTES.ONE_LOCATION}?action=settings`
+          : hubView
+            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
+            : ROUTES.ONE_LOCATION;
       return {
-        backHref: returnsToPeople
-          ? `${ROUTES.ONE_LOCATION}?view=people`
-          : ROUTES.ONE_LOCATION,
+        backHref: returnToNearbyCheckIn
+          ? isNearbyPrivateReturnToken(nearbyReturnToken)
+            ? buildNearbyCheckInResumeHref(nearbyReturnToken)
+            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+          : hubBackHref,
         width: "profile",
         align: "center",
         items: [
@@ -688,6 +744,7 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+
     return {
       backHref:
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
@@ -773,7 +830,7 @@ function resolveTopShellBreadcrumbInner(
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
           { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
-          { label: "System detail" },
+          { label: resolvedConnectedSystemLabel },
         ],
       };
     }
@@ -800,7 +857,7 @@ function resolveTopShellBreadcrumbInner(
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
-        { label: "System detail" },
+        { label: resolvedConnectedSystemLabel },
       ],
     };
   }
@@ -878,7 +935,6 @@ function resolveTopShellBreadcrumbInner(
       ],
     };
   }
-
 
   if (!pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;

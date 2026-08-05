@@ -41,7 +41,7 @@ function signalSummary(
       : null;
   const tier = String(row.tier || "").trim();
   const dataQuality = row.degraded
-    ? "Data quality is delayed, so Kai treats this as lower-confidence context."
+    ? "Information quality is delayed, so Kai treats this as lower-confidence context."
     : null;
 
   if (signal === "CONSTRUCTIVE") {
@@ -58,7 +58,7 @@ function signalSummary(
     const parts = [
       "Caution bias on the active advisor list.",
       tier ? `Conviction tier: ${tier}.` : null,
-      "Review the thesis and data quality before acting on the signal.",
+      "Review the thesis and information quality before acting on the signal.",
       dataQuality,
     ].filter(Boolean);
     return parts.join(" ");

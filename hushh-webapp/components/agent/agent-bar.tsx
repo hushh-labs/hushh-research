@@ -1348,20 +1348,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const focusedOnboardingVoiceOnly =
     isOneSetupRoute(pathname ?? "") ||
     (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
-  // Onboarding is intentionally neutral to a returning person's appearance
-  // preference. Normalize the bar once per onboarding mount so its toggle
-  // starts at System, but do not fight a deliberate toggle change afterward.
-  const onboardingThemeNormalizedRef = useRef(false);
-  const onboardingThemeScope = onboardingGreeterMode || focusedOnboardingVoiceOnly;
-  useEffect(() => {
-    if (!onboardingThemeScope) {
-      onboardingThemeNormalizedRef.current = false;
-      return;
-    }
-    if (onboardingThemeNormalizedRef.current) return;
-    onboardingThemeNormalizedRef.current = true;
-    if (theme !== "system") setTheme("system");
-  }, [onboardingThemeScope, setTheme, theme]);
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same
@@ -1577,21 +1563,21 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         data-testid="one-voice-agent-bar-start-icon"
         onClick={handleVoiceStartClick}
         aria-label={`Start a voice conversation. ${hint}`}
-        title="Start conversation"
-        className="relative flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-1.5 text-left transition-colors duration-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+        title="Start a voice conversation with One"
+        className="agent-bar-voice-launcher press-scale relative flex min-w-0 flex-1 self-stretch items-center gap-2 overflow-hidden rounded-full px-2 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]"
       >
         <span
           aria-hidden
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current"
+          className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current"
         >
           <AudioLines className="h-[19px] w-[19px]" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-current/70">
+        <span className="relative z-10 min-w-0 flex-1 truncate text-[13px] font-medium text-current/70">
           Talk to One
         </span>
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"
         >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>

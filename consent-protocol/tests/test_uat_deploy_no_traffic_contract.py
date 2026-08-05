@@ -93,25 +93,35 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build
     assert '_DB_POOL_MIN_SIZE: "1"' in backend_build
-    assert '_DB_POOL_MAX_SIZE: "8"' in backend_build
+    assert '_DB_POOL_MAX_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
-    assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "4"' in backend_build
+    assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "0"' in backend_build
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
-    assert "_DB_POOL_MAX_SIZE=4" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=3" in uat_workflow
     assert "_DB_SQLALCHEMY_POOL_SIZE=2" in uat_workflow
-    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=2" in uat_workflow
+    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
-    # UAT may consume at most 8 database connections per instance and 24 total.
-    assert (4 + 2 + 2) * 3 == 24
+    # Each backend instance opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
+    # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
+    # UAT: at most 5 connections per instance and 15 total across 3 instances.
+    uat_per_instance = 3 + 2 + 0
+    assert uat_per_instance == 5
+    assert uat_per_instance * 3 == 15
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
-    assert "_DB_POOL_MAX_SIZE=8" in production_workflow
+    assert "_DB_POOL_MAX_SIZE=4" in production_workflow
     assert "_DB_SQLALCHEMY_POOL_SIZE=4" in production_workflow
-    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=4" in production_workflow
+    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in production_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in production_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in production_workflow
+    # Production: at most 8 connections per instance and 40 total across 5
+    # instances (overflow pinned to 0 so the ceiling is deterministic, not
+    # a burstable QueuePool overflow that can exhaust Cloud SQL slots).
+    prod_per_instance = 4 + 4 + 0
+    assert prod_per_instance == 8
+    assert prod_per_instance * 5 == 40
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "3"' in workflow
@@ -131,6 +141,15 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     )
     assert '|| [ "$parity_failed" = "true" ]' in workflow
     assert "parity_failed=$parity_failed (warning-only)" not in workflow
+    assert "--require-connected-systems" in workflow
+    assert "- name: Verify production Connected Systems Omni Gateway" in workflow
+    assert (
+        workflow.index("- name: Verify production Connected Systems Omni Gateway")
+        < promote_position
+    )
+    assert "steps.verify-connected-systems.outcome == 'success'" in workflow
+    assert "CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}" in workflow
+    assert '|| [ "$connected_systems_failed" = "true" ]' in workflow
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai" in workflow
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow
 
@@ -143,8 +162,69 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
     assert 'if [ "$upstream_failed" = "true" ]' in workflow
     assert (
         workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
-        == 2
+        == 1
     )
+    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+
+
+def test_production_release_verifies_provenance_and_publishes_evidence() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    promote_position = workflow.index("- name: Promote deployed revisions to production traffic")
+    backend_provenance_position = workflow.index(
+        "- name: Verify production backend deployment provenance"
+    )
+    frontend_provenance_position = workflow.index(
+        "- name: Verify production frontend deployment provenance"
+    )
+    assert promote_position < backend_provenance_position < frontend_provenance_position
+    assert workflow.count("scripts/ci/verify-cloudrun-revision-provenance.py") >= 2
+    assert "--expected-env production" in workflow
+    assert "--expected-source deploy-production" in workflow
+    assert "--report-path /tmp/prod-backend-provenance.json" in workflow
+    assert "--report-path /tmp/prod-frontend-provenance.json" in workflow
+    assert "- name: Write production release status artifact" in workflow
+    assert "- name: Upload production deploy artifacts" in workflow
+    release_status_path = "/" + "tmp/prod-release-status.json"
+    assert release_status_path in workflow
+    assert "if-no-files-found: error" in workflow
+    assert (
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.candidate-state.outputs.backend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision'
+        in workflow
+    )
+    assert (
+        'steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision'
+        in workflow
+    )
+    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+
+
+def test_production_partial_promotion_failure_rolls_back_every_selected_service() -> None:
+    workflow = _read(".github/workflows/deploy-production.yml")
+
+    promote_failure = workflow.index('if [ "$PROMOTE_OUTCOME" = "failure" ]; then')
+    provenance_failure = workflow.index(
+        'if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ]'
+    )
+    classification = workflow[promote_failure:provenance_failure]
+    assert (
+        'if [ "$DEPLOY_BACKEND" = "true" ]; then\n              backend_failure=true'
+        in classification
+    )
+    assert (
+        'if [ "$DEPLOY_FRONTEND" = "true" ]; then\n              frontend_failure=true'
+        in classification
+    )
+    assert "steps.classify.outputs.backend_failure == 'true'" in workflow
+    assert "steps.classify.outputs.frontend_failure == 'true'" in workflow
 
 
 def test_production_wif_has_one_keyless_setup_path() -> None:
@@ -183,8 +263,13 @@ def test_production_health_gates_only_probe_after_successful_promotion() -> None
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
-    for path in (".github/workflows/deploy-uat.yml", ".github/workflows/deploy-dev.yml"):
+    for path, expected_created_revision_lookups in (
+        (".github/workflows/deploy-uat.yml", 3),
+        (".github/workflows/deploy-dev.yml", 2),
+    ):
         workflow = _read(path)
         assert workflow.count("status.latestReadyRevisionName") == 0
-        assert workflow.count("status.latestCreatedRevisionName") == 2
+        assert (
+            workflow.count("status.latestCreatedRevisionName") == expected_created_revision_lookups
+        )
         assert workflow.count("status.traffic[0].revisionName") >= 6

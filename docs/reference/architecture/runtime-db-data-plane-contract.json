@@ -290,14 +290,15 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "connection_scope_proposal*",
         "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants and preserve append-only scope-proposal audit metadata.",
       "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
-      "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
+      "trust_boundary": "Professional and relationship metadata only; scope proposals contain opaque handles and capability lifecycle metadata, never decrypted investor PKM or an information export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
     },
@@ -352,6 +353,21 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "kai_analyze_run_store",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
+      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
+      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
+      "plaintext_posture": "terminal_result_and_metadata",
+      "expected_row_growth": "low_per_user_run"
+    },
+    {
       "id": "one_location_agent",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -363,6 +379,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -371,10 +388,10 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, legacy Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants and join codes before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, public invite token hashes, legacy Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Public invite links can request access or reveal only an explicit public snapshot; Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants, nearby presence, and join codes before deletion where possible.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },
@@ -394,6 +411,21 @@
       "trust_boundary": "Joining a named Circle creates mutual connection metadata but never creates a trusted_connections edge, SMS selection, location grant, capability token, envelope, coordinate, or map projection. Existing direct connections require a targeted Circle invitation and invitee acceptance before membership. Location and Save My Soul authority remain separate explicit user actions.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_relationship"
+    },
+    {
+      "id": "one_wallet_card",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses",
+      "retention_policy": "Retain one row while the owner keeps a card; a revoked card is retained as a tombstone so an already-printed QR can answer honestly, and is hard-deleted on account deletion or reset.",
+      "deletion_behavior": "Soft revoke by setting status='revoked' and revoked_at, which invalidates the share token immediately; hard-delete on account deletion or reset, before actor_profiles tears down the identity spine.",
+      "trust_boundary": "Stores only the owner-selected allowlisted card payload (name, headline, organisation, coarse location label, summary, skills, contact links), the SHA-256 hash of the share token, and aggregate scan counters. Plaintext share tokens are never stored. No per-scan rows, IP addresses, user agents, geolocation, or referrers are recorded. The card grants no vault, PKM, or marketplace access, and is deliberately not published through pkm_default_available_projections.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "information_marketplace_requests",

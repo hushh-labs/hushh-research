@@ -2,6 +2,7 @@
 
 import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
 const PKM_READ = "pkm.read";
 const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
@@ -197,6 +198,11 @@ export async function buildConsentExportForScope(params: {
   vaultKey: string;
   vaultOwnerToken: string;
 }): Promise<BuiltConsentExport> {
+  if (isPrivatePkmExportScope(params.scope)) {
+    throw new ConsentExportNoDataError(
+      "Private analysis source material cannot be exported."
+    );
+  }
   if (params.scope === PKM_READ) {
     const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
       userId: params.userId,

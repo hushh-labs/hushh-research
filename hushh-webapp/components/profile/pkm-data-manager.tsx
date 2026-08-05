@@ -54,7 +54,7 @@ import { cn } from "@/lib/utils";
 
 const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
-  "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]"
+  "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
 );
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -70,16 +70,20 @@ function formatTimestamp(value: string | null | undefined): string {
 }
 
 function initials(label: string | null | undefined): string {
-  return String(label || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() || "")
-    .join("") || "HK";
+  return (
+    String(label || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || "")
+      .join("") || "HK"
+  );
 }
 
-function formatDomainRowTimestamp(value: string | null | undefined): string | null {
+function formatDomainRowTimestamp(
+  value: string | null | undefined,
+): string | null {
   const formatted = formatTimestamp(value);
   return formatted === "Unavailable" ? null : `Updated ${formatted}`;
 }
@@ -91,7 +95,8 @@ function getDomainRowStatus(domain: PkmDomainPresentation): {
   if (domain.status === "stale") {
     return {
       label: "Refresh recommended",
-      className: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      className:
+        "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
     };
   }
   return null;
@@ -116,11 +121,9 @@ function DomainCard({
       : domain.sourceLabels.join(" · ") || null;
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   const status = getDomainRowStatus(domain);
-  const description = [
-    sourceSummary,
-    domain.accessSummary,
-    updatedLabel,
-  ].filter(Boolean).join(" · ");
+  const description = [sourceSummary, domain.accessSummary, updatedLabel]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <SettingsRow
@@ -143,6 +146,35 @@ function DomainCard({
       }
       testId={`memory-category-${domain.key}`}
     />
+  );
+}
+
+function MemoryBackgroundStatus({
+  tone = "loading",
+  children,
+}: {
+  tone?: "loading" | "error";
+  children: ReactNode;
+}) {
+  const isError = tone === "error";
+
+  return (
+    <div
+      data-testid="memory-background-status"
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      className={cn(
+        "flex min-h-9 items-center gap-2 px-1 text-sm",
+        isError ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {isError ? (
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+      ) : (
+        <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+      )}
+      <span>{children}</span>
+    </div>
   );
 }
 
@@ -183,8 +215,12 @@ export function PkmDataManagerPanel({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const loadingDomainCount = Object.values(loadingManifestsByDomain).filter(Boolean).length;
-  const domainErrorCount = Object.values(manifestErrorsByDomain).filter(Boolean).length;
+  const loadingDomainCount = Object.values(loadingManifestsByDomain).filter(
+    Boolean,
+  ).length;
+  const domainErrorCount = Object.values(manifestErrorsByDomain).filter(
+    Boolean,
+  ).length;
   const shouldShowSearch = domains.length >= 6;
   const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
   const filteredDomains = useMemo(() => {
@@ -227,11 +263,14 @@ export function PkmDataManagerPanel({
             Set up saved details
           </SurfaceCardTitle>
           <SurfaceCardDescription>
-            Create your vault first so One can save your details and sharing controls here.
+            Create your vault first so One can save your details and sharing
+            controls here.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
-          <Button type="button" onClick={onOpenImport}>Create vault</Button>
+          <Button type="button" onClick={onOpenImport}>
+            Create vault
+          </Button>
         </SurfaceCardContent>
       </SurfaceCard>
     );
@@ -239,20 +278,35 @@ export function PkmDataManagerPanel({
 
   if (loading && !summary) {
     return (
-      <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-        <RefreshCw className="h-4 w-4 animate-spin" />
-        Loading your saved details...
-      </SurfaceInset>
+      <MemoryBackgroundStatus>Loading saved details…</MemoryBackgroundStatus>
     );
   }
+
+  const metadataStatus = !metadataReady
+    ? metadataError || "Loading saved details…"
+    : null;
+  const sharingStatus = metadataReady
+    ? sharingError || (!sharingReady ? "Updating sharing controls…" : null)
+    : null;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-sm text-muted-foreground">{savedDetailsSummary}</p>
+        <p className="min-w-0 text-sm text-muted-foreground">
+          {savedDetailsSummary}
+        </p>
         <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? <Button type="button" onClick={onOpenSharing}>Manage sharing</Button> : null}
-          <Button type="button" variant="none" effect="fade" onClick={onRefresh}>
+          {!needsUnlock ? (
+            <Button type="button" onClick={onOpenSharing}>
+              Manage sharing
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            onClick={onRefresh}
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -273,67 +327,56 @@ export function PkmDataManagerPanel({
         />
       ) : null}
 
-      <SettingsGroup
-        title="Saved details"
-        description="Review what One remembers and choose how it can be shared."
-        separatorInset
-        testId="memory-saved-details-group"
-      >
-        {sharingError ? (
-          <SettingsRow
-            icon={AlertTriangle}
-            iconTone="orange"
-            title="Sharing status unavailable"
-            description={sharingError}
-          />
-        ) : !sharingReady ? (
-          <SettingsRow
-            icon={RefreshCw}
-            iconTone="gray"
-            title="Checking sharing status"
-            description="Active access is loading in the background."
-          />
-        ) : null}
-
-        {!metadataReady ? (
-          <SettingsRow
-            icon={RefreshCw}
-            iconTone={metadataError ? "orange" : "gray"}
-            title={metadataError ? "Saved details unavailable" : "Checking your saved details"}
-            description={
-              metadataError
-                ? metadataError
-                : "Saved details and sharing controls are still loading."
-            }
-          />
-        ) : filteredDomains.length === 0 ? (
-          <SettingsRow
-            icon={Folder}
-            iconTone="purple"
-            title={domains.length === 0 ? "No saved details yet" : "No matching details"}
-            description={
-              domains.length === 0
-                ? "Once One saves your first detail or import, it will appear here for review and sharing."
-                : "Try a different search term to find saved details."
-            }
-          />
-        ) : (
-          filteredDomains.map((domain) => (
-            <DomainCard
-              key={domain.key}
-              domain={domain}
-              onOpen={() => onOpenDomain(domain)}
-            />
-          ))
-        )}
-      </SettingsGroup>
+      {metadataStatus ? (
+        <MemoryBackgroundStatus tone={metadataError ? "error" : "loading"}>
+          {metadataStatus}
+        </MemoryBackgroundStatus>
+      ) : (
+        <>
+          {sharingStatus ? (
+            <MemoryBackgroundStatus tone={sharingError ? "error" : "loading"}>
+              {sharingStatus}
+            </MemoryBackgroundStatus>
+          ) : null}
+          <SettingsGroup separatorInset testId="memory-saved-details-group">
+            {filteredDomains.length === 0 ? (
+              <SettingsRow
+                icon={Folder}
+                iconTone="purple"
+                title={
+                  domains.length === 0
+                    ? "No saved details yet"
+                    : "No matching details"
+                }
+                description={
+                  domains.length === 0
+                    ? "Once One saves your first detail or import, it will appear here for review and sharing."
+                    : "Try a different search term to find saved details."
+                }
+              />
+            ) : (
+              filteredDomains.map((domain) => (
+                <DomainCard
+                  key={domain.key}
+                  domain={domain}
+                  onOpen={() => onOpenDomain(domain)}
+                />
+              ))
+            )}
+          </SettingsGroup>
+        </>
+      )}
 
       {loadingDomainCount > 0 || domainErrorCount > 0 ? (
         <SettingsGroup title="Availability" separatorInset>
           <SettingsRow
             icon={domainErrorCount > 0 ? AlertTriangle : RefreshCw}
             iconTone={domainErrorCount > 0 ? "orange" : "gray"}
-            title={domainErrorCount > 0 ? "Refresh needed" : "Preparing sharing controls"}
+            title={
+              domainErrorCount > 0
+                ? "Refresh needed"
+                : "Preparing sharing controls"
+            }
             description={
               domainErrorCount > 0
                 ? `Refresh needed for ${domainErrorCount} categor${domainErrorCount === 1 ? "y" : "ies"}.`
@@ -360,17 +403,22 @@ function ConnectionCard({
       className={cn(
         "group w-full rounded-none bg-transparent text-left shadow-none transition-colors duration-150",
         "hover:bg-[color:var(--app-card-surface-compact)]/72",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-inset"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-inset",
       )}
     >
       <div className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
         <Avatar className="h-10 w-10 shrink-0 border">
-          <AvatarImage src={connection.requesterImageUrl || undefined} alt={connection.requesterLabel} />
+          <AvatarImage
+            src={connection.requesterImageUrl || undefined}
+            alt={connection.requesterLabel}
+          />
           <AvatarFallback>{initials(connection.requesterLabel)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
-            <p className="text-sm font-semibold tracking-tight text-foreground">{connection.requesterLabel}</p>
+            <p className="text-sm font-semibold tracking-tight text-foreground">
+              {connection.requesterLabel}
+            </p>
             {connection.broadAccessCount > 0 ? (
               <Badge
                 variant="outline"
@@ -382,12 +430,16 @@ function ConnectionCard({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="secondary">
-              {connection.accessCount} access point{connection.accessCount === 1 ? "" : "s"}
+              {connection.accessCount} access point
+              {connection.accessCount === 1 ? "" : "s"}
             </Badge>
             <Badge variant="secondary">
-              {connection.domains.length} categor{connection.domains.length === 1 ? "y" : "ies"}
+              {connection.domains.length} categor
+              {connection.domains.length === 1 ? "y" : "ies"}
             </Badge>
-            <span className="min-w-0 truncate">{connection.domains.slice(0, 2).join(" · ")}</span>
+            <span className="min-w-0 truncate">
+              {connection.domains.slice(0, 2).join(" · ")}
+            </span>
           </div>
         </div>
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -439,7 +491,7 @@ export function PkmDomainDetailPanel({
   onDeletePreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
   onTogglePermission: (
     permission: PkmDomainPermissionPresentation,
-    nextPosture: PkmVisibilityPosture
+    nextPosture: PkmVisibilityPosture,
   ) => void;
 }) {
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
@@ -448,14 +500,19 @@ export function PkmDomainDetailPanel({
       <SurfaceInset className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold tracking-tight text-foreground">{domain.summary}</p>
+            <p className="text-sm font-semibold tracking-tight text-foreground">
+              {domain.summary}
+            </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {updatedLabel ? <span>{updatedLabel}</span> : null}
               <span>{domain.accessSummary}</span>
             </div>
           </div>
           {getDomainRowStatus(domain) ? (
-            <Badge variant="outline" className={getDomainRowStatus(domain)?.className}>
+            <Badge
+              variant="outline"
+              className={getDomainRowStatus(domain)?.className}
+            >
               {getDomainRowStatus(domain)?.label}
             </Badge>
           ) : null}
@@ -475,7 +532,8 @@ export function PkmDomainDetailPanel({
           ))}
           {domain.sections.length ? (
             <Badge variant="secondary">
-              {domain.sections.length} section{domain.sections.length === 1 ? "" : "s"}
+              {domain.sections.length} section
+              {domain.sections.length === 1 ? "" : "s"}
             </Badge>
           ) : null}
         </div>
@@ -510,7 +568,7 @@ export function PkmDomainDetailPanel({
               className={cn(
                 upgrade.status === "current"
                   ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                  : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
               )}
             >
               {upgrade.label}
@@ -518,7 +576,12 @@ export function PkmDomainDetailPanel({
           </div>
         </SurfaceCardHeader>
         <SurfaceCardContent className="space-y-3">
-          <SurfaceInset className="p-4 text-sm text-muted-foreground">{upgrade.description}</SurfaceInset>
+          <SurfaceInset className="p-4 text-sm text-muted-foreground">
+            {upgrade.description}
+          </SurfaceInset>
+          <p className="px-1 text-xs leading-5 text-muted-foreground">
+            Reserved internal information is never shown here and can never be shared.
+          </p>
           {manifestError ? (
             <SurfaceInset className="flex items-start gap-2 p-4 text-sm text-amber-700 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -532,9 +595,13 @@ export function PkmDomainDetailPanel({
             </SurfaceInset>
           ) : permissions.length > 0 ? (
             permissions.map((permission) => {
-              const pending = pendingPermissionKeys?.includes(permission.key) ?? false;
+              const pending =
+                pendingPermissionKeys?.includes(permission.key) ?? false;
               const disabled = pending || Boolean(permission.disabledReason);
-              const postureOptions: Array<{ value: PkmVisibilityPosture; label: string }> = [
+              const postureOptions: Array<{
+                value: PkmVisibilityPosture;
+                label: string;
+              }> = [
                 { value: "private", label: "Private" },
                 { value: "consent_required", label: "Ask first" },
               ];
@@ -546,12 +613,20 @@ export function PkmDomainDetailPanel({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground">{permission.label}</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {permission.label}
+                        </p>
                         <Badge variant="outline">{permission.stateLabel}</Badge>
                       </div>
-                      <p className="text-sm leading-6 text-muted-foreground">{permission.description}</p>
-                      <p className="text-xs text-muted-foreground">{permission.stateDescription}</p>
-                      <p className="text-xs text-muted-foreground">{permission.counterpartSummary}</p>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {permission.description}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {permission.stateDescription}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {permission.counterpartSummary}
+                      </p>
                       {permission.requesterLabels.length > 0 ? (
                         <div className="flex flex-wrap gap-2 pt-1">
                           {permission.requesterLabels.map((label) => (
@@ -562,7 +637,9 @@ export function PkmDomainDetailPanel({
                         </div>
                       ) : null}
                       {permission.disabledReason ? (
-                        <p className="text-xs text-muted-foreground">{permission.disabledReason}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {permission.disabledReason}
+                        </p>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
@@ -604,7 +681,8 @@ export function PkmDomainDetailPanel({
             })
           ) : (
             <SurfaceInset className="p-4 text-sm text-muted-foreground">
-              Section-level sharing controls will appear here once these details are ready.
+              Section-level sharing controls will appear here once these details
+              are ready.
             </SurfaceInset>
           )}
         </SurfaceCardContent>
@@ -681,7 +759,10 @@ export function PkmAccessManagerPanel({
   onOpenConnection: (connection: PkmAccessConnectionPresentation) => void;
   onRevokeAccess: (scope: string) => Promise<void>;
 }) {
-  const connections = useMemo(() => buildPkmAccessConnections(domains), [domains]);
+  const connections = useMemo(
+    () => buildPkmAccessConnections(domains),
+    [domains],
+  );
 
   if (!signedIn) {
     return (
@@ -704,8 +785,12 @@ export function PkmAccessManagerPanel({
     <div className="space-y-4">
       {summary && sharingReady ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{summary.activeGrantCount} active grants</Badge>
-          <Badge variant="secondary">{summary.sharedDomainCount} shared categories</Badge>
+          <Badge variant="secondary">
+            {summary.activeGrantCount} active grants
+          </Badge>
+          <Badge variant="secondary">
+            {summary.sharedDomainCount} shared categories
+          </Badge>
           {connections.length > 0 ? (
             <Badge variant="secondary">{connections.length} connections</Badge>
           ) : null}
@@ -716,7 +801,9 @@ export function PkmAccessManagerPanel({
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
           <div className="space-y-1">
             <p className="font-medium text-foreground">
-              {sharingError ? "Access state unavailable" : "Checking active access"}
+              {sharingError
+                ? "Access state unavailable"
+                : "Checking active access"}
             </p>
             <p>
               {sharingError
@@ -728,8 +815,13 @@ export function PkmAccessManagerPanel({
       ) : connections.length === 0 ? (
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
           <div className="space-y-1">
-            <p className="font-medium text-foreground">No active access right now</p>
-            <p>Your saved details are not currently shared with connected apps or advisors.</p>
+            <p className="font-medium text-foreground">
+              No active access right now
+            </p>
+            <p>
+              Your saved details are not currently shared with connected apps or
+              advisors.
+            </p>
           </div>
         </SurfaceInset>
       ) : (
@@ -764,19 +856,29 @@ export function PkmAccessConnectionDetailPanel({
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <Avatar className="h-11 w-11 border">
-              <AvatarImage src={connection.requesterImageUrl || undefined} alt={connection.requesterLabel} />
-              <AvatarFallback>{initials(connection.requesterLabel)}</AvatarFallback>
+              <AvatarImage
+                src={connection.requesterImageUrl || undefined}
+                alt={connection.requesterLabel}
+              />
+              <AvatarFallback>
+                {initials(connection.requesterLabel)}
+              </AvatarFallback>
             </Avatar>
             <div className="min-w-0 space-y-1">
               <SurfaceCardTitle>{connection.requesterLabel}</SurfaceCardTitle>
               <SurfaceCardDescription>
-                {connection.accessCount} active access point{connection.accessCount === 1 ? "" : "s"} across{" "}
-                {connection.domains.length} categor{connection.domains.length === 1 ? "y" : "ies"}
+                {connection.accessCount} active access point
+                {connection.accessCount === 1 ? "" : "s"} across{" "}
+                {connection.domains.length} categor
+                {connection.domains.length === 1 ? "y" : "ies"}
               </SurfaceCardDescription>
             </div>
           </div>
           {connection.broadAccessCount > 0 ? (
-            <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <Badge
+              variant="outline"
+              className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+            >
               {connection.broadAccessCount} broad
             </Badge>
           ) : null}
@@ -796,11 +898,23 @@ export function PkmAccessConnectionDetailPanel({
             className="flex items-start justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-3.5"
           >
             <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium text-foreground">{grant.domainTitle}</p>
-              <p className="text-xs leading-5 text-muted-foreground">{grant.readableAccessLabel}</p>
-              <p className="text-[11px] text-muted-foreground">Expires {formatTimestamp(grant.expiresAt)}</p>
+              <p className="text-sm font-medium text-foreground">
+                {grant.domainTitle}
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {grant.readableAccessLabel}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Expires {formatTimestamp(grant.expiresAt)}
+              </p>
             </div>
-            <Button type="button" variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              onClick={() => void onRevokeAccess(grant.scope)}
+            >
               Revoke
             </Button>
           </div>

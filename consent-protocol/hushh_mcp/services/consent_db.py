@@ -1587,8 +1587,6 @@ class ConsentDBService:
         Find REQUESTED rows that have timed out, insert TIMEOUT events (triggers NOTIFY → SSE).
         Returns the number of TIMEOUT events inserted.
         """
-        from hushh_mcp.services.ria_iam_service import RIAIAMService
-
         rows = await self.get_timed_out_requests()
         count = 0
         for row in rows:
@@ -1601,20 +1599,6 @@ class ConsentDBService:
                     request_id=row.get("request_id"),
                     scope_description=row.get("scope_description"),
                 )
-                try:
-                    await RIAIAMService().sync_relationship_from_consent_action(
-                        user_id=row["user_id"],
-                        request_id=row.get("request_id"),
-                        action="TIMEOUT",
-                        agent_id=row.get("agent_id"),
-                        scope=row.get("scope"),
-                    )
-                except Exception as sync_error:
-                    logger.warning(
-                        "Emit TIMEOUT relationship sync failed for request_id=%s: %s",
-                        row.get("request_id"),
-                        sync_error,
-                    )
                 count += 1
             except Exception as e:
                 logger.warning(

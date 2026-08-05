@@ -1,9 +1,10 @@
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 import pytest
 
 from hushh_mcp.services.connections_service import (
+    _RIA_ACTIVE_PICKS_CAPABILITY,
     ConnectionsError,
     ConnectionsService,
 )
@@ -71,6 +72,185 @@ def test_create_request_requires_identifier():
     assert exc.value.status_code == 422
 
 
+def test_scope_catalog_is_directory_bounded_and_separates_offerable_scopes():
+    svc = _svc()
+    svc._directory_lookup = lambda _viewer: [{"userId": "ria-user", "displayName": "Ria"}]
+    svc._scope_catalog_for_owner = lambda owner: [
+        {"handle": f"scp-{owner}", "label": "RIA Picks", "description": "Picks"}
+    ]
+
+    result = svc.get_scope_catalog("investor-user", "ria-user")
+
+    assert result["items"] == [
+        {"handle": "scp-ria-user", "label": "RIA Picks", "description": "Picks"}
+    ]
+    assert result["offerableItems"] == [
+        {"handle": "scp-investor-user", "label": "RIA Picks", "description": "Picks"}
+    ]
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc.get_scope_catalog("investor-user", "hidden-user")
+    assert exc.value.code == "CONNECTION_SCOPE_TARGET_FORBIDDEN"
+
+
+def test_scope_catalog_gate_accepts_every_verified_status():
+    """Regression: the catalog gate must accept the exact status the RIA
+    verification success path writes ('verified'). Migration 028 retired
+    'finra_verified' and 'active' is never written, so a gate that omitted
+    'verified' handed a genuinely verified RIA an empty catalog — the root
+    cause of "no capabilities available yet" for real advisors."""
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    _RIA_VERIFIED_STATUSES = RIAIAMService._RIA_VERIFIED_STATUSES
+
+    svc = _svc()
+    captured = {}
+
+    def fake_execute_one(sql, params=None):
+        captured["sql"] = sql
+        return {"id": "ria-1"}
+
+    svc._execute_one = fake_execute_one
+    items = svc._scope_catalog_for_owner("ria-user")
+
+    for status in _RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in captured["sql"], f"catalog gate omits '{status}'"
+    assert len(items) == 1
+    assert items[0]["capabilityKey"] == _RIA_ACTIVE_PICKS_CAPABILITY
+    assert items[0]["label"] == "RIA Picks"
+    assert items[0]["description"]
+
+
+def test_scope_catalog_empty_for_unverified_owner():
+    svc = _svc()
+    svc._execute_one = lambda _sql, _params=None: None
+    assert svc._scope_catalog_for_owner("nobody") == []
+
+
+def test_activate_ria_picks_gate_accepts_every_verified_status():
+    """The activation gate mirrors the catalog gate: a 'verified' RIA whose
+    capability we just offered must not fail closed at accept time."""
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    _RIA_VERIFIED_STATUSES = RIAIAMService._RIA_VERIFIED_STATUSES
+
+    svc = _svc()
+    sqls: list[str] = []
+
+    def fake_execute_one(sql, _params=None):
+        sqls.append(sql)
+        return None  # RIA lookup returns nothing -> activation returns False
+
+    svc._execute_one = fake_execute_one
+    result = svc._activate_ria_picks_scope(
+        {"owner_user_id": "ria-user", "receiver_user_id": "investor-user"}, "req-1"
+    )
+
+    assert result is False
+    gate_sql = sqls[0]
+    for status in _RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in gate_sql, f"activation gate omits '{status}'"
+
+
+def test_proposal_items_distinct_capabilities_have_distinct_labels():
+    """Two distinct capability handles must never collapse to the same label.
+    The previous hardcoded fallback labelled every non-RIA capability
+    "Requested capability", so any two future capabilities would be
+    indistinguishable in the receiver's review dialog."""
+    svc = _svc()
+    rows = [
+        {
+            "id": "p1",
+            "scope_handle": "scp-alpha",
+            "capability_key": "alpha_feed_v1",
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        },
+        {
+            "id": "p2",
+            "scope_handle": "scp-beta",
+            "capability_key": "beta_feed_v1",
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        },
+    ]
+    svc._execute_many = lambda _sql, _params=None: rows
+
+    items = svc._proposal_items("req-1")
+    handles = [item["scopeHandle"] for item in items]
+    labels = [item["label"] for item in items]
+
+    assert len(set(handles)) == len(handles)
+    assert len(set(labels)) == len(labels), f"distinct scope ids share a label: {labels}"
+    assert all(item["description"] for item in items)
+
+
+def test_proposal_items_ria_picks_label_matches_catalog():
+    """The receiver-facing proposal view and the offer catalog read the same
+    single source of capability metadata, so labels cannot drift apart."""
+    svc = _svc()
+    svc._execute_many = lambda _sql, _params=None: [
+        {
+            "id": "p1",
+            "scope_handle": "scp-ria",
+            "capability_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+            "direction": "requested",
+            "status": "pending",
+            "created_at": None,
+            "expires_at": None,
+            "resolved_at": None,
+        }
+    ]
+    items = svc._proposal_items("req-1")
+    assert items[0]["label"] == "RIA Picks"
+    assert "picks" in items[0]["description"].lower()
+
+
+def test_information_scope_catalog_requires_an_active_connection_and_filters_private_entries():
+    svc = ConnectionsService(
+        scope_entries_lookup=lambda _owner: [
+            {
+                "scope": "attr.financial.holdings",
+                "label": "Holdings",
+                "domain": "financial",
+                "path": "holdings",
+                "wildcard": False,
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "consent_required",
+            },
+            {
+                "scope": "attr.financial.tax_id",
+                "label": "Tax ID",
+                "domain": "financial",
+                "path": "tax_id",
+                "exposure_eligibility": True,
+                "consumer_visible": True,
+                "internal_only": False,
+                "visibility_posture": "private",
+            },
+        ]
+    )
+    svc._execute_one = lambda _sql, _params=None: {"id": "connection-1"}
+
+    result = svc.get_information_scope_catalog("user-a", "user-b", query="hold")
+
+    assert [entry["scope"] for entry in result["items"]] == ["attr.financial.holdings"]
+    assert result["items"][0]["match_reason"] == "substring_match"
+
+    svc._execute_one = lambda _sql, _params=None: None
+    with pytest.raises(ConnectionsError) as exc:
+        svc.get_information_scope_catalog("user-a", "user-b")
+    assert exc.value.code == "CONNECTION_INFORMATION_SCOPE_FORBIDDEN"
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 
@@ -84,9 +264,12 @@ class _RecordingDB:
         return SimpleNamespace(data=rows)
 
 
-class _TxResult:
+class _TransactionalResult:
     def __init__(self, rows):
         self._rows = list(rows)
+
+    def fetchall(self):
+        return list(self._rows)
 
     def mappings(self):
         return self
@@ -95,43 +278,50 @@ class _TxResult:
         return self._rows[0] if self._rows else None
 
 
-class _TxConnection:
-    def __init__(self, results):
+class _TransactionalConnection:
+    def __init__(self, results, events):
         self._results = list(results)
+        self.events = events
         self.calls = []
 
     def execute(self, statement, params=None):
-        self.calls.append((str(statement), params or {}))
+        sql = str(statement)
+        self.calls.append((sql, params or {}))
+        self.events.append(("execute", sql))
         rows = self._results.pop(0) if self._results else []
-        return _TxResult(rows)
+        return _TransactionalResult(rows)
 
 
-class _Begin:
-    def __init__(self, connection):
-        self.connection = connection
+class _TransactionContext:
+    def __init__(self, connection, events):
+        self._connection = connection
+        self._events = events
 
     def __enter__(self):
-        return self.connection
+        self._events.append(("begin", None))
+        return self._connection
 
-    def __exit__(self, _exc_type, _exc, _traceback):
+    def __exit__(self, exc_type, _exc, _traceback):
+        self._events.append(("rollback" if exc_type else "commit", None))
         return False
 
 
-class _Engine:
-    def __init__(self, connection):
-        self.connection = connection
-
-    def begin(self):
-        return _Begin(self.connection)
+class _TransactionalDB:
+    def __init__(self, results, events):
+        self.connection = _TransactionalConnection(results, events)
+        self.engine = SimpleNamespace(
+            begin=lambda: _TransactionContext(self.connection, events),
+        )
 
 
 def test_accept_creates_connection_and_two_trusted_edges():
     svc = _svc()
     # 1) load request row -> addressee is user-b (the acceptor)
-    # 2) insert connections -> returns id
-    # 3) insert trusted edge a->b
-    # 4) insert trusted edge b->a
-    # 5) update request -> accepted
+    # 2) no scope proposals
+    # 3) insert connections -> returns id
+    # 4) insert trusted edge a->b
+    # 5) insert trusted edge b->a
+    # 6) update request -> accepted
     db = _RecordingDB(
         [
             [
@@ -142,110 +332,20 @@ def test_accept_creates_connection_and_two_trusted_edges():
                     "status": "pending",
                 }
             ],
+            [],  # proposal review -> no scopes
             [{"id": "conn-1"}],
             [{"id": "tc-1"}],
             [{"id": "tc-2"}],
             [{"id": "req-1"}],
         ]
     )
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.accept_request("user-b", "req-1")
     assert out["status"] == "accepted"
     assert out["connectionId"] == "conn-1"
     # Two trusted_connections INSERTs happened.
     trusted_inserts = [c for c in db.calls if "INSERT INTO trusted_connections" in c[0]]
     assert len(trusted_inserts) == 2
-    assert feed_cls.return_value.record_event.call_args_list == [
-        call(
-            user_id="user-b",
-            source_domain="connections",
-            event_type="connection_accepted",
-            metadata={"counterpart_user_id": "user-a"},
-        ),
-        call(
-            user_id="user-a",
-            source_domain="connections",
-            event_type="connection_accepted",
-            metadata={"counterpart_user_id": "user-b"},
-        ),
-    ]
-
-
-def test_accept_transaction_records_feed_only_after_commit():
-    svc = _svc()
-    request_row = {
-        "id": "00000000-0000-4000-8000-000000000001",
-        "requester_user_id": "user-a",
-        "addressee_user_id": "user-b",
-        "status": "pending",
-    }
-    tx = _TxConnection([[request_row], [], [], []])
-    committed = {"value": False}
-
-    class _CommitTrackingBegin(_Begin):
-        def __exit__(self, _exc_type, _exc, _traceback):
-            committed["value"] = True
-            return False
-
-    db = SimpleNamespace(
-        engine=SimpleNamespace(begin=lambda: _CommitTrackingBegin(tx)),
-        execute_raw=lambda _sql, _params=None: SimpleNamespace(data=[request_row]),
-    )
-    state = {"connectionId": "00000000-0000-4000-8000-000000000002"}
-
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch(
-            "hushh_mcp.services.connections_service.ConnectionGraphService.ensure_origin",
-            return_value=state,
-        ),
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
-        feed_cls.return_value.record_event.side_effect = lambda **_kwargs: assert_committed(
-            committed["value"]
-        )
-        out = svc.accept_request(
-            "user-b",
-            "00000000-0000-4000-8000-000000000001",
-        )
-
-    assert out["connectionId"] == state["connectionId"]
-    assert committed["value"] is True
-    assert feed_cls.return_value.record_event.call_count == 2
-
-
-def test_accept_replay_does_not_duplicate_feed_events():
-    svc = _svc()
-    request_row = {
-        "id": "req-accepted",
-        "requester_user_id": "user-a",
-        "addressee_user_id": "user-b",
-        "status": "accepted",
-    }
-    db = SimpleNamespace(
-        engine=SimpleNamespace(begin=lambda: pytest.fail("transaction must not reopen")),
-        execute_raw=lambda _sql, _params=None: SimpleNamespace(data=[request_row]),
-    )
-
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
-        out = svc.accept_request("user-b", "req-accepted")
-
-    assert out == {
-        "status": "accepted",
-        "requestId": "req-accepted",
-        "connectionId": None,
-    }
-    feed_cls.assert_not_called()
-
-
-def assert_committed(value: bool) -> None:
-    assert value is True
 
 
 def test_accept_rejected_when_not_addressee():
@@ -268,6 +368,87 @@ def test_accept_rejected_when_not_addressee():
     assert exc.value.status_code == 403
 
 
+def test_accept_with_scope_proposals_requires_explicit_bilateral_selection():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "ria-user",
+                    "addressee_user_id": "investor-user",
+                    "status": "pending",
+                }
+            ],
+            [
+                {
+                    "id": "proposal-1",
+                    "scope_handle": "scp-ria",
+                    "capability_key": "ria_active_picks_feed_v1",
+                    "direction": "requested",
+                    "owner_user_id": "ria-user",
+                    "receiver_user_id": "investor-user",
+                    "status": "pending",
+                }
+            ],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.accept_request("investor-user", "req-1")
+
+    assert exc.value.code == "CONNECTION_SCOPE_SELECTION_REQUIRED"
+    assert not any("INSERT INTO connections" in sql for sql, _ in db.calls)
+
+
+def test_scope_proposal_history_hides_authority_columns():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "ria-user",
+                    "addressee_user_id": "investor-user",
+                    "status": "accepted",
+                }
+            ],
+            [
+                {
+                    "id": "proposal-1",
+                    "scope_handle": "scp-ria",
+                    "capability_key": "ria_active_picks_feed_v1",
+                    "direction": "requested",
+                    "owner_user_id": "ria-user",
+                    "receiver_user_id": "investor-user",
+                    "status": "active",
+                    "created_at": "2026-07-30T00:00:00Z",
+                    "resolved_at": "2026-07-30T00:01:00Z",
+                }
+            ],
+            [
+                {
+                    "connection_scope_proposal_id": "proposal-1",
+                    "event_type": "ACTIVATED",
+                    "reason": None,
+                    "created_at": "2026-07-30T00:01:00Z",
+                }
+            ],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.get_scope_proposal_history("investor-user", "req-1")
+
+    item = result["items"][0]
+    assert item["scopeHandle"] == "scp-ria"
+    assert item["history"] == [
+        {"type": "ACTIVATED", "reason": None, "createdAt": "2026-07-30T00:01:00Z"}
+    ]
+    assert "id" not in item
+    assert "capabilityKey" not in item
+    assert "ownerUserId" not in item
+
+
 def test_cancel_rejected_when_not_requester():
     svc = _svc()
     db = _RecordingDB(
@@ -286,6 +467,44 @@ def test_cancel_rejected_when_not_requester():
         with pytest.raises(ConnectionsError) as exc:
             svc.cancel_request("user-b", "req-1")
     assert exc.value.status_code == 403
+
+
+def test_cancel_marks_request_and_pending_scope_proposals_declined():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [{"id": "proposal-1"}],
+            [{"id": "event-1"}],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+    proposal_update = next(
+        (sql, params) for sql, params in db.calls if "UPDATE connection_scope_proposals" in sql
+    )
+    assert proposal_update[1] == {"status": "declined", "request_id": "req-1"}
+    _, event_params = next(
+        (sql, params)
+        for sql, params in db.calls
+        if "INSERT INTO connection_scope_proposal_events" in sql
+    )
+    assert event_params == {
+        "proposal_id": "proposal-1",
+        "event_type": "DECLINED",
+        "actor_user_id": "user-a",
+        "reason": "connection_cancelled",
+    }
 
 
 def test_reject_rejected_when_not_addressee():
@@ -348,6 +567,38 @@ def test_search_directory_filters_by_query_against_display_name():
     assert [i["userId"] for i in out["items"]] == ["user-c"]
 
 
+def test_search_directory_delegates_pagination_to_eligible_directory_query():
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
+        calls.append((owner_user_id, options))
+        return {
+            "items": [{"userId": "user-c", "displayName": "Cara"}],
+            "page": 2,
+            "hasMore": True,
+        }
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])  # no pending / connections
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="cara", page=2, limit=20)
+
+    assert calls == [("user-a", {"query": "cara", "page": 2, "limit": 20})]
+    assert out == {
+        "items": [
+            {
+                "userId": "user-c",
+                "displayName": "Cara",
+                "photoUrl": None,
+                "email": None,
+                "relationship": "none",
+            }
+        ],
+        "page": 2,
+        "hasMore": True,
+    }
+
+
 def test_list_connections_maps_rows():
     svc = _svc()
     rows = [
@@ -363,49 +614,11 @@ def test_list_connections_maps_rows():
         out = svc.list_connections("user-a")
     assert out[0]["userId"] == "user-b"
     assert out[0]["connectionId"] == "conn-1"
-    assert out[0]["connectionKind"] == "direct"
-    assert out[0]["circleIds"] == []
-    assert out[0]["canRemoveDirect"] is True
-
-
-def test_list_connections_reports_ordered_multi_circle_provenance():
-    svc = _svc()
-    db = _RecordingDB(
-        [
-            [
-                {
-                    "connection_id": "conn-1",
-                    "user_id": "user-b",
-                    "display_name": "Bob",
-                    "photo_url": None,
-                    "created_at": "2026-07-09T00:00:00Z",
-                    "direct_count": 1,
-                    "circle_count": 2,
-                    "circles": [
-                        {"id": "circle-1", "name": "Family"},
-                        {"id": "circle-2", "name": "Family"},
-                    ],
-                }
-            ]
-        ]
-    )
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
-        out = svc.list_connections("user-a")
-    assert out[0]["connectionKind"] == "both"
-    assert out[0]["circleIds"] == ["circle-1", "circle-2"]
-    assert out[0]["circleNames"] == ["Family", "Family"]
-    assert out[0]["circles"] == [
-        {"id": "circle-1", "name": "Family"},
-        {"id": "circle-2", "name": "Family"},
-    ]
-    assert out[0]["canRemoveDirect"] is True
-    assert "ORDER BY origin.source_circle_id::text" in db.calls[0][0]
-    assert "ARRAY_AGG" not in db.calls[0][0]
 
 
 def test_remove_connection_revokes_connection_and_trusted_edges():
     svc = _svc()
-    # Call sequence: SELECT, UPDATE trusted_connections, UPDATE connections
+    # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation, trusted edges, connection.
     db = _RecordingDB(
         [
             [
@@ -416,24 +629,16 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
                     "status": "active",
                 }
             ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
             [{"id": "conn-1"}],  # UPDATE connections
         ]
     )
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-a", "conn-1")
-    assert out == {
-        "removed": 1,
-        "stillConnected": False,
-        "connectionKind": None,
-        "circleIds": [],
-        "circleNames": [],
-        "circles": [],
-        "canRemoveDirect": False,
-    }
+    assert out == {"removed": 1}
     trusted_update_indices = [
         i for i, (sql, _) in enumerate(db.calls) if "UPDATE trusted_connections" in sql
     ]
@@ -444,141 +649,6 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     assert trusted_update_indices[0] < conn_update_indices[0], (
         "UPDATE trusted_connections must precede UPDATE connections"
     )
-    assert feed_cls.return_value.record_event.call_args_list == [
-        call(
-            user_id="user-a",
-            source_domain="connections",
-            event_type="connection_revoked",
-            metadata={"counterpart_user_id": "user-b"},
-        ),
-        call(
-            user_id="user-b",
-            source_domain="connections",
-            event_type="connection_revoked",
-            metadata={"counterpart_user_id": "user-a"},
-        ),
-    ]
-
-
-def test_remove_direct_origin_preserves_named_circle_connection():
-    svc = _svc()
-    tx = _TxConnection(
-        [
-            [
-                {
-                    "id": "00000000-0000-4000-8000-000000000002",
-                    "user_a_id": "user-a",
-                    "user_b_id": "user-b",
-                }
-            ],
-            [],
-        ]
-    )
-    db = SimpleNamespace(engine=_Engine(tx))
-    state = {
-        "active": True,
-        "connectionKind": "circle",
-        "circleIds": ["00000000-0000-4000-8000-000000000001"],
-        "circleNames": ["Family"],
-        "circles": [
-            {
-                "id": "00000000-0000-4000-8000-000000000001",
-                "name": "Family",
-            }
-        ],
-        "canRemoveDirect": False,
-        "revokedOrigins": 1,
-    }
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch(
-            "hushh_mcp.services.connections_service.ConnectionGraphService.revoke_origins",
-            return_value=state,
-        ) as revoke,
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
-        out = svc.remove_connection(
-            "user-a",
-            "00000000-0000-4000-8000-000000000002",
-        )
-
-    assert out == {
-        "removed": 1,
-        "stillConnected": True,
-        "connectionKind": "circle",
-        "circleIds": ["00000000-0000-4000-8000-000000000001"],
-        "circleNames": ["Family"],
-        "circles": [
-            {
-                "id": "00000000-0000-4000-8000-000000000001",
-                "name": "Family",
-            }
-        ],
-        "canRemoveDirect": False,
-    }
-    assert set(revoke.call_args.kwargs["origin_kinds"]) == {
-        "direct_request",
-        "legacy_invite",
-        "import",
-    }
-    trusted_update = tx.calls[-1][0]
-    assert "UPDATE trusted_connections" in trusted_update
-    assert "source = 'connection'" in trusted_update
-    feed_cls.assert_not_called()
-
-
-def test_remove_final_origin_records_revoked_feed_after_commit():
-    svc = _svc()
-    tx = _TxConnection(
-        [
-            [
-                {
-                    "id": "00000000-0000-4000-8000-000000000002",
-                    "user_a_id": "user-a",
-                    "user_b_id": "user-b",
-                }
-            ],
-            [],
-        ]
-    )
-    committed = {"value": False}
-
-    class _CommitTrackingBegin(_Begin):
-        def __exit__(self, _exc_type, _exc, _traceback):
-            committed["value"] = True
-            return False
-
-    db = SimpleNamespace(engine=SimpleNamespace(begin=lambda: _CommitTrackingBegin(tx)))
-    state = {
-        "active": False,
-        "connectionKind": None,
-        "circleIds": [],
-        "circleNames": [],
-        "circles": [],
-        "canRemoveDirect": False,
-        "revokedOrigins": 1,
-    }
-
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch(
-            "hushh_mcp.services.connections_service.ConnectionGraphService.revoke_origins",
-            return_value=state,
-        ),
-        patch("hushh_mcp.services.connections_service.FeedService") as feed_cls,
-    ):
-        feed_cls.return_value.record_event.side_effect = lambda **_kwargs: assert_committed(
-            committed["value"]
-        )
-        out = svc.remove_connection(
-            "user-a",
-            "00000000-0000-4000-8000-000000000002",
-        )
-
-    assert out["removed"] == 1
-    assert out["stillConnected"] is False
-    assert committed["value"] is True
-    assert feed_cls.return_value.record_event.call_count == 2
 
 
 def test_remove_connection_returns_zero_when_not_member_or_missing():
@@ -591,15 +661,7 @@ def test_remove_connection_returns_zero_when_not_member_or_missing():
     )
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-x", "conn-999")
-    assert out == {
-        "removed": 0,
-        "stillConnected": False,
-        "connectionKind": None,
-        "circleIds": [],
-        "circleNames": [],
-        "circles": [],
-        "canRemoveDirect": False,
-    }
+    assert out == {"removed": 0}
     trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
     assert len(trusted_updates) == 0, (
         "No trusted_connections UPDATE should occur when member check fails"
@@ -659,6 +721,9 @@ def test_remove_connection_self_heals_when_already_revoked():
                     "status": "revoked",
                 }
             ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
             [],  # UPDATE trusted_connections -> already clean, 0 rows (no-op)
             [],  # UPDATE connections -> status != 'active', no row returned
         ]
@@ -666,15 +731,7 @@ def test_remove_connection_self_heals_when_already_revoked():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.remove_connection("user-a", "conn-1")
     # Connection was already revoked, so removed=0.
-    assert out == {
-        "removed": 0,
-        "stillConnected": False,
-        "connectionKind": None,
-        "circleIds": [],
-        "circleNames": [],
-        "circles": [],
-        "canRemoveDirect": False,
-    }
+    assert out == {"removed": 0}
     # The trusted-edge cleanup must still have been attempted (self-healing).
     trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
     assert len(trusted_updates) >= 1, (
@@ -731,3 +788,281 @@ def test_create_request_notify_failure_does_not_break_write():
         out = svc.create_request("user-a", addressee_user_id="user-b")
     assert out["id"] == "req-2"
     assert out["status"] == "pending"
+
+
+def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
+    svc = _svc()
+    events = []
+    notifications = []
+
+    def _record_notification(**kwargs):
+        events.append(("notify", None))
+        notifications.append(kwargs)
+
+    svc._notifier = _record_notification
+    db = _TransactionalDB(
+        [
+            [
+                {"owner_user_id": "user-a"},
+                {"owner_user_id": "user-b"},
+            ],
+            [
+                {
+                    "target_user_id": "user-b",
+                    "relationship": "pending_outgoing",
+                    "created": True,
+                }
+            ],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result == {"relationship": "pending_outgoing"}
+    assert len(db.connection.calls) == 2
+    lock_sql, lock_params = db.connection.calls[0]
+    mutation_sql, mutation_params = db.connection.calls[1]
+    normalized_lock_sql = " ".join(lock_sql.split()).lower()
+    normalized_mutation_sql = " ".join(mutation_sql.split()).lower()
+    assert "order by p.owner_user_id for update of p" in normalized_lock_sql
+    assert "viewer.version = :requester_presence_version" in normalized_mutation_sql
+    assert "target.version = :target_presence_version" in normalized_mutation_sql
+    assert "insert into connection_requests" in normalized_mutation_sql
+    assert "target.allow_connection_requests" in normalized_mutation_sql
+    assert "'pending', null" in normalized_mutation_sql
+    expected_params = {
+        "requester_user_id": "user-a",
+        "participant_alias": "6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+        "requester_presence_version": 4,
+        "target_presence_version": 7,
+    }
+    assert lock_params == expected_params
+    assert mutation_params == expected_params
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+        "notify",
+    ]
+    assert notifications == [
+        {
+            "addressee_user_id": "user-b",
+            "requester_user_id": "user-a",
+        }
+    ]
+
+
+def test_nearby_alias_request_returns_reverse_pending_without_notification():
+    svc = _svc()
+    svc._notifier = lambda **_kwargs: pytest.fail("must not notify")
+    events = []
+    db = _TransactionalDB(
+        [
+            [
+                {"owner_user_id": "user-a"},
+                {"owner_user_id": "user-b"},
+            ],
+            [
+                {
+                    "target_user_id": "user-b",
+                    "relationship": "pending_incoming",
+                    "created": False,
+                }
+            ],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result == {"relationship": "pending_incoming"}
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+    ]
+
+
+def test_nearby_alias_request_fails_closed_without_current_eligibility():
+    svc = _svc()
+    svc._notifier = lambda **_kwargs: pytest.fail("must not notify")
+    events = []
+    db = _TransactionalDB(
+        [
+            [{"owner_user_id": "user-a"}],
+            [],
+        ],
+        events,
+    )
+
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        result = svc.create_request_from_nearby_alias(
+            "user-a",
+            participant_alias="6f80b5ee-85b8-4678-a663-9f84ae985ed5",
+            requester_presence_version=4,
+            target_presence_version=7,
+        )
+
+    assert result is None
+    assert [event[0] for event in events] == [
+        "begin",
+        "execute",
+        "execute",
+        "commit",
+    ]
+
+
+# --- Receiver scope modification: intersection enforcement (accept path) -----
+#
+# The accept transaction defers all scope authority to _resolve_scope_proposals.
+# These exercise that resolver directly so the security-critical intersection
+# (requested x receiver-approved) and its fail-closed edges are pinned down
+# without coupling to the full transaction's SQL ordering.
+
+
+def _pending_proposal(scope_handle, capability_key, direction="requested"):
+    return {
+        "id": scope_handle,
+        "scope_handle": scope_handle,
+        "capability_key": capability_key,
+        "direction": direction,
+        "owner_user_id": "ria-user",
+        "receiver_user_id": "investor-user",
+        "status": "pending",
+    }
+
+
+def _wire_resolver(svc, pending_rows):
+    """Record proposal UPDATEs and audit events emitted by the resolver."""
+    updates: list[dict[str, object]] = []
+    events: list[dict[str, object]] = []
+    svc._execute_many = lambda _sql, _params=None: pending_rows
+
+    def fake_execute_one(_sql, params=None):
+        updates.append(dict(params or {}))
+        return {"id": (params or {}).get("proposal_id")}
+
+    def fake_record_event(proposal_id, *, event_type, actor_user_id, reason=None):
+        events.append({"proposal_id": proposal_id, "event_type": event_type, "reason": reason})
+
+    svc._execute_one = fake_execute_one
+    svc._record_scope_event = fake_record_event
+    return updates, events
+
+
+def test_resolve_scope_proposals_activates_only_receiver_selected_subset():
+    """Receiver approves a subset: only selected scopes activate; every
+    deselected scope is declined. Effective access is the intersection of the
+    requested scopes and the receiver-approved scopes."""
+    svc = _svc()
+    pending = [
+        _pending_proposal("scp-alpha", "alpha_feed_v1"),
+        _pending_proposal("scp-beta", "beta_feed_v1"),
+    ]
+    updates, events = _wire_resolver(svc, pending)
+
+    results = svc._resolve_scope_proposals(
+        request_id="req-1",
+        actor_user_id="investor-user",
+        selected_requested_scope_handles=["scp-alpha"],
+        selected_offered_scope_handles=[],
+    )
+
+    by_handle = {r["scopeHandle"]: r for r in results}
+    assert by_handle["scp-alpha"]["status"] == "active"
+    assert by_handle["scp-beta"]["status"] == "declined"
+    # Each pending proposal resolved exactly once, to the expected status.
+    assert {u["proposal_id"]: u["status"] for u in updates} == {
+        "scp-alpha": "active",
+        "scp-beta": "declined",
+    }
+    # Audit trail names the deselected scope as declined, not silently dropped.
+    assert {e["proposal_id"]: e["event_type"] for e in events} == {
+        "scp-alpha": "ACTIVATED",
+        "scp-beta": "DECLINED",
+    }
+
+
+def test_resolve_scope_proposals_rejects_scope_not_in_request():
+    """A selected handle that was never part of the pending request is refused
+    with 409 before any proposal is mutated: the requester cannot receive a
+    scope they never asked for, and the receiver cannot invent one."""
+    svc = _svc()
+    updates, events = _wire_resolver(svc, [_pending_proposal("scp-alpha", "alpha_feed_v1")])
+
+    with pytest.raises(ConnectionsError) as exc:
+        svc._resolve_scope_proposals(
+            request_id="req-1",
+            actor_user_id="investor-user",
+            selected_requested_scope_handles=["scp-alpha", "scp-forged"],
+            selected_offered_scope_handles=[],
+        )
+
+    assert exc.value.code == "CONNECTION_SCOPE_SELECTION_INVALID"
+    assert exc.value.status_code == 409
+    # Fail closed: nothing was resolved or audited.
+    assert updates == []
+    assert events == []
+
+
+def test_resolve_scope_proposals_declines_reserved_scope_when_activation_fails():
+    """A selected RIA-reserved capability that cannot be materialized fails
+    closed: the scope is declined, never granted. Authorization is not bypassed
+    just because a downstream capability step failed."""
+    svc = _svc()
+    updates, events = _wire_resolver(
+        svc, [_pending_proposal("scp-ria", _RIA_ACTIVE_PICKS_CAPABILITY)]
+    )
+    svc._activate_ria_picks_scope = lambda _proposal, _request_id: False
+
+    results = svc._resolve_scope_proposals(
+        request_id="req-1",
+        actor_user_id="investor-user",
+        selected_requested_scope_handles=["scp-ria"],
+        selected_offered_scope_handles=[],
+    )
+
+    assert results[0]["status"] == "declined"
+    assert results[0]["activated"] is False
+    assert updates[0]["status"] == "declined"
+    assert events[0]["event_type"] == "DECLINED"
+    assert events[0]["reason"] == "capability_activation_failed"
+
+
+def test_resolve_pending_scope_proposals_declines_all_and_audits():
+    """Full rejection: every still-pending proposal is marked declined and an
+    audit event is written for each, so no proposal is left dangling."""
+    svc = _svc()
+    svc._execute_many = lambda _sql, _params=None: [{"id": "p1"}, {"id": "p2"}]
+    events: list[dict[str, object]] = []
+
+    def fake_record_event(proposal_id, *, event_type, actor_user_id, reason=None):
+        events.append({"proposal_id": proposal_id, "event_type": event_type, "reason": reason})
+
+    svc._record_scope_event = fake_record_event
+
+    svc._resolve_pending_scope_proposals(
+        "req-1",
+        status="declined",
+        actor_user_id="investor-user",
+        reason="connection_rejected",
+    )
+
+    assert [e["proposal_id"] for e in events] == ["p1", "p2"]
+    assert {e["event_type"] for e in events} == {"DECLINED"}
+    assert {e["reason"] for e in events} == {"connection_rejected"}

@@ -423,7 +423,7 @@ async def update_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        await _require_schema_mapping(
+        mapping = await _require_schema_mapping(
             service=service, system_id=system_id, object_type=body.object_type
         )
         return await service.update_record_intent_from_fields(
@@ -439,6 +439,7 @@ async def update_connected_system_record_intent(
                 else dict(body.additional_fields or {})
             ),
             readback_locator=None,
+            locked_field_names=set(mapping.values()),
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)

@@ -183,6 +183,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/c/[token]",
+      "page_file": "app/c/[token]/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.wallet.card.public.token",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.wallet.card.public.token",
+        "purpose": "Help the person read the shared profile and use its generated contact controls.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "route_mode": "redirect",
@@ -1377,13 +1420,13 @@
     {
       "route_pattern": "/one/connect/settings",
       "page_file": "app/one/connect/settings/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.connect.settings",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.connect.settings",
-        "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+        "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -1398,9 +1441,9 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-        "next_route": "/one/connect/settings",
-        "return_policy": "stay",
+        "completion_boundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+        "next_route": "/one/profile/preferences/gemini",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -1411,7 +1454,7 @@
       "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "block_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
@@ -1745,10 +1788,10 @@
     {
       "route_pattern": "/one/kai/analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.kai.analysis",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.kai.analysis",
         "purpose": "Help the person understand and use the analysis screen through its generated controls.",
@@ -1776,13 +1819,19 @@
       },
       "canonical_screen": "kai_analysis",
       "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
-      "action_ids": [],
-      "action_coverage": "local",
+      "action_ids": [
+        "analysis.cancel_active",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.kai_analysis"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-kai-analysis"
     },
     {
@@ -2707,12 +2756,10 @@
       "canonical_screen": "profile_account",
       "voice_contract_file": "app/one/profile/page.voice-action-contract.json",
       "action_ids": [
-        "ria.profile.edit_services",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
-        "route.profile_regulatory",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3371,6 +3418,49 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/preferences/gemini",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.gemini",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.preferences.gemini",
+        "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+        "screen": "profile_preferences",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_preferences",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
       "route_pattern": "/one/profile/preferences/kai",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "route_mode": "standard",
@@ -3459,21 +3549,18 @@
     {
       "route_pattern": "/one/profile/regulatory",
       "page_file": "app/one/profile/regulatory/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
-      "instruction_id": "route.profile.regulatory",
-      "context_policy": "publish",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.regulatory_compat",
+      "context_policy": "suppress",
       "voice_playbook": {
-        "playbook_id": "route.profile.regulatory",
-        "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+        "playbook_id": "route.profile.regulatory_compat",
+        "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
         "screen": "profile_regulatory",
-        "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.profile_regulatory",
-        "happy_path_action_ids": [
-          "route.profile_regulatory",
-          "ria.profile.edit_services"
-        ],
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -3483,9 +3570,9 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
-        "return_policy": "stay",
+        "completion_boundary": "The compatibility redirect has no completion authority.",
+        "next_route": "/ria/profile",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -3493,16 +3580,13 @@
       },
       "canonical_screen": "profile_regulatory",
       "voice_contract_file": null,
-      "action_ids": [
-        "ria.profile.edit_services",
-        "route.profile_regulatory"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "block_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -4019,7 +4103,7 @@
         "playbook_id": "route.one.setup.connections",
         "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
         "screen": "one_setup_connections",
-        "entry_cue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.",
+        "entry_cue": "Choose Hushh managed Gemini now, or record BYOK and add the encrypted key after setup.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_connections",
         "happy_path_action_ids": [
@@ -4034,7 +4118,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.",
+        "completion_boundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4397,6 +4481,49 @@
       },
       "trust_boundary": "auth",
       "native_surface_id": "native-route-ria-onboarding"
+    },
+    {
+      "route_pattern": "/one/wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.wallet.card",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.wallet.card",
+        "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally without inventing a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-wallet-card"
     },
     {
       "route_pattern": "/pkm",
@@ -4954,6 +5081,7 @@
         "ria.picks.open_category_top_picks",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
+        "ria.picks.open_view_debate",
         "route.ria_picks"
       ],
       "action_coverage": "inherited",
@@ -4967,18 +5095,21 @@
     {
       "route_pattern": "/ria/profile",
       "page_file": "app/ria/profile/page.tsx",
-      "route_mode": "redirect",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
       "instruction_id": "route.ria.profile",
-      "context_policy": "suppress",
+      "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.ria.profile",
-        "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+        "purpose": "Help the advisor view and manage their RIA profile.",
         "screen": "profile_regulatory",
-        "entry_cue": "",
-        "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "entry_cue": "You can say “Open RIA Profile” to return here.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.ria_profile",
+        "happy_path_action_ids": [
+          "route.ria_profile",
+          "ria.profile.edit_services"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -4988,23 +5119,26 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The compatibility redirect has no completion authority.",
-        "next_route": "/one/profile/regulatory",
-        "return_policy": "navigate",
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
       "canonical_screen": "profile_regulatory",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "voice_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "action_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {

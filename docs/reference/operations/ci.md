@@ -38,6 +38,11 @@ flowchart TB
 
 This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
 
+The canonical state-changing operator procedure is the
+[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This page defines CI behavior; it does not redefine Admin bypass or deployment
+authority.
+
 **Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
 **Pre-PR mirror:** [`./bin/hushh codex pre-pr`](./cli.md)  
 **Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
@@ -335,10 +340,12 @@ Practical maintainer rule:
 
 ## Branch Lanes
 
-1. `main` is the only integration branch for day-to-day development.
+1. `integration/pr-train` is the intake branch for non-maintainer contributor and agent work; governed maintainers may open branches cut from `origin/main` directly to `main`. `main` remains the sole promotion authority for UAT and production.
 2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
+4. Manual UAT dispatch is limited to the current
+   `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
+   transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.

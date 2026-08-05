@@ -24,6 +24,7 @@ def test_autocomplete_route(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "autocomplete", fake)
     res = client.post("/api/one/location/maps/autocomplete", json={"input": "Starbucks"})
     assert res.status_code == 200
+    assert res.headers["cache-control"] == "private, no-store"
     assert res.json()["suggestions"] == [{"placeId": "p1", "text": "Starbucks"}]
 
 
@@ -34,6 +35,7 @@ def test_place_details_route(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "place_details", fake)
     res = client.post("/api/one/location/maps/place-details", json={"placeId": "p1"})
     assert res.status_code == 200
+    assert res.headers["cache-control"] == "private, no-store"
     assert res.json()["place"]["latitude"] == 1.0
 
 

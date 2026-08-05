@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import hushh_mcp.services.one_location_agent_service as one_location_agent_module
+import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
@@ -126,6 +127,463 @@ def test_store_envelope_rejects_plaintext_coordinate_metadata_before_db() -> Non
     assert exc.value.code == "LOCATION_ENVELOPE_METADATA_INVALID"
 
 
+class AtomicPrivateShareProbe(OneLocationAgentService):
+    def __init__(
+        self,
+        *,
+        replay: bool = False,
+        fail_write: bool = False,
+        stored_fingerprint: str | None = None,
+        expired_replay: bool = False,
+        recipient_key_active: bool = True,
+    ) -> None:
+        self.replay = replay
+        self.fail_write = fail_write
+        self.stored_fingerprint = stored_fingerprint
+        self.expired_replay = expired_replay
+        self.recipient_key_active = recipient_key_active
+        self.atomic_sql: list[str] = []
+        self.recipient_key_lock_keys: list[str] = []
+        self.pair_lock_keys: list[str] = []
+        self.notifications: list[dict] = []
+        self.expiry_normalizations: list[str | None] = []
+
+    def _is_active_connection(self, **_kwargs) -> bool:
+        return True
+
+    def _recipient_key_row(self, **_kwargs) -> dict:
+        return {
+            "key_id": "recipient-key",
+            "display_name": "Recipient",
+            "phone_number": "+15550100002",
+        }
+
+    def _mint_grant_capability_token(self, **_kwargs) -> dict[str, str]:
+        return {"token": "signed-capability", "token_id": "signed-capability"}
+
+    def _send_location_share_created_notification(self, **kwargs) -> None:
+        self.notifications.append(kwargs)
+
+    def _expire_stale_grants(self, user_id: str | None) -> None:
+        self.expiry_normalizations.append(user_id)
+
+    def _execute_atomic_private_share(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        pair_lock_key: str,
+        mutation_sql: str,
+        params: dict,
+    ) -> dict | None:
+        values = params
+        self.recipient_key_lock_keys.append(recipient_key_lock_key)
+        self.pair_lock_keys.append(pair_lock_key)
+        self.atomic_sql.append(mutation_sql)
+        if self.fail_write:
+            raise RuntimeError("transaction failed")
+        if not self.replay and not values["freshness_valid"]:
+            return None
+        metadata = json.loads(values["metadata_json"])
+        if self.stored_fingerprint is not None:
+            metadata["client_operation_fingerprint"] = self.stored_fingerprint
+        grant_id = values["grant_id"]
+        envelope_id = values["envelope_id"]
+        return {
+            "grant_row": {
+                "id": grant_id,
+                "owner_user_id": values["owner_user_id"],
+                "recipient_user_id": values["recipient_user_id"],
+                "recipient_key_id": values["recipient_key_id"],
+                "status": "active",
+                "consent_scope": "cap.location.live.view",
+                "capability_scopes": values["capability_scopes"],
+                "duration_hours": values["duration_hours"],
+                "expires_at": (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                    if self.expired_replay
+                    else values["expires_at"]
+                ),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+                "revoked_at": None,
+                "latest_envelope_id": envelope_id,
+                "metadata": metadata,
+                "recipient_display_name": "Recipient",
+                "recipient_phone_number": "+15550100002",
+            },
+            "envelope_row": {
+                "id": envelope_id,
+                "grant_id": grant_id,
+                "owner_user_id": values["owner_user_id"],
+                "recipient_user_id": values["recipient_user_id"],
+                "recipient_key_id": values["recipient_key_id"],
+                "algorithm": values["algorithm"],
+                "ciphertext": values["ciphertext"],
+                "iv": values["iv"],
+                "sender_ephemeral_public_key_jwk": json.loads(values["sender_key"]),
+                "captured_at": values["captured_at"],
+                "source_platform": values["source_platform"],
+                "publication_context": values["publication_context"],
+                "created_at": datetime.now(timezone.utc),
+                "metadata": json.loads(values["envelope_metadata_json"]),
+            },
+            "idempotent_replay": self.replay,
+            "recipient_key_active": self.recipient_key_active,
+        }
+
+
+def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    state = {"exited": False}
+
+    class Result:
+        def __init__(self, row: dict | None = None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self) -> dict | None:
+            return self.row
+
+    class Connection:
+        def execute(self, statement, params: dict):
+            calls.append((str(statement), params))
+            return Result({"saved": True} if len(calls) == 3 else None)
+
+    @contextmanager
+    def fake_connection():
+        try:
+            yield Connection()
+        finally:
+            state["exited"] = True
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    result = OneLocationAgentService()._execute_atomic_private_share(
+        recipient_key_lock_key="one-location-recipient-key:recipient",
+        pair_lock_key="one-location-grant:owner:recipient",
+        mutation_sql="SELECT :value AS saved",
+        params={"value": True},
+    )
+
+    assert result == {"saved": True}
+    assert "pg_advisory_xact_lock" in calls[0][0]
+    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert "pg_advisory_xact_lock" in calls[1][0]
+    assert calls[1][1] == {"pair_lock_key": "one-location-grant:owner:recipient"}
+    assert calls[2] == ("SELECT :value AS saved", {"value": True})
+    assert state["exited"] is True
+
+
+def test_recipient_key_registration_locks_before_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Result:
+        def __init__(self, row: dict | None = None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self) -> dict | None:
+            return self.row
+
+    class Connection:
+        def execute(self, statement, params: dict):
+            calls.append((str(statement), params))
+            return Result({"key_id": "new-key"} if len(calls) == 2 else None)
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    result = OneLocationAgentService()._execute_recipient_key_registration(
+        recipient_key_lock_key="one-location-recipient-key:recipient",
+        mutation_sql="SELECT :key_id AS key_id",
+        params={"key_id": "new-key"},
+    )
+
+    assert result == {"key_id": "new-key"}
+    assert "pg_advisory_xact_lock" in calls[0][0]
+    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
+
+
+def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Result:
+        def __init__(self, row: dict | None = None, *, returns_rows: bool) -> None:
+            self.row = row
+            self.returns_rows = returns_rows
+
+        def mappings(self):
+            return self
+
+        def first(self) -> dict | None:
+            return self.row
+
+    class Connection:
+        def execute(self, statement, _params: dict):
+            sql = str(statement)
+            calls.append(sql)
+            if sql == "SELECT :value AS value":
+                return Result({"value": True}, returns_rows=True)
+            return Result(returns_rows=False)
+
+    connection = Connection()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+    service = OneLocationAgentService()
+
+    with service._key_bound_writer_guard(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+    ):
+        assert service._execute_one("UPDATE example SET value = 1") is None
+        assert service._execute_one(
+            "SELECT :value AS value",
+            {"value": True},
+        ) == {"value": True}
+
+    assert len([sql for sql in calls if "pg_advisory_xact_lock" in sql]) == 2
+    assert not hasattr(service, "_key_writer_connection")
+
+
+def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:
+    service = AtomicPrivateShareProbe()
+    confirmed_at = datetime.now(timezone.utc)
+
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174000",
+        confirmed_at=confirmed_at,
+        envelope={
+            **encrypted_envelope("recipient-key"),
+            "capturedAt": confirmed_at.isoformat(),
+        },
+        reason="Made it safely",
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+
+    assert result["grant"]["latestEnvelopeId"] == result["envelope"]["id"]
+    assert result["idempotentReplay"] is False
+    assert len(service.atomic_sql) == 1
+    assert service.recipient_key_lock_keys == ["one-location-recipient-key:recipient"]
+    assert service.pair_lock_keys == ["one-location-grant:owner:recipient"]
+    sql = service.atomic_sql[0]
+    assert "CAST(:grant_id AS UUID)" in sql
+    assert "CAST(:envelope_id AS UUID)" in sql
+    assert "FROM connections c" in sql
+    assert "k.key_id = :recipient_key_id" in sql
+    assert "NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)" in sql
+    assert "UPDATE one_location_share_grants" in sql
+    assert "INSERT INTO one_location_share_grants" in sql
+    assert "INSERT INTO one_location_envelopes" in sql
+    assert sql.count("INSERT INTO one_location_events") == 2
+    assert len(service.notifications) == 1
+    assert service.notifications[0]["reason"] == "check_in"
+
+
+def test_atomic_private_share_replay_does_not_notify_again() -> None:
+    service = AtomicPrivateShareProbe(replay=True)
+    confirmed_at = datetime.now(timezone.utc)
+
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174001",
+        confirmed_at=confirmed_at,
+        envelope={
+            **encrypted_envelope("recipient-key"),
+            "capturedAt": confirmed_at.isoformat(),
+        },
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+
+    assert result["idempotentReplay"] is True
+    assert service.notifications == []
+
+
+def test_atomic_private_share_stale_committed_replay_still_succeeds() -> None:
+    service = AtomicPrivateShareProbe(replay=True)
+    confirmed_at = datetime.now(timezone.utc) - timedelta(minutes=11)
+
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174003",
+        confirmed_at=confirmed_at,
+        envelope={
+            **encrypted_envelope("recipient-key"),
+            "capturedAt": confirmed_at.isoformat(),
+        },
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+
+    assert result["idempotentReplay"] is True
+    assert service.notifications == []
+
+
+def test_atomic_private_share_expired_replay_is_finalized() -> None:
+    service = AtomicPrivateShareProbe(replay=True, expired_replay=True)
+    confirmed_at = datetime.now(timezone.utc)
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174006",
+            confirmed_at=confirmed_at,
+            envelope={
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": confirmed_at.isoformat(),
+            },
+            share_kind="check_in",
+            enforce_connection=True,
+        )
+
+    assert exc.value.code == "LOCATION_OPERATION_FINALIZED"
+    assert service.expiry_normalizations == ["recipient"]
+    assert service.notifications == []
+
+
+def test_atomic_private_share_replay_rejects_rotated_recipient_key() -> None:
+    service = AtomicPrivateShareProbe(replay=True, recipient_key_active=False)
+    confirmed_at = datetime.now(timezone.utc)
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174007",
+            confirmed_at=confirmed_at,
+            envelope={
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": confirmed_at.isoformat(),
+            },
+            share_kind="check_in",
+            enforce_connection=True,
+        )
+
+    assert exc.value.code == "LOCATION_OPERATION_FINALIZED"
+    assert service.notifications == []
+
+
+def test_atomic_private_share_reused_operation_with_changed_body_fails_closed() -> None:
+    service = AtomicPrivateShareProbe(
+        replay=True,
+        stored_fingerprint="different-request",
+    )
+    confirmed_at = datetime.now(timezone.utc)
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174005",
+            confirmed_at=confirmed_at,
+            envelope={
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": confirmed_at.isoformat(),
+            },
+            share_kind="check_in",
+            enforce_connection=True,
+        )
+
+    assert exc.value.code == "LOCATION_OPERATION_CONFLICT"
+    assert service.notifications == []
+
+
+def test_atomic_private_share_stale_first_attempt_is_rejected() -> None:
+    service = AtomicPrivateShareProbe()
+    confirmed_at = datetime.now(timezone.utc) - timedelta(minutes=11)
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174004",
+            confirmed_at=confirmed_at,
+            envelope={
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": confirmed_at.isoformat(),
+            },
+            share_kind="check_in",
+            enforce_connection=True,
+        )
+
+    assert exc.value.code == "LOCATION_CONFIRMATION_EXPIRED"
+    assert service.notifications == []
+
+
+def test_atomic_private_share_failure_never_sends_notification() -> None:
+    service = AtomicPrivateShareProbe(fail_write=True)
+    confirmed_at = datetime.now(timezone.utc)
+
+    with pytest.raises(RuntimeError, match="transaction failed"):
+        service.create_grant_with_initial_envelope(
+            owner_user_id="owner",
+            recipient_user_id="recipient",
+            recipient_key_id="recipient-key",
+            duration_hours=1,
+            client_operation_id="123e4567-e89b-12d3-a456-426614174002",
+            confirmed_at=confirmed_at,
+            envelope={
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": confirmed_at.isoformat(),
+            },
+            share_kind="check_in",
+            enforce_connection=True,
+        )
+
+    assert len(service.atomic_sql) == 1
+    assert service.notifications == []
+
+
 class RecipientDirectoryProbe(OneLocationAgentService):
     def __init__(self) -> None:
         self.sql = ""
@@ -203,6 +661,7 @@ class EnvelopeReadProbe(OneLocationAgentService):
                 "duration_hours": 1,
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
                 "capability_scopes": json.dumps(["cap.location.live.view"]),
+                "recipient_key_active": True,
             }
         if "FROM one_location_envelopes" in sql:
             return {
@@ -453,6 +912,15 @@ class FourUserMemoryService(OneLocationAgentService):
         kwargs["data"] = _notification_safe_data(kwargs.get("data") or {})
         self.notifications.append(kwargs)
 
+    @contextmanager
+    def _key_bound_writer_guard(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+    ):
+        yield
+
     def _active_key(self, user_id: str, key_id: str | None = None) -> dict | None:
         matches = [
             key
@@ -462,6 +930,60 @@ class FourUserMemoryService(OneLocationAgentService):
         if key_id:
             matches = [key for key in matches if key["key_id"] == key_id]
         return matches[-1] if matches else None
+
+    def _execute_recipient_key_registration(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        mutation_sql: str,
+        params: dict,
+    ) -> dict | None:
+        assert recipient_key_lock_key == (f"one-location-recipient-key:{params['user_id']}")
+        assert "revoked_grants AS" in mutation_sql
+        user_id = params["user_id"]
+        key_id = params["key_id"]
+        now = datetime.now(timezone.utc)
+        incoming_public_key = json.loads(params["public_key_jwk"])
+        existing = self.keys.get((user_id, key_id))
+        if existing is not None and existing.get("public_key_jwk") != incoming_public_key:
+            return None
+        for (key_user_id, existing_key_id), existing in self.keys.items():
+            if (
+                key_user_id == user_id
+                and existing_key_id != key_id
+                and existing["status"] == "active"
+            ):
+                existing["status"] = "rotated"
+        for grant in self.grants.values():
+            if (
+                grant["recipient_user_id"] == user_id
+                and grant["recipient_key_id"] != key_id
+                and grant["status"] == "active"
+            ):
+                grant["status"] = "revoked"
+                grant["revoked_at"] = now
+                grant["updated_at"] = now
+        new_blob = (
+            json.loads(params["encrypted_private_key_jwk"])
+            if params.get("encrypted_private_key_jwk")
+            else None
+        )
+        existing = self.keys.get((user_id, key_id))
+        if new_blob is None and existing is not None:
+            new_blob = existing.get("encrypted_private_key_jwk")
+        row = {
+            "user_id": user_id,
+            "key_id": key_id,
+            "public_key_jwk": incoming_public_key,
+            "algorithm": params["algorithm"],
+            "status": "active",
+            "encrypted_private_key_jwk": new_blob,
+            "created_at": existing.get("created_at", now) if existing else now,
+            "key_created_at": existing.get("created_at", now) if existing else now,
+            "phone_verified": True,
+        }
+        self.keys[(user_id, key_id)] = row
+        return row
 
     def _identity_key_row(
         self,
@@ -488,6 +1010,12 @@ class FourUserMemoryService(OneLocationAgentService):
             **grant,
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
+            "recipient_key_active": bool(
+                self._active_key(
+                    grant["recipient_user_id"],
+                    grant["recipient_key_id"],
+                )
+            ),
         }
 
     def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
@@ -1722,6 +2250,35 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "a.user_id <> :owner_user_id" in service.sql
 
 
+def test_directory_candidate_search_filters_before_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecipientDirectoryProbe()
+    monkeypatch.setattr(
+        service,
+        "_apply_kai_circle_recommendations",
+        lambda **kwargs: kwargs["recipients"],
+    )
+
+    result = service.search_directory_candidates(
+        owner_user_id="owner",
+        query="cara",
+        page=3,
+        limit=20,
+    )
+
+    assert result == {"items": [], "page": 3, "hasMore": False}
+    assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    assert service.params == {
+        "owner_user_id": "owner",
+        "candidate_user_id": None,
+        "query": "cara",
+        "fetch_limit": 21,
+        "offset": 40,
+    }
+
+
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
     service = FourUserMemoryService()
     now = datetime.now(timezone.utc)
@@ -2172,7 +2729,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
             return {
                 key: without_timestamps(item)
                 for key, item in value.items()
-                if not key.lower().endswith("at")
+                if not key.lower().endswith("at") and key.lower() != "id"
             }
         if isinstance(value, list):
             return [without_timestamps(item) for item in value]
@@ -2651,34 +3208,36 @@ class _RecipientKeySelfHealService(OneLocationAgentService):
         self.ensure_column_calls = 0
         self.insert_attempts = 0
 
-    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+    def _execute_recipient_key_registration(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        mutation_sql: str,
+        params: dict,
+    ) -> dict | None:
         from db.db_client import DatabaseExecutionError
 
-        if "UPDATE one_location_recipient_keys" in sql:
-            return None
-        if "INSERT INTO one_location_recipient_keys" in sql:
-            self.insert_attempts += 1
-            if self.insert_attempts == 1:
-                raise DatabaseExecutionError(
-                    table_name="<raw_sql>",
-                    operation="execute_raw",
-                    details=(
-                        "(psycopg2.errors.UndefinedColumn) column "
-                        '"encrypted_private_key_jwk" of relation '
-                        '"one_location_recipient_keys" does not exist'
-                    ),
-                )
-            return {
-                "user_id": (params or {}).get("user_id"),
-                "key_id": (params or {}).get("key_id"),
-                "public_key_jwk": (params or {}).get("public_key_jwk"),
-                "algorithm": "ECDH-P256-AES256-GCM",
-                "key_created_at": datetime.now(timezone.utc),
-                "phone_verified": True,
-            }
-        if "INSERT INTO one_location_events" in sql:
-            return None
-        return None
+        assert recipient_key_lock_key.endswith(str(params["user_id"]))
+        assert "upserted_key AS" in mutation_sql
+        self.insert_attempts += 1
+        if self.insert_attempts == 1:
+            raise DatabaseExecutionError(
+                table_name="<raw_sql>",
+                operation="execute_raw",
+                details=(
+                    "(psycopg2.errors.UndefinedColumn) column "
+                    '"encrypted_private_key_jwk" of relation '
+                    '"one_location_recipient_keys" does not exist'
+                ),
+            )
+        return {
+            "user_id": params.get("user_id"),
+            "key_id": params.get("key_id"),
+            "public_key_jwk": params.get("public_key_jwk"),
+            "algorithm": "ECDH-P256-AES256-GCM",
+            "key_created_at": datetime.now(timezone.utc),
+            "phone_verified": True,
+        }
 
     def _ensure_recipient_encrypted_private_column(self) -> None:
         self.ensure_column_calls += 1
@@ -2708,18 +3267,20 @@ class _RecipientKeyUnrelatedErrorService(OneLocationAgentService):
     def __init__(self) -> None:
         self.ensure_column_calls = 0
 
-    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+    def _execute_recipient_key_registration(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        mutation_sql: str,
+        params: dict,
+    ) -> dict | None:
         from db.db_client import DatabaseExecutionError
 
-        if "UPDATE one_location_recipient_keys" in sql:
-            return None
-        if "INSERT INTO one_location_recipient_keys" in sql:
-            raise DatabaseExecutionError(
-                table_name="<raw_sql>",
-                operation="execute_raw",
-                details="some unrelated integrity violation",
-            )
-        return None
+        raise DatabaseExecutionError(
+            table_name="<raw_sql>",
+            operation="execute_raw",
+            details="some unrelated integrity violation",
+        )
 
     def _ensure_recipient_encrypted_private_column(self) -> None:  # pragma: no cover
         self.ensure_column_calls += 1
@@ -2738,6 +3299,55 @@ def test_register_recipient_key_propagates_unrelated_db_error() -> None:
             key_id="recipient-key-id-1234",
         )
     assert service.ensure_column_calls == 0
+
+
+def test_recipient_key_rotation_revokes_grants_bound_to_old_key() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b-old",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "old", "y": "old"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b-old",
+        duration_hours=1,
+    )
+
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b-new",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "new", "y": "new"},
+    )
+
+    assert service.keys[("user_b", "key-user-b-old")]["status"] == "rotated"
+    assert service.keys[("user_b", "key-user-b-new")]["status"] == "active"
+    assert service.grants[grant["id"]]["status"] == "revoked"
+
+
+def test_recipient_key_id_cannot_be_rebound_to_different_material() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="stable-key-id",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "first", "y": "first"},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.register_recipient_key(
+            user_id="user_b",
+            key_id="stable-key-id",
+            public_key_jwk={
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "second",
+                "y": "second",
+            },
+        )
+
+    assert exc.value.code == "LOCATION_RECIPIENT_KEY_ID_CONFLICT"
+    assert service.keys[("user_b", "stable-key-id")]["public_key_jwk"]["x"] == "first"
 
 
 def test_create_grant_enforce_connection_rejects_non_connection() -> None:

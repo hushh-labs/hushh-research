@@ -168,6 +168,26 @@ def _clean_text(value: Any, *, max_length: int = 512) -> str:
     return text
 
 
+def _parse_crm_phone_parts(value: Any) -> tuple[str, str, str]:
+    """Parse E.164 phone string into (country_code, national_number, fallback)."""
+    raw = str(value or "").strip()
+    fallback = _normalize_crm_phone_for_mcp(raw)
+    if not raw.startswith("+"):
+        return "", fallback, fallback
+    try:
+        import phonenumbers
+
+        parsed = phonenumbers.parse(raw, None)
+        if not phonenumbers.is_valid_number(parsed):
+            return "", fallback, fallback
+
+        country_code = f"+{parsed.country_code}"
+        national_number = str(parsed.national_number)
+        return country_code, national_number, fallback
+    except Exception:
+        return "", fallback, fallback
+
+
 def _normalize_crm_phone_for_mcp(value: Any) -> str:
     clean = _clean_text(value, max_length=80)
     digits = re.sub(r"\D", "", clean)
@@ -2091,6 +2111,13 @@ class ConnectedSystemsService:
         aliases = {
             "email": ("email", "emailaddress", "email_address"),
             "phone": ("phone", "telephone", "phone_number", "mobilephone", "mobile_phone"),
+            "phoneCountryCode": (
+                "phonecountrycode",
+                "countrycode",
+                "dialcode",
+                "phone_country_code",
+                "mobilephonecountrycode",
+            ),
             "firstName": ("firstname", "first_name", "givenname", "given_name"),
             "lastName": ("lastname", "last_name", "surname", "familyname", "family_name"),
             "fullName": ("name", "fullname", "full_name", "displayname", "display_name"),
@@ -2138,6 +2165,31 @@ class ConnectedSystemsService:
                 mapping[semantic] = str(partial["name"])
         return mapping
 
+    @staticmethod
+    def _derived_required_full_name_field(fields: list[dict[str, Any]]) -> str | None:
+        """Return a public derived-name descriptor for the basic CRM create shape.
+
+        Salesforce-style create requests supply first and last name separately.
+        Some schemas nevertheless advertise their computed ``Name`` / ``Full
+        Name`` field as required. This is a narrow schema validation exception:
+        the derived field remains absent from the upstream request payload.
+        """
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if field.get("required") is not True or field.get("identityField") is True:
+                continue
+            tokens = {
+                re.sub(r"[^a-z0-9]", "", str(field.get(key) or "").lower())
+                for key in ("key", "name", "label")
+            }
+            if not tokens.intersection({"name", "fullname"}):
+                continue
+            field_name = _clean_text(field.get("name") or field.get("key"), max_length=80)
+            if field_name:
+                return field_name
+        return None
+
     async def _verified_user_crm_profile(self, *, user_id: str) -> dict[str, str]:
         """Load the actor's server-side verified identity for CRM onboarding.
 
@@ -2166,6 +2218,11 @@ class ConnectedSystemsService:
                 "Verify your email before linking this CRM.",
                 code="CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED",
             )
+
+        raw_phone = identity.get("phone_number")
+        phone_country_code, phone_national, phone_fallback = _parse_crm_phone_parts(raw_phone)
+        phone = phone_fallback
+
         if not identity.get("phone_verified") or not phone:
             raise ConnectedSystemBlockedError(
                 "Verify your phone before linking this CRM.",
@@ -2175,7 +2232,9 @@ class ConnectedSystemsService:
         parts = display_name.split()
         return {
             "email": email,
-            "phone": phone,
+            "phone": phone_national or phone,
+            "phoneCountryCode": phone_country_code,
+            "phoneFallback": phone,
             "displayName": display_name,
             "firstName": parts[0] if parts else "",
             "lastName": " ".join(parts[1:]) if len(parts) > 1 else (parts[0] if parts else ""),
@@ -2405,12 +2464,18 @@ class ConnectedSystemsService:
         values: dict[str, Any] | None,
         *,
         action: str,
+        locked_field_names: set[str] | None = None,
         require_required_fields: bool = False,
         satisfied_required_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(values, dict) or not values:
             raise ConnectedSystemValidationError(f"recordFields is required for {action}.")
         normalized: dict[str, Any] = {}
+        locked_tokens = {
+            str(name).strip().casefold()
+            for name in (locked_field_names or set())
+            if str(name).strip()
+        }
         for raw_name, value in values.items():
             key = _clean_text(raw_name, max_length=80)
             field = fields.get(key)
@@ -2423,6 +2488,8 @@ class ConnectedSystemsService:
                 field.get("immutable") is True
                 or field.get("identityField") is True
                 or field.get("updateable") is False
+                or str(field.get("key") or "").strip().casefold() in locked_tokens
+                or str(field.get("name") or "").strip().casefold() in locked_tokens
             ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be updated: {key}",
@@ -2560,6 +2627,7 @@ class ConnectedSystemsService:
         fields: dict[str, Any] = {}
         for semantic, profile_key in (
             ("email", "email"),
+            ("phoneCountryCode", "phoneCountryCode"),
             ("phone", "phone"),
             ("firstName", "firstName"),
             ("lastName", "lastName"),
@@ -2568,6 +2636,14 @@ class ConnectedSystemsService:
             value = _clean_text(profile.get(profile_key), max_length=320)
             if field_name and value:
                 fields[field_name] = value
+
+        # If the schema didn't map a distinct phoneCountryCode but did map phone,
+        # fallback to the fully-constructed E.164-equivalent normalized value
+        # to ensure the single mapped field receives all necessary dial digits.
+        phone_field = _clean_text(mappings.get("phone"), max_length=80)
+        phone_cc_field = _clean_text(mappings.get("phoneCountryCode"), max_length=80)
+        if phone_field and not phone_cc_field:
+            fields[phone_field] = _clean_text(profile.get("phoneFallback"), max_length=320)
         # Salesforce-style `Name` fields are frequently derived and cannot be
         # written alongside FirstName/LastName. Use a full-name field only for
         # schemas that do not expose the split name pair.
@@ -2584,9 +2660,18 @@ class ConnectedSystemsService:
         if split_name_is_complete:
             # Some CRM schemas expose a derived full-name field as required
             # even though create accepts its mapped first/last components.
-            # The schema mapper owns this semantic equivalence; do not send the
-            # derived field back as a second, potentially read-only value.
+            # Do not send the derived field back as a second, potentially
+            # read-only value. Enterprise mappers may intentionally return
+            # only the split-name pair, so resolve the exact public descriptor
+            # from the schema only for the registered basic identity shape.
             full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
+            if (
+                not full_name_field
+                and _operation_request_style(system, "create") == "basic_identity_fields.v1"
+            ):
+                full_name_field = self._derived_required_full_name_field(
+                    list(schema.get("fields") or [])
+                )
             if full_name_field:
                 satisfied_required_fields.add(full_name_field)
         else:
@@ -2617,6 +2702,7 @@ class ConnectedSystemsService:
         record_id: str | None,
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
+        locked_field_names: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "update")
@@ -2632,7 +2718,23 @@ class ConnectedSystemsService:
         )
         self._require_schema_action(schema, "update")
         fields = {str(field["key"]): field for field in schema["fields"]}
-        normalized = self._validated_schema_fields(fields, record_fields, action="update")
+        # Verified profile mappings are the field names used to create and
+        # re-find this owner's record. They are binding keys, not profile
+        # preferences, so updates must reject them even when a partner schema
+        # has omitted its own identity/immutable metadata.
+        protected_fields = set(locked_field_names or set())
+        if not protected_fields:
+            protected_fields.update(
+                str(name)
+                for name in _ensure_dict(schema.get("profileFieldMappings")).values()
+                if str(name).strip()
+            )
+        normalized = self._validated_schema_fields(
+            fields,
+            record_fields,
+            action="update",
+            locked_field_names=protected_fields,
+        )
         object_type_value = str(schema["objectType"])
         payload: dict[str, Any] = {
             "target": system.target,

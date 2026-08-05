@@ -145,6 +145,16 @@ These events are metadata-only. They must never include raw user IDs, emails, PK
 | `route_refresh_completed` | Measures background refresh outcome after stale render, focus, manual refresh, mutation, or warmup | `route_id`, `resource_class`, `refresh_trigger`, `result`, `duration_ms_bucket` | Route resource hooks and domain services via `hushh-webapp/lib/observability/client.ts` | refresh reliability, retry pressure, loader avoidance | `npm run verify:analytics`, `npm run audit:cache-coherence` |
 | `warmup_completed` | Measures route/resource warmup completion by safe cache tier | `resource_class`, `cache_tier`, `warm_priority`, `result`, `duration_ms_bucket` | Unlock warmup and route-adjacent warmers via `hushh-webapp/lib/observability/client.ts` | warmup usefulness, cold unlock friction, over-warm detection | `npm run verify:analytics` |
 
+## Agent PKM Reliability
+
+These events contain bounded aggregate buckets only. They must never include decrypted PKM facts, domains, scopes, prompts, identifiers, recipient labels, or error messages.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `agent_pkm_context_resolved` | Proves that an Agent turn received selected local PKM context and reports whether selection clipped or omitted unsafe nodes | `context_mode`, fact-count buckets, `context_clipped`, `inventory_only`, `safety_omitted`, `duration_ms_bucket` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | cold-unlock readiness, retrieval coverage, clipping trend | `npm run verify:analytics` |
+| `agent_pkm_context_unavailable` | Counts turns deliberately stopped before the model receives empty PKM context | `result`, bounded `reason` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | context-free personal-turn prevention | `npm run verify:analytics` |
+| `agent_pkm_save_confirmation_completed` | Measures user-confirmed PKM save completion without identifying what was saved or shared | `result`, saved/failed count buckets, `has_active_recipients` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | save-confirmation completion and sharing-impact reliability | `npm run verify:analytics` |
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.

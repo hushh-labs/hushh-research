@@ -254,6 +254,9 @@ RESERVED_DYNAMIC_DOMAIN_SLUGS = frozenset(
         "internal",
         "mcp",
         "pkm",
+        # `__quarantine_v1` normalizes to this slug. It is encrypted internal
+        # preservation storage, never a user-authored or shareable domain.
+        "quarantine_v1",
         "scope",
         "scopes",
         "system",
@@ -351,6 +354,23 @@ def current_domain_contract_version(domain: str) -> int:
 def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None:
     key = normalize_domain_key(domain_key)
     for entry in CANONICAL_DOMAIN_REGISTRY:
+        if entry.domain_key == key:
+            return entry
+    return None
+
+
+def get_canonical_subintent_metadata(domain_key: str) -> DomainSubintentEntry | None:
+    """Return authored metadata for a canonical subintent branch, if registered.
+
+    ``domain_key`` is the fully-qualified branch key (e.g. ``financial.profile``).
+    Only financial subintents are registered today; every other branch returns
+    None so callers compose a display label from the parent domain + branch name.
+    Kept parallel to :func:`get_canonical_domain_metadata` so scope-display code
+    can prefer a branch's authored name/description/icon over a generic one.
+    """
+
+    key = normalize_domain_key(domain_key)
+    for entry in FINANCIAL_SUBINTENT_REGISTRY:
         if entry.domain_key == key:
             return entry
     return None

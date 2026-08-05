@@ -18,9 +18,21 @@ from tests.services.test_one_location_agent_service import (
 
 class DatabaseExecutionError(Exception):
     code = "DATABASE_UNAVAILABLE"
-    details = "Database temporarily unavailable."
+    # Shaped like the real thing: db_client passes str(<the DBAPI error>), and
+    # SQLAlchemy appends the statement plus every bound value to that.
+    details = (
+        "(psycopg2.OperationalError) connection failed\n"
+        "[SQL: SELECT * FROM one_location_recipients WHERE phone = %s]\n"
+        "[parameters: {'phone': '+919812345678'}]"
+    )
     hint = "Retry later."
     status_code = 503
+
+
+class _MemoryNearbyPresenceService:
+    def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]:
+        assert older_than_hours > 0
+        return {"expired": 0, "deleted": 0}
 
 
 def _client(
@@ -32,6 +44,11 @@ def _client(
         "user_id": current_user["user_id"]
     }
     monkeypatch.setattr(one_location, "_service", lambda: service)
+    monkeypatch.setattr(
+        one_location,
+        "_nearby_presence_service",
+        _MemoryNearbyPresenceService,
+    )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -77,6 +94,47 @@ def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
     assert removed.json()["smsContactUserIds"] == []
     assert removed_again.json()["smsContactUserIds"] == []
     assert service.connections
+
+
+def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
+    class AtomicRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant_with_initial_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "grant": {"id": "grant-1", "status": "active"},
+                "envelope": {"id": "envelope-1", "ciphertext": "ciphertext"},
+                "idempotentReplay": False,
+            }
+
+    service = AtomicRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    captured_at = datetime.now(timezone.utc).isoformat()
+
+    response = client.post(
+        "/api/one/location/grants/with-envelope",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 1,
+            "clientOperationId": "123e4567-e89b-12d3-a456-426614174000",
+            "confirmedAt": captured_at,
+            "shareKind": "check_in",
+            "envelope": {
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": captured_at,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["idempotentReplay"] is False
+    assert service.calls[0]["owner_user_id"] == "owner-from-token"
+    assert service.calls[0]["recipient_user_id"] == "recipient"
+    assert service.calls[0]["enforce_connection"] is True
 
 
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
@@ -570,6 +628,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_named_circle_member_invites": 0,
         "deleted_public_submissions": 1,
         "deleted_events": 1,
+        "nearby_presence": {"expired": 0, "deleted": 0},
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -624,9 +683,13 @@ def test_one_location_route_preserves_db_error_mapping_without_db_client_import(
     assert response.status_code == 503
     assert response.detail == {
         "code": "DATABASE_UNAVAILABLE",
-        "message": "Database temporarily unavailable.",
+        "message": "Location storage is temporarily unavailable. Try again shortly.",
         "hint": "Retry later.",
     }
+    # CWE-209: the raw SQLAlchemy detail carries the statement and its bound
+    # values; only the code and the static hint may cross the wire.
+    assert "[parameters:" not in str(response.detail)
+    assert "+919812345678" not in str(response.detail)
 
 
 def test_recipient_key_blob_is_returned_to_owner_and_never_leaks_to_others(monkeypatch) -> None:

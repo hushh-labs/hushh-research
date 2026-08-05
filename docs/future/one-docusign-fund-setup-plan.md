@@ -225,7 +225,7 @@ settlement contract. Chained mutations remain:
 - Use tenant-bound OAuth or JWT configuration selected from the actual
   DocuSign account ownership model. Do not choose a grant type from convenience.
 - Keep credentials in the connector trust domain, never in agent prompts,
-  browser caches, PKM plaintext, or personal-agent pods.
+  browser caches, PKM plaintext, or private-agent pods.
 - Make draft and send idempotent by workflow, operation, and revision.
 - Pin approved templates and documents by immutable revision and hash.
 - Do not log documents, tab values, recipients, access tokens, or webhook

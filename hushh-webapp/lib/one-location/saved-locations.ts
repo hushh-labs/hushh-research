@@ -3,6 +3,7 @@
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 
 export const LOCATION_PKM_DOMAIN = "location";
 
@@ -10,8 +11,15 @@ const SAVED_PLACES_KEY = "saved_places";
 const SAVED_PLACES_SCHEMA_VERSION = 1;
 const MAX_LABEL_LENGTH = 40;
 const MAX_ADDRESS_LENGTH = 300;
+export const SAVED_LOCATION_DUPLICATE_RADIUS_METERS = 25;
 
 export type SavedLocationCategory = "home" | "work" | "other";
+
+const SAVED_LOCATION_CATEGORY_PRIORITY: Record<SavedLocationCategory, number> = {
+  home: 0,
+  work: 1,
+  other: 2,
+};
 
 export type SavedLocation = {
   id: string;
@@ -28,6 +36,19 @@ export type SavedLocationVaultContext = {
   vaultKey: string | null;
   vaultOwnerToken: string | null;
 };
+
+export class DuplicateSavedLocationError extends Error {
+  readonly code = "duplicate_saved_location";
+  readonly existingCategory: SavedLocationCategory;
+  readonly existingLabel: string;
+
+  constructor(existingLocation: SavedLocation) {
+    super(duplicateSavedLocationMessage(existingLocation));
+    this.name = "DuplicateSavedLocationError";
+    this.existingCategory = existingLocation.category;
+    this.existingLabel = duplicateLocationLabel(existingLocation);
+  }
+}
 
 type SavedPlacesEnvelope = {
   schema_version: number;
@@ -178,6 +199,45 @@ export function defaultLabelForCategory(
   return "Other";
 }
 
+function duplicateLocationLabel(location: SavedLocation): string {
+  if (location.category !== "other") {
+    return defaultLabelForCategory(location.category);
+  }
+  const label = cleanText(location.label, MAX_LABEL_LENGTH);
+  return label && label.toLowerCase() !== "other"
+    ? `${label} (Other)`
+    : "Other";
+}
+
+export function duplicateSavedLocationMessage(location: SavedLocation): string {
+  return `This place is already saved as ${duplicateLocationLabel(location)}. Choose a different place or remove it first.`;
+}
+
+/** Find the preferred saved point representing the same physical place. */
+export function findDuplicateSavedLocation(
+  existing: SavedLocation[],
+  candidate: Pick<SavedLocation, "latitude" | "longitude">,
+): SavedLocation | null {
+  return (
+    existing
+      .filter(
+        (location) =>
+          haversineMeters(
+            { lat: location.latitude, lng: location.longitude },
+            { lat: candidate.latitude, lng: candidate.longitude },
+          ) <= SAVED_LOCATION_DUPLICATE_RADIUS_METERS,
+      )
+      .sort((left, right) => {
+        const categoryOrder =
+          SAVED_LOCATION_CATEGORY_PRIORITY[left.category] -
+          SAVED_LOCATION_CATEGORY_PRIORITY[right.category];
+        if (categoryOrder !== 0) return categoryOrder;
+        const labelOrder = left.label.localeCompare(right.label);
+        return labelOrder !== 0 ? labelOrder : left.id.localeCompare(right.id);
+      })[0] ?? null
+  );
+}
+
 /** Read saved places from the encrypted Location PKM domain. */
 export async function loadSavedLocations(
   context: SavedLocationVaultContext,
@@ -206,8 +266,8 @@ export async function loadSavedLocations(
 }
 
 /**
- * Add or replace a saved place in encrypted PKM. Home and Work are singletons;
- * Other places are additive and de-duplicated by label plus nearby coordinates.
+ * Add or replace a saved place in encrypted PKM. Home and Work are singletons,
+ * and one physical place can exist under only one category.
  */
 export async function addSavedLocation(params: {
   context: SavedLocationVaultContext;
@@ -244,10 +304,17 @@ export async function addSavedLocation(params: {
     savedAt: new Date().toISOString(),
   };
 
-  return mutateSavedLocations({
+  let duplicateLocation: SavedLocation | null = null;
+
+  const locations = await mutateSavedLocations({
     context: params.context,
     source: "one_location_saved_place_confirm",
     mutate: (existing) => {
+      const duplicate = findDuplicateSavedLocation(existing, entry);
+      duplicateLocation = duplicate;
+      if (duplicate) {
+        return existing;
+      }
       if (input.category === "home" || input.category === "work") {
         return [
           entry,
@@ -256,18 +323,98 @@ export async function addSavedLocation(params: {
           ),
         ];
       }
-      const withoutDuplicate = existing.filter(
-        (location) =>
-          !(
-            location.category === "other" &&
-            location.label.trim().toLowerCase() === label.toLowerCase() &&
-            Math.abs(location.latitude - entry.latitude) < 1e-4 &&
-            Math.abs(location.longitude - entry.longitude) < 1e-4
-          ),
-      );
-      return [...withoutDuplicate, entry];
+      return [...existing, entry];
     },
   });
+  if (duplicateLocation) {
+    throw new DuplicateSavedLocationError(duplicateLocation);
+  }
+  return locations;
+}
+
+/**
+ * Update an existing saved place in place — its category, label, address, and
+ * (optionally) its pinned coordinate. Home and Work stay singletons, and the
+ * duplicate check excludes the entry being edited so re-saving the same place
+ * does not falsely trip the "already saved" guard. Used by the Settings edit
+ * flow so a place can be added OR updated with the same pin + details screens.
+ */
+export async function updateSavedLocation(params: {
+  context: SavedLocationVaultContext;
+  id: string;
+  input: {
+    category: SavedLocationCategory;
+    label?: string | null;
+    latitude: number;
+    longitude: number;
+    address?: string | null;
+  };
+}): Promise<SavedLocation[]> {
+  const { id, input } = params;
+  if (!id) {
+    throw new Error("This saved place could not be identified.");
+  }
+  if (
+    !Number.isFinite(input.latitude) ||
+    input.latitude < -90 ||
+    input.latitude > 90 ||
+    !Number.isFinite(input.longitude) ||
+    input.longitude < -180 ||
+    input.longitude > 180
+  ) {
+    throw new Error("The captured location is invalid. Try again.");
+  }
+
+  const label =
+    cleanText(input.label, MAX_LABEL_LENGTH) ||
+    defaultLabelForCategory(input.category);
+  // Home/Work use fixed ids; keep the existing id for "other" so identity and
+  // ordering are preserved across an edit.
+  const nextId =
+    input.category === "home" || input.category === "work"
+      ? input.category
+      : id;
+  const entry: SavedLocation = {
+    id: nextId,
+    category: input.category,
+    label,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    address: cleanText(input.address, MAX_ADDRESS_LENGTH),
+    savedAt: new Date().toISOString(),
+  };
+
+  let duplicateLocation: SavedLocation | null = null;
+
+  const locations = await mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_edit_confirm",
+    mutate: (existing) => {
+      // Drop the entry being edited (by its old id and its new id) so the
+      // duplicate check below never matches the place against itself.
+      const withoutSelf = existing.filter(
+        (location) => location.id !== id && location.id !== nextId,
+      );
+      const duplicate = findDuplicateSavedLocation(withoutSelf, entry);
+      duplicateLocation = duplicate;
+      if (duplicate) {
+        return existing;
+      }
+      if (input.category === "home" || input.category === "work") {
+        return [
+          entry,
+          ...withoutSelf.filter(
+            (location) => location.category !== input.category,
+          ),
+        ];
+      }
+      return [...withoutSelf, entry];
+    },
+  });
+  if (duplicateLocation) {
+    throw new DuplicateSavedLocationError(duplicateLocation);
+  }
+  return locations;
 }
 
 /** Remove a saved place from encrypted PKM. */
@@ -275,6 +422,7 @@ export async function removeSavedLocation(params: {
   context: SavedLocationVaultContext;
   id: string;
 }): Promise<SavedLocation[]> {
+
   return mutateSavedLocations({
     context: params.context,
     source: "one_location_saved_place_remove_confirm",

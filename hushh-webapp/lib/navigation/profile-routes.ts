@@ -10,14 +10,14 @@ export type ProfilePanel =
   | "preferences"
   | "security"
   | "support"
-  | "gmail"
-  | "regulatory";
+  | "gmail";
 
 export type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
   | "phone"
   | "kai-preferences"
+  | "gemini"
   | "device"
   | "vault"
   | "session"
@@ -58,8 +58,7 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
     value === "preferences" ||
     value === "security" ||
     value === "support" ||
-    value === "gmail" ||
-    value === "regulatory"
+    value === "gmail"
   ) {
     return value;
   }
@@ -95,7 +94,7 @@ export function normalizeProfileDetail(
   }
   if (
     panel === "preferences" &&
-    (detail === "kai-preferences" || detail === "device")
+    (detail === "kai-preferences" || detail === "gemini" || detail === "device")
   ) {
     return detail;
   }
@@ -199,6 +198,9 @@ export function buildProfileRoute(params?: {
     if (detail === "kai-preferences") {
       return appendQuery(ROUTES.PROFILE_PREFERENCES_KAI, {}, params?.searchParams);
     }
+    if (detail === "gemini") {
+      return appendQuery(ROUTES.PROFILE_PREFERENCES_GEMINI, {}, params?.searchParams);
+    }
     if (detail === "device") {
       return appendQuery(ROUTES.PROFILE_PREFERENCES_DEVICE, {}, params?.searchParams);
     }
@@ -259,10 +261,6 @@ export function buildProfileRoute(params?: {
     return appendQuery(ROUTES.PROFILE_SUPPORT, {}, params?.searchParams);
   }
 
-  if (panel === "regulatory") {
-    return appendQuery(ROUTES.PROFILE_REGULATORY, {}, params?.searchParams);
-  }
-
   return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);
 }
 
@@ -295,10 +293,6 @@ export function resolveProfileRouteState(
     return resolveProfileRouteStateFromSearchParams(query);
   }
 
-  if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
-    return { panel: "regulatory", detail: null };
-  }
-
   if (normalizedPath === ROUTES.PROFILE_ACCOUNT) {
     return { panel: "account", detail: null };
   }
@@ -311,6 +305,9 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_KAI) {
     return { panel: "preferences", detail: "kai-preferences" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_GEMINI) {
+    return { panel: "preferences", detail: "gemini" };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_DEVICE) {
     return { panel: "preferences", detail: "device" };

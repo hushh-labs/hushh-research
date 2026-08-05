@@ -19,6 +19,42 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { startAppGoal } from "@/lib/agent/app-goal-client";
+import type { KaiHomeInsightsV2, KaiHomeMover } from "@/lib/services/api-service";
+
+type CachedTopMover = {
+  symbol: string;
+  companyName?: string | null;
+};
+
+function resolveCachedTopMover(
+  cache: CacheService,
+  userId: string,
+): CachedTopMover | null {
+  // Keep this priority identical to the One dashboard KPI: it describes the
+  // stable market baseline, not an arbitrary symbol-specific market response.
+  const market =
+    cache.peek<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
+    )?.data ??
+    cache.peek<KaiHomeInsightsV2>(
+      CACHE_KEYS.KAI_MARKET_HOME(userId, "default", 7),
+    )?.data ??
+    null;
+  const topMover = (market?.movers?.gainers ?? [])
+    .filter(
+      (row): row is KaiHomeMover & { change_pct: number } =>
+        typeof row?.symbol === "string" &&
+        /^[A-Z][A-Z0-9.-]{0,9}$/i.test(row.symbol.trim()) &&
+        typeof row.change_pct === "number" &&
+        Number.isFinite(row.change_pct) &&
+        row.change_pct > 0,
+    )
+    .sort((left, right) => right.change_pct - left.change_pct)[0];
+  const symbol = String(topMover?.symbol || "").trim().toUpperCase();
+  return symbol
+    ? { symbol, companyName: topMover?.company_name || null }
+    : null;
+}
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -72,6 +108,7 @@ export function KaiCommandBarGlobal() {
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const cache = useMemo(() => CacheService.getInstance(), []);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
+  const [topMover, setTopMover] = useState<CachedTopMover | null>(null);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
@@ -92,6 +129,7 @@ export function KaiCommandBarGlobal() {
   useEffect(() => {
     if (!user?.uid) {
       setHasPortfolioData(false);
+      setTopMover(null);
       return;
     }
 
@@ -119,6 +157,9 @@ export function KaiCommandBarGlobal() {
     let cancelled = false;
 
     const computeHasPortfolio = () => {
+      if (!cancelled) {
+        setTopMover(resolveCachedTopMover(cache, user.uid));
+      }
       const cachedHasPortfolio = computeHasPortfolioFromCache();
       if (cachedHasPortfolio !== null) {
         if (!cancelled) {
@@ -388,6 +429,7 @@ export function KaiCommandBarGlobal() {
       capabilityState={canonicalAgentRuntime?.capabilityState}
       surfaceMetadata={getVoiceSurfaceMetadata()}
       portfolioTickers={portfolioTickers}
+      topMover={topMover}
     />
   );
 }

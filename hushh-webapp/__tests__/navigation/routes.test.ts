@@ -9,6 +9,7 @@ import {
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
   buildWelcomeRoute,
+  isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
   isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
@@ -20,7 +21,7 @@ import {
   isPublicRoute,
   isRiaRoute,
   resolveCapabilityHandoffTarget,
-  resolveCompletedSetupCapabilityTarget,
+  resolveCompletedSetupCapabilityEntry,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -44,13 +45,13 @@ describe("navigation routes", () => {
     );
   });
 
-  it("keeps runtime-configured CRM selection on the static connected-systems route", () => {
+  it("uses the canonical nested route for a selected CRM", () => {
     expect(buildConnectedSystemRoute("customer crm")).toBe(
-      "/one/connected-systems?system=customer+crm",
+      "/one/connected-systems/customer%20crm",
     );
     expect(
       buildConnectedSystemRoute("customer-crm", { agentActionId: "crm_123" }),
-    ).toBe("/one/connected-systems?system=customer-crm&agentActionId=crm_123");
+    ).toBe("/one/connected-systems/customer-crm?agentActionId=crm_123");
   });
 
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
@@ -69,13 +70,18 @@ describe("navigation routes", () => {
       panel: "security",
     });
 
-    expect(buildProfileRoute({ panel: "account" })).toBe("/one/profile/account");
+    expect(buildProfileRoute({ panel: "account" })).toBe(
+      "/one/profile/account",
+    );
     expect(buildProfileRoute({ panel: "account", detail: "phone" })).toBe(
       "/one/profile/account/phone",
     );
     expect(
       buildProfileRoute({ panel: "preferences", detail: "kai-preferences" }),
     ).toBe("/one/profile/preferences/kai");
+    expect(buildProfileRoute({ panel: "preferences", detail: "gemini" })).toBe(
+      "/one/profile/preferences/gemini",
+    );
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );
@@ -91,9 +97,6 @@ describe("navigation routes", () => {
         detail: "support-compose:bug_report",
       }),
     ).toBe("/one/profile/support/compose?kind=bug_report");
-    expect(buildProfileRoute({ panel: "regulatory" })).toBe(
-      "/one/profile/regulatory",
-    );
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
       buildProfileRoute({
@@ -120,10 +123,13 @@ describe("navigation routes", () => {
       resolveProfileRouteState("/one/profile/my-data/domain", "key=finance"),
     ).toEqual({ panel: "my-data", detail: "domain:finance" });
     expect(
-      resolveProfileRouteState("/one/profile", "tab=privacy&detail=connection:abc"),
+      resolveProfileRouteState(
+        "/one/profile",
+        "tab=privacy&detail=connection:abc",
+      ),
     ).toEqual({ panel: "access", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
-      panel: "regulatory",
+      panel: null,
       detail: null,
     });
     expect(
@@ -133,8 +139,11 @@ describe("navigation routes", () => {
       ),
     ).toBe("/one/profile/support/routing");
     expect(
-      buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=regulatory"),
-    ).toBe("/one/profile/regulatory");
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=regulatory",
+      ),
+    ).toBe("/one/profile");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",
@@ -174,6 +183,28 @@ describe("navigation routes", () => {
     expect(isPublicRoute("/kai")).toBe(false);
     expect(isPublicRoute("/one/profile")).toBe(false);
     expect(isPublicRoute("/one/connect")).toBe(false);
+  });
+
+  it("exempts the public Wallet Profile from analytics without widening the exemption", () => {
+    // A visitor scanning a stranger's QR is not our user and never agreed to
+    // anything with us (Wallet Profile contract §7).
+    expect(isAnalyticsExemptRoute("/c/abc123")).toBe(true);
+    expect(isAnalyticsExemptRoute("/c")).toBe(true);
+    // Capacitor's static export shapes: trailing slash and backing document.
+    expect(isAnalyticsExemptRoute("/c/abc123/")).toBe(true);
+    expect(isAnalyticsExemptRoute("/c/abc123/index.html")).toBe(true);
+
+    // Strictly narrower than isPublicRoute: the marketing and auth surfaces
+    // there are ours to instrument, and the owner's own Wallet Profile screen
+    // is an authenticated product surface.
+    expect(isAnalyticsExemptRoute("/")).toBe(false);
+    expect(isAnalyticsExemptRoute("/welcome")).toBe(false);
+    expect(isAnalyticsExemptRoute("/developers")).toBe(false);
+    expect(isAnalyticsExemptRoute("/one/wallet-card")).toBe(false);
+    expect(isAnalyticsExemptRoute("/one")).toBe(false);
+    // Prefix matching must not spill into an unrelated sibling route.
+    expect(isAnalyticsExemptRoute("/consents")).toBe(false);
+    expect(isAnalyticsExemptRoute("/careers")).toBe(false);
   });
 
   it("defines profile and Connect inside the vault-protected One route family", () => {
@@ -325,48 +356,46 @@ describe("navigation routes", () => {
     expect(
       isCompletedLocationWorkspaceRoute(["location"], "/one/location/invite"),
     ).toBe(true);
-    expect(
-      isCompletedLocationWorkspaceRoute(["gmail"], "/one/location"),
-    ).toBe(false);
-    expect(
-      isCompletedLocationWorkspaceRoute(["unknown"], "/one/location"),
-    ).toBe(false);
-    expect(isCompletedLocationWorkspaceRoute([], "/one/location")).toBe(
+    expect(isCompletedLocationWorkspaceRoute(["gmail"], "/one/location")).toBe(
       false,
     );
     expect(
-      isCompletedLocationWorkspaceRoute(["gmail"], "/one/gmail"),
+      isCompletedLocationWorkspaceRoute(["unknown"], "/one/location"),
     ).toBe(false);
+    expect(isCompletedLocationWorkspaceRoute([], "/one/location")).toBe(false);
+    expect(isCompletedLocationWorkspaceRoute(["gmail"], "/one/gmail")).toBe(
+      false,
+    );
   });
 
-  it("keeps completed Location setup replayable until root setup resolves", () => {
+  it("acknowledges completed Location while root setup is still active", () => {
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: ["location"],
         rootSetupResolved: false,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "acknowledge", target: "/one/setup" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: [],
         rootSetupResolved: true,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "continue" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "location",
         completedCapabilityIds: ["location"],
         rootSetupResolved: true,
       }),
-    ).toBe("/one/location");
+    ).toEqual({ kind: "redirect", target: "/one/location" });
     expect(
-      resolveCompletedSetupCapabilityTarget({
+      resolveCompletedSetupCapabilityEntry({
         capabilityId: "gmail",
         completedCapabilityIds: ["gmail"],
         rootSetupResolved: true,
       }),
-    ).toBeNull();
+    ).toEqual({ kind: "continue" });
   });
 });

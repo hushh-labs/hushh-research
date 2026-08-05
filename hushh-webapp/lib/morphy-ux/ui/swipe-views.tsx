@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
 import {
@@ -30,6 +31,17 @@ function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     Boolean(target.closest(`[${SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR}]`))
   );
+}
+
+function isNestedSwipeViewsTarget(
+  target: EventTarget | null,
+  rootNode: HTMLElement,
+): boolean {
+  if (!(target instanceof Element)) return false;
+  const closestSwipeViewsRoot = target.closest<HTMLElement>(
+    "[data-swipe-views-root='true']",
+  );
+  return Boolean(closestSwipeViewsRoot && closestSwipeViewsRoot !== rootNode);
 }
 
 interface SwipeViewsProps {
@@ -67,8 +79,9 @@ export function SwipeViews({
   className,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
-    (_emblaApi: unknown, event: Event) =>
-      !isNestedHorizontalScrollTarget(event.target),
+    (emblaApi: EmblaCarouselType, event: Event) =>
+      !isNestedHorizontalScrollTarget(event.target) &&
+      !isNestedSwipeViewsTarget(event.target, emblaApi.rootNode()),
     [],
   );
   const [emblaRef, emblaApi] = useEmblaCarousel({

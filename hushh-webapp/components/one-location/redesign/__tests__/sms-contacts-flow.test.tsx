@@ -105,9 +105,24 @@ describe("SmsContactsFlow", () => {
     const onRemove = vi.fn().mockResolvedValue(true);
     render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const removeButton = screen.getByRole("button", { name: "Remove" });
+    expect(removeButton).toHaveClass(
+      "bg-[#ffe9e9]",
+      "text-[#d70015]",
+      "border-[#ff3b30]/35",
+    );
+    fireEvent.click(removeButton);
     expect(onRemove).not.toHaveBeenCalled();
     expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
+
+    const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
+    expect(title.querySelector("span")).toHaveClass("text-[#17171c]");
+    expect(
+      screen.getByText(
+        "They'll no longer be alerted with your live location when you trigger SMS.",
+      ),
+    ).toHaveClass("!text-[#17171c]");
+
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
       hidden: true,

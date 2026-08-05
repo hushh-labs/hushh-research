@@ -10,6 +10,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -18,6 +19,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -31,14 +34,23 @@ export function GeminiRuntimeConfigurationPage({
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [hasVault, setHasVault] = useState<boolean | null>(
+    setupMode ? true : null,
+  );
   const [hasRuntimeChoice, setHasRuntimeChoice] = useState<boolean | null>(
     setupMode ? null : true,
+  );
+  const [setupChoice, setSetupChoice] = useState<OneRuntimeSetupChoice | null>(
+    null,
   );
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
+    if (setupMode) {
+      setHasVault(true);
+      return;
+    }
     if (authLoading || !user?.uid) return;
     if (isVaultUnlocked) {
       setHasVault(true);
@@ -55,7 +67,7 @@ export function GeminiRuntimeConfigurationPage({
     return () => {
       active = false;
     };
-  }, [authLoading, isVaultUnlocked, user?.uid]);
+  }, [authLoading, isVaultUnlocked, setupMode, user?.uid]);
 
   useEffect(() => {
     if (!setupMode) {
@@ -66,9 +78,8 @@ export function GeminiRuntimeConfigurationPage({
     let active = true;
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
-      setHasRuntimeChoice(
-        PreVaultUserStateService.hasOneRuntimeChoice(cached),
-      );
+      setHasRuntimeChoice(PreVaultUserStateService.hasOneRuntimeChoice(cached));
+      setSetupChoice(cached.oneRuntimeSetupChoice);
       return;
     }
     void PreVaultUserStateService.bootstrapState(user.uid)
@@ -77,6 +88,7 @@ export function GeminiRuntimeConfigurationPage({
           setHasRuntimeChoice(
             PreVaultUserStateService.hasOneRuntimeChoice(state),
           );
+          setSetupChoice(state.oneRuntimeSetupChoice);
         }
       })
       .catch(() => {
@@ -89,23 +101,29 @@ export function GeminiRuntimeConfigurationPage({
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.replace(`/login?redirect=${encodeURIComponent(setupMode ? ROUTES.ONE_SETUP_CONNECTIONS : ROUTES.CONNECT_SETTINGS)}`);
+      router.replace(
+        `/login?redirect=${encodeURIComponent(setupMode ? ROUTES.ONE_SETUP_CONNECTIONS : ROUTES.CONNECT_SETTINGS)}`,
+      );
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = Boolean(user && !isVaultUnlocked && hasVault === false);
-  const needsUnlock = Boolean(user && !isVaultUnlocked && hasVault === true);
+  const needsVaultCreation = !setupMode && Boolean(
+    user && !isVaultUnlocked && hasVault === false,
+  );
+  const needsUnlock = !setupMode && Boolean(
+    user && !isVaultUnlocked && hasVault === true,
+  );
   const finishConnections = useCallback(async () => {
     if (!hasRuntimeChoice) {
       return {
         status: "blocked" as const,
-        summary: "Choose how One runs before finishing Connections setup.",
+        summary: "Choose AI access before finishing setup.",
       };
     }
     if (finishing) {
       return {
         status: "blocked" as const,
-        summary: "Connections setup is already being finished.",
+        summary: "AI access setup is already being finished.",
       };
     }
     setFinishing(true);
@@ -119,7 +137,7 @@ export function GeminiRuntimeConfigurationPage({
     if (!requested) router.replace(ROUTES.ONE_SETUP);
     return {
       status: "started" as const,
-      summary: "Connections setup is complete. Returning to setup.",
+      summary: "AI access setup is complete. Returning to setup.",
       routeAfter: ROUTES.ONE_SETUP,
       screenAfter: "one_setup",
     };
@@ -133,43 +151,47 @@ export function GeminiRuntimeConfigurationPage({
 
   usePublishVoiceSurfaceMetadata({
     screenId: setupMode ? "one_setup_connections" : "one_connections_settings",
-    title: setupMode ? "Connections setup" : "Gemini settings",
-    purpose: "Choose the Gemini runtime used for private-agent turns.",
+    title: setupMode ? "AI access setup" : "Gemini settings",
+    purpose: "Choose how the private agent reaches Gemini.",
     actions:
       setupMode && hasRuntimeChoice && !finishing
         ? [
             {
               id: "finish_connections",
               actionId: "setup.finish_connections",
-              label: "Finish Connections setup",
+              label: "Finish AI access setup",
               purpose: "Keep the selected runtime and return to setup.",
             },
           ]
         : [],
   });
 
-  return (
+  const content = (
     <AppPageShell
       as="main"
-      width="standard"
+      width={setupMode ? "reading" : "standard"}
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: setupMode ? "/one/setup/connections" : "/one/connect/settings",
-        marker: setupMode ? "native-route-one-setup-connections" : "native-route-connect-settings",
+        marker: setupMode
+          ? "native-route-one-setup-connections"
+          : "native-route-connect-settings",
         authState: user ? "authenticated" : "pending",
         dataState:
-          authLoading || hasVault === null || (setupMode && hasRuntimeChoice === null)
+          authLoading ||
+          hasVault === null ||
+          (setupMode && hasRuntimeChoice === null)
             ? "loading"
             : "loaded",
       }}
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title={setupMode ? "Connections" : "Gemini settings"}
+          title={setupMode ? "AI access" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose one option to continue setting up One."
-              : "Manage the Gemini provider for your private-agent turns."
+              ? "Choose Hushh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
+              : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
         />
@@ -185,41 +207,68 @@ export function GeminiRuntimeConfigurationPage({
           onRequestVaultUnlock={() => setUnlockOpen(true)}
           requiresExplicitSelection={setupMode}
           initiallyConfigured={hasRuntimeChoice === true}
+          initialSetupChoice={setupChoice}
           onSelectionReadyChange={
             setupMode && user?.uid
-              ? async (ready) => {
-                  if (!ready) return;
-                  await PreVaultUserStateService.markOneRuntimeChoice(
+              ? async (choice) => {
+                  const state = await PreVaultUserStateService.markOneRuntimeChoice(
                     user.uid,
+                    choice,
                   );
+                  setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
                 }
+              : undefined
+          }
+          onPreVaultDraftStaged={
+            setupMode && user?.uid
+              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+              : undefined
+          }
+          onPreVaultDraftCleared={
+            setupMode && user?.uid
+              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
               : undefined
           }
         />
       </AppPageContentRegion>
       {setupMode ? (
         <SetupCompletionFooter
-          label="Finish Connections setup"
+          label="Finish AI access setup"
           onComplete={() => void finishConnections()}
           busy={finishing}
           disabled={!hasRuntimeChoice || finishing}
           controlId="one-setup-connections-terminal"
           actionId="setup.finish_connections"
           purpose="Record the selected Gemini runtime and return to setup."
-          supportingText="Choose one runtime before continuing."
+          supportingText="Choose one Gemini option before continuing."
         />
       ) : null}
-      {user ? (
+      {!setupMode && user ? (
         <VaultUnlockDialog
           user={user}
           open={unlockOpen}
           onOpenChange={setUnlockOpen}
-          title={needsVaultCreation ? "Set up your private vault" : "Open your private vault"}
-          description="Your Gemini key is encrypted in your vault and is never stored by Connections."
+          title={
+            needsVaultCreation
+              ? "Set up your private vault"
+              : "Open your private vault"
+          }
+          description="Your Gemini access is encrypted in your private vault and is never stored by Hushh."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}
     </AppPageShell>
+  );
+
+  // AI access is a root prerequisite rather than an agent capability. Its
+  // shared intro stays presentational-only and never enters the capability
+  // catalog or generated action registry.
+  return setupMode ? (
+    <CapabilityCinematicIntroGate capabilityId="connections">
+      {content}
+    </CapabilityCinematicIntroGate>
+  ) : (
+    content
   );
 }

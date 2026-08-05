@@ -116,15 +116,15 @@ Persona-facing surfaces are for everyday users, not implementers.
 
 Rules:
 
-1. Use plain labels such as `Personal Data`, `saved details`, `sharing`, and `access`.
+1. Use plain labels such as `Personal information`, `saved details`, `sharing`, and `access`.
 2. Do not expose implementation terms in consumer UI, including `PKM`, `manifest`, `schema`, `export`, `token`, `runtime`, `debug`, `dummy save`, route names, correlation ids, thread ids, workflow ids, consent ids, hashes, timings, or raw provider errors.
 3. Background notifications must summarize what the user can understand or do. Diagnostics belong in logs, metadata, developer routes, or an explicit debug-only view.
 4. Error copy should explain the next user action. Keep low-level failure details out of visible app text unless the route is explicitly developer-facing.
-5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
+5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal information, Access Center, or the relevant workspace, not labs or raw explorer tools.
 6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
 7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
 8. Async actionables (deletes, resets, disconnects, sends, and any mutation that waits for a backend ack or status) must surface a single branded loading -> success/error lifecycle through `morphyToast.promise` from `@/lib/morphy-ux/morphy`, tied to the real action promise. The toast stays in its loading state while the promise is pending and morphs in place to success or error once the ack lands. Do not hand-roll a `loading` toast plus a separate `success`/`error` toast, and do not fire a success toast before the promise resolves. Pre-flight guards that are not failures of the action itself (for example a required vault unlock) stay outside the promise as an `info`/`error` toast. Use `variant: "destructive"` for destructive actionables so the toast accent matches the action.
-9. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+9. Email Helper draft previews must not expose raw information structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
 10. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
 ## Shell Contract
@@ -188,9 +188,23 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The sampling engine remains limited to publishing the top surface tone for
     native system-bar icon contrast and must not recolor web chrome. Do not set
     global `--background` from a sample or add a route-local blur/tint recipe.
-    The top mask height is the currently visible shell height plus a
+    The top mask height is the currently visible shell height plus a short,
     mode-specific tail: `bar-with-tabs` stays solid through the visible tab
-    underline and its dissolve moves with partial or full header collapse.
+    underline and its dissolve moves with partial or full header collapse,
+    then ends before the first bounded route surface. The route-body gap below
+    a tab row is reading space, not mask geometry; never include it in the
+    solid chrome height. Its material wash and
+    multi-stop tail must be visually checked in the running shell: never make
+    a fully opaque slab followed by a one-step cutoff to solve readability.
+    Tabbed managers may use
+    a positive route-local body offset when they need additional reading space;
+    they must not compensate with a second mask or route-local gradient.
+    Sticky route labels align to `--top-shell-live-height`, never raw
+    `top: 0`, so they remain below the same live mask boundary as the bar
+    collapses.
+    The top row, contextual tabs, and top mask all follow the same live scroll
+    progress variables directly; do not add an independent CSS transition that
+    continues after the gesture or makes the edge lag the bottom compositor.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
     by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
@@ -233,6 +247,24 @@ Rules:
 4. Content-aware tabs and dropdowns should appear only where they add navigation value. If the route body already shows the same launcher choices, hide the duplicate top selector.
 5. Progress and setup strips must be full-width within the same content column and use `overflow-hidden` only on the strip itself when needed to prevent visual bleed.
 6. When changing a shared visual pattern, update the owning component test to lock the layout primitive that prevents drift, such as fixed cell width, shared inset, or selector visibility.
+7. A primary completion action below a bounded list or table sits in its own
+   centered action row. It uses the Morphy CTA grammar (`min-h-14`, full width
+   within a `30rem` reading cap); table utilities stay in the toolbar and must
+   not pull the completion action to an edge.
+8. On narrow screens, every paginated-table footer row is a full-width,
+   edge-paired control: interactive controls on the left, their status text on
+   the right. That means rows-per-page left / range right, then page navigation
+   left / page count right. Do not split either pair into separate alignment
+   groups or distribute them inconsistently across the row.
+9. Repeated table action cells use one fixed icon-well geometry. A read-only
+   state keeps the same `size-8` rounded neutral well as its editable peer;
+   only interaction semantics and foreground tone change. Do not mix bare
+   status glyphs with circular icon controls in the same column.
+10. A manager whose PageHeader already names its primary collection renders a
+    live summary/action row directly above the grouped list; it does not add a
+    second generic section title or restate the header's purpose. Breadcrumbs
+    provide location, the PageHeader provides the single route title, and list
+    rows provide the information.
 
 ## Agent Chat Stream Surface Contract
 
@@ -358,6 +390,10 @@ Rules:
    review uses the canonical adaptive detail surface with a flat definition
    list and decision controls—no duplicate request heading, supporting copy,
    or nested detail card.
+10. A detail overlay is its own raised surface. Its evidence sections use flat
+    headings and hairline-separated rows inside that surface; do not put a
+    `SettingsGroup`, card, or rounded inset around each section unless it is a
+    separately actionable task.
 
 ## Route Loading Contract
 
@@ -626,6 +662,18 @@ Use the `Subtle Apple` depth model:
 10. The design system should challenge poor UX proactively; weak hierarchy, vague detail, or obvious asymmetry should be treated as design defects, not stylistic preferences.
 11. Voice or agent-aware controls must not advertise executable action ids unless the generated gateway can execute or route them. If a control is local-only, coming soon, incompatible on the route, or not wired to the gateway, show it as state/context only and omit the executable action id.
 
+### Local Time Display Contract
+
+1. Product UI formats timestamp instants through
+   `lib/utils/local-date-time.ts`, which uses the device locale and local clock
+   settings without showing a zone label.
+2. Do not set `timeZone` or `timeZoneName` in user-facing application UI.
+   Backend/agent request context may continue to carry the device zone when it
+   needs it to reason about the user’s local time.
+3. Calendar-only dates (`YYYY-MM-DD`, statement periods, transaction dates)
+   are not timestamp instants. Keep them in a calendar-date formatter so an
+   offset never silently moves their day.
+
 ### Ripple Ownership and Clipping
 
 1. Every actionable shell should show Material ripple.
@@ -703,6 +751,10 @@ Rules:
 7. Preview widgets should prefer a shared first-page cache when they open the same underlying manager surface; use `top=n` only for dedicated preview-only fetches.
 8. Empty or single-page list views must not render pagination chrome.
 9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
+10. A stock-analysis preview is a reversible decision state. It must retain a
+    visible path to the recommendations/history view and to the shared stock
+    search; a selected ticker must never trap a person in a preview or require
+    browser navigation to research a different stock.
 
 ## RIA Information Architecture
 
@@ -718,7 +770,7 @@ Rules:
    - available scope metadata
    - current grants
 8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
-9. Persona-facing profile copy should use plain-language terms such as `Personal Data`; keep `PKM` for developer-only surfaces.
+9. Persona-facing profile copy should use plain-language terms such as `Personal information`; keep `PKM` for developer-only surfaces.
 10. Profile-family vault actions should live in the shared top app bar instead of route-local hero chrome.
 11. Settings/menu group treatment should stay compositionally consistent from mobile through desktop rather than switching into a separate desktop card language.
 

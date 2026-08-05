@@ -1032,6 +1032,104 @@ async def test_verified_profile_create_uses_server_identity_and_never_writes_der
 
 
 @pytest.mark.asyncio
+async def test_verified_profile_create_splits_phone_country_code_when_mapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "PhoneCountryCode", "type": "string"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "phoneCountryCode": "PhoneCountryCode",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored.get("additionalFields", {}).get("PhoneCountryCode") == "+44"
+    assert stored.get("phone") == "2083661177"
+
+
+@pytest.mark.asyncio
+async def test_verified_profile_create_falls_back_to_full_phone_when_country_code_unmapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_without_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_without_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert "PhoneCountryCode" not in stored.get("additionalFields", {})
+    assert stored.get("phone") == "442083661177"
+
+
+@pytest.mark.asyncio
 async def test_verified_profile_create_accepts_required_derived_full_name_when_split_name_is_mapped():
     class VerifiedIdentityService:
         async def get_many(self, _user_ids):
@@ -1079,12 +1177,52 @@ async def test_verified_profile_create_accepts_required_derived_full_name_when_s
         user_id="user_123",
         system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
         object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "firstName": "FirstName",
+            "lastName": "LastName",
+        },
     )
 
     stored = service.store.intents[intent["intentId"]]["request_payload"]
     assert stored["firstName"] == "John"
     assert stored["lastName"] == "Doe"
     assert "Name" not in stored
+
+
+def test_derived_full_name_satisfaction_does_not_bypass_other_required_crm_fields():
+    with pytest.raises(ConnectedSystemValidationError, match="Department") as captured:
+        ConnectedSystemsService._validated_schema_fields(
+            {
+                "FirstName": {
+                    "name": "FirstName",
+                    "label": "First Name",
+                    "required": False,
+                },
+                "LastName": {
+                    "name": "LastName",
+                    "label": "Last Name",
+                    "required": True,
+                },
+                "Name": {
+                    "name": "Name",
+                    "label": "Full Name",
+                    "required": True,
+                },
+                "Department": {
+                    "name": "Department",
+                    "label": "Department",
+                    "required": True,
+                },
+            },
+            {"FirstName": "John", "LastName": "Doe"},
+            action="create",
+            require_required_fields=True,
+            satisfied_required_fields={"Name"},
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_SCHEMA_REQUIRED_FIELDS"
 
 
 @pytest.mark.asyncio
@@ -1131,6 +1269,34 @@ async def test_bound_mutations_reject_other_record_ids_and_recheck_binding_on_ap
             intent_id=intent["intentId"],
         )
     assert not any(name == "update-crm-record" for name, _payload in adapter.calls)
+
+
+@pytest.mark.asyncio
+async def test_bound_mutations_reject_verified_lookup_fields_without_schema_identity_metadata():
+    service, _adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-owner",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000ownedQAA",
+        }
+    )
+
+    # The route-owned schema mapper marks verified create/search fields as
+    # binding keys. This remains enforced even when the CRM schema has not
+    # labelled the field as identity or immutable.
+    with pytest.raises(ConnectedSystemValidationError, match="Field cannot be updated"):
+        await service.update_record_intent_from_fields(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type=None,
+            record_id=None,
+            record_fields={"MailingCity": "Austin"},
+            locked_field_names={"MailingCity"},
+        )
 
 
 @pytest.mark.asyncio

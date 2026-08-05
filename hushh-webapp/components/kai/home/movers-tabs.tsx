@@ -25,7 +25,7 @@ function formatRowChange(value: number | null | undefined): string {
 
 function MoversList({ rows }: { rows: KaiHomeMover[] }) {
   if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">Market data is unavailable right now.</p>;
+    return <p className="text-sm text-muted-foreground">Market information is unavailable right now.</p>;
   }
 
   return (

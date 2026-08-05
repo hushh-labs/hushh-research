@@ -37,6 +37,7 @@ ALLOWED_METHODS = {
     "generated_default_web_prf",
     "generated_default_native_passkey_prf",
 }
+ONE_RUNTIME_SETUP_CHOICES = {"hushh_managed_vertex", "byok_pending_vault"}
 
 
 class VaultKeysService:
@@ -185,6 +186,13 @@ class VaultKeysService:
     def _normalize_int_ms_or_none(value: Any) -> Optional[int]:
         if value is None:
             return None
+
+    @staticmethod
+    def _normalize_one_runtime_setup_choice(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized if normalized in ONE_RUNTIME_SETUP_CHOICES else None
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -212,6 +220,9 @@ class VaultKeysService:
                 row.get("setup_capabilities_updated_at")
             ),
             "setupStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("setup_state_updated_at")),
+            "oneRuntimeSetupChoice": cls._normalize_one_runtime_setup_choice(
+                row.get("one_runtime_setup_choice")
+            ),
             "onboardingJourneyVersion": cls._normalize_int_ms_or_none(
                 row.get("onboarding_journey_version")
             ),
@@ -277,7 +288,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -326,7 +337,7 @@ class VaultKeysService:
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
                         "setup_completed,setup_skipped,setup_completed_at,"
                         "nav_setup_completed_at,nav_setup_skipped_at,"
-                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                         "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                         "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                         "created_at,updated_at"
@@ -365,7 +376,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -401,6 +412,7 @@ class VaultKeysService:
             "setupCapabilityIds": state["setupCapabilityIds"],
             "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
             "setupStateUpdatedAt": state["setupStateUpdatedAt"],
+            "oneRuntimeSetupChoice": state["oneRuntimeSetupChoice"],
             "onboardingJourneyVersion": state["onboardingJourneyVersion"],
             "onboardingPhase": state["onboardingPhase"],
             "onboardingActiveCapability": state["onboardingActiveCapability"],
@@ -420,6 +432,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
         onboarding_active_capability: Optional[str] = None,
@@ -438,6 +451,7 @@ class VaultKeysService:
             nav_setup_completed_at,
             nav_setup_skipped_at,
             setup_capability_ids,
+            one_runtime_setup_choice,
             onboarding_journey_version,
             onboarding_phase,
             onboarding_active_capability,
@@ -457,6 +471,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
         onboarding_active_capability: Optional[str] = None,
@@ -521,6 +536,13 @@ class VaultKeysService:
                 self._normalize_explored_ids(setup_capability_ids)
             )
             update_payload["setup_capabilities_updated_at"] = now_ms
+        if one_runtime_setup_choice is not None:
+            normalized_runtime_choice = self._normalize_one_runtime_setup_choice(
+                one_runtime_setup_choice
+            )
+            if normalized_runtime_choice is None:
+                raise ValueError("invalid one runtime setup choice")
+            update_payload["one_runtime_setup_choice"] = normalized_runtime_choice
         onboarding_values = (
             onboarding_journey_version,
             onboarding_phase,

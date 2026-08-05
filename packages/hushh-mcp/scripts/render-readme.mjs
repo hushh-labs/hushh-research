@@ -37,7 +37,9 @@ function renderTemplate(template) {
     .replaceAll("{{PACKAGE_NAME}}", contract.packageName)
     .replaceAll("{{API_ORIGIN}}", contract.promotedEnvironment.apiOrigin)
     .replaceAll("{{REMOTE_URL}}", contract.promotedEnvironment.remoteUrlTemplate)
-    .replaceAll("{{TOKEN_ENV_VAR}}", contract.tokenEnvVar);
+    .replaceAll("{{TOKEN_ENV_VAR}}", contract.tokenEnvVar)
+    .replaceAll("{{OAUTH_CLIENT_ID_ENV_VAR}}", contract.authentication.clientIdEnvVar)
+    .replaceAll("{{OAUTH_CLIENT_SECRET_ENV_VAR}}", contract.authentication.clientSecretEnvVar);
 }
 
 function renderHostExample(example) {
@@ -121,7 +123,7 @@ npx -y ${contract.packageName} --help
 
 The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
-Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at \`${contract.authentication.discoveryUrl}\`, request \`${contract.authentication.scope}\`, and send the resulting credential only as \`${contract.authentication.bearerHeader}\`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority.
+Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at \`${contract.authentication.discoveryUrl}\`, request \`${contract.authentication.scope}\`, and send the resulting credential only as \`${contract.authentication.bearerHeader}\`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority. The npm bridge exchanges \`${contract.authentication.clientIdEnvVar}\` and \`${contract.authentication.clientSecretEnvVar}\` locally at the token endpoint, retains the resulting Bearer token only in process memory, and renews it before expiry.
 
 Every tool uses shallow, fully described JSON Schema. Successful calls return \`structuredContent\` as the canonical result and \`content[0].text\` as its compatibility mirror. Execution errors return \`isError: true\` with safe JSON text only, so a strict client never validates an error against a success output schema.
 
@@ -183,9 +185,9 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 - Keep that connector private key in local secure storage for the lifetime of the grant when \`continuous_until_expiry\` is used. Future authorized export revisions are wrapped to the same connector key until explicit rotation or revocation. “Remember the key” always means connector custody—not chat history, prompts, tool results, Hussh storage, or model memory.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 
-### Upgrade to 0.4.0
+### Upgrade to 0.4.1
 
-Version 0.4.0 publishes hyphenated tool names, the first-class \`prepare-campaign-context\` tool, and one host-safe schema for every external client. The v0.3 underscore names remain accepted inbound until **2026-10-20** but are no longer listed from \`tools/list\`. Consent-token validation remains internal. Replace \`user_id\`/\`request_id\`/\`consent_token\` choreography with \`user_identifier\` input plus \`request_ref\` and \`grant_ref\` lifecycle references.
+Version 0.4.1 publishes hyphenated tool names, the first-class \`prepare-campaign-context\` tool, one host-safe schema for every external client, and OAuth client-credentials support for the local npm bridge. The v0.3 underscore names remain accepted inbound until **2026-10-20** but are no longer listed from \`tools/list\`. Consent-token validation remains internal. Replace \`user_id\`/\`request_id\`/\`consent_token\` choreography with \`user_identifier\` input plus \`request_ref\` and \`grant_ref\` lifecycle references.
 
 If upgrading from npm 0.1.3 or the earlier UAT MCP server 0.2.0 catalog, remove every \`?token=\` URL. Authentication is bearer-header-only. Raw \`/api/v1\` HTTP clients remain compatible; this breaking change applies to MCP tools.
 

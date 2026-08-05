@@ -193,7 +193,7 @@ Body section headings are not page headers. `SectionHeader` and `SettingsGroup` 
 
 ## Lean Route Headers And Responsive Lists
 
-Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero, logo, or duplicate agent selector. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
+Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero or duplicate agent selector. A registry-resolved customer mark may appear as the shared header's right-aligned action only when it identifies the record currently being managed; keep its asset path in the public CRM logo registry, not in route code. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
 
 Finance follows the Profile workspace geometry exactly: `AppPageShell` at the
 `reading` measure and one shared outer gutter. Market, Portfolio, and Analysis
@@ -205,10 +205,11 @@ Persistent chrome uses the single ambient material system in
 `components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
 feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
 filter; the top mask keeps the shell legible through its visible tab stack and
-moves its dissolve with header collapse. The bottom mask contracts with the
-scroll-hidden navigation slot while retaining the Agent Bar tail. Those edges
-must remain present on mobile and desktop wherever the signed-in top/bottom
-shell is present.
+uses only a short, eased tail below the underline. The bottom mask uses the
+same short, eased edge treatment and contracts with the scroll-hidden
+navigation slot while retaining the Agent Bar tail. Those edges must remain
+present on mobile and desktop wherever the signed-in top/bottom shell is
+present.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
@@ -265,8 +266,28 @@ handoff, velocity dismissal, focus, Escape, and outside-click behavior. Such a
 sheet may omit the redundant X only when those paths remain available. Its body
 is a flat key/value definition list followed by the decision controls—never a
 second `Request details` heading, explanatory subheader, or nested detail card.
+Canonical detail headers use the Morphy active glass material and standard blur
+token across dialog, drawer, and sheet transports. Decision actions stay direct
+under the request details; do not add a `Your decision` heading, helper copy,
+or a second rounded card around Allow/Don't allow.
 
 Counterparty identity media uses the supplied image when available; the fallback
 is a compact type-specific glyph with initials inside a token-based, theme-safe
 well. Do not use light-only hard-coded brand hues, favicon inference, or status
 color as the sole identifier.
+
+CRM field editors use one responsive table surface, never a second settings
+card or an `Information` heading. Put field view, schema refresh, and record
+refresh in one compact toolbar; keep reset and the one red icon-only destructive
+control together at its trailing edge. The field/value columns must fit the
+route width without horizontal action-column scrolling, editable rows use a
+compact right-aligned trailing edit control, and pagination fixes the table to
+the selected row count. While an explicit record refresh is in flight, withhold
+the editable values until the read settles. Never render a second leading trash
+icon or a wrapping raw record identifier.
+
+Data-table pagination uses two symmetric paired groups: rows-per-page with its
+visible range, and current-page status with its page-jump controls. The shared
+bottom ambient material stays inside the measured fixed chrome footprint; its
+blur is clipped by the same edge dissolve as the tint and must never extend over
+the final route component.

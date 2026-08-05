@@ -25,14 +25,14 @@ vi.mock("@/lib/utils/session-storage", () => ({
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 
 describe("PreVaultOnboardingService", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     document.cookie = "";
+    await PreVaultOnboardingService.clear("uid-1");
+    vi.clearAllMocks();
   });
 
-  it("falls back to local storage when Preferences.set fails during saveDraft", async () => {
-    getMock.mockResolvedValueOnce({ value: null });
-    setMock.mockRejectedValueOnce(new Error("preferences_unavailable"));
+  it("keeps a new draft in process memory instead of browser persistence", async () => {
 
     const state = await PreVaultOnboardingService.saveDraft("uid-1", {
       answers: {
@@ -45,10 +45,8 @@ describe("PreVaultOnboardingService", () => {
     expect(state.answers.investment_horizon).toBe("long_term");
     expect(state.risk_score).toBe(5);
     expect(state.risk_profile).toBe("aggressive");
-    expect(setLocalItemMock).toHaveBeenCalledWith(
-      "kai_pre_vault_onboarding_v1:fallback:uid-1",
-      expect.stringContaining("\"investment_horizon\":\"long_term\"")
-    );
+    expect(setMock).not.toHaveBeenCalled();
+    expect(setLocalItemMock).not.toHaveBeenCalled();
   });
 
   it("loads fallback state when Preferences.get fails", async () => {

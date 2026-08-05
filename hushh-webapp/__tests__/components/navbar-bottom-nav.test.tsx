@@ -11,6 +11,10 @@ const navigationMock = vi.hoisted(() => ({
 }));
 
 const agentPopoverMock = vi.hoisted(() => ({ expanded: false }));
+const notificationMock = vi.hoisted(() => ({
+  feedUnreadCount: 0,
+  pendingConsents: 0,
+}));
 
 const kaiSessionMock = vi.hoisted(() => {
   const state = {
@@ -42,7 +46,10 @@ vi.mock("@/components/agent/agent-popover-provider", () => ({
   useOptionalAgentPopover: () => ({ expanded: agentPopoverMock.expanded }),
 }));
 vi.mock("@/lib/consent/use-consent-pending-summary-count", () => ({
-  useConsentPendingSummaryCount: () => 0,
+  useConsentPendingSummaryCount: () => notificationMock.pendingConsents,
+}));
+vi.mock("@/lib/feed/use-feed-unread-count", () => ({
+  useFeedUnreadCount: () => notificationMock.feedUnreadCount,
 }));
 vi.mock("@/lib/stores/kai-session-store", () => ({
   useKaiSession: kaiSessionMock.useKaiSession,
@@ -53,6 +60,8 @@ describe("Navbar bottom utilities", () => {
     navigationMock.pathname = ROUTES.ONE_HOME;
     navigationMock.push.mockReset();
     agentPopoverMock.expanded = false;
+    notificationMock.feedUnreadCount = 0;
+    notificationMock.pendingConsents = 0;
   });
 
   it.each([
@@ -135,5 +144,18 @@ describe("Navbar bottom utilities", () => {
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "justify-center",
     );
+  });
+
+  it("places pending consent and unread Feed counts on Feed, not One", () => {
+    notificationMock.pendingConsents = 3;
+    notificationMock.feedUnreadCount = 2;
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radio", { name: "5 Feed" })).getByText("5"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("radio", { name: "One" })).queryByText("5"),
+    ).toBeNull();
   });
 });

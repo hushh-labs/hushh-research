@@ -130,6 +130,7 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
+    const edgeBack = read("components/app-ui/app-edge-back-gesture.tsx");
 
     expect(source).toContain("import { navigateTopShellBack }");
     expect(source).toContain("const handleTopShellBack");
@@ -138,9 +139,13 @@ describe("Top app bar responsive contract", () => {
     expect(back).toContain(
       'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
     );
-    expect(back).toContain(
-      "params.router[action.mode](action.href, { scroll: false })",
-    );
+    expect(back).toContain("params.navigate(action);");
+    expect(source).toContain("replace: action.mode === \"replace\"");
+    expect(source).toContain('source: "tap"');
+    expect(source).toContain('transitionMode: "full"');
+    expect(edgeBack).toContain("requestInternalAppNavigation({");
+    expect(edgeBack).toContain('source: "native_back"');
+    expect(edgeBack).toContain('transitionMode: "full"');
     expect(source).not.toContain("router.back();");
   });
 
@@ -235,6 +240,18 @@ describe("Top app bar responsive contract", () => {
 
   it("keeps onboarding chrome canonical and shell-sized", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
+    const signOutItemStart = source.indexOf(
+      "onClick={() => void handleSignOut()}",
+    );
+    const signOutItemSource = source.slice(
+      signOutItemStart,
+      source.indexOf("</DropdownMenuItem>", signOutItemStart),
+    );
+    const deleteItemStart = source.indexOf('variant="destructive"');
+    const deleteItemSource = source.slice(
+      deleteItemStart,
+      source.indexOf("</DropdownMenuItem>", deleteItemStart),
+    );
 
     expect(source).not.toContain(
       'return { label: "Set up One", interactive: false as const };',
@@ -245,9 +262,30 @@ describe("Top app bar responsive contract", () => {
     );
     expect(source).toContain('variant="destructive"');
     expect(source).toContain(
+      'className="overflow-hidden rounded-[14px] p-1"',
+    );
+    expect(signOutItemSource).toContain("cursor-pointer");
+    expect(signOutItemSource).toContain("rounded-[10px]");
+    expect(signOutItemSource).toContain(
+      "hover:!bg-[color:var(--app-accent)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:!text-[color:var(--app-accent-fg)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-accent-fg)]",
+    );
+    expect(deleteItemSource).toContain("cursor-pointer");
+    expect(deleteItemSource).toContain("rounded-[10px]");
+    expect(deleteItemSource).toContain("hover:!bg-red-600");
+    expect(deleteItemSource).toContain("hover:!text-white");
+    expect(deleteItemSource).toContain("hover:[&_svg]:!stroke-white");
+    expect(deleteItemSource).toContain("hover:[&_svg]:!text-white");
+    expect(deleteItemSource).not.toContain(
       "data-[variant=destructive]:focus:bg-popover",
     );
-    expect(source).toContain("focus-visible:ring-accent/70");
+    expect(signOutItemSource).toContain("focus-visible:ring-inset");
+    expect(deleteItemSource).toContain("focus-visible:ring-inset");
     expect(source).not.toContain(
       'className="text-red-600 focus:text-red-600"',
     );
@@ -262,7 +300,8 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     expect(source).toContain("navigateTopShellBack({");
-    expect(back).toContain("router: TopShellBackRouter");
+    expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
+    expect(back).toContain("params.navigate(action);");
     expect(source).not.toContain("history.back()");
   });
 

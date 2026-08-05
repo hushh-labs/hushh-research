@@ -10,24 +10,50 @@ function read(relativePath: string) {
 }
 
 describe("tabbed ambient chrome contract", () => {
-  it("keeps the top mask solid through the tab stack before dissolving", () => {
+  it("uses one resolved top-edge mask for tabbed and plain shells", () => {
     const topShell = read("components/app-ui/top-app-bar.tsx");
     const styles = read("app/globals.css");
     const providers = read("app/providers.tsx");
 
     expect(topShell).toContain("ambient-chrome-mask--top-with-tabs");
-    expect(topShell).toContain(': "var(--top-shell-visual-height)"');
+    expect(topShell).toContain('"var(--top-shell-mask-visible-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
+    expect(styles).toContain(".ambient-chrome-mask--top {");
+    expect(styles).toContain("--top-shell-live-height");
+    expect(styles).toContain("--top-shell-mask-tabs-gap");
+    expect(styles).toContain("--top-shell-mask-solid-height");
+    expect(styles).toContain("--top-shell-mask-visible-height");
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
     expect(styles).toContain("--ambient-chrome-top-visible-height");
+    expect(styles).toContain(
+      "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
+    );
     expect(styles).toContain("var(--top-fade-active)");
+    expect(providers).toContain(
+      '"--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px"',
+    );
+    expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "8px"');
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
     );
     expect(providers).toContain('"--top-shell-reserved-height":');
     expect(providers).toContain('"--top-shell-visual-height":');
+    expect(providers).toContain('"--top-shell-live-height":');
+    expect(providers).toContain('"--top-shell-mask-tabs-gap":');
+    expect(providers).toContain('"--top-shell-mask-visible-height":');
     expect(providers).toContain('"--top-tabs-total",');
+  });
+
+  it("keeps the Consent bounded manager clear of the tab-mask tail", () => {
+    const routeLayout = JSON.parse(
+      read("lib/navigation/app-route-layout.contract.json"),
+    ) as Array<{ route?: string; pageTopLocalOffset?: string }>;
+    const consentRoute = routeLayout.find(
+      (entry) => entry.route === "/one/consent",
+    );
+
+    expect(consentRoute?.pageTopLocalOffset).toBe("16px");
   });
 
   it("samples past the content-facing mask edge instead of sampling chrome", () => {
@@ -56,12 +82,26 @@ describe("tabbed ambient chrome contract", () => {
       "backdrop-filter: var(--ambient-chrome-backdrop-filter)",
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
-    expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%",
+    expect(styles).toContain("--ambient-chrome-fade-solid: 94%");
+    expect(styles).toContain("--ambient-chrome-fade-dense: 91%");
+    expect(styles).toContain("--ambient-chrome-fade-mid: 72%");
+    expect(styles).toContain("--ambient-chrome-fade-soft: 38%");
+    expect(styles).toContain("--ambient-chrome-fade-trace: 12%");
+    expect(styles).toContain(".ambient-chrome-mask--bottom");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-mid)");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-soft)");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-trace)");
+  });
+
+  it("drives top-shell collapse directly from the shared scroll progress", () => {
+    const topShell = read("components/app-ui/top-app-bar.tsx");
+
+    expect(topShell).toContain("--top-chrome-collapse-px");
+    expect(topShell).toContain("--top-chrome-progress");
+    expect(topShell).not.toContain(
+      "transition-[max-height,opacity,transform,padding]",
     );
-    expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%",
-    );
+    expect(topShell).not.toContain("transition-[height,padding]");
   });
 
   it("keeps neutral theme foreground authoritative for text and icons", () => {
@@ -71,7 +111,9 @@ describe("tabbed ambient chrome contract", () => {
       "[data-app-top-bar] .top-shell-ambient-ink .text-foreground",
     );
     expect(styles).toContain("color: currentColor;");
-    expect(styles).toContain("--ambient-chrome-material-bg: var(--background)");
+    expect(styles).toContain(
+      "--ambient-chrome-material-bg: var(--app-layout-surface, var(--background))",
+    );
     expect(styles).toContain("--ambient-chrome-material-fg: var(--foreground)");
     expect(styles).not.toContain("color: var(--ambient-chrome-top-fg");
     expect(styles).not.toContain("ambient-chrome-bottom-base");
@@ -92,6 +134,6 @@ describe("tabbed ambient chrome contract", () => {
 
     expect(bottomShell).toContain("var(--bottom-chrome-progress, 0)");
     expect(bottomShell).toContain("var(--bottom-nav-travel, 0px)");
-    expect(bottomShell).toContain("var(--bottom-chrome-fade-tail)");
+    expect(bottomShell).not.toContain("var(--bottom-chrome-fade-tail)");
   });
 });

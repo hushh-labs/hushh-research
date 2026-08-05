@@ -999,6 +999,16 @@ describe("buildStructuredScreenContext", () => {
     expect(JSON.stringify(snapshot)).not.toContain("portfolio_data_user_1");
   });
 
+  it("does not report the vault ready when its owner token is unavailable", () => {
+    const appRuntimeState = makeRuntimeState("/one/kai", "kai");
+    appRuntimeState.vault.token_available = false;
+
+    const snapshot = buildOneVoiceContextSnapshot({ appRuntimeState });
+
+    expect(snapshot.cache.vault_ready).toBe(false);
+    expect(snapshot.cache.freshness).toBe("locked");
+  });
+
   it("carries only bounded onboarding progress into the live snapshot", () => {
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: makeRuntimeState("/one/setup/kai", "one_setup"),

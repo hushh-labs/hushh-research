@@ -69,6 +69,8 @@ REQUIRED_RUNTIME_TABLES = (
     "one_location_circle_invite_codes",
     "connection_origins",
     "one_location_circle_member_invites",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
 )
 
 
@@ -378,6 +380,15 @@ app.include_router(ria.router)
 app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
+
+# Wallet Profile: owner management under /api/one/wallet-card plus the two
+# unauthenticated public surfaces (card resolve + signed .pkpass). Gated by
+# ONE_WALLET_CARD_ENABLED; when off every route in the router answers 404, so
+# registering it unconditionally is safe.
+from api.routes import one_wallet_card  # noqa: E402
+
+app.include_router(one_wallet_card.router)
+logger.info("one_wallet_card.routes_registered")
 
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
@@ -799,17 +810,26 @@ async def startup_consent_revocation_worker() -> None:
     Integrated by Abdul Gaffar — canonical temporal-consent boundary.
     """
     try:
+        from hushh_mcp.services.connections_service import ConnectionsService
         from hushh_mcp.services.consent_db import ConsentDBService
         from hushh_mcp.services.revocation_worker import start_revocation_loop
 
         _db = ConsentDBService()
 
-        start_revocation_loop(
-            fetch_expired=_db.fetch_expired_consents,
-            revoke=_db.mark_consent_revoked,
-            interval_seconds=300,
+        async def expire_connection_capabilities() -> int:
+            # ConnectionsService is a synchronous SQLAlchemy adapter; preserve
+            # FastAPI's event loop while its atomic temporal projection runs.
+            return await asyncio.to_thread(ConnectionsService().expire_due_capabilities)
+
+        _track_startup_background_task(
+            start_revocation_loop(
+                fetch_expired=_db.fetch_expired_consents,
+                revoke=_db.mark_consent_revoked,
+                expire_capabilities=expire_connection_capabilities,
+                interval_seconds=300,
+            )
         )
-        logger.info("startup.consent_revocation_worker_registered interval_s=300")
+        logger.info("startup.temporal_revocation_worker_registered interval_s=300")
     except Exception as exc:
         # Non-fatal: log and continue — per-request token validation still
         # enforces expiry via validate_token(); the worker is a DB consistency aid.

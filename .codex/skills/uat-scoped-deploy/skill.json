@@ -23,6 +23,7 @@
     "deploy/frontend.cloudbuild.yaml",
     "deploy/backend.cloudbuild.yaml",
     "docs/reference/operations/branch-governance.md",
+    ".codex/skills/repo-operations/references/admin-release-sop.md",
     ".codex/skills/uat-scoped-deploy/references/deploy-proof.md",
     ".codex/skills/uat-scoped-deploy/references/anti-rationalization.md"
   ],

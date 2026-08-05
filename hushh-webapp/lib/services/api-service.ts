@@ -32,6 +32,7 @@ import {
   PORTFOLIO_STREAM_EVENT,
   KAI_STREAM_EVENT,
 } from "@/lib/capacitor/kai";
+import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
 import {
   isKaiStreamEnvelope,
@@ -481,6 +482,17 @@ async function apiFetch(
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
+    // Analytics-exempt routes are exempt for every request they make, not just
+    // their page view. A Wallet Profile visitor is a stranger holding someone
+    // else's QR; ObservabilityRouteObserver already bails for them, and letting
+    // api_request_completed through here would put the scanned card's route id
+    // into the dataLayer anyway.
+    if (
+      typeof window !== "undefined" &&
+      isAnalyticsExemptRoute(window.location.pathname)
+    ) {
+      return;
+    }
     trackApiRequestCompleted({
       path,
       httpMethod,
@@ -3197,6 +3209,12 @@ export class ApiService {
           "Check the Google Cloud project ID and Vertex location.",
         );
       }
+      if (status === "permission_denied") {
+        throw new Error("This Google account needs Vertex AI User access for that project.");
+      }
+      if (status === "api_not_enabled") {
+        throw new Error("Enable the Vertex AI API in this Google Cloud project, then try again.");
+      }
       if (status === "unsupported_model") {
         throw new Error("This Gemini key cannot access the model One uses.");
       }
@@ -4682,8 +4700,6 @@ export class ApiService {
     riskProfile: string;
     userContext?: Record<string, unknown>;
     pickSource?: string;
-    pickSourceLabel?: string;
-    pickSourceKind?: string;
     vaultOwnerToken: string;
   }): Promise<Response> {
     const response = await apiFetch("/api/kai/analyze/run/start", {
@@ -4698,8 +4714,6 @@ export class ApiService {
         risk_profile: data.riskProfile,
         context: data.userContext,
         pick_source: data.pickSource,
-        pick_source_label: data.pickSourceLabel,
-        pick_source_kind: data.pickSourceKind,
       }),
     });
     if (response.ok) {

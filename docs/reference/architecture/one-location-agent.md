@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Visual Map
 
@@ -36,6 +36,9 @@ Plain coordinates are allowed only on:
 - the authenticated Maps proxy in request memory while forwarding an explicit
   owner-initiated reverse-geocode lookup; neither coordinates nor results are
   persisted or logged
+- the authenticated nearby check-in request in memory while verifying one fresh
+  foreground point against the selected public place's fixed radius; the raw
+  point and accuracy are discarded before persistence
 - `one_location_public_invites.metadata.publicLocation` when the owner
   explicitly creates a snapshot-backed public location link
 - public invite resolve responses when the owner explicitly attached a captured
@@ -93,6 +96,11 @@ live-location grants:
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
+- one physical place may have only one saved category; a candidate within 25
+  metres of any existing Home, Work, or Other place is rejected with a reminder
+  to remove the existing place first. The encrypted persistence mutation
+  rechecks this invariant against the latest PKM state after write conflicts,
+  while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
   onboarding prompt; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
@@ -231,6 +239,110 @@ Capability scopes:
 - `cap.location.live.request`
 - `cap.location.live.revoke`
 - `cap.location.live.refer_request`
+- `cap.location.nearby.publish`
+- `cap.location.nearby.discover`
+- `cap.location.nearby.revoke`
+
+## Unified Location Control Contract
+
+The Location Agent header switch and Settings `Pause my location` control one
+user-scoped device preference. The header is on when at least one location
+channel is active: the owner's live preview, an active private grant publisher,
+or an active Nearby presence. Pausing stops new foreground/background private
+updates, clears the local self preview, and explicitly checks out active Nearby
+presence before the UI may report `Location paused`.
+
+`Auto-share my location` is a durable user-scoped preference, independent from
+Pause. It controls continuous foreground/background updates only for private
+grants the owner already approved; it never creates a grant or auto-approves a
+request. Turning Auto-share off leaves consent and expiry intact and makes new
+shares publish only the location the owner explicitly confirms. Pause
+temporarily suppresses Auto-share without erasing that preference, so both
+settings remain stable across tab changes and route remounts.
+
+Pause does not revoke private grants. Their authored expiry remains intact and
+recipients may retain the last encrypted point they already received. Resuming
+requires a fresh usable foreground fix. Nearby visibility remains a separate
+explicit consent: turning the header on never checks its confirmation box or
+creates presence. A successful Nearby check-in clears Pause and updates the
+shared control state; checkout removes only Nearby activity unless the user
+chooses the global Pause control.
+
+While Pause is active, Saved Locations must fail closed before asking the
+device location provider for a new point. A capture already in flight is
+discarded if Pause becomes active. Existing encrypted saved places remain
+readable, repairable, and removable while the vault is unlocked.
+
+`Location limited` means a channel is enabled but current permission or fix
+accuracy is not sufficient for Nearby admission. It must not be presented as a
+successful precise check-in; Nearby continues to require a fresh fix no worse
+than 100 metres.
+
+## Nearby Check-In Contract
+
+Nearby Check-In is a separate short-lived presence workflow owned by Your Map.
+It never widens a private live-location grant, and a Connect relationship never
+grants nearby or live-location visibility.
+
+1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
+   captures a foreground point to show nearby provider places, then lets the
+   owner choose or search the public place used for admission and display
+   context. There is no event code.
+2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
+   their safe display label to other opted-in check-ins within the fixed
+   500-meter radius. Allowing Connect requests is a separate switch and
+   defaults off.
+3. On confirmation, One captures a new foreground point. The backend resolves
+   the selected place itself and requires that point's complete accuracy
+   envelope to remain inside 500 meters of it. Accuracy never expands the
+   admission radius.
+4. The confirmed check-in point and safe place label are persisted only inside
+   a short-lived AES-256-GCM envelope, alongside a server-keyed six-hour spatial
+   candidate token, rotating alias, consent posture, fixed radius, and expiry
+   metadata. Accuracy is not persisted. Checkout clears all point ciphertext
+   and candidate material synchronously. At `expires_at`, roster visibility and
+   Connect authorization stop synchronously; encrypted material is scrubbed by
+   the next feature operation or the hosted hourly retention job.
+5. The candidate token is never accepted as proof of proximity. The service
+   decrypts candidate check-in points and applies exact Haversine distance
+   before returning at most 20 active people. Two people therefore match only
+   when their independently confirmed points are at most 500 meters apart.
+   Peers never
+   receive one another's place, coordinates, distance, direction, contact
+   details, or stable user id.
+6. Presence uses server-authoritative expiry and has no watcher, heartbeat,
+   automatic extension, arrival detection, movement history, or distance
+   ranking. Closing the app does not check out; the explicit Check out action
+   remains available and idempotent.
+7. Connect submits only the rotating alias in a JSON body. The backend performs
+   the exact distance assessment, binds it to both presence versions, then
+   atomically revalidates activity, expiry, phone verification, and the target's
+   Connect opt-in before creating the canonical pending request. It does not
+   auto-connect, create a location grant, or retain co-presence context.
+
+An active nearby presence may hand off to the existing recipient-scoped private
+Check-In as a second, explicit consent. The client shows the precise point first
+and requires it to have been captured within 60 seconds of confirmation. Partial
+retries retain that exact point, confirmation timestamp, operation id, and
+recipient ciphertext. The optional Check-In message is inside that ciphertext;
+grant, audit, URL, and push-notification metadata retain only the fixed
+`check_in` reason code. For each selected connection,
+`POST /api/one/location/grants/with-envelope` serializes replacement by
+recipient key and owner/recipient, stores the new grant, first encrypted
+envelope, latest-envelope pointer, and both audit events in one locked database
+transaction, and only then emits the metadata-only notification. Recipient-key
+rotation uses the same first lock and atomically revokes grants bound to the
+replaced key. An identical retry returns the original publication; a reused
+operation id with different details, expired publication, or rotated recipient
+key fails closed. Nearby presence itself still creates no grant and exposes no
+precise coordinate.
+
+This is a visibly labelled local/UAT simulation. Its routes are rate limited per
+signed principal and fail closed in production; Check out remains available as
+a privacy/recovery action. Browser/device GPS is forgeable. Production requires
+organizer admission proof (signed QR/NFC/provider signal), replay resistance,
+shared abuse limits, and bidirectional Block/Report before trusted attendance
+or spoof resistance may be claimed.
 
 ## Agent And Tool Contract
 
@@ -309,20 +421,27 @@ through generic location Allow/Don't allow actions.
 
 ## Retention Contract
 
-Expired or revoked One Location work is short-lived. Terminal grants, their
-ciphertext envelopes, terminal access requests, referrals, and related
-metadata-only events are retained for at most 12 hours after expiry or
-revocation, then purged from the database. The runtime runs opportunistic
-cleanup during state/read flows, and hosted environments may call
+Expired or revoked One Location work is short-lived. Checkout synchronously
+clears nearby captured-point ciphertext and candidate tokens. Expiry is
+fail-closed for roster visibility and Connect authorization at `expires_at`;
+the next feature operation also scrubs due material.
+Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
+terminal access requests, referrals, and related metadata-only events are
+retained for at most 12 hours after expiry or revocation, then purged from the
+database. The runtime runs opportunistic cleanup during state/read flows.
+Before nearby presence is enabled in a hosted environment, operators must
+configure and verify the hourly `one-location-retention-purge-uat` job through
+`deploy/one-location/setup_retention_scheduler.sh`. It calls
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
-invites, public submissions, Invite to One links, and expired/revoked named
-Circle codes follow the same terminal-state retention boundary. Pending
-targeted Circle-member invitations are marked expired opportunistically;
-accepted, declined, cancelled, and expired invitation rows are purged through
-the same scheduled retention endpoint and are also deleted with their Circle
-or either account.
+`ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
+the configured scheduler interval even when no feature traffic occurs. Public
+request-link invites, public submissions, Invite to One links, expired/revoked
+named Circle codes, and checked-out/expired nearby presence follow the same
+terminal-state retention boundary. Pending targeted Circle-member invitations
+are marked expired opportunistically; accepted, declined, cancelled, and
+expired invitation rows are purged through the same scheduled retention
+endpoint and are also deleted with their Circle or either account.
 
 ## Native Contract
 
@@ -340,6 +459,12 @@ v1 is foreground-only.
   Capacitor plugin.
 - No iOS background location mode is added.
 - No Android background location permission is added.
+- Nearby Check-In reuses the same one-shot foreground capture on web, iOS, and
+  Android. It adds no native method, geofence, or background permission.
+- Android uses only the network provider when the user grants approximate
+  access; Nearby Check-In then asks for precise access before publication.
+- iOS one-shot capture enforces the caller's bounded timeout so a missing
+  CoreLocation callback cannot strand the confirmation screen.
 
 Denied, unavailable, approximate, and foreground-only states must be visible in
 the web control surface.

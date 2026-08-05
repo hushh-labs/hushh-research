@@ -452,7 +452,7 @@ def test_ria_picks_returns_only_active_package(monkeypatch):
             },
             "metadata": {
                 "has_package": True,
-                "storage_source": "legacy",
+                "storage_source": "pkm",
                 "package_revision": 0,
                 "top_pick_count": 1,
                 "avoid_count": 0,
@@ -470,7 +470,7 @@ def test_ria_picks_returns_only_active_package(monkeypatch):
     payload = response.json()
     assert list(payload.keys()) == ["package", "metadata"]
     assert payload["package"]["top_picks"][0]["ticker"] == "NVDA"
-    assert payload["metadata"]["storage_source"] == "legacy"
+    assert payload["metadata"]["storage_source"] == "pkm"
 
 
 def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
@@ -480,7 +480,6 @@ def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
         return {
             "status": "synced",
             "share_artifacts_updated": 2,
-            "retired_legacy": True,
             "package": {
                 "top_picks": [{"ticker": "NVDA", "tier": "ACE"}],
                 "avoid_rows": [],
@@ -516,30 +515,6 @@ def test_ria_picks_parse_requires_csv(monkeypatch):
     response = client.post("/api/ria/picks/parse", json={})
 
     assert response.status_code == 422
-
-
-def test_ria_client_picks_share_toggle(monkeypatch):
-    async def _mock_require(self, user_id: str):
-        return
-
-    async def _mock_toggle(self, user_id: str, *, investor_user_id: str, enabled: bool):
-        assert user_id == "user_test_123"
-        assert investor_user_id == "investor_1"
-        assert enabled is False
-        return {
-            "enabled": False,
-            "status": "revoked",
-            "grant_key": "ria_active_picks_feed_v1",
-        }
-
-    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
-    monkeypatch.setattr(RIAIAMService, "set_ria_pick_share_state", _mock_toggle)
-
-    client = TestClient(_build_app())
-    response = client.post("/api/ria/clients/investor_1/picks-share", json={"enabled": False})
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "revoked"
 
 
 def test_ria_home_omits_pick_history_fields(monkeypatch):
@@ -947,9 +922,9 @@ def test_ria_client_detail_route_exposes_relationship_share_fields(monkeypatch):
                 {
                     "grant_key": "ria_active_picks_feed_v1",
                     "label": "Advisor picks feed",
-                    "description": "Included with the advisor relationship.",
+                    "description": "Explicitly approved for this connection.",
                     "status": "active",
-                    "share_origin": "relationship_implicit",
+                    "share_origin": "connection_scope_proposal",
                 }
             ],
             "picks_feed_status": "ready",

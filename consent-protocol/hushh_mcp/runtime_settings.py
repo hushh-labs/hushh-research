@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -43,6 +43,24 @@ FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
+# Apple Wallet pass signing material. The three PEMs arrive as their own Cloud
+# Run secret refs (never inside BACKEND_RUNTIME_CONFIG_JSON) and are read here so
+# that no service reads them from the environment directly.
+WALLET_PASS_CERT_PEM_ENV = "WALLET_PASS_CERT_PEM"  # noqa: S105
+WALLET_PASS_KEY_PEM_ENV = "WALLET_PASS_KEY_PEM"  # noqa: S105
+WALLET_PASS_WWDR_PEM_ENV = "WALLET_PASS_WWDR_PEM"  # noqa: S105
+WALLET_PASS_TEAM_IDENTIFIER_ENV = "WALLET_PASS_TEAM_IDENTIFIER"  # noqa: S105
+WALLET_PASS_TYPE_IDENTIFIER_ENV = "WALLET_PASS_TYPE_IDENTIFIER"  # noqa: S105
+_WALLET_PASS_TYPE_IDENTIFIER_DEFAULT = "pass.com.hushh.app.one"  # noqa: S105
+# Signing provider. ``local`` signs in-process with the PEMs above;
+# ``service`` delegates to the org-owned hushh-wallet-api, which holds its own
+# certificate. Defaults to ``local`` so an unconfigured deployment keeps the
+# behaviour it already had.
+WALLET_PASS_PROVIDER_ENV = "WALLET_PASS_PROVIDER"  # noqa: S105
+WALLET_API_BASE_URL_ENV = "WALLET_API_BASE_URL"  # noqa: S105
+WALLET_API_KEY_ENV = "WALLET_API_KEY"  # noqa: S105
+_WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app"
+
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
@@ -78,6 +96,15 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
     "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
     "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
+    "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
+    "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
+    # Advisor directory base URL. Not a secret, so it travels in this config
+    # blob rather than as another line in the Cloud Build deploy step — that
+    # step's inline script sits close to Cloud Build's 10,000-character arg
+    # ceiling, and every line added there is borrowed against it. The bearer
+    # key is a real secret and stays in --set-secrets.
+    "advisors_api_base_url": "ADVISORS_API_BASE_URL",
 }
 
 
@@ -175,6 +202,44 @@ class FirebaseCredentialSettings:
 class AppRuntimeSettings:
     environment: str
     app_frontend_origin: str
+
+
+@dataclass(frozen=True)
+class WalletPassSettings:
+    """Apple Wallet pass signing material and pass identifiers.
+
+    Every PEM is ``repr=False`` so private key material can never surface in a
+    log line, an exception repr or a traceback frame dump.
+    """
+
+    team_identifier: str
+    pass_type_identifier: str
+    cert_pem: str = field(repr=False, default="")
+    key_pem: str = field(repr=False, default="")
+    wwdr_pem: str = field(repr=False, default="")
+    provider: str = "local"
+    api_base_url: str = ""
+    api_key: str = field(repr=False, default="")
+
+    @property
+    def uses_service_provider(self) -> bool:
+        return self.provider == "service"
+
+    @property
+    def service_is_complete(self) -> bool:
+        """The service provider needs a reachable base URL and a caller key."""
+        return bool(self.api_base_url.strip() and self.api_key.strip())
+
+    @property
+    def is_complete(self) -> bool:
+        """True only when every value needed to sign a pass is present."""
+        return bool(
+            self.team_identifier
+            and self.pass_type_identifier
+            and self.cert_pem
+            and self.key_pem
+            and self.wwdr_pem
+        )
 
 
 @dataclass(frozen=True)
@@ -285,6 +350,46 @@ def crm_registry_db_enabled() -> bool:
     registry (decrypting credentials with VAULT_DATA_KEY) instead of the
     hardcoded in-code definition. Defaults off until cutover."""
     return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
+
+
+def kai_analyze_durable_run_store_enabled() -> bool:
+    """Feature flag: persist a coarse terminal checkpoint for resumable Kai
+    analyze ("debate") runs to Postgres so a /stream request that lands on a
+    different Cloud Run instance can replay the final DecisionCard instead of
+    404ing (the multi-instance prod-parity bug). Defaults off; when off the
+    run manager behaves exactly as before with zero durable-store I/O."""
+    return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=False)
+
+
+def one_wallet_card_enabled() -> bool:
+    """Feature flag: expose the Wallet Profile plane — the ``one_wallet_cards``
+    table, the ``/api/one/wallet-card`` owner routes and the two unauthenticated
+    public surfaces (card resolve and the signed ``.pkpass`` download). Defaults
+    off; while off every wallet-card route answers as if the feature did not
+    exist and no card is ever resolved."""
+    return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
+
+
+def get_wallet_pass_settings() -> WalletPassSettings:
+    """Signing material for Apple Wallet ``.pkpass`` generation.
+
+    Deliberately uncached: the PEMs are Cloud Run secret refs, so reading them
+    per pass download keeps a rotated certificate live without a redeploy.
+    Missing material yields empty strings, which makes ``is_complete`` False and
+    lets the route degrade to the friendly 503 copy instead of raising.
+    """
+    return WalletPassSettings(
+        team_identifier=_clean_env(WALLET_PASS_TEAM_IDENTIFIER_ENV) or "",
+        pass_type_identifier=(
+            _clean_env(WALLET_PASS_TYPE_IDENTIFIER_ENV) or _WALLET_PASS_TYPE_IDENTIFIER_DEFAULT
+        ),
+        cert_pem=_clean_env(WALLET_PASS_CERT_PEM_ENV) or "",
+        key_pem=_clean_env(WALLET_PASS_KEY_PEM_ENV) or "",
+        wwdr_pem=_clean_env(WALLET_PASS_WWDR_PEM_ENV) or "",
+        provider=(_clean_env(WALLET_PASS_PROVIDER_ENV) or "local").lower(),
+        api_base_url=_clean_env(WALLET_API_BASE_URL_ENV) or _WALLET_API_BASE_URL_DEFAULT,
+        api_key=_clean_env(WALLET_API_KEY_ENV) or "",
+    )
 
 
 @lru_cache(maxsize=1)

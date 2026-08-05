@@ -69,6 +69,19 @@ describe("market route overlays", () => {
     expect(source).not.toContain('actionHref={buildKaiMarketRoute("analysis")}');
   });
 
+  it("gives Market home a discoverable entry into the Analysis workspace", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    // A tappable card on the default Finance landing routes users into the
+    // live debate / recommendation surface, which is otherwise reachable only
+    // via the top-shell tab or a direct URL.
+    expect(source).toContain('data-testid="kai-analysis-entry"');
+    expect(source).toContain('openOneMarketHref(buildKaiMarketRoute("analysis"))');
+  });
+
   it("does not mount a hidden notification sheet on route load", () => {
     const source = readFileSync(
       join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
@@ -77,6 +90,18 @@ describe("market route overlays", () => {
 
     expect(source).not.toContain("OneMarketNotificationsSheet");
     expect(source).not.toContain("notificationsOpen");
+  });
+
+  it("keeps the overview detail as one raised surface with flat evidence sections", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("<KaiControlSurface");
+    expect(source).toContain("divide-y divide-border/60");
+    expect(source).not.toContain("<SettingsGroup");
+    expect(source).not.toContain("<SettingsRow");
   });
 
   it("uses the Finance route shell instead of nesting another page canvas", () => {
@@ -136,5 +161,26 @@ describe("market route overlays", () => {
     expect(portfolioDashboard).toContain('workspace="portfolio"');
     expect(portfolioFlow).toContain('state === "checking"');
     expect(portfolioFlow).toContain("KaiWorkspaceHeader");
+  });
+
+  it("lets a stock preview return to recommendations or choose another stock", () => {
+    const analysis = readFileSync(
+      join(process.cwd(), "app/one/kai/analysis/page.tsx"),
+      "utf8",
+    );
+    const preview = readFileSync(
+      join(process.cwd(), "components/kai/cards/stock-comparison-preview.tsx"),
+      "utf8",
+    );
+
+    expect(preview).toContain("Recommendations");
+    expect(preview).toContain("Change stock");
+    expect(preview).toContain("onBrowseRecommendations");
+    expect(preview).toContain("onChangeStock");
+    expect(analysis).toContain("handleBrowseRecommendations");
+    expect(analysis).toContain('router.replace(buildKaiMarketRoute("analysis"), { scroll: false })');
+    expect(analysis).toContain("handleChangePreviewStock");
+    expect(analysis).toContain("onBrowseRecommendations={handleBrowseRecommendations}");
+    expect(analysis).toContain("onChangeStock={handleChangePreviewStock}");
   });
 });

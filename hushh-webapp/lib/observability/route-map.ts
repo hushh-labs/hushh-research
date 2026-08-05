@@ -18,6 +18,7 @@ export const ROUTE_ID_VALUES = [
   "profile_account_phone",
   "profile_preferences",
   "profile_preferences_kai",
+  "profile_preferences_gemini",
   "profile_preferences_device",
   "profile_security",
   "profile_security_vault",
@@ -58,6 +59,8 @@ export const ROUTE_ID_VALUES = [
   "one_location_map",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_wallet_card",
+  "wallet_card_public",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -115,6 +118,8 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
   if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
     return "profile_preferences_kai";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_GEMINI)
+    return "profile_preferences_gemini";
   if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
     return "profile_preferences_device";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
@@ -192,6 +197,14 @@ export function resolveRouteId(pathname: string): RouteId {
     return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
+  if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
+  // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
+  // so this ID is never attached to a page view. It exists because "unknown"
+  // is not inert: callers that fall through to it log the raw pathname, and on
+  // this route the pathname *is* the share token. Same shape as the public
+  // location request link above.
+  if (pathname === "/c" || pathname.startsWith("/c/"))
+    return "wallet_card_public";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";

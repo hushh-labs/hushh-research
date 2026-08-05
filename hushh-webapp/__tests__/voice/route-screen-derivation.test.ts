@@ -175,7 +175,7 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/one/profile", "panel=regulatory")).toEqual({
-      screen: "profile_regulatory",
+      screen: "profile_account",
       subview: null,
     });
   });

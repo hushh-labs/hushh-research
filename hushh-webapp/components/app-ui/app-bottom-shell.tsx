@@ -58,7 +58,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
 
   const maskStyle = {
     height:
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)) + var(--bottom-chrome-fade-tail))",
+      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
   } as CSSProperties;
 
   return (

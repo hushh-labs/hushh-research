@@ -783,6 +783,16 @@
       "primary_access_path": "One Information Marketplace access-request inbox: a buyer files a request for owner-approved access to a published data-slice safe projection; the owner lists, approves, or denies server-side from the marketplace surface or via Agent One over A2A."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "id": "kai_analyze_run_store",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read."
+    },
+    {
       "data_class": "provider_cache",
       "exact_tables": [],
       "id": "kai_brokerage_provider_cache",
@@ -862,6 +872,7 @@
         "one_location_envelopes",
         "one_location_events",
         "one_location_map_preferences",
+        "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -873,7 +884,7 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, legacy Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
       "data_class": "personal_metadata",
@@ -886,6 +897,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "personal_projection",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "id": "one_wallet_card",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
     },
     {
       "data_class": "personal_projection",
@@ -974,7 +995,7 @@
       "id": "ria_marketplace_relationships",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services"
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services"
     },
     {
       "data_class": "personal_metadata",
@@ -1320,6 +1341,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/c/[token]/page.tsx",
+      "pathname": "/c/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.wallet.card.public.token"
       }
     },
     {
@@ -2019,8 +2063,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -2030,7 +2074,7 @@
       "native_surface_id": "native-route-connect-settings",
       "page_file": "app/one/connect/settings/page.tsx",
       "pathname": "/one/connect/settings",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -2296,8 +2340,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "market_data",
           "financial_resource"
@@ -2314,10 +2358,16 @@
       "native_surface_id": "native-route-kai-analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
       "pathname": "/one/kai/analysis",
-      "route_mode": "redirect",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "analysis.cancel_active",
+          "analysis.resume_active",
+          "analysis.start",
+          "route.analysis_history",
+          "route.kai_analysis"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.analysis"
       }
@@ -2844,7 +2894,7 @@
       "alias": null,
       "api_dependencies": [
         {
-          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes}",
+          "backend_endpoint_family": "/api/one/location/{map-state,map-preferences,grants/*/envelopes,maps/*,nearby-presence*}",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service",
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
@@ -2853,7 +2903,18 @@
             "getMapState",
             "updateMapPreferences",
             "getState",
-            "storeEnvelope"
+            "storeEnvelope",
+            "captureCurrentPosition",
+            "getPermissionState",
+            "openLocationSettings",
+            "openAppSettings",
+            "nearbyPlaces",
+            "placesAutocomplete",
+            "placeDetails",
+            "getNearbyPresence",
+            "checkInNearby",
+            "checkoutNearby",
+            "requestNearbyConnection"
           ]
         }
       ],
@@ -2969,12 +3030,10 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "ria.profile.edit_services",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
-          "route.profile_regulatory",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3349,6 +3408,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "pathname": "/one/profile/preferences/gemini",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.gemini"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/preferences/kai/page.tsx",
       "pathname": "/one/profile/preferences/kai",
       "route_mode": "standard",
@@ -3387,8 +3469,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -3398,15 +3480,12 @@
       "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/regulatory/page.tsx",
       "pathname": "/one/profile/regulatory",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "ria.profile.edit_services",
-          "route.profile_regulatory"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.profile.regulatory"
+        "playbook_id": "route.profile.regulatory_compat"
       }
     },
     {
@@ -3884,6 +3963,29 @@
     },
     {
       "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "pathname": "/one/wallet-card",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.wallet.card"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [
         {
           "backend_endpoint_family": "/pkm/*",
@@ -4221,6 +4323,7 @@
           "ria.picks.open_category_top_picks",
           "ria.picks.open_source_kai",
           "ria.picks.open_source_my",
+          "ria.picks.open_view_debate",
           "route.ria_picks"
         ],
         "delegate_agent_ids": [],
@@ -4231,8 +4334,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "ria_workspace",
           "consent_list"
@@ -4243,10 +4346,13 @@
       "native_surface_id": "native-route-profile",
       "page_file": "app/ria/profile/page.tsx",
       "pathname": "/ria/profile",
-      "route_mode": "redirect",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "ria.profile.edit_services",
+          "route.ria_profile"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.ria.profile"
       }
@@ -4381,28 +4487,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "147e4b3faab35a337714f4aa191e57c453645f1f03e656f7e75b7d7a9c3ed014",
+    "action_gateway": "504402b13d46d3db9cd7f209f4b45f2bd8a8518e69dbf9bf0d9954df7d695d6e",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "ebd1c1e5f5fdae7c64cac31ba378f3c8e587a11816fb2a114f032c3f2fa7dea0",
-    "data_plane": "5ecbe183a5ef9ebda44b94a357322fc64288860d713ea85bd9d43288cfd60b7b",
+    "cache_manifest": "e939f772b53a77b36b5be73a4a4e9c3e36562cc5e078ac35950582855b21f9c5",
+    "data_plane": "bf2f449b4dcf1072a3c7478418822ee37c6fb9230c1351e92f5acb1dd46a9b55",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "f293d17e7d739acf3052aba9436829df846d059e980395de733596bb23b95338",
-    "route_layout": "ec5c36519d39337986cd72767030ef180b36d7b7216fcca515d8fe971f365b47",
-    "surface_map": "47b0541524ea256465b3f0d82b2908abd31f637bd460749d8b2e0d0fd8032f28",
+    "route_index": "a9aa3bdab7af5e90ba1b58e246d53d89425eb29f9e46eab33064204ae1cc6c7c",
+    "route_layout": "bc33f99445d51fd79b22a7d42f364a87509b9b5c90699c5a86566ac8b9e67a64",
+    "surface_map": "eb4a313f290454c68c06554b4b179659396d049b40fabfec238e79ae085d7c42",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 115,
+    "actions": 116,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 115,
+    "physical_routes": 118,
     "semantic_routes": 14,
-    "table_families": 41
+    "table_families": 43
   }
 }

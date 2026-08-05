@@ -44,20 +44,18 @@ describe("top shell back action", () => {
     ).toEqual({ href: "/one", mode: "push" });
   });
 
-  it("executes the same explicit navigation contract as the top bar", () => {
-    const router = { push: vi.fn(), replace: vi.fn() };
-
-
+  it("returns the resolved action to the shared transition owner", () => {
+    const navigate = vi.fn();
     expect(
       navigateTopShellBack({
-        router,
         pathname: "/one/location",
         searchParams: new URLSearchParams("action=share"),
+        navigate,
       }),
     ).toBe(true);
-    expect(router.replace).toHaveBeenCalledWith("/one/location", {
-      scroll: false,
+    expect(navigate).toHaveBeenCalledWith({
+      href: "/one/location",
+      mode: "replace",
     });
-    expect(router.push).not.toHaveBeenCalled();
   });
 });

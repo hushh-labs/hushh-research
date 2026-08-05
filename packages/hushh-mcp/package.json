@@ -1,6 +1,6 @@
 {
   "name": "@hushh/mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Launch-friendly npm wrapper for the Hussh Consent MCP server",
   "license": "Apache-2.0",
   "repository": {
@@ -38,6 +38,7 @@
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
     "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config",
+    "print-client-credentials-config": "node ./bin/hushh-mcp.js --print-client-credentials-config",
     "print-gateway-manifest": "node ./bin/hushh-mcp.js --print-gateway-manifest",
     "print-agentforce-manifest": "node ./bin/hushh-mcp.js --print-agentforce-manifest",
     "print-mulesoft-exchange-manifest": "node ./bin/hushh-mcp.js --print-mulesoft-exchange-manifest",

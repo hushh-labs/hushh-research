@@ -10,6 +10,7 @@ import {
   type PointerEvent,
 } from "react";
 import { ChevronLeft, Loader2, Phone } from "lucide-react";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
@@ -23,13 +24,42 @@ const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
 type SmsMessageSelection = SmsQuickMessage | "custom" | null;
 
+type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
+
+export function isWindowsDesktopEmCallUnsupported(
+  options?: {
+    userAgent?: string;
+    platform?: string;
+  },
+) {
+  const userAgent = (options?.userAgent ?? navigator.userAgent).toLowerCase();
+  const platform = (options?.platform ?? navigator.platform).toLowerCase();
+  const isWindows =
+    /windows|win32|win64|wow64|win16/.test(platform) ||
+    /windows nt|win64|wow64|win32/.test(userAgent);
+  const isMobileOrTablet =
+    /mobile|mobi|iphone|ipad|ipod|android/.test(userAgent) ||
+    /phone|tablet|touch/.test(userAgent);
+
+  return isWindows && !isMobileOrTablet;
+}
+
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   active: boolean;
   busy: boolean;
   onTrigger: (message?: string | null) => void;
+  /**
+   * Stop a live SMS/SOS session: revokes the location grants created by the
+   * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
+   * from `onClose` (which only closes the screen without stopping sharing).
+   */
+  onStopSos: () => void;
+  /** True while the stop request is in flight (shows a spinner on Cancel). */
+  stopBusy: boolean;
   onClose: () => void;
   onEditContacts: () => void;
+
   recipientLabel: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
   emergency: EmergencyInfo | null;
@@ -55,6 +85,8 @@ export function SosPanel({
   active,
   busy,
   onTrigger,
+  onStopSos,
+  stopBusy,
   onClose,
   onEditContacts,
   recipientLabel,
@@ -63,11 +95,14 @@ export function SosPanel({
   emergencyStatus,
   onResolveEmergencyNumber,
 }: SosPanelProps) {
+
   const [messageSelection, setMessageSelection] =
     useState<SmsMessageSelection>(null);
   const [customMessage, setCustomMessage] = useState("");
 
   const [progress, setProgress] = useState(0);
+  const [windowsCopyStatus, setWindowsCopyStatus] =
+    useState<WindowsFallbackCopyStatus>("idle");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef(0);
@@ -95,8 +130,18 @@ export function SosPanel({
   const customMessageInvalid =
     messageSelection === "custom" &&
     (!selectedMessage || customMessageLimitExceeded);
-  const disabled =
-    busy || active || readyRecipients.length === 0 || customMessageInvalid;
+  // True when the owner has not added any share-ready SMS contact yet. In this
+  // case we keep the button PRESSABLE (see `hardDisabled` below) so the hold
+  // handler can surface an actionable toast instead of silently doing nothing.
+  const noReadyRecipients = readyRecipients.length === 0;
+  // Blockers that must keep the button truly inert (sending in progress, already
+  // live, or an invalid custom message). Missing contacts is intentionally NOT
+  // here so the press can explain what to do.
+  const hardDisabled = busy || active || customMessageInvalid;
+  // Full guard used by the hold-completion path so a hold can never actually
+  // send an SMS while there are no ready recipients.
+  const disabled = hardDisabled || noReadyRecipients;
+  const shouldFallbackWindowsEmergencyCall = isWindowsDesktopEmCallUnsupported();
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
@@ -129,12 +174,18 @@ export function SosPanel({
   }, []);
 
   const startHold = useCallback(() => {
-    if (disabled || holdStartedAtRef.current || firedRef.current) return;
+    if (hardDisabled || holdStartedAtRef.current || firedRef.current) return;
+    if (noReadyRecipients) {
+      toast.error(
+        "Please add at least one contact in your SMS emergency contact list.",
+      );
+      return;
+    }
     holdStartedAtRef.current = performance.now();
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, disabled, updateProgress]);
+  }, [completeHold, hardDisabled, noReadyRecipients, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
 
@@ -188,6 +239,20 @@ export function SosPanel({
     }
   };
 
+  const handleWindowsEmergencyCopy = useCallback(async () => {
+    if (!emergency) return;
+    try {
+      await navigator.clipboard.writeText(emergency.number);
+      setWindowsCopyStatus("copied");
+    } catch {
+      setWindowsCopyStatus("error");
+    }
+  }, [emergency]);
+
+  useEffect(() => {
+    setWindowsCopyStatus("idle");
+  }, [emergency?.number]);
+
   return (
     <section
       className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-black text-white"
@@ -206,7 +271,7 @@ export function SosPanel({
 
         <header className="mt-1 px-3 text-center">
           <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[1.15] !tracking-[-0.45px]">
-            SMS · Save my soul
+            SMS · Save my Soul
           </h1>
           <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
             Press and hold. An SMS with your live location goes to your people —
@@ -243,7 +308,11 @@ export function SosPanel({
 
             <button
               type="button"
-              disabled={disabled}
+              // Only HARD blockers (sending, already live, invalid message)
+              // disable the control. When the sole blocker is "no SMS contacts
+              // added", the button stays pressable so the hold handler can show
+              // an actionable toast instead of the press doing nothing.
+              disabled={hardDisabled}
               aria-label={
                 active
                   ? "SMS sharing is active"
@@ -302,6 +371,26 @@ export function SosPanel({
 
 
         <div className="mt-auto">
+          {/* While an SMS/SOS session is live, the primary action becomes
+              stopping it. Cancelling here revokes the location grants created by
+              the alert AND clears the incident, so "SENT · Live now" resets and
+              the change is mirrored in Active shares (and vice-versa). */}
+          {active ? (
+            <button
+              type="button"
+              onClick={onStopSos}
+              disabled={stopBusy}
+              aria-label="Cancel SMS alert and stop sharing your location"
+              data-testid="sos-cancel-alert"
+              className="press-scale mb-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] disabled:opacity-60"
+            >
+              {stopBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
+              {stopBusy ? "Cancelling…" : "Cancel SMS Alert"}
+            </button>
+          ) : null}
+
           <p className="truncate px-2 text-center text-[13px] text-white/70">
             {names ? `SMS goes to ${names}` : "No SMS contacts selected"} ·{" "}
             <button
@@ -402,21 +491,56 @@ export function SosPanel({
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {emergencyStatus === "resolved" && emergency ? (
-              <a
-                href={`tel:${emergency.number}`}
-                aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
-              >
-                <Phone className="h-4 w-4 fill-current" aria-hidden />
-                <span className="min-w-0 text-left leading-tight">
-                  <span className="block text-[15px] font-semibold">
-                    Call {emergency.number}
+              shouldFallbackWindowsEmergencyCall ? (
+                <div className="flex min-h-12 flex-col justify-center">
+                  <button
+                    type="button"
+                    onClick={handleWindowsEmergencyCopy}
+                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                    aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
+                  >
+                    <Phone className="h-4 w-4 fill-current" aria-hidden />
+                    <span className="min-w-0 text-left leading-tight">
+                      <span className="block text-[15px] font-semibold">
+                        Copy emergency number
+                      </span>
+                      <span className="block truncate text-[10px] text-white/75">
+                        {emergency.countryName} · {emergency.number}
+                      </span>
+                    </span>
+                  </button>
+                  <span className="mt-1 block text-[11px] leading-tight text-white/75">
+                    Windows browsers cannot open emergency dialers directly. Call {emergency.number}
+                    from your phone now.
                   </span>
-                  <span className="block truncate text-[10px] text-white/75">
-                    {emergency.countryName}
+                  {windowsCopyStatus === "copied" ? (
+                    <span className="mt-1 block text-[11px] leading-tight text-[#35d07f]">
+                      Number copied to clipboard.
+                    </span>
+                  ) : null}
+                  {windowsCopyStatus === "error" ? (
+                    <span className="mt-1 block text-[11px] leading-tight text-[#ff9a75]">
+                      Could not copy. Please open your phone dialer manually.
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <a
+                  href={`tel:${emergency.number}`}
+                  aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
+                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                >
+                  <Phone className="h-4 w-4 fill-current" aria-hidden />
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block text-[15px] font-semibold">
+                      Call {emergency.number}
+                    </span>
+                    <span className="block truncate text-[10px] text-white/75">
+                      {emergency.countryName}
+                    </span>
                   </span>
-                </span>
-              </a>
+                </a>
+              )
             ) : (
               <button
                 type="button"

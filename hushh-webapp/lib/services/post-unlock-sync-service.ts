@@ -1,6 +1,7 @@
 "use client";
 
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
+import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 /**
  * Syncs pre-vault onboarding data to the encrypted PKM after vault unlock.
@@ -14,16 +15,23 @@ export class PostUnlockSyncService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
-  }): Promise<{ onboardingSynced: boolean }> {
-    const syncResult = await KaiProfileSyncService.syncPendingToVault({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-    }).catch((error) => {
-      console.warn("[PostUnlockSyncService] Pending onboarding sync failed:", error);
-      return { synced: false };
-    });
+  }): Promise<{ onboardingSynced: boolean; kycIdentitySynced: boolean }> {
+    // Callers decide whether this is a best-effort background warm-up or the
+    // mandatory Finish setup transaction. Never convert an encrypted-write
+    // failure into `false` here: the setup hub must keep its retryable state
+    // rather than exiting with a partially protected onboarding session.
+    const [syncResult, kycIdentitySynced] = await Promise.all([
+      KaiProfileSyncService.syncPendingToVault({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }),
+      KycIdentityProfileDraftService.flushToVault(params),
+    ]);
 
-    return { onboardingSynced: Boolean(syncResult.synced) };
+    return {
+      onboardingSynced: Boolean(syncResult.synced),
+      kycIdentitySynced,
+    };
   }
 }

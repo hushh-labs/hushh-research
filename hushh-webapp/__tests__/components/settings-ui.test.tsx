@@ -276,6 +276,26 @@ describe("SettingsSegmentedTabs", () => {
     expect(inactive.getAttribute("data-state")).toBe("inactive");
     expect(inactive.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("disables the whole segmented control while its selection is settling", () => {
+    const handleValueChange = vi.fn();
+    render(
+      <SettingsSegmentedTabs
+        value="statement"
+        onValueChange={handleValueChange}
+        disabled
+        options={[
+          { value: "statement", label: "Statement" },
+          { value: "plaid", label: "Brokerage" },
+        ]}
+      />,
+    );
+
+    const brokerage = screen.getByRole("button", { name: "Brokerage" });
+    expect(brokerage).toBeDisabled();
+    fireEvent.click(brokerage);
+    expect(handleValueChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("SettingsDetailPanel", () => {
@@ -307,6 +327,11 @@ describe("SettingsDetailPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
+    expect(
+      document
+        .querySelector('[data-slot="dialog-header"]')
+        ?.className.includes("bg-[var(--activeGlassColor)]"),
+    ).toBe(true);
   });
 
   it("places supplied identity media before the detail title", () => {

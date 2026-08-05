@@ -6,11 +6,6 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 type SearchParamsLike = { get(name: string): string | null } | null | undefined;
 
-export type TopShellBackRouter = {
-  push: (href: string, options?: { scroll?: boolean }) => void;
-  replace: (href: string, options?: { scroll?: boolean }) => void;
-};
-
 export type TopShellBackAction = {
   href: string;
   mode: "push" | "replace";
@@ -49,13 +44,13 @@ export function resolveTopShellBackAction(params: {
 }
 
 export function navigateTopShellBack(params: {
-  router: TopShellBackRouter;
   pathname: string;
   searchParams?: SearchParamsLike;
   breadcrumb?: TopShellBreadcrumbConfig | null;
+  navigate: (action: TopShellBackAction) => void;
 }): boolean {
   const action = resolveTopShellBackAction(params);
   if (!action) return false;
-  params.router[action.mode](action.href, { scroll: false });
+  params.navigate(action);
   return true;
 }

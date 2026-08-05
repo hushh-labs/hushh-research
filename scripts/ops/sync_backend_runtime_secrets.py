@@ -37,7 +37,9 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _run(cmd: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, input_text: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd,
         input=input_text,
@@ -184,8 +186,39 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
+        "advisors_api_base_url": args.advisors_api_base_url,
     }
     return _drop_empty(config)
+
+
+def _sync_advisors_api_key(args: argparse.Namespace) -> str | None:
+    """Mirror the advisor-directory key from its home project into this lane.
+
+    The key lives in one project and is consumed by several. Copying it by hand
+    is exactly what broke UAT: the source rotated and disabled the old version,
+    the hand-made copy did not follow, and the surface began answering 502 with
+    a revoked credential. Re-mirroring on every deploy bounds that drift to a
+    single release instead of forever.
+
+    A lane without read access to the source simply gets nothing, and the
+    feature stays inert there rather than failing the deploy.
+    """
+    source_project = str(args.advisors_api_key_source_project or "").strip()
+    source_secret = str(args.advisors_api_key_source_secret or "").strip()
+    if not (source_project and source_secret):
+        return None
+
+    value = _read_secret(source_project, source_secret)
+    if not value:
+        return None
+
+    if _read_secret(args.project, "ADVISORS_API_KEY") == value:
+        # The shared upsert helper adds a version unconditionally; skipping the
+        # write keeps a no-op deploy from minting a secret version each time.
+        return "ADVISORS_API_KEY (unchanged)"
+
+    _upsert_secret(args.project, "ADVISORS_API_KEY", value)
+    return "ADVISORS_API_KEY (rotated)"
 
 
 def _upsert_secret(project: str, secret: str, value: str) -> None:
@@ -232,12 +265,29 @@ def main() -> int:
     parser.add_argument("--db-bulk-batching-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
+    # Advisor directory base URL. Non-secret, so it belongs in the generated
+    # runtime config rather than in the deploy step, which sits close to Cloud
+    # Build's arg ceiling. Blank leaves it out entirely and the surface reports
+    # unavailable; the bearer key is a real secret and is mounted separately.
+    parser.add_argument("--advisors-api-base-url", default="")
+    # The directory key is owned by one project and consumed by several, so it
+    # is mirrored rather than copied by hand — see _sync_advisors_api_key.
+    parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--advisors-api-key-source-secret", default="brokercheck-api-key")
     args = parser.parse_args()
 
     sync_summary: list[str] = []
 
+    advisors_key_status = _sync_advisors_api_key(args)
+    if advisors_key_status:
+        sync_summary.append(advisors_key_status)
+
     for canonical_name, fallback_names in LEGACY_SECRET_FALLBACKS.items():
-        if canonical_name in {"APP_FRONTEND_ORIGIN", "BACKEND_RUNTIME_CONFIG_JSON", "VOICE_RUNTIME_CONFIG_JSON"}:
+        if canonical_name in {
+            "APP_FRONTEND_ORIGIN",
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            "VOICE_RUNTIME_CONFIG_JSON",
+        }:
             continue
         value = _resolve_secret(args.project, fallback_names)
         if not value:

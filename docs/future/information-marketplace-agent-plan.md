@@ -122,7 +122,7 @@ encrypted envelope; recipient fetches + decrypts). The Consent Guardian already 
 the full E2E pipeline (`lib/consent/use-consent-actions.ts`), so approval routes there.
 
 **Target tabs:** Owner (publish/price, unchanged) · Buyer (storefront browse, unchanged) ·
-Flow & requests → **repurposed to the buyer's "Received data" tab** (their requests +
+Flow & requests → **repurposed to the buyer's "Received information" tab** (their requests +
 delivered slices they open in-app). **Approvals move entirely to the Consent Guardian.**
 
 - **Phase D1 — Buyer recipient key**: mirror/generalize `lib/one-location/encryption.ts`
@@ -134,7 +134,7 @@ delivered slices they open in-app). **Approvals move entirely to the Consent Gua
   `buildConsentExportForScope`, wraps for the buyer key, posts an envelope; backend
   `approve_marketplace_request` stores the envelope. Remove the owner inbox from
   `app/one/marketplace/page.tsx`.
-- **Phase D3 — Buyer "Received data" tab**: backend buyer-scoped list + envelope fetch;
+- **Phase D3 — Buyer "Received information" tab**: backend buyer-scoped list + envelope fetch;
   frontend repurposes the `flow` tab to decrypt (IndexedDB private key) and render slices.
 
 **Commit strategy:** one commit per phase (D1, D2, D3), not per step — context is cleared

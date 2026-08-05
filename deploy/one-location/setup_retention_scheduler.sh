@@ -54,4 +54,15 @@ else
   gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
 fi
 
-echo "Configured Cloud Scheduler job ${JOB_NAME}"
+JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" \
+  --location="${SCHEDULER_LOCATION}" \
+  --format='value(state,schedule,httpTarget.uri)')"
+
+EXPECTED_URI="${URI}"
+if [[ "${JOB_EVIDENCE}" != ENABLED$'\t'"${CRON}"$'\t'"${EXPECTED_URI}" ]]; then
+  echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
+  exit 1
+fi
+
+echo "Configured and verified Cloud Scheduler job ${JOB_NAME}: ${JOB_EVIDENCE}"

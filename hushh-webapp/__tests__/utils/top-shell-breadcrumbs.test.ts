@@ -45,7 +45,21 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Connected Systems", href: "/one/connected-systems" },
-        { label: "System detail" },
+        { label: "CRM" },
+      ],
+    });
+  });
+
+  it("uses a loaded CRM registry label for a connected-system detail", () => {
+    expect(
+      resolveTopShellBreadcrumb("/one/connected-systems/crm_002", undefined, {
+        connectedSystemLabel: "Chase",
+      }),
+    ).toMatchObject({
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Connected Systems", href: "/one/connected-systems" },
+        { label: "Chase" },
       ],
     });
   });
@@ -55,10 +69,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Consent Center" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -70,10 +81,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/kai/analysis?tab=history",
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Consent Center" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -188,12 +196,12 @@ describe("top shell breadcrumbs", () => {
     }
   });
 
-  it("gives the setup hub an authored onboarding parent and honors return_to", () => {
+  it("keeps the setup hub forward-only after phone verification", () => {
     expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
       backHref: "/",
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
@@ -201,7 +209,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/",
       width: "content",
       align: "center",
-      hideBack: false,
+      hideBack: true,
       items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
@@ -428,28 +436,16 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/one/profile/regulatory")).toEqual({
-      backHref: "/one/profile",
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: "/one/profile" },
-        { label: "Regulatory profile", href: undefined },
-      ],
-    });
+    // Regulatory profile lives in the RIA workspace. The legacy Profile route
+    // deliberately has no breadcrumb or visible Profile panel for it.
+    expect(resolveTopShellBreadcrumb("/one/profile/regulatory")).toBeNull();
 
     const regulatoryParams = new URLSearchParams();
     regulatoryParams.set("panel", "regulatory");
 
-    expect(resolveTopShellBreadcrumb("/one/profile", regulatoryParams)).toEqual({
-      backHref: "/one/profile",
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: "/one/profile" },
-        { label: "Regulatory profile", href: undefined },
-      ],
-    });
+    expect(
+      resolveTopShellBreadcrumb("/one/profile", regulatoryParams)?.items,
+    ).not.toContainEqual({ label: "Regulatory profile", href: undefined });
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {
@@ -519,12 +515,12 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      ["private-check-in", "Private Check-In"],
       ["sos", "Safety"],
       ["share", "Share location"],
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
-      ["sms-contacts", "SMS contacts"],
       ["settings", "Settings"],
       // Legacy bookmarks are labelled correctly while the hub canonicalizes
       // `action=privacy` to `action=settings`.
@@ -549,25 +545,30 @@ describe("top shell breadcrumbs", () => {
       });
     }
 
-    for (const [action, label] of [
-      ["create-circle", "Create circle"],
-      ["join-circle", "Join circle"],
-      ["circle-detail", "Circle details"],
-    ]) {
-      const params = new URLSearchParams();
-      params.set("action", action);
-      params.set("view", "people");
-      expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
-        backHref: "/one/location?view=people",
-        width: "profile",
-        align: "center",
-        items: [
-          { label: "One", href: "/one" },
-          { label: "Location", href: "/one/location" },
-          { label },
-        ],
-      });
-    }
+    const fromNearbyCheckIn = new URLSearchParams();
+    fromNearbyCheckIn.set("action", "private-check-in");
+    fromNearbyCheckIn.set("source", "nearby");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
+    ).toEqual({
+      backHref: "/one/location/map?action=check-in",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Private Check-In" },
+      ],
+    });
+    fromNearbyCheckIn.set(
+      "returnToken",
+      "123e4567-e89b-12d3-a456-426614174000",
+    );
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
+    ).toBe(
+      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+    );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
     // still returns to the Location hub (not Profile) while the flow is open.
@@ -588,6 +589,38 @@ describe("top shell breadcrumbs", () => {
     // No action param → unchanged hub behavior (back leaves to /one).
     expect(resolveTopShellBreadcrumb("/one/location")?.backHref).toBe("/one");
   });
+
+  it("returns a focused flow to the hub TAB it was opened from (Links/People/Settings)", () => {
+    // Regression: opening "Create a new link" from Links, "Invite trusted
+    // person" from People, or "SMS contacts" from Settings must return Back to
+    // that ORIGINATING tab — not the default "Now" tab. `openFlow` keeps the
+    // current `?view=` tab in the URL alongside `?action=`, so the breadcrumb
+    // resolver retraces to it.
+
+    // Links → Create a new link (temp-link) → back to Links.
+    const fromLinks = new URLSearchParams();
+    fromLinks.set("view", "links");
+    fromLinks.set("action", "temp-link");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromLinks)?.backHref,
+    ).toBe("/one/location?view=links");
+
+    // People → Invite trusted person (invite) → back to People.
+    const fromPeople = new URLSearchParams();
+    fromPeople.set("view", "people");
+    fromPeople.set("action", "invite");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromPeople)?.backHref,
+    ).toBe("/one/location?view=people");
+
+    // Settings → SMS contacts → back to the Settings flow (not "Now").
+    const fromSettings = new URLSearchParams();
+    fromSettings.set("action", "sms-contacts");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
+    ).toBe("/one/location?action=settings");
+  });
+
 
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
@@ -668,7 +701,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -681,7 +714,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -695,11 +728,67 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },
       ],
     });
+  });
+
+  it("deepens Picks into Debate config for the ?view=debate sub-view", () => {
+    const debateView = new URLSearchParams("view=debate");
+
+    // Debate config lives one level below Picks, so Back returns to Picks and
+    // the trail carries a fourth "Debate" crumb.
+    expect(resolveTopShellBreadcrumb("/ria/picks", debateView)).toEqual({
+      backHref: "/ria/picks",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria/profile" },
+        { label: "Picks", href: "/ria/picks" },
+        { label: "Debate" },
+      ],
+    });
+
+    // Without the view param, bare Picks is untouched: three crumbs, Back to
+    // the canonical RIA Profile tab.
+    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
+      backHref: "/ria/profile",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria/profile" },
+        { label: "Picks" },
+      ],
+    });
+  });
+
+  it("keeps bare Picks for unknown or wrong-case view values", () => {
+    const barePicks = {
+      backHref: "/ria/profile",
+      width: "content" as const,
+      align: "center" as const,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "RIA", href: "/ria/profile" },
+        { label: "Picks" },
+      ],
+    };
+
+    // An unrecognized view value must not deepen into the Debate crumb; it stays
+    // a plain three-crumb Picks with Back to RIA.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+    ).toEqual(barePicks);
+
+    // The Picks debate match is case-sensitive (view === "debate"), so a
+    // capitalized value is treated as unknown rather than the debate sub-view.
+    expect(
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
+    ).toEqual(barePicks);
   });
 });

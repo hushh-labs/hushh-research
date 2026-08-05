@@ -37,6 +37,7 @@ from hushh_mcp.consent.export_envelope import (
     scope_handle_for_machine_scope,
     validate_export_envelope_submission,
 )
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -656,6 +657,14 @@ async def approve_consent(
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
+    if is_private_pkm_export_scope(requested_scope):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "Private analysis source material cannot be approved for export.",
+            },
+        )
     try:
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
@@ -782,17 +791,6 @@ async def approve_consent(
             expires_at=existing_token.get("expires_at"),
             metadata=reuse_metadata,
         )
-        try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=requestId,
-                action="CONSENT_GRANTED",
-            )
-        except Exception:
-            logger.exception(
-                "ria.relationship_sync_failed action=CONSENT_GRANTED reused_token=true"
-            )
-
         return {
             "status": "approved",
             "message": f"Consent granted to {developer_label} (Existing)",
@@ -1081,15 +1079,6 @@ async def approve_consent(
             requested_scope,
             superseded_scopes,
         )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_GRANTED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_GRANTED")
-
     return {
         "status": "approved",
         "message": f"Consent granted to {developer_label}",
@@ -1146,15 +1135,6 @@ async def deny_consent(
         request_id=requestId,
     )
     logger.info("consent.denied_event_saved")
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_DENIED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_DENIED")
-
     return {"status": "denied", "message": f"Consent denied to {developer_label}"}
 
 
@@ -1198,15 +1178,6 @@ async def cancel_consent(
         request_id=payload.requestId,
         scope_description=pending_request.get("scope_description"),
     )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=payload.userId,
-            request_id=payload.requestId,
-            action="CANCELLED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CANCELLED")
-
     return {"status": "cancelled", "requestId": payload.requestId}
 
 
@@ -1586,17 +1557,6 @@ async def revoke_consent(
             scope_description="Vault owner session" if agent_id == "self" else None,
         )
         logger.info("consent.revoked_event_saved scope=%s", scope)
-        try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=request_id,
-                action="REVOKED",
-                agent_id=agent_id,
-                scope=scope,
-            )
-        except Exception:
-            logger.exception("ria.relationship_sync_failed action=REVOKED")
-
         # Return special flag for VAULT_OWNER revocation so client knows to lock vault
         is_vault_owner = scope == "vault.owner" or scope == "VAULT_OWNER"
 
@@ -1651,6 +1611,14 @@ async def get_consent_export_data(
             status_code=401,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if token_obj is not None and is_private_pkm_export_scope(str(token_obj.scope or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This export is no longer available.",
+            },
         )
 
     # Database is the only freshness and authorization source. Process-local
@@ -1739,6 +1707,8 @@ async def list_export_refresh_jobs(
         active = active_by_token.get(consent_token)
         if not active:
             continue
+        if is_private_pkm_export_scope(str(active.get("scope") or job.get("granted_scope") or "")):
+            continue
         metadata = active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
         export_metadata_raw = await service.get_consent_export_metadata(consent_token)
         export_metadata = export_metadata_raw if isinstance(export_metadata_raw, dict) else {}
@@ -1810,6 +1780,11 @@ async def upload_refreshed_export(
             status_code=401,
             detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if is_private_pkm_export_scope(str(token_obj.scope or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={"error_code": "SCOPE_RETIRED", "message": "This export cannot be refreshed."},
         )
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")

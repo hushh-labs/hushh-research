@@ -5,16 +5,18 @@ import json
 import logging
 import os
 import secrets
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterator
 from uuid import UUID
 
 from sqlalchemy import text
 
 from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
-from db.db_client import DatabaseExecutionError, get_db
+from db.db_client import DatabaseExecutionError, get_db, get_db_connection
 from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
@@ -57,6 +59,7 @@ COORDINATE_METADATA_KEYS = {
     "reverse_geocode",
 }
 LOCATION_TERMINAL_RETENTION_HOURS = 12
+ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -170,6 +173,161 @@ def _parse_datetime(value: datetime | str | None, *, field_name: str) -> datetim
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _validated_envelope_fields(
+    envelope: dict[str, Any],
+    *,
+    recipient_key_id: str,
+    require_captured_at: bool = False,
+) -> dict[str, Any]:
+    """Validate a client-encrypted location envelope without decrypting it."""
+
+    if _contains_plaintext_location_key(envelope.get("metadata")):
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_METADATA_INVALID",
+            "Envelope metadata must not contain coordinates or map details.",
+            status_code=422,
+        )
+    required_fields = [
+        "ciphertext",
+        "iv",
+        "senderEphemeralPublicKeyJwk",
+        *(["capturedAt"] if require_captured_at else []),
+    ]
+    for field in required_fields:
+        if not envelope.get(field):
+            raise OneLocationAgentError(
+                "LOCATION_ENVELOPE_INVALID",
+                f"Encrypted envelope is missing {field}.",
+                status_code=422,
+            )
+    if str(envelope.get("recipientKeyId") or recipient_key_id) != recipient_key_id:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_KEY_MISMATCH",
+            "Envelope key does not match the approved recipient.",
+            status_code=422,
+        )
+    publication_context = str(envelope.get("publicationContext") or "private_foreground").strip()
+    if publication_context not in {
+        "private_background",
+        "private_foreground",
+        "foreground_map_visible",
+    }:
+        raise OneLocationAgentError(
+            "LOCATION_ENVELOPE_PUBLICATION_CONTEXT_INVALID",
+            "Location publication context is invalid.",
+            status_code=422,
+        )
+    return {
+        "algorithm": str(envelope.get("algorithm") or "ECDH-P256-AES256-GCM"),
+        "ciphertext": str(envelope.get("ciphertext") or ""),
+        "iv": str(envelope.get("iv") or ""),
+        "sender_key": json.dumps(
+            envelope.get("senderEphemeralPublicKeyJwk"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        "captured_at": _parse_datetime(
+            envelope.get("capturedAt"),
+            field_name="capturedAt",
+        ),
+        "source_platform": normalize_source_platform(envelope.get("sourcePlatform")),
+        "publication_context": publication_context,
+        "metadata_json": _json_param(envelope.get("metadata") or {}),
+    }
+
+
+def _private_share_operation_fingerprint(
+    *,
+    recipient_user_id: str,
+    recipient_key_id: str,
+    duration_hours: float,
+    reason: str | None,
+    share_kind: str,
+    confirmed_at: datetime,
+    envelope_fields: dict[str, Any],
+) -> str:
+    """Bind an idempotency key to the exact consented request and ciphertext."""
+
+    canonical = json.dumps(
+        {
+            "recipient_user_id": recipient_user_id,
+            "recipient_key_id": recipient_key_id,
+            "duration_hours": duration_hours,
+            "reason": reason or "",
+            "share_kind": share_kind,
+            "confirmed_at": confirmed_at.isoformat(),
+            "algorithm": envelope_fields["algorithm"],
+            "ciphertext": envelope_fields["ciphertext"],
+            "iv": envelope_fields["iv"],
+            "sender_key": envelope_fields["sender_key"],
+            "captured_at": envelope_fields["captured_at"].isoformat(),
+            "source_platform": envelope_fields["source_platform"],
+            "publication_context": envelope_fields["publication_context"],
+            "metadata_json": envelope_fields["metadata_json"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _private_share_freshness_error(
+    *,
+    captured_at: datetime,
+    confirmed_at: datetime,
+    now: datetime | None = None,
+) -> OneLocationAgentError | None:
+    current_time = now or _utcnow()
+    if confirmed_at > current_time + timedelta(seconds=30):
+        return OneLocationAgentError(
+            "LOCATION_CONFIRMATION_TIMESTAMP_INVALID",
+            "Location confirmation time is in the future.",
+            status_code=422,
+        )
+    if captured_at > confirmed_at + timedelta(seconds=30):
+        return OneLocationAgentError(
+            "LOCATION_CONFIRMATION_TIMESTAMP_INVALID",
+            "The encrypted location was captured after it was confirmed.",
+            status_code=422,
+        )
+    if confirmed_at - captured_at > timedelta(seconds=60):
+        return OneLocationAgentError(
+            "LOCATION_REVIEWED_POINT_STALE",
+            "Refresh and review your location before sharing it.",
+            status_code=409,
+        )
+    if current_time - confirmed_at > timedelta(minutes=10):
+        return OneLocationAgentError(
+            "LOCATION_CONFIRMATION_EXPIRED",
+            "This location confirmation expired. Refresh and review it again.",
+            status_code=409,
+        )
+    return None
+
+
+def _atomic_private_share_ids(
+    *,
+    owner_user_id: str,
+    recipient_user_id: str,
+    client_operation_id: str,
+) -> tuple[str, str]:
+    operation_key = f"{owner_user_id}\x1f{recipient_user_id}\x1f{client_operation_id}"
+    return (
+        str(
+            uuid.uuid5(
+                ATOMIC_LOCATION_SHARE_NAMESPACE,
+                f"{operation_key}\x1fgrant",
+            )
+        ),
+        str(
+            uuid.uuid5(
+                ATOMIC_LOCATION_SHARE_NAMESPACE,
+                f"{operation_key}\x1fenvelope",
+            )
+        ),
+    )
 
 
 def _redact_location_metadata(value: Any) -> Any:
@@ -310,6 +468,10 @@ _SOS_SHARE_REASON = "sos_panic"
 # here (they are inside the encrypted envelope); this marker only tags the kind.
 _DRIVE_TO_SHARE_REASON = "drive_to"
 
+# Grant "reason" marker for a Check-In. User-authored Check-In text belongs
+# inside the recipient-encrypted payload, never in grant/audit metadata.
+_CHECK_IN_SHARE_REASON = "check_in"
+
 # Internal grant "reason" markers used for plain shares, approved access requests,
 # and the SOS panic flow. These are plumbing, never a human message, so they must
 # NOT be surfaced verbatim to the recipient. Anything else (e.g. a Check-In note)
@@ -319,6 +481,7 @@ _INTERNAL_SHARE_REASONS = {
     "request_approved",
     _SOS_SHARE_REASON,
     _DRIVE_TO_SHARE_REASON,
+    _CHECK_IN_SHARE_REASON,
 }
 
 
@@ -335,6 +498,8 @@ def _classify_share_kind(reason: str | None) -> str:
         return "sos"
     if text == _DRIVE_TO_SHARE_REASON:
         return "drive_to"
+    if text == _CHECK_IN_SHARE_REASON:
+        return "check_in"
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
@@ -427,7 +592,7 @@ def format_activity_time(value: datetime) -> str:
         return value.strftime("%b %#d, %H:%M UTC")
 
 
-def _is_missing_encrypted_private_column(exc: DatabaseExecutionError) -> bool:
+def _is_missing_encrypted_private_column(exc: Exception) -> bool:
     """True when a DB error is the specific `encrypted_private_key_jwk` drift.
 
     Matches the psycopg2 `UndefinedColumn` (SQLSTATE 42703) raised when the
@@ -436,7 +601,14 @@ def _is_missing_encrypted_private_column(exc: DatabaseExecutionError) -> bool:
     running database. We match narrowly on both the column name and an
     undefined-column signature so this never swallows an unrelated failure.
     """
-    detail = str(getattr(exc, "details", "") or "").lower()
+    detail = " ".join(
+        part
+        for part in (
+            str(getattr(exc, "details", "") or ""),
+            str(exc),
+        )
+        if part
+    ).lower()
     return "encrypted_private_key_jwk" in detail and (
         "does not exist" in detail or "undefinedcolumn" in detail
     )
@@ -453,12 +625,124 @@ class OneLocationAgentService:
     _recipient_encrypted_private_column_ensured: bool = False
 
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        if bound_connection is not None:
+            result = bound_connection.execute(text(sql), params or {})
+            if not result.returns_rows:
+                return None
+            row = result.mappings().first()
+            return dict(row) if row is not None else None
         result = get_db().execute_raw(sql, params or {})
         return result.data[0] if result.data else None
 
     def _execute_many(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        if bound_connection is not None:
+            result = bound_connection.execute(text(sql), params or {})
+            if not result.returns_rows:
+                return []
+            rows = result.mappings().all()
+            return [dict(row) for row in rows]
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
+
+    def _execute_atomic_private_share(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        pair_lock_key: str,
+        mutation_sql: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Run the private-share mutation after acquiring a fresh-snapshot lock.
+
+        The lock is deliberately a separate statement inside the same
+        transaction. Under Postgres READ COMMITTED, the following mutation gets
+        a fresh snapshot after a concurrent holder commits, so an identical
+        retry observes and returns the first operation instead of colliding on
+        its deterministic IDs.
+        """
+
+        with get_db_connection() as connection:
+            # Recipient-key rotation and grant creation acquire this same lock
+            # first. The fixed ordering prevents deadlocks and guarantees that
+            # the mutation below never commits against a key that was rotated
+            # concurrently.
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtextextended(:recipient_key_lock_key, 0)
+                    )
+                    """
+                ),
+                {"recipient_key_lock_key": recipient_key_lock_key},
+            )
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtextextended(:pair_lock_key, 0)
+                    )
+                    """
+                ),
+                {"pair_lock_key": pair_lock_key},
+            )
+            row = connection.execute(text(mutation_sql), params).mappings().first()
+            return dict(row) if row is not None else None
+
+    def _execute_recipient_key_registration(
+        self,
+        *,
+        recipient_key_lock_key: str,
+        mutation_sql: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Rotate/register a recipient key and finalize stale-key grants atomically."""
+
+        with get_db_connection() as connection:
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                      hashtextextended(:recipient_key_lock_key, 0)
+                    )
+                    """
+                ),
+                {"recipient_key_lock_key": recipient_key_lock_key},
+            )
+            row = connection.execute(text(mutation_sql), params).mappings().first()
+            return dict(row) if row is not None else None
+
+    @contextmanager
+    def _key_bound_writer_guard(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+    ) -> Iterator[None]:
+        """Run a legacy key-bound writer in one locked transaction."""
+
+        key_lock = f"one-location-recipient-key:{recipient_user_id}"
+        pair_lock = f"one-location-grant:{owner_user_id}:{recipient_user_id}"
+        with get_db_connection() as connection:
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": key_lock},
+            )
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": pair_lock},
+            )
+            previous_connection = getattr(self, "_key_writer_connection", None)
+            self._key_writer_connection = connection
+            try:
+                yield
+            finally:
+                if previous_connection is None:
+                    del self._key_writer_connection
+                else:
+                    self._key_writer_connection = previous_connection
 
     def _ensure_recipient_encrypted_private_column(self) -> None:
         """Idempotently add `one_location_recipient_keys.encrypted_private_key_jwk`.
@@ -1067,11 +1351,20 @@ class OneLocationAgentService:
         rows = self._optional_signal_rows(
             signal_name="mutual_kai_relationships",
             sql="""
-            SELECT rel.investor_user_id, rel.status, rel.created_at, rel.updated_at,
+            SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
                    rp.user_id AS ria_user_id
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            WHERE rel.status IN ('approved', 'request_pending', 'discovered')
+            JOIN relationship_share_grants share
+              ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
+             AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
+            WHERE rel.status = 'approved'
             ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
             LIMIT 500
             """,
@@ -1139,9 +1432,15 @@ class OneLocationAgentService:
               share.granted_at AS relationship_share_granted_at
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            LEFT JOIN relationship_share_grants share
+            JOIN relationship_share_grants share
               ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
              AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
             WHERE rel.investor_user_id = :owner_user_id
                OR rp.user_id = :owner_user_id
             ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
@@ -1161,7 +1460,7 @@ class OneLocationAgentService:
             signal = signals[other_user_id]
             status = str(row.get("status") or "").lower()
             share_status = str(row.get("relationship_share_status") or "").lower()
-            if status == "approved" or share_status == "active":
+            if status == "approved" and share_status == "active":
                 self._add_recommendation_reason(
                     signal,
                     code="approved_professional_relationship",
@@ -1169,20 +1468,9 @@ class OneLocationAgentService:
                     weight=38,
                 )
                 signal["trusted"] = True
-            elif status == "request_pending":
-                self._add_recommendation_reason(
-                    signal,
-                    code="pending_professional_relationship",
-                    label="Pending advisor/investor relationship",
-                    weight=20,
-                )
             else:
-                self._add_recommendation_reason(
-                    signal,
-                    code="professional_graph_proximity",
-                    label="Advisor/investor network connection",
-                    weight=16,
-                )
+                # Defensive fail-closed posture for partially migrated rows.
+                continue
             signal["professional"] = True
             signal["relationship_type"] = signal.get("relationship_type") or relationship_label
             if str(row.get("ria_verification_status") or "").lower() in {"verified", "active"}:
@@ -2466,16 +2754,6 @@ class OneLocationAgentService:
                 status_code=422,
             )
         fingerprint = _fingerprint_public_key(public_key_jwk)
-        self._execute_one(
-            """
-            UPDATE one_location_recipient_keys
-            SET status = 'rotated', updated_at = NOW()
-            WHERE user_id = :user_id
-              AND key_id <> :key_id
-              AND status = 'active'
-            """,
-            {"user_id": user_id, "key_id": normalized_key_id},
-        )
         # Opaque client-encrypted (vault-key) private key blob, stored verbatim so
         # every device the user signs into can recover the SAME keypair. COALESCE on
         # update so a device that only re-registers the public key doesn't wipe an
@@ -2485,28 +2763,103 @@ class OneLocationAgentService:
             if isinstance(encrypted_private_key_jwk, dict)
             else None
         )
-        insert_sql = """
-            INSERT INTO one_location_recipient_keys (
-              user_id, key_id, public_key_jwk, public_key_fingerprint, algorithm,
-              status, created_at, updated_at, metadata, encrypted_private_key_jwk
-            )
-            VALUES (
-              :user_id, :key_id, CAST(:public_key_jwk AS JSONB), :fingerprint,
-              :algorithm, 'active', NOW(), NOW(), '{}'::jsonb,
-              CAST(:encrypted_private_key_jwk AS JSONB)
-            )
-            ON CONFLICT (user_id, key_id) DO UPDATE SET
-              public_key_jwk = EXCLUDED.public_key_jwk,
-              public_key_fingerprint = EXCLUDED.public_key_fingerprint,
-              algorithm = EXCLUDED.algorithm,
-              status = 'active',
-              revoked_at = NULL,
-              updated_at = NOW(),
-              encrypted_private_key_jwk = COALESCE(
-                EXCLUDED.encrypted_private_key_jwk,
-                one_location_recipient_keys.encrypted_private_key_jwk
+        mutation_sql = """
+            WITH key_id_compatibility AS MATERIALIZED (
+              SELECT (
+                NOT EXISTS (
+                  SELECT 1
+                  FROM one_location_recipient_keys
+                  WHERE user_id = :user_id
+                    AND key_id = :key_id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM one_location_recipient_keys
+                  WHERE user_id = :user_id
+                    AND key_id = :key_id
+                    AND public_key_fingerprint = :fingerprint
+                )
+              ) AS compatible
+            ),
+            rotated_keys AS (
+              UPDATE one_location_recipient_keys
+              SET status = 'rotated', updated_at = NOW()
+              WHERE user_id = :user_id
+                AND key_id <> :key_id
+                AND status = 'active'
+                AND (SELECT compatible FROM key_id_compatibility)
+              RETURNING key_id
+            ),
+            revoked_grants AS (
+              UPDATE one_location_share_grants
+              SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+              WHERE recipient_user_id = :user_id
+                AND recipient_key_id <> :key_id
+                AND status = 'active'
+                AND (SELECT compatible FROM key_id_compatibility)
+              RETURNING id, owner_user_id, recipient_user_id
+            ),
+            upserted_key AS (
+              INSERT INTO one_location_recipient_keys (
+                user_id, key_id, public_key_jwk, public_key_fingerprint, algorithm,
+                status, created_at, updated_at, metadata, encrypted_private_key_jwk
               )
-            RETURNING user_id, key_id, public_key_jwk, algorithm, created_at AS key_created_at, TRUE AS phone_verified
+              SELECT
+                :user_id, :key_id, CAST(:public_key_jwk AS JSONB), :fingerprint,
+                :algorithm, 'active', NOW(), NOW(), '{}'::jsonb,
+                CAST(:encrypted_private_key_jwk AS JSONB)
+              FROM key_id_compatibility
+              WHERE compatible
+              ON CONFLICT (user_id, key_id) DO UPDATE SET
+                public_key_jwk = EXCLUDED.public_key_jwk,
+                public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+                algorithm = EXCLUDED.algorithm,
+                status = 'active',
+                revoked_at = NULL,
+                updated_at = NOW(),
+                encrypted_private_key_jwk = COALESCE(
+                  EXCLUDED.encrypted_private_key_jwk,
+                  one_location_recipient_keys.encrypted_private_key_jwk
+                )
+              RETURNING
+                user_id, key_id, public_key_jwk, algorithm,
+                created_at AS key_created_at, TRUE AS phone_verified
+            ),
+            revoked_grant_events AS (
+              INSERT INTO one_location_events (
+                owner_user_id, actor_user_id, recipient_user_id, grant_id,
+                event_type, metadata, created_at
+              )
+              SELECT
+                g.owner_user_id, :user_id, g.recipient_user_id, g.id,
+                'location_share_revoked',
+                jsonb_build_object('reason', 'recipient_key_rotated'),
+                NOW()
+              FROM revoked_grants g
+              RETURNING id
+            ),
+            registered_key_event AS (
+              INSERT INTO one_location_events (
+                owner_user_id, actor_user_id, recipient_user_id,
+                event_type, metadata, created_at
+              )
+              SELECT
+                k.user_id, k.user_id, k.user_id,
+                'location_recipient_key_registered',
+                jsonb_build_object(
+                  'key_id', k.key_id,
+                  'algorithm', k.algorithm,
+                  'rotated_key_count', (SELECT COUNT(*) FROM rotated_keys),
+                  'revoked_grant_count', (SELECT COUNT(*) FROM revoked_grants)
+                ),
+                NOW()
+              FROM upserted_key k
+              RETURNING id
+            )
+            SELECT k.*
+            FROM upserted_key k
+            CROSS JOIN (SELECT COUNT(*) FROM revoked_grant_events) revoked_event_barrier
+            CROSS JOIN (SELECT COUNT(*) FROM registered_key_event) registered_event_barrier
             """
         insert_params = {
             "user_id": user_id,
@@ -2517,8 +2870,12 @@ class OneLocationAgentService:
             "encrypted_private_key_jwk": encrypted_private_key_json,
         }
         try:
-            row = self._execute_one(insert_sql, insert_params)
-        except DatabaseExecutionError as exc:
+            row = self._execute_recipient_key_registration(
+                recipient_key_lock_key=f"one-location-recipient-key:{user_id}",
+                mutation_sql=mutation_sql,
+                params=insert_params,
+            )
+        except Exception as exc:
             # Self-heal the specific `encrypted_private_key_jwk` migration drift
             # (migration 083 not yet applied) once, then retry. Any other DB
             # error propagates unchanged. The retry is bounded: it only fires
@@ -2533,17 +2890,19 @@ class OneLocationAgentService:
                     redact_log_field("user_id", user_id),
                 )
                 self._ensure_recipient_encrypted_private_column()
-                row = self._execute_one(insert_sql, insert_params)
+                row = self._execute_recipient_key_registration(
+                    recipient_key_lock_key=f"one-location-recipient-key:{user_id}",
+                    mutation_sql=mutation_sql,
+                    params=insert_params,
+                )
             else:
                 raise
-
-        self._insert_event(
-            owner_user_id=user_id,
-            actor_user_id=user_id,
-            recipient_user_id=user_id,
-            event_type="location_recipient_key_registered",
-            metadata={"key_id": normalized_key_id, "algorithm": algorithm},
-        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_KEY_ID_CONFLICT",
+                "This secure key id is already bound to different key material.",
+                status_code=409,
+            )
         return self._recipient_payload(row) or {}
 
     def list_verified_recipients(
@@ -2623,6 +2982,35 @@ class OneLocationAgentService:
         # Privacy gate: a user who turned marketplace visibility OFF
         # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
         # the directory too, UNLESS the owner has an explicit trusted edge.
+        return self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            page=1,
+            limit=limit,
+        )["items"]
+
+    def search_directory_candidates(
+        self,
+        *,
+        owner_user_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        candidate_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Search the eligible Connect directory before pagination.
+
+        This preserves the existing discovery policy while preventing callers
+        from being limited by an in-memory first page.  The result remains a
+        safe profile projection; it is not an all-account directory.
+        """
+        page = max(1, int(page or 1))
+        # Keep the legacy Ready People caller's 100-item ceiling intact. The
+        # Connect API applies its narrower public page limit before it gets
+        # here, so it cannot use this to request an unbounded directory.
+        limit = max(1, min(int(limit or 20), 100))
+        offset = (page - 1) * limit
+        needle = (query or "").strip().lower()
+        target = (candidate_user_id or "").strip() or None
         rows = self._execute_many(
             """
             SELECT
@@ -2638,6 +3026,7 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
+              AND (:candidate_user_id IS NULL OR a.user_id = :candidate_user_id)
               AND (
                 EXISTS (
                   SELECT 1
@@ -2653,6 +3042,15 @@ class OneLocationAgentService:
                       SELECT 1
                       FROM advisor_investor_relationships air
                       JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      JOIN relationship_share_grants share
+                        ON share.relationship_id = air.id
+                       AND share.grant_key = 'ria_active_picks_feed_v1'
+                       AND share.status = 'active'
+                       AND share.connection_scope_proposal_id IS NOT NULL
+                      JOIN connection_scope_proposals proposal
+                        ON proposal.id = share.connection_scope_proposal_id
+                       AND proposal.status = 'active'
+                       AND proposal.capability_key = 'ria_active_picks_feed_v1'
                       WHERE air.status = 'approved'
                         AND (
                           (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
@@ -2668,17 +3066,38 @@ class OneLocationAgentService:
                   )
                 )
               )
+              AND (
+                :query = ''
+                OR LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'
+              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
-            LIMIT :limit
+            LIMIT :fetch_limit OFFSET :offset
             """,
-            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+            {
+                "owner_user_id": owner_user_id,
+                "candidate_user_id": target,
+                "query": needle,
+                "fetch_limit": limit + 1,
+                "offset": offset,
+            },
         )
-
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
-        return self._apply_kai_circle_recommendations(
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+        return {"items": items, "page": page, "hasMore": has_more}
+
+    def is_directory_candidate(self, *, owner_user_id: str, candidate_user_id: str) -> bool:
+        result = self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            candidate_user_id=candidate_user_id,
+            page=1,
+            limit=1,
+        )
+        return bool(result["items"])
 
     def _recipient_key_row(
         self,
@@ -3379,12 +3798,48 @@ class OneLocationAgentService:
         source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
+        _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
                 "Choose a different verified recipient.",
                 status_code=422,
+            )
+        if not _key_writer_guarded:
+            with self._key_bound_writer_guard(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+            ):
+                grant = self.create_grant(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=recipient_user_id,
+                    recipient_key_id=recipient_key_id,
+                    duration_hours=duration_hours,
+                    reason=reason,
+                    share_kind=share_kind,
+                    require_recipient_phone_verified=require_recipient_phone_verified,
+                    enforce_connection=enforce_connection,
+                    _key_writer_guarded=True,
+                )
+            resolved_kind = share_kind or _classify_share_kind(reason)
+            if reason != "request_approved" and resolved_kind != "sos":
+                self._send_location_share_created_notification(
+                    grant=grant,
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=recipient_user_id,
+                    duration=float(grant.get("durationHours") or duration_hours),
+                    reason=reason,
+                    resolved_kind=resolved_kind,
+                )
+            return grant
+        if enforce_connection and not self._is_active_connection(
+            owner_user_id=owner_user_id, other_user_id=recipient_user_id
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                "You can only share your live location with your connections.",
+                status_code=403,
             )
         try:
             duration = normalize_duration_hours(duration_hours)
@@ -3495,7 +3950,7 @@ class OneLocationAgentService:
         # this call. Sending share-created as well produces two alerts for one
         # user action. SMS waits until its first encrypted envelope is durably
         # stored so a recipient is never told a location is available too early.
-        if reason != "request_approved" and resolved_kind != "sos":
+        if not _key_writer_guarded and reason != "request_approved" and resolved_kind != "sos":
             self._send_location_share_created_notification(
                 grant=grant,
                 owner_user_id=owner_user_id,
@@ -3506,13 +3961,432 @@ class OneLocationAgentService:
             )
         return grant
 
+    def create_grant_with_initial_envelope(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+        recipient_key_id: str | None,
+        duration_hours: float,
+        client_operation_id: str,
+        confirmed_at: datetime | str,
+        envelope: dict[str, Any],
+        reason: str | None = None,
+        share_kind: str | None = None,
+        require_recipient_phone_verified: bool = True,
+        enforce_connection: bool = False,
+    ) -> dict[str, Any]:
+        """Atomically replace a grant and persist its first ciphertext envelope.
+
+        Deterministic IDs and an exact request fingerprint make retries safe
+        after ambiguous network responses. A transaction-scoped advisory lock
+        serializes replacements for the owner/recipient pair; the mutation then
+        runs with a fresh Postgres snapshot. The notification is emitted only
+        after the transaction has durably committed.
+        """
+
+        operation_id = str(client_operation_id or "").strip()
+        if not operation_id or len(operation_id) > 160:
+            raise OneLocationAgentError(
+                "LOCATION_OPERATION_ID_INVALID",
+                "A valid private-share operation id is required.",
+                status_code=422,
+            )
+        if owner_user_id == recipient_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_SELF",
+                "Choose a different verified recipient.",
+                status_code=422,
+            )
+        key_id = str(recipient_key_id or "").strip()
+        if not key_id:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_KEY_REQUIRED",
+                "The approved recipient key is required.",
+                status_code=422,
+            )
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        resolved_kind = share_kind or _classify_share_kind(reason)
+        # Check-In notes are recipient information, not audit metadata. The web
+        # client encrypts the note with the point; this fixed marker is the only
+        # Check-In reason persisted or sent through notification metadata.
+        stored_reason = _CHECK_IN_SHARE_REASON if resolved_kind == "check_in" else reason
+        envelope_fields = _validated_envelope_fields(
+            envelope,
+            recipient_key_id=key_id,
+            require_captured_at=True,
+        )
+        confirmed_at_value = _parse_datetime(
+            confirmed_at,
+            field_name="confirmedAt",
+        )
+        captured_at = envelope_fields["captured_at"]
+        now = _utcnow()
+        freshness_error = _private_share_freshness_error(
+            captured_at=captured_at,
+            confirmed_at=confirmed_at_value,
+            now=now,
+        )
+
+        operation_fingerprint = _private_share_operation_fingerprint(
+            recipient_user_id=recipient_user_id,
+            recipient_key_id=key_id,
+            duration_hours=duration,
+            reason=stored_reason,
+            share_kind=resolved_kind,
+            confirmed_at=confirmed_at_value,
+            envelope_fields=envelope_fields,
+        )
+        grant_id, envelope_id = _atomic_private_share_ids(
+            owner_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            client_operation_id=operation_id,
+        )
+        expires_at = now + timedelta(hours=duration)
+        capability = self._mint_grant_capability_token(
+            owner_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            duration_hours=duration,
+        )
+        metadata_json = _json_param(
+            {
+                "reason": stored_reason or "owner_approved",
+                "share_kind": resolved_kind,
+                "capability_token": capability["token"],
+                "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+                "client_operation_id": operation_id,
+                "client_operation_fingerprint": operation_fingerprint,
+                "confirmed_at": confirmed_at_value.isoformat(),
+            }
+        )
+        row = self._execute_atomic_private_share(
+            recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
+            pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
+            mutation_sql="""
+            WITH replayed_grant AS MATERIALIZED (
+              SELECT g.*
+              FROM one_location_share_grants g
+              WHERE g.id = CAST(:grant_id AS UUID)
+                AND g.owner_user_id = :owner_user_id
+                AND g.recipient_user_id = :recipient_user_id
+              LIMIT 1
+            ),
+            replayed_envelope AS MATERIALIZED (
+              SELECT e.*
+              FROM one_location_envelopes e
+              JOIN replayed_grant g
+                ON g.latest_envelope_id = e.id
+               AND e.id = CAST(:envelope_id AS UUID)
+              LIMIT 1
+            ),
+            eligible_recipient AS MATERIALIZED (
+              SELECT
+                a.user_id, a.display_name, a.phone_number, a.phone_verified,
+                k.key_id
+              FROM actor_identity_cache a
+              JOIN one_location_recipient_keys k ON k.user_id = a.user_id
+              WHERE a.user_id = :recipient_user_id
+                AND k.key_id = :recipient_key_id
+                AND k.status = 'active'
+                AND (
+                  CAST(:require_phone_verified AS BOOLEAN) IS FALSE
+                  OR a.phone_verified = TRUE
+                )
+                AND CAST(:freshness_valid AS BOOLEAN) IS TRUE
+                AND CAST(:confirmed_at AS TIMESTAMPTZ)
+                  <= NOW() + INTERVAL '30 seconds'
+                AND CAST(:captured_at AS TIMESTAMPTZ)
+                  <= CAST(:confirmed_at AS TIMESTAMPTZ) + INTERVAL '30 seconds'
+                AND CAST(:confirmed_at AS TIMESTAMPTZ)
+                    - CAST(:captured_at AS TIMESTAMPTZ)
+                  <= INTERVAL '60 seconds'
+                AND NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)
+                  <= INTERVAL '10 minutes'
+                AND (
+                  CAST(:enforce_connection AS BOOLEAN) IS FALSE
+                  OR EXISTS (
+                    SELECT 1
+                    FROM connections c
+                    WHERE c.status = 'active'
+                      AND (
+                        (
+                          c.user_a_id = :owner_user_id
+                          AND c.user_b_id = :recipient_user_id
+                        )
+                        OR (
+                          c.user_a_id = :recipient_user_id
+                          AND c.user_b_id = :owner_user_id
+                        )
+                      )
+                  )
+                )
+                AND (
+                  CAST(:require_sms_contact AS BOOLEAN) IS FALSE
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_sms_contacts sc
+                    WHERE sc.owner_user_id = :owner_user_id
+                      AND sc.contact_user_id = :recipient_user_id
+                  )
+                )
+              LIMIT 1
+            ),
+            revoked_grants AS (
+              UPDATE one_location_share_grants g
+              SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+              WHERE g.owner_user_id = :owner_user_id
+                AND g.recipient_user_id = :recipient_user_id
+                AND g.status = 'active'
+                AND EXISTS (SELECT 1 FROM eligible_recipient)
+                AND NOT EXISTS (SELECT 1 FROM replayed_grant)
+              RETURNING g.id
+            ),
+            created_grant AS (
+              INSERT INTO one_location_share_grants (
+                id, owner_user_id, recipient_user_id, recipient_key_id,
+                status, consent_scope, capability_scopes, duration_hours,
+                expires_at, created_at, updated_at, metadata
+              )
+              SELECT
+                CAST(:grant_id AS UUID),
+                :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
+                'cap.location.live.view', CAST(:capability_scopes AS JSONB),
+                :duration_hours, :expires_at, NOW(), NOW(),
+                CAST(:metadata_json AS JSONB)
+              FROM eligible_recipient
+              CROSS JOIN (SELECT COUNT(*) FROM revoked_grants) revoke_barrier
+              WHERE NOT EXISTS (SELECT 1 FROM replayed_grant)
+              RETURNING *
+            ),
+            created_envelope AS (
+              INSERT INTO one_location_envelopes (
+                id, grant_id, owner_user_id, recipient_user_id,
+                recipient_key_id, algorithm, ciphertext, iv,
+                sender_ephemeral_public_key_jwk, captured_at, source_platform,
+                publication_context, created_at, metadata
+              )
+              SELECT
+                CAST(:envelope_id AS UUID),
+                g.id, g.owner_user_id, g.recipient_user_id, g.recipient_key_id,
+                :algorithm, :ciphertext, :iv, CAST(:sender_key AS JSONB),
+                :captured_at, :source_platform, :publication_context, NOW(),
+                CAST(:envelope_metadata_json AS JSONB)
+              FROM created_grant g
+              RETURNING *
+            ),
+            completed_grant AS (
+              UPDATE one_location_share_grants g
+              SET latest_envelope_id = e.id, updated_at = NOW()
+              FROM created_envelope e
+              WHERE g.id = e.grant_id
+              RETURNING g.*
+            ),
+            created_grant_event AS (
+              INSERT INTO one_location_events (
+                owner_user_id, actor_user_id, recipient_user_id, grant_id,
+                event_type, metadata, created_at
+              )
+              SELECT
+                g.owner_user_id, g.owner_user_id, g.recipient_user_id, g.id,
+                'location_share_created',
+                jsonb_build_object('duration_hours', g.duration_hours),
+                NOW()
+              FROM completed_grant g
+              RETURNING id
+            ),
+            created_envelope_event AS (
+              INSERT INTO one_location_events (
+                owner_user_id, actor_user_id, recipient_user_id, grant_id,
+                envelope_id, event_type, metadata, created_at
+              )
+              SELECT
+                e.owner_user_id, e.owner_user_id, e.recipient_user_id,
+                e.grant_id, e.id, 'location_envelope_updated',
+                jsonb_build_object(
+                  'source_platform', e.source_platform,
+                  'recipient_key_id', e.recipient_key_id
+                ),
+                NOW()
+              FROM created_envelope e
+              RETURNING id
+            ),
+            selected_grant AS (
+              SELECT g.*, TRUE AS idempotent_replay
+              FROM replayed_grant g
+              WHERE EXISTS (SELECT 1 FROM replayed_envelope)
+              UNION ALL
+              SELECT g.*, FALSE AS idempotent_replay
+              FROM completed_grant g
+            ),
+            selected_envelope AS (
+              SELECT * FROM replayed_envelope
+              UNION ALL
+              SELECT * FROM created_envelope
+            )
+            SELECT
+              (
+                to_jsonb(g.*) - 'idempotent_replay'
+                || jsonb_build_object(
+                  'recipient_display_name', a.display_name,
+                  'recipient_phone_number', a.phone_number
+                )
+              ) AS grant_row,
+              to_jsonb(e.*) AS envelope_row,
+              g.idempotent_replay,
+              EXISTS (
+                SELECT 1
+                FROM one_location_recipient_keys active_key
+                WHERE active_key.user_id = g.recipient_user_id
+                  AND active_key.key_id = g.recipient_key_id
+                  AND active_key.status = 'active'
+              ) AS recipient_key_active
+            FROM selected_grant g
+            JOIN selected_envelope e ON e.grant_id = g.id
+            LEFT JOIN actor_identity_cache a ON a.user_id = g.recipient_user_id
+            LIMIT 1
+            """,
+            params={
+                "grant_id": grant_id,
+                "envelope_id": envelope_id,
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+                "recipient_key_id": key_id,
+                "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
+                "duration_hours": duration,
+                "expires_at": expires_at,
+                "metadata_json": metadata_json,
+                "freshness_valid": freshness_error is None,
+                "confirmed_at": confirmed_at_value,
+                "require_phone_verified": require_recipient_phone_verified,
+                "enforce_connection": enforce_connection,
+                "require_sms_contact": resolved_kind == "sos",
+                "envelope_metadata_json": envelope_fields["metadata_json"],
+                **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
+            },
+        )
+        if not row:
+            freshness_error = _private_share_freshness_error(
+                captured_at=captured_at,
+                confirmed_at=confirmed_at_value,
+            )
+            if freshness_error is not None:
+                raise freshness_error
+            if enforce_connection and not self._is_active_connection(
+                owner_user_id=owner_user_id,
+                other_user_id=recipient_user_id,
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                    "You can only share your live location with your connections.",
+                    status_code=403,
+                )
+            if resolved_kind == "sos" and not self._is_sms_contact(
+                owner_user_id=owner_user_id,
+                contact_user_id=recipient_user_id,
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_SMS_CONTACT_REQUIRED",
+                    "This person is not in your SMS contacts.",
+                    status_code=403,
+                )
+            self._recipient_key_row(
+                recipient_user_id=recipient_user_id,
+                recipient_key_id=key_id,
+                require_phone_verified=require_recipient_phone_verified,
+            )
+            raise OneLocationAgentError(
+                "LOCATION_ATOMIC_SHARE_FAILED",
+                "Could not save the private location share.",
+                status_code=500,
+            )
+
+        raw_grant = _loads_json(row.get("grant_row"))
+        raw_envelope = _loads_json(row.get("envelope_row"))
+        if not isinstance(raw_grant, dict) or not isinstance(raw_envelope, dict):
+            raise OneLocationAgentError(
+                "LOCATION_ATOMIC_SHARE_FAILED",
+                "Could not read the saved private location share.",
+                status_code=500,
+            )
+        stored_metadata = _loads_json(raw_grant.get("metadata"))
+        stored_fingerprint = (
+            str(stored_metadata.get("client_operation_fingerprint") or "")
+            if isinstance(stored_metadata, dict)
+            else ""
+        )
+        if stored_fingerprint != operation_fingerprint:
+            raise OneLocationAgentError(
+                "LOCATION_OPERATION_CONFLICT",
+                "This private-share operation id was already used for different details.",
+                status_code=409,
+            )
+
+        grant = self._grant_payload(raw_grant)
+        envelope_payload = self._envelope_payload(raw_envelope)
+        if not grant or not envelope_payload:
+            raise OneLocationAgentError(
+                "LOCATION_ATOMIC_SHARE_FAILED",
+                "Could not read the saved private location share.",
+                status_code=500,
+            )
+        if grant["status"] != "active":
+            raise OneLocationAgentError(
+                "LOCATION_OPERATION_FINALIZED",
+                "This private location share is no longer active.",
+                status_code=409,
+            )
+        if not bool(row.get("recipient_key_active")):
+            raise OneLocationAgentError(
+                "LOCATION_OPERATION_FINALIZED",
+                "The recipient's secure location key changed. Review and share again.",
+                status_code=409,
+            )
+        grant_expires_at = _parse_datetime(
+            grant.get("expiresAt"),
+            field_name="expiresAt",
+        )
+        if grant_expires_at <= _utcnow():
+            # Expiry is lazily materialized elsewhere. Never report a stale
+            # deterministic replay as active; normalize it before failing.
+            self._expire_stale_grants(recipient_user_id)
+            raise OneLocationAgentError(
+                "LOCATION_OPERATION_FINALIZED",
+                "This private location share has expired.",
+                status_code=409,
+            )
+
+        idempotent_replay = bool(row.get("idempotent_replay"))
+        if not idempotent_replay:
+            self._send_location_share_created_notification(
+                grant=grant,
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration=duration,
+                reason=stored_reason,
+                resolved_kind=resolved_kind,
+            )
+        return {
+            "grant": grant,
+            "envelope": envelope_payload,
+            "idempotentReplay": idempotent_replay,
+        }
+
     def store_encrypted_envelope(
         self,
         *,
         owner_user_id: str,
         grant_id: str,
         envelope: dict[str, Any],
+        _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
+        # Reject malformed/plaintext metadata before performing any grant read.
         if _contains_plaintext_location_key(envelope.get("metadata")):
             raise OneLocationAgentError(
                 "LOCATION_ENVELOPE_METADATA_INVALID",
@@ -3526,6 +4400,43 @@ class OneLocationAgentService:
                     f"Encrypted envelope is missing {field}.",
                     status_code=422,
                 )
+        if not _key_writer_guarded:
+            lock_target = self._execute_one(
+                """
+                SELECT recipient_user_id
+                FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                LIMIT 1
+                """,
+                {"owner_user_id": owner_user_id, "grant_id": grant_id},
+            )
+            if not lock_target:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "Location share was not found.",
+                    status_code=404,
+                )
+            recipient_user_id = str(lock_target.get("recipient_user_id") or "")
+            with self._key_bound_writer_guard(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+            ):
+                envelope_payload = self.store_encrypted_envelope(
+                    owner_user_id=owner_user_id,
+                    grant_id=grant_id,
+                    envelope=envelope,
+                    _key_writer_guarded=True,
+                )
+            post_commit_notification = envelope_payload.pop(
+                "_post_commit_notification",
+                None,
+            )
+            if isinstance(post_commit_notification, dict):
+                self._send_location_share_created_notification(
+                    **post_commit_notification,
+                )
+            return envelope_payload
         grant_row = self._execute_one(
             """
             SELECT *
@@ -3556,26 +4467,10 @@ class OneLocationAgentService:
         # Grants minted before per-grant tokens fall back to the DB checks above.
         self._assert_grant_capability_token(grant_row)
         recipient_key_id = str(grant_row.get("recipient_key_id") or "")
-        if str(envelope.get("recipientKeyId") or recipient_key_id) != recipient_key_id:
-            raise OneLocationAgentError(
-                "LOCATION_ENVELOPE_KEY_MISMATCH",
-                "Envelope key does not match the approved recipient.",
-                status_code=422,
-            )
-        captured_at = _parse_datetime(envelope.get("capturedAt"), field_name="capturedAt")
-        publication_context = str(
-            envelope.get("publicationContext") or "private_foreground"
-        ).strip()
-        if publication_context not in {
-            "private_background",
-            "private_foreground",
-            "foreground_map_visible",
-        }:
-            raise OneLocationAgentError(
-                "LOCATION_ENVELOPE_PUBLICATION_CONTEXT_INVALID",
-                "Location publication context is invalid.",
-                status_code=422,
-            )
+        envelope_fields = _validated_envelope_fields(
+            envelope,
+            recipient_key_id=recipient_key_id,
+        )
         row = self._execute_one(
             """
             INSERT INTO one_location_envelopes (
@@ -3595,18 +4490,7 @@ class OneLocationAgentService:
                 "owner_user_id": owner_user_id,
                 "recipient_user_id": str(grant_row.get("recipient_user_id") or ""),
                 "recipient_key_id": recipient_key_id,
-                "algorithm": str(envelope.get("algorithm") or "ECDH-P256-AES256-GCM"),
-                "ciphertext": str(envelope.get("ciphertext") or ""),
-                "iv": str(envelope.get("iv") or ""),
-                "sender_key": json.dumps(
-                    envelope.get("senderEphemeralPublicKeyJwk"),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
-                "captured_at": captured_at,
-                "source_platform": normalize_source_platform(envelope.get("sourcePlatform")),
-                "publication_context": publication_context,
-                "metadata_json": _json_param(envelope.get("metadata") or {}),
+                **envelope_fields,
             },
         )
         envelope_payload = self._envelope_payload(row)
@@ -3641,20 +4525,24 @@ class OneLocationAgentService:
             grant_metadata = {}
         stored_kind = str(grant_metadata.get("share_kind") or "")
         if stored_kind == "sos" and is_first_envelope:
-            self._send_location_share_created_notification(
-                grant=self._grant_payload(
+            notification_args = {
+                "grant": self._grant_payload(
                     {
                         **grant_row,
                         "latest_envelope_id": envelope_payload["id"],
                     }
                 )
                 or {"id": grant_id, "expiresAt": _iso(grant_row.get("expires_at"))},
-                owner_user_id=owner_user_id,
-                recipient_user_id=str(grant_row.get("recipient_user_id") or ""),
-                duration=float(grant_row.get("duration_hours") or 8),
-                reason=str(grant_metadata.get("reason") or "") or None,
-                resolved_kind="sos",
-            )
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": str(grant_row.get("recipient_user_id") or ""),
+                "duration": float(grant_row.get("duration_hours") or 8),
+                "reason": str(grant_metadata.get("reason") or "") or None,
+                "resolved_kind": "sos",
+            }
+            if _key_writer_guarded:
+                envelope_payload["_post_commit_notification"] = notification_args
+            else:
+                self._send_location_share_created_notification(**notification_args)
         return envelope_payload
 
     def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
@@ -3664,7 +4552,14 @@ class OneLocationAgentService:
             SELECT
               g.*,
               owner.display_name AS owner_display_name,
-              owner.phone_number AS owner_phone_number
+              owner.phone_number AS owner_phone_number,
+              EXISTS (
+                SELECT 1
+                FROM one_location_recipient_keys active_key
+                WHERE active_key.user_id = g.recipient_user_id
+                  AND active_key.key_id = g.recipient_key_id
+                  AND active_key.status = 'active'
+              ) AS recipient_key_active
             FROM one_location_share_grants g
             LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
             WHERE g.id = CAST(:grant_id AS UUID)
@@ -3680,6 +4575,12 @@ class OneLocationAgentService:
         if str(grant_row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=410
+            )
+        if not bool(grant_row.get("recipient_key_active")):
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_ACTIVE",
+                "The secure recipient key changed. Ask the owner to share again.",
+                status_code=410,
             )
         row = self._execute_one(
             """
@@ -5207,11 +6108,36 @@ def location_error_detail(exc: OneLocationAgentError) -> dict[str, str]:
     return {"code": exc.code, "message": exc.message}
 
 
+_DB_UNAVAILABLE_HTTP_STATUS = 503
+_DB_UNAVAILABLE_MESSAGE = "Location storage is temporarily unavailable. Try again shortly."
+_DB_FAILED_MESSAGE = "Location request failed."
+
+
 def database_error_detail(exc: DatabaseExecutionError) -> dict[str, str]:
+    """Client-safe detail for a database failure.
+
+    `exc.details` is `str(<the DBAPI error>)`, and SQLAlchemy appends the failing
+    statement plus every bound value to that string (no engine here sets
+    `hide_parameters`). Location binds phone numbers, display labels, invite
+    tokens and coordinates, so the raw detail stays server-side: the caller gets
+    the stable code and the static hint, which is all it can act on anyway.
+    """
+    code = getattr(exc, "code", "DATABASE_EXECUTION_ERROR")
+    status_code = getattr(exc, "status_code", 500)
+    logger.error(
+        "one_location.database_error code=%s table=%s operation=%s",
+        code,
+        getattr(exc, "table_name", "unknown"),
+        getattr(exc, "operation", "unknown"),
+    )
     return {
-        "code": exc.code,
-        "message": exc.details,
-        "hint": exc.hint or "",
+        "code": code,
+        "message": (
+            _DB_UNAVAILABLE_MESSAGE
+            if status_code == _DB_UNAVAILABLE_HTTP_STATUS
+            else _DB_FAILED_MESSAGE
+        ),
+        "hint": getattr(exc, "hint", "") or "",
     }
 
 

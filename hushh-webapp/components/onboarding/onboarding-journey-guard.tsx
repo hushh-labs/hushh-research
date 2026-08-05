@@ -20,10 +20,6 @@ import {
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
-import {
-  clearSetupIntent,
-  hasSetupIntent,
-} from "@/lib/services/one-setup-intent";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
@@ -119,17 +115,16 @@ export function OnboardingJourneyGuard({
           setupSurface,
         })),
   );
-  // "Dismissed" = the user finished/skipped onboarding at least once. After
-  // that, a setup surface is reachable ONLY via a deliberate in-app open
-  // (Profile → "Set Up One", which calls markSetupIntent). Any other arrival —
-  // the browser/OS back button, a stale history entry, a direct URL — is ejected
-  // to home so setup is never re-shown post-onboarding.
+  // "Dismissed" = the user finished/skipped onboarding at least once. The root
+  // setup funnel is one-time, so every post-completion setup arrival is ejected
+  // to home. Account reset/delete clears this durable state and re-enables the
+  // canonical setup route through the existing recovery flow.
   const setupDismissed = Boolean(
     persistentSetupResolved ||
       (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
   );
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed && !hasSetupIntent(),
+    setupSurface && setupDismissed,
   );
 
   useEffect(() => {
@@ -153,10 +148,10 @@ export function OnboardingJourneyGuard({
         return;
       }
       if (setupSurface) {
-        // First onboarding and a deliberate open (Profile → "Set Up One") are
-        // admitted. A dismissed user who reached a setup surface WITHOUT a
-        // deliberate open (browser/OS back, history, direct URL) is ejected to
-        // home — this is the one place that catches every arrival path.
+        // First onboarding is admitted. A dismissed user who reaches a setup
+        // surface (browser/OS back, history, direct URL, or stale navigation)
+        // is ejected to home — this is the one place that catches every arrival
+        // path after the one-time gate resolves.
         if (shouldEjectSetupSurface) {
           if (redirectTargetRef.current !== ROUTES.ONE_HOME) {
             redirectTargetRef.current = ROUTES.ONE_HOME;
@@ -316,15 +311,6 @@ export function OnboardingJourneyGuard({
     shouldEjectSetupSurface,
     userId,
   ]);
-
-  // The deliberate-entry intent covers only the active setup visit. Clear it the
-  // moment the user is on any non-setup surface so a later back-navigation into
-  // setup is treated as non-deliberate and ejected.
-  useEffect(() => {
-    if (!isOneSetupSurfaceRoute(pathname)) {
-      clearSetupIntent();
-    }
-  }, [pathname]);
 
   const passThrough = exempt || (!authLoading && !userId);
   const loaderActive =

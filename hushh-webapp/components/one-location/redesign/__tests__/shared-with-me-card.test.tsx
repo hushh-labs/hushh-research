@@ -7,11 +7,13 @@ describe("SharedWithMeCard", () => {
   it("keeps the live state beside the expiry and exposes an accessible disclosure", () => {
     const onView = vi.fn();
     const onDismiss = vi.fn();
+    const onRecenter = vi.fn();
     const props = {
       name: "Trusted A",
       statusLine: "Live until Jul 28, 11:19 PM",
       onView,
       onDismiss,
+      onRecenter,
       mapHref: "https://www.google.com/maps/search/?api=1&query=1%2C2",
     };
     const { rerender } = render(
@@ -34,6 +36,11 @@ describe("SharedWithMeCard", () => {
     );
     expect(previewRegion).not.toBeNull();
     expect(previewRegion?.hidden).toBe(true);
+    expect(
+      screen.queryByRole("button", {
+        name: "Recenter map on Trusted A's location",
+      }),
+    ).toBeNull();
 
     fireEvent.click(expandButton);
     expect(onView).toHaveBeenCalledTimes(1);
@@ -47,8 +54,15 @@ describe("SharedWithMeCard", () => {
     const collapseButton = screen.getByRole("button", {
       name: "Collapse shared location from Trusted A",
     });
+    const recenterButton = screen.getByRole("button", {
+      name: "Recenter map on Trusted A's location",
+    });
     expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
     expect(collapseButton).not.toBeDisabled();
+    expect(
+      recenterButton.compareDocumentPosition(collapseButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(previewRegion?.hidden).toBe(false);
     expect(
       screen.getByRole("link", {
@@ -56,6 +70,10 @@ describe("SharedWithMeCard", () => {
       }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+
+    fireEvent.click(recenterButton);
+    expect(onRecenter).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
 
     fireEvent.click(collapseButton);
     expect(onDismiss).toHaveBeenCalledTimes(1);

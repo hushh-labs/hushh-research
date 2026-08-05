@@ -17,13 +17,9 @@
 > preconditions: `KT/hushh-one-publish-safety-audit.md`.
 
 **Status**: Reference for public store submission (iOS TestFlight + App Store upload/prepare are automated — see banner above)
-
 **App Name**: Hussh One (display name; historically "Kai")
-
 **Bundle ID**: com.hushh.app
-
 **Current version**: 1.3.6 (marketing) — see `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`
-
 **Build**: auto-incremented by `scripts/ci/resolve-ios-build-number.py`
 
 ---

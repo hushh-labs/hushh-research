@@ -1,205 +1,317 @@
-// @vitest-environment jsdom
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import type { LocationHubViewModel } from "@/components/one-location/redesign/location-redesign-hub";
-import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 
-const readyCircleRecipient: OneLocationRecipient = {
-  userId: "family-member",
-  displayName: "Ankit",
-  phoneVerified: true,
-  keyId: "key-family-member",
-  publicKeyJwk: { kty: "EC" },
-  keyAlgorithm: "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
-  canReceiveLocation: true,
-};
-
-const familySelection: CircleRecipientSelection = {
-  circle: {
-    id: "circle-family",
-    name: "Family",
-    kind: "family",
-    role: "owner",
-    memberCount: 3,
-    memberLimit: 20,
-    members: [
-      {
-        userId: "owner",
-        displayName: "You",
-        role: "owner",
-        phoneVerified: true,
-        secureLocationReady: true,
-      },
-      {
-        userId: readyCircleRecipient.userId,
-        displayName: readyCircleRecipient.displayName,
-        role: "member",
-        phoneVerified: true,
-        secureLocationReady: true,
-        canReceiveLocation: true,
-        keyId: readyCircleRecipient.keyId,
-        publicKeyJwk: readyCircleRecipient.publicKeyJwk,
-        keyAlgorithm: readyCircleRecipient.keyAlgorithm,
-      },
-      {
-        userId: "setup-needed",
-        displayName: "Neelesh",
-        role: "member",
-        phoneVerified: true,
-        secureLocationReady: false,
-      },
-    ],
-  },
-  ready: [
-    {
-      recipient: {
-        ...readyCircleRecipient,
-        keyId: readyCircleRecipient.keyId!,
-        publicKeyJwk: readyCircleRecipient.publicKeyJwk!,
-      },
-      sourceCircleId: "circle-family",
-    },
-  ],
-  excluded: [
-    {
-      member: {
-        userId: "owner",
-        displayName: "You",
-        role: "owner",
-        phoneVerified: true,
-        secureLocationReady: true,
-      },
-      reason: "self",
-      label: "You are not added as a recipient",
-    },
-    {
-      member: {
-        userId: "setup-needed",
-        displayName: "Neelesh",
-        role: "member",
-        phoneVerified: true,
-        secureLocationReady: false,
-      },
-      reason: "location_setup_needed",
-      label: "Location setup is not complete",
-    },
-  ],
-};
-
-function buildViewModel(
-  overrides: Partial<LocationHubViewModel> = {},
-): LocationHubViewModel {
+function currentPoint() {
   return {
-    busy: null,
-    circles: [
-      {
-        id: "circle-family",
-        name: "Family",
-        kind: "family",
-        role: "owner",
-        memberCount: 3,
-        memberLimit: 20,
-      },
-    ],
-    sosRecipients: [],
-    myLocationPoint: {
-      latitude: 37.7749,
-      longitude: -122.4194,
-      accuracyM: 8,
-      capturedAt: "2026-07-29T12:00:00.000Z",
-      sourcePlatform: "web",
-    },
-    myLocationError: null,
-    onResolveNamedCircleRecipients: vi
-      .fn()
-      .mockResolvedValue(familySelection),
-    onShareNamedCircleCodeById: vi.fn().mockResolvedValue(undefined),
-    onLoadNamedCircleEligibleConnections: vi.fn().mockResolvedValue({
-      eligibleConnections: [],
-      pendingInvites: [],
-      remainingCapacity: 0,
-    }),
-    onInviteNamedCircleConnections: vi.fn().mockResolvedValue(undefined),
-    onCancelNamedCircleMemberInvite: vi.fn().mockResolvedValue(undefined),
-    onCheckIn: vi.fn(),
-    onShowMyLocation: vi.fn(),
-
-    recipientLabel: (recipient) => recipient.displayName,
-    isRecipientShareReady: (recipient) =>
-      Boolean(
-        recipient.canReceiveLocation &&
-          recipient.keyId &&
-          recipient.publicKeyJwk,
-      ),
-    formatDateTime: () => "12:00 PM",
-    renderMapPreview: () => <div>Map preview</div>,
-    ...overrides,
-  } as LocationHubViewModel;
+    latitude: 37.4275,
+    longitude: -122.1697,
+    accuracyM: 8,
+    capturedAt: new Date().toISOString(),
+    sourcePlatform: "web" as const,
+  };
 }
 
-describe("CheckInFlow Circle targeting", () => {
-  it("resolves the selected Circle and checks in with its current ready members", async () => {
-    const onCheckIn = vi.fn();
-    const onResolveNamedCircleRecipients = vi
-      .fn()
-      .mockResolvedValue(familySelection);
-    const vm = buildViewModel({
-      onCheckIn,
-      onResolveNamedCircleRecipients,
-    });
+function recipient(userId: string, displayName: string): OneLocationRecipient {
+  return {
+    userId,
+    displayName,
+    phoneVerified: true,
+    keyId: `${userId}-key`,
+    publicKeyJwk: { kty: "EC" },
+    keyAlgorithm: "ECDH-ES+A256GCM",
+    canReceiveLocation: true,
+  };
+}
 
-    render(<CheckInFlow vm={vm} onClose={vi.fn()} />);
+function viewModel(
+  onCheckIn: LocationHubViewModel["onCheckIn"],
+  onDiscardPrivateCheckInOperation: LocationHubViewModel["onDiscardPrivateCheckInOperation"] = vi.fn(),
+): LocationHubViewModel {
+  const point = currentPoint();
+  const recipients = [
+    recipient("user-aarav", "Aarav Mehta"),
+    recipient("user-maya", "Maya Chen"),
+  ];
+  return {
+    busy: null,
+    sosRecipients: recipients,
+    myLocationPoint: point,
+    myLocationError: null,
+    onShowMyLocation: vi.fn(),
+    onCheckIn,
+    onDiscardPrivateCheckInOperation,
+    isRecipientShareReady: () => true,
+    recipientLabel: (value) => value.displayName,
+    formatDateTime: () => "just now",
+    renderMapPreview: () => null,
+  } as unknown as LocationHubViewModel;
+}
 
-    fireEvent.click(screen.getByRole("button", { name: /Family/i }));
+describe("CheckInFlow nearby private-sharing handoff", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recenters a confirmed check-in without capturing location again", async () => {
+    const onCheckIn = vi
+      .fn<LocationHubViewModel["onCheckIn"]>()
+      .mockResolvedValue({
+        succeededRecipientIds: [],
+        failedRecipientIds: ["user-aarav"],
+      });
+    const vm = viewModel(onCheckIn);
+    vm.renderMapPreview = vi.fn((_point, _showNavigation, resetKey) => (
+      <span data-testid="check-in-map-reset-key">{String(resetKey)}</span>
+    ));
+
+    render(
+      <CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("check-in-map-reset-key")).toHaveTextContent(
+      "check-in:0",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share encrypted location with 1 person",
+      }),
+    );
+    await waitFor(() => expect(onCheckIn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Recenter map on the confirmed check-in location",
+      }),
+    );
+
+    expect(screen.getByTestId("check-in-map-reset-key")).toHaveTextContent(
+      "check-in:1",
+    );
+    expect(vm.onShowMyLocation).not.toHaveBeenCalled();
+  });
+
+  it("starts with explicit selection and retries only failed recipients", async () => {
+    const onCheckIn = vi
+      .fn<LocationHubViewModel["onCheckIn"]>()
+      .mockResolvedValueOnce({
+        succeededRecipientIds: ["user-aarav"],
+        failedRecipientIds: ["user-maya"],
+      })
+      .mockResolvedValueOnce({
+        succeededRecipientIds: ["user-maya"],
+        failedRecipientIds: [],
+      });
+
+    render(
+      <CheckInFlow
+        vm={viewModel(onCheckIn)}
+        entrySource="nearby"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("nearby-private-share-disclosure"),
+    ).toHaveTextContent(/Nearby people can see your name only/i);
+    expect(
+      screen.getByRole("button", { name: "Select who should know" }),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Maya Chen/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share encrypted location with 2 people",
+      }),
+    );
 
     await waitFor(() => {
-      expect(onResolveNamedCircleRecipients).toHaveBeenCalledWith(
-        "circle-family",
-        "location",
+      expect(onCheckIn).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          recipientIds: ["user-aarav", "user-maya"],
+          durationHours: "1",
+          message: "I've checked in here, let's catch up",
+          point: expect.objectContaining({
+            latitude: 37.4275,
+            longitude: -122.1697,
+          }),
+          clientOperationId: expect.any(String),
+          confirmedAt: expect.any(String),
+        }),
       );
-      expect(screen.getByText("1 ready now")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/Current ready members only/i),
-    ).toHaveTextContent("1 not ready.");
+    const firstRequest = onCheckIn.mock.calls[0]![0];
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in with 1 person" }),
+    const retry = await screen.findByRole("button", {
+      name: "Share encrypted location with 1 person",
+    });
+    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "30 min" })).toBeDisabled();
+    expect(
+      screen.getByPlaceholderText("I've checked in here, let's catch up"),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/sends only to people who still failed/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("private-check-in-partial-success"),
+    ).toHaveTextContent(
+      /They keep the original encrypted location, duration, and message/i,
+    );
+    fireEvent.click(retry);
+
+    await waitFor(() => {
+      expect(onCheckIn).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          recipientIds: ["user-maya"],
+          durationHours: "1",
+          message: "I've checked in here, let's catch up",
+          point: firstRequest.point,
+          clientOperationId: firstRequest.clientOperationId,
+          confirmedAt: firstRequest.confirmedAt,
+        }),
+      );
+    });
+  });
+
+  it("expires an uncompleted confirmation and lets only remaining people be reconfirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T08:00:00.000Z"));
+    const onCheckIn = vi
+      .fn<LocationHubViewModel["onCheckIn"]>()
+      .mockResolvedValue({
+        succeededRecipientIds: ["user-aarav"],
+        failedRecipientIds: ["user-maya"],
+      });
+    const onDiscardPrivateCheckInOperation =
+      vi.fn<LocationHubViewModel["onDiscardPrivateCheckInOperation"]>();
+
+    render(
+      <CheckInFlow
+        vm={viewModel(onCheckIn, onDiscardPrivateCheckInOperation)}
+        entrySource="nearby"
+        onClose={vi.fn()}
+      />,
     );
 
-    expect(onCheckIn).toHaveBeenCalledWith(
-      ["family-member"],
-      "1",
-      "I've checked in here, let's catch up",
-      "circle-family",
+    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Maya Chen/ }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Share encrypted location with 2 people",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Edit remaining details and reconfirm",
+      }),
+    ).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(10 * 60_000 + 5_000);
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Confirmation expired" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/This confirmation expired/i),
+    ).toBeInTheDocument();
+    expect(onDiscardPrivateCheckInOperation).toHaveBeenCalledWith(
+      expect.any(String),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit remaining details and reconfirm",
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Maya Chen/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "30 min" })).toBeEnabled();
+    expect(
+      screen.getByPlaceholderText("I've checked in here, let's catch up"),
+    ).toBeEnabled();
+    expect(
+      screen.getByTestId("private-check-in-partial-success"),
+    ).toHaveTextContent(/Any edits apply only to people/i);
+  });
+
+  it("requires a new confirmation when a failed recipient rotates keys", async () => {
+    const onCheckIn = vi
+      .fn<LocationHubViewModel["onCheckIn"]>()
+      .mockResolvedValue({
+        succeededRecipientIds: [],
+        failedRecipientIds: ["user-aarav"],
+      });
+    const onDiscardPrivateCheckInOperation =
+      vi.fn<LocationHubViewModel["onDiscardPrivateCheckInOperation"]>();
+    const vm = viewModel(onCheckIn, onDiscardPrivateCheckInOperation);
+    const { rerender } = render(
+      <CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share encrypted location with 1 person",
+      }),
+    );
+    await waitFor(() => expect(onCheckIn).toHaveBeenCalledTimes(1));
+    await screen.findByRole("button", {
+      name: "Edit details and reconfirm",
+    });
+    const operationId = onCheckIn.mock.calls[0]![0].clientOperationId;
+
+    vm.sosRecipients = vm.sosRecipients.map((value) =>
+      value.userId === "user-aarav"
+        ? { ...value, keyId: "user-aarav-rotated-key" }
+        : value,
+    );
+    rerender(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Secure key changed — reconfirm" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/selected person's secure key changed/i),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(onDiscardPrivateCheckInOperation).toHaveBeenCalledWith(
+        operationId,
+      ),
     );
   });
 
-  it("lets a user grow the selected Circle by sharing its invite code", async () => {
-    const onShareNamedCircleCodeById = vi.fn().mockResolvedValue(undefined);
-    const vm = buildViewModel({ onShareNamedCircleCodeById });
+  it("cancels without creating a private share", () => {
+    const onCheckIn = vi.fn<LocationHubViewModel["onCheckIn"]>();
+    const onDiscardPrivateCheckInOperation =
+      vi.fn<LocationHubViewModel["onDiscardPrivateCheckInOperation"]>();
+    const onClose = vi.fn();
 
-    render(<CheckInFlow vm={vm} onClose={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Family/i }));
-    const grow = await screen.findByTestId("check-in-circle-grow-actions");
-    fireEvent.click(
-      within(grow).getByRole("button", { name: /Share code/i }),
+    render(
+      <CheckInFlow
+        vm={viewModel(onCheckIn, onDiscardPrivateCheckInOperation)}
+        entrySource="nearby"
+        onClose={onClose}
+      />,
     );
 
-    await waitFor(() =>
-      expect(onShareNamedCircleCodeById).toHaveBeenCalledWith("circle-family"),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCheckIn).not.toHaveBeenCalled();
+    expect(onDiscardPrivateCheckInOperation).toHaveBeenCalledWith(null);
   });
 });
-

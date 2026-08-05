@@ -30,6 +30,7 @@ _SAFE_BACKEND_CODES = {
     "CONNECTOR_KEY_REQUIRED",
     "CONNECTOR_KEY_REBIND_REQUIRED",
     "CONSENT_REQUEST_NOT_FOUND",
+    "CONSENT_STATUS_UNAVAILABLE",
     "DEVELOPER_API_DISABLED_IN_PRODUCTION",
     "EXPORT_ENVELOPE_UPGRADE_REQUIRED",
     "EXPORT_NOT_CURRENT",
@@ -91,7 +92,7 @@ def _http_error(response: httpx.Response, *, operation: str) -> ToolResult:
             code = str(candidate)
     except Exception:
         pass
-    if response.status_code == 401:
+    if response.status_code == 401 and code == "UPSTREAM_REJECTED":
         code = "AUTHENTICATION_REQUIRED"
     elif response.status_code == 403:
         code = "ACCESS_DENIED"
@@ -102,6 +103,14 @@ def _http_error(response: httpx.Response, *, operation: str) -> ToolResult:
     elif response.status_code == 504:
         code = "REQUEST_TIMEOUT"
     recoverable = response.status_code in {408, 429, 502, 503, 504}
+    if code == "INVALID_CONSENT_TOKEN":
+        return _error(
+            code,
+            "The approved grant is no longer active, so Hussh cannot release its encrypted export.",
+            recoverable=False,
+            next_action="Request a new consent approval before attempting retrieval again.",
+        )
+
     return _error(
         code,
         f"Hussh could not complete {operation}.",
@@ -259,7 +268,10 @@ async def handle_search_user_scopes(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     try:
         async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
@@ -320,7 +332,10 @@ async def handle_request_consent(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
 
     scope = str(args.get("scope") or "").strip()
@@ -430,7 +445,10 @@ async def handle_check_consent_status(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     request_ref = str(args.get("request_ref") or "").strip()
     try:
@@ -480,7 +498,10 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
             "AUTHENTICATION_REQUIRED",
             "Developer bearer authentication is required.",
             recoverable=True,
-            next_action="Configure HUSHH_DEVELOPER_TOKEN in the connector environment.",
+            next_action=(
+                "Configure HUSHH_DEVELOPER_TOKEN or approved OAuth client credentials "
+                "in the connector environment."
+            ),
         )
     expected_scope = str(args.get("expected_scope") or "").strip()
     try:

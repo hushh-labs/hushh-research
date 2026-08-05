@@ -11,18 +11,21 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
-import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
+import {
+  ensureMorphyGsapReady,
+  getMorphyEaseName,
+} from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 
 export function PkmSettingsShell({
   title,
   description,
-  eyebrow = "Profile / Privacy",
+  eyebrow,
   actions,
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   eyebrow?: string;
   actions?: ReactNode;
   children: ReactNode;
@@ -50,9 +53,11 @@ export function PkmSettingsShell({
       if (gsap.context) {
         const ctx = gsap.context(() => {
           const navRows = Array.from(
-            root.querySelectorAll<HTMLElement>("[data-pkm-nav-row='true']")
+            root.querySelectorAll<HTMLElement>("[data-pkm-nav-row='true']"),
           );
-          const detailPanel = root.querySelector<HTMLElement>("[data-pkm-detail-panel='true']");
+          const detailPanel = root.querySelector<HTMLElement>(
+            "[data-pkm-detail-panel='true']",
+          );
           if (navRows.length > 0) {
             gsap.fromTo(
               navRows,
@@ -65,7 +70,7 @@ export function PkmSettingsShell({
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           }
           if (detailPanel) {
@@ -80,7 +85,7 @@ export function PkmSettingsShell({
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           }
         }, root);

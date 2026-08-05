@@ -61,4 +61,18 @@ describe("PortfolioImportView", () => {
     fireEvent.click(screen.getByRole("button", { name: /i'll link this later/i }));
     expect(onSkip).toHaveBeenCalledOnce();
   });
+
+  it("leaves setup routes with one route-owned deferral action", () => {
+    render(
+      <PortfolioImportView
+        onFileSelect={vi.fn()}
+        onSkip={vi.fn()}
+        showSkip={false}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /i'll link this later/i }),
+    ).toBeNull();
+  });
 });

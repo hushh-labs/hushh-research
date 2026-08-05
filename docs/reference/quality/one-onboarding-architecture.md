@@ -22,17 +22,14 @@ gated, reset, resumed, and skipped across the app.
 
 The end‑to‑end setup journey stays inside static setup workspaces. Feature bodies
 are reused there; adapters own only journey state, voice publication, logical
-return to the hub, and the terminal footer. Vault‑backed capabilities introduce
-the private vault at the first operation that needs encrypted persistence. A
-setup adapter uses the shared `CapabilityVaultPrerequisite` before mounting a
-token-dependent feature body: it checks presence once, opens the established
-vault flow with capability-specific context, and resumes only after a fresh
-in-memory owner token exists. It never silently creates a vault, passes a key
-to One, or changes the global `VaultLockGuard` behavior for ordinary routes.
+return to the hub, and the terminal footer. Capability setup stays vault-free
+until the root journey finishes. The hub then requires private-vault creation
+or unlock before it resolves the account setup gate; no capability route can
+create the first vault. Vault keys and owner tokens remain in memory only.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)\ntiles + live status\nmaster Skip setup / Finish setup"]
+  Hub["/one/setup (hub)\ntiles + live status\nmaster Finish setup"]
   Connections["/one/setup/connections\nrequired explicit managed or BYOK choice"]
   Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
   Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
@@ -46,7 +43,7 @@ flowchart TD
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after Connections: Skip setup 0 done / Finish setup 1..n done| Dash
+  Hub -->|after Connections: Finish setup -> required vault| Dash
 ```
 
 The setup catalog is a deliberate subset of the broader One capability catalog
@@ -88,6 +85,18 @@ The setup screen reports `completed` only after the capability's durable termina
 acknowledgement. A connector or preferences record without that acknowledgement is
 `in-progress`, never a fabricated Ready state.
 
+### Capability entry presentation
+
+Each authored capability journey may begin with exactly one shared cinematic
+introduction from `CapabilityCinematicIntroGate`: one plain-language premise,
+one consent-safe promise, and one **Continue** action. The text is semantic on
+first render; its shared `motion-step-enter` reveal is visual-only and respects
+reduced-motion. The shown latch is session-scoped per capability and never
+writes durable setup, consent, connector, or OAuth state. A verified callback
+therefore resumes the existing feature body without replaying the introduction.
+Do not add a second wizard, route-local intro, or durable completion marker for
+presentation alone.
+
 ## 1. The hierarchy
 
 ```mermaid
@@ -109,14 +118,15 @@ registry — add or extend an `OnboardingDefinition` instead.**
 
 | Flow                        | Tier   | Route                     | Reset scope | Resumable | Skippable |
 | --------------------------- | ------ | ------------------------- | ----------- | --------- | --------- |
-| One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | yes, after Connections choice |
+| One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | no — vault is required after Finish setup |
 | Finance preferences         | `sub`  | `/one/setup/finance`      | `surface`   | yes       | yes       |
 | Static capability setup     | `sub`  | `/one/setup/<capability>` | `surface`   | yes       | yes       |
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
-gate via its own Skip setup (when 0 capabilities are set up) / Finish setup (when 1..n are
-set up) buttons. Both remain disabled until the person explicitly selects
-Hussh-managed Gemini or BYOK at `/one/setup/connections`. Connections is a
+gate only after its Finish setup action and successful private-vault creation
+or unlock. The action remains disabled until the person explicitly selects
+Hussh-managed Gemini or BYOK at `/one/setup/connections`. The visible surface
+is named AI access; `connections` remains the route/action compatibility ID. AI access is a
 root prerequisite, not an agent capability: it does not change the capability
 count or publish a generated voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
@@ -145,12 +155,27 @@ completion authority or executable controls.
 The One root resolves completion from one durable authority plus local mirrors:
 
 1. **Server pre‑vault state** (`PreVaultUserStateService`) — authoritative for
-   users with no vault or a locked vault. `setupCompleted === true` (persisted
-   as the `setup_completed` column) means the One gate is satisfied.
-2. **Local Preferences + localStorage** (`PreVaultOnboardingService`) —
-   offline / native bridge; mirrored up to the server when connectivity returns.
-3. **Session hint** (`sessionStorage`) — per‑tab fast‑path cache only; never
-   authoritative.
+   non-sensitive progress, selected runtime method, and resume metadata only.
+   `setupCompleted === true` (persisted as the `setup_completed` column) means
+   the One gate is satisfied.
+2. **Volatile setup drafts** (`PreVaultSensitiveDraftService` plus the owning
+   KYC/Finance draft services) — credentials, identity details, a selected
+   statement file, and connector intents live only in this browser process.
+   Refresh, lock, sign-out, and deletion discard them. Gemini credentials,
+   OAuth artifacts, vault keys, and raw statement files never enter browser
+   persistence before a vault exists.
+3. **Reviewed Finance staging** (`FinanceSetupDraftService`) — after a person
+   confirms a reviewed sample portfolio during setup, the bounded structured
+   portfolio record (never raw PDFs, Plaid tokens, credentials, or vault
+   material) is retained in their user-scoped IndexedDB resource cache for at
+   most seven days. The master Finish setup action commits it to the encrypted
+   Financial PKM domain, then erases the staged origin. A failed commit keeps
+   the draft for an explicit retry; sign-out and account deletion erase it.
+4. **Legacy Preferences + localStorage** (`PreVaultOnboardingService`) —
+   compatibility-read and post-encrypted-receipt cleanup only; fresh setup
+   values are never written there.
+5. **Session hint** (`sessionStorage`) — per-tab fast-path cache only; never
+   authoritative or sensitive.
 
 The encrypted Kai profile describes Finance preferences. It does not resolve root
 setup and does not prove Finance reached its portfolio-source and terminal finish.
@@ -174,18 +199,16 @@ See the note in
 
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
-via its own shared bottom action: **Skip setup** when 0 capabilities are set up, **Finish setup**
-when 1..n are. Neither action is available until the durable Connections-choice
-marker exists. The click/voice handler force-revalidates that marker immediately
-before root settlement, so stale React state cannot bypass it. Both write the authoritative store first and **await** the
-server pre‑vault sync before navigating (so the gate is server‑authoritative
-the instant the user leaves — this closed a prior fire‑and‑forget race), then
-redirect. The shared top-bar Back action never acknowledges root setup. Skip marks the flow "satisfied for now": the user is not bounced
-back, but the flow can be re-run. Static setup adapters at
+via its own shared bottom action: **Finish setup**. It is not available until
+the durable Connections-choice marker exists. The click/voice handler
+force-revalidates that marker immediately, then shows the required vault flow.
+Only vault success acknowledges the root gate, primes the local completion
+latch, mirrors it account-wide, and redirects. The shared top-bar Back action
+never acknowledges root setup. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
 Root acknowledgement never writes Finance completion into the Kai profile.
-The Connections setup preface writes only the bounded `connections` marker in
+The AI access setup preface writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
 
@@ -213,16 +236,24 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   The final circle has no terminal completion button: after its four-second,
   reduced-motion-safe confirmation, it invokes
   the coordinator's durable finish action. While root setup remains active,
-  completion returns to `/one/setup`, and the completed Location tile can
-  replay the authored journey. After the master setup acknowledgement,
-  completed Location entry opens `/one/location`. Settlement retries
-  automatically on a transient failure. The first share remains optional. A
-  dismissed or failed vault setup leaves Location pending.
+  completion returns to `/one/setup`. Re-entering the completed Location tile
+  shows a brief completion acknowledgement and returns to the hub without
+  replaying permissions, contacts, saved-place capture, or circle confirmation.
+  After the master setup acknowledgement, completed Location entry opens
+  `/one/location`. Settlement retries automatically on a transient failure.
+  The first share remains optional. A dismissed or failed vault setup leaves
+  Location pending.
 - **KYC** reuses the email workspace; it becomes finishable after a verified
   identity and initialized client connector. Sending a draft remains optional.
 - **Finance** uses `/one/setup/finance` for preferences and
-  `/one/setup/finance/import` for Plaid, statement, or an explicit later
-  choice. Preferences alone never finish Finance.
+  `/one/setup/finance/import` for Plaid, statement, sample brokerage, or an
+  explicit later choice. Sample brokerage information loads and can be
+  reviewed immediately without a vault. Its confirmed structured portfolio is
+  staged for the master Finish setup transaction, which encrypts it into the
+  Financial PKM before root setup exits. Statement parsing, Plaid Link,
+  background snapshots, and their external persistence remain after that vault
+  boundary; raw files and connection credentials are never staged in IndexedDB.
+  Preferences alone never finish Finance.
 - **RIA** reuses the advisor flow and becomes finishable only after a
   non-rejected profile submission.
 - **Linked Systems** reuses the CRM panel and remains optional. The CRM list is

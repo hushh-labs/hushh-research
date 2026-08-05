@@ -55,6 +55,16 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain(
       "aria-label={`Start a voice conversation. ${hint}`}",
     );
+    // The native control is the complete visible voice pill. The separate
+    // Agent Chat button remains its own action, but no whitespace or icon-only
+    // target is allowed inside the voice launcher.
+    expect(agentBar).toContain("agent-bar-voice-launcher press-scale");
+    expect(agentBar).toContain("flex-1 self-stretch items-center");
+    expect(agentBar).toContain("hover:bg-current/[0.09]");
+    expect(agentBar).toContain("focus-visible:ring-inset");
+    expect(agentBar).toContain(
+      'className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"',
+    );
     expect(agentBar).toContain("MessageCircle");
     expect(agentBar).toContain("loading: authLoading");
     expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
@@ -119,5 +129,22 @@ describe("Navbar bottom chrome contract", () => {
     expect(navbar).toContain("if (shellNavigationHidden || hideNavbar)");
     expect(navbar).toContain("data-ambient-chrome-ignore");
     expect(agentBar).toContain("data-ambient-chrome-ignore");
+  });
+
+  it("pins voice-only Foundation chrome instead of applying signed-in nav scroll-hide motion", () => {
+    const providers = read("app/providers.tsx");
+
+    expect(providers).toContain(
+      "const foundationVoiceOnlyChrome = isFoundationRoute;",
+    );
+    expect(providers).toContain(
+      "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
+    );
+    expect(providers).toContain(
+      "navigationHidden:\n      chromeState.hideCommandBar || foundationVoiceOnlyChrome,",
+    );
+    expect(providers).toContain(
+      "!pinnedBottomChrome &&\n      !hidesPersistentChrome",
+    );
   });
 });

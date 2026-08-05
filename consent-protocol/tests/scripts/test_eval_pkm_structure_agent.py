@@ -80,7 +80,7 @@ def test_release_fail_fast_only_stops_zero_tolerance_failures():
     assert eval_script._decisive_release_failure(unhealthy) == "inner_timeout"
 
 
-def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
+def test_quality_gate_flags_fallback_domain_coverage_and_mutation_drift():
     gate = eval_script._build_quality_gate(
         synthetic_reports=[
             {
@@ -91,7 +91,7 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
                     "mutation_ok_rate": 0.80,
                     "intent_ok_rate": 0.93,
                     "fallback_rate": 0.25,
-                    "fragmentation_score": 0.50,
+                    "durable_domain_coverage_rate": 0.50,
                     "finance_contamination_count": 1,
                     "unresolved_domain_count": 1,
                     "inner_timeout_count": 1,
@@ -107,8 +107,7 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
             "mutation_ok_rate": 0.90,
             "intent_ok_rate": 0.90,
             "fallback_rate": 0.10,
-            "fragmentation_score_min": 0.80,
-            "fragmentation_score_max": 1.20,
+            "durable_domain_coverage_rate": 0.95,
         },
     )
 
@@ -116,7 +115,7 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
     failures = "\n".join(gate["failures"])
     assert "mutation" in failures
     assert "fallback" in failures
-    assert "fragmentation" in failures
+    assert "durable_domain_coverage" in failures
     assert "finance_contamination" in failures
     assert "unresolved_domain" in failures
     assert "inner_timeout" in failures
@@ -124,8 +123,22 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
     assert "inner_agent_failure" in failures
 
 
-def test_fragmentation_ignores_non_durable_alternative_domains():
+def test_durable_domain_coverage_accepts_allowed_alternatives():
     results = [
+        SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["financial", "travel", "professional"],
+            actual_save_class="durable",
+            actual_domain="professional",
+            actual_write_mode="can_save",
+        ),
+        SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["health", "professional"],
+            actual_save_class="durable",
+            actual_domain="health",
+            actual_write_mode="confirm_first",
+        ),
         SimpleNamespace(
             expected_save_class="durable",
             expected_domains=["food"],
@@ -134,22 +147,72 @@ def test_fragmentation_ignores_non_durable_alternative_domains():
             actual_write_mode="can_save",
         ),
         SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["location"],
+            actual_save_class="durable",
+            actual_domain="location",
+            actual_write_mode="can_save",
+        ),
+        SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["social", "shopping"],
+            actual_save_class="durable",
+            actual_domain="social",
+            actual_write_mode="can_save",
+        ),
+        SimpleNamespace(
             expected_save_class="ambiguous",
-            expected_domains=["professional", "travel", "shopping", "food"],
+            expected_domains=["financial", "travel", "professional", "health"],
             actual_save_class="ambiguous",
             actual_domain="ria",
             actual_write_mode="do_not_save",
         ),
+    ]
+
+    # The durable cases expose eight allowed domains but validly choose only
+    # five. The retired unique-domain ratio would falsely report 5/8 = 0.625.
+    assert eval_script._durable_domain_coverage_rate(results) == 1.0
+
+
+def test_durable_domain_coverage_rejects_invalid_or_unsaved_durable_results():
+    results = [
         SimpleNamespace(
-            expected_save_class="ephemeral",
-            expected_domains=["financial"],
-            actual_save_class="ephemeral",
+            expected_save_class="durable",
+            expected_domains=["food", "travel"],
+            actual_save_class="durable",
             actual_domain="professional",
+            actual_write_mode="can_save",
+        ),
+        SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["health"],
+            actual_save_class="durable",
+            actual_domain="health",
             actual_write_mode="do_not_save",
         ),
     ]
+    summary = {
+        "schema_ok_rate": 1.0,
+        "domain_ok_rate": 1.0,
+        "mutation_ok_rate": 1.0,
+        "intent_ok_rate": 1.0,
+        "fallback_rate": 0.0,
+        "durable_domain_coverage_rate": eval_script._durable_domain_coverage_rate(results),
+        "finance_contamination_count": 0,
+        "unresolved_domain_count": 0,
+        "timeout_count": 0,
+        "inner_timeout_count": 0,
+        "inner_budget_exhausted_count": 0,
+        "inner_failure_count": 0,
+    }
+    failures = eval_script._gate_failures_for_summary(
+        label="synthetic:candidate_minimal",
+        summary=summary,
+        thresholds=eval_script.DEFAULT_GATE_THRESHOLDS,
+    )
 
-    assert eval_script._durable_domain_fragmentation_score(results) == 1.0
+    assert summary["durable_domain_coverage_rate"] == 0.0
+    assert failures == ["synthetic:candidate_minimal:durable_domain_coverage 0.0000 < 0.9500"]
 
 
 @pytest.mark.asyncio
@@ -203,8 +266,7 @@ async def test_evaluator_fails_closed_on_hidden_inner_agent_timeout():
             "mutation_ok_rate": 0.0,
             "intent_ok_rate": 0.0,
             "fallback_rate": 1.0,
-            "fragmentation_score_min": 0.0,
-            "fragmentation_score_max": 2.0,
+            "durable_domain_coverage_rate": 0.0,
         },
     )
 

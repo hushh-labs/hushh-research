@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { EmblaCarouselType } from "embla-carousel";
+
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
@@ -14,6 +16,7 @@ const embla = vi.hoisted(() => ({
   reInit: vi.fn(),
   listeners: new Map<string, () => void>(),
   ref: vi.fn(),
+  rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
 }));
 
@@ -27,6 +30,7 @@ vi.mock("embla-carousel-react", () => ({
         scrollProgress: () => embla.scrollProgress,
         scrollTo: embla.scrollTo,
         reInit: embla.reInit,
+        rootNode: () => embla.rootNode ?? document.body,
         on: (event: string, listener: () => void) => {
           embla.listeners.set(event, listener);
         },
@@ -50,6 +54,7 @@ describe("SwipeViews", () => {
     embla.scrollTo.mockClear();
     embla.reInit.mockClear();
     embla.listeners.clear();
+    embla.rootNode = document.createElement("div");
     embla.options = null;
   });
 
@@ -235,5 +240,34 @@ describe("SwipeViews", () => {
     expect(firstPanel).toHaveAttribute("data-swipe-panel-inset", "page");
     expect(firstPanel).toHaveClass("px-[var(--page-inline-gutter-standard)]");
     expect(firstPanel).toHaveClass("min-w-0", "max-w-full");
+  });
+
+  it("lets a nested pager own its horizontal drag", () => {
+    render(
+      <SwipeViews tabSetId="nested" activeValue="first" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    const outerRoot = document.createElement("div");
+    outerRoot.dataset.swipeViewsRoot = "true";
+    const nestedRoot = document.createElement("div");
+    nestedRoot.dataset.swipeViewsRoot = "true";
+    const nestedTarget = document.createElement("button");
+    nestedRoot.append(nestedTarget);
+    outerRoot.append(nestedRoot);
+
+    const watchDrag = embla.options?.watchDrag as (
+      api: Pick<EmblaCarouselType, "rootNode">,
+      event: Event,
+    ) => boolean;
+
+    expect(
+      watchDrag({ rootNode: () => outerRoot }, { target: nestedTarget } as Event),
+    ).toBe(false);
+    expect(
+      watchDrag({ rootNode: () => nestedRoot }, { target: nestedTarget } as Event),
+    ).toBe(true);
   });
 });

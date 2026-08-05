@@ -197,8 +197,6 @@ class StartAnalyzeRunRequest(BaseModel):
     risk_profile: str = Field(default="balanced", max_length=_RISK_PROFILE_MAX_LEN)
     context: Optional[Dict[str, Any]] = None
     pick_source: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
-    pick_source_label: Optional[str] = Field(default=None, max_length=256)
-    pick_source_kind: Optional[str] = Field(default=None, max_length=64)
 
 
 # ============================================================================
@@ -397,23 +395,17 @@ def _recommendation_bias_from_advisor_tier(tier: str | None) -> str | None:
 
 async def _merge_ria_pick_package_context(
     *,
-    user_id: str,
     ticker: str,
     pick_source: str | None,
+    pick_package: dict[str, Any] | None,
     renaissance_context: dict[str, Any],
 ) -> dict[str, Any]:
+    """Merge a run-start RIA Picks snapshot without reauthorizing mid-run."""
     normalized_source = str(pick_source or "").strip()
     if not normalized_source.startswith("ria:"):
         return renaissance_context
-    try:
-        package = await RIAIAMService().get_pick_package_for_source(user_id, normalized_source)
-    except Exception as exc:
-        logger.warning(
-            "[Kai Stream] advisor pick package unavailable for %s source %s: %s",
-            user_id,
-            normalized_source,
-            exc,
-        )
+    package = pick_package if isinstance(pick_package, dict) else None
+    if package is None:
         return renaissance_context
 
     normalized_ticker = str(ticker or "").strip().upper()
@@ -472,6 +464,72 @@ async def _merge_ria_pick_package_context(
         "package_note": package.get("package_note") if isinstance(package, dict) else None,
     }
     return merged_context
+
+
+async def _canonicalize_pick_source_context(
+    *,
+    user_id: str,
+    context: dict[str, Any] | None,
+    requested_source: str | None = None,
+) -> dict[str, Any]:
+    """Resolve a browser source selector into server-authoritative provenance.
+
+    Labels, kinds, relationship identifiers, and package content supplied by a
+    browser are discarded. The selected source is resolved once at run start;
+    the authorized package stays only in the live run context so a later
+    revocation blocks new runs while an already-authorized worker can finish.
+    """
+    next_context = dict(context or {})
+    candidate = str(requested_source or next_context.get("pick_source") or "default").strip()
+    for key in (
+        "pick_source",
+        "pick_source_label",
+        "pick_source_kind",
+        "pick_source_snapshot",
+        "_kai_authorized_pick_package",
+    ):
+        next_context.pop(key, None)
+
+    resolved = await RIAIAMService().resolve_investor_pick_source(user_id, candidate)
+    if resolved is None:
+        resolved = await RIAIAMService().resolve_investor_pick_source(user_id, "default")
+    if resolved is None:  # Defensive: the canonical default is always available.
+        raise HTTPException(status_code=503, detail="Market source resolution is unavailable.")
+
+    source_id = str(resolved.get("id") or "default")
+    source_kind = str(resolved.get("kind") or "default")
+    source_label = str(resolved.get("label") or "Default list")
+    resolved_snapshot = resolved.get("snapshot")
+    source_snapshot = {
+        key: value
+        for key, value in (resolved_snapshot if isinstance(resolved_snapshot, dict) else {}).items()
+        if key
+        in {
+            "source_id",
+            "label",
+            "kind",
+            "relationship_id",
+            "share_grant_id",
+            "connection_scope_proposal_id",
+            "artifact_id",
+            "source_data_version",
+            "source_manifest_revision",
+        }
+    }
+    next_context.update(
+        {
+            "pick_source": source_id,
+            "pick_source_label": source_label,
+            "pick_source_kind": source_kind,
+            # Bounded, server-derived lineage for public run state and the
+            # terminal checkpoint. Never retain the authorized package here.
+            "pick_source_snapshot": source_snapshot,
+        }
+    )
+    package = resolved.get("package")
+    if source_kind == "ria" and isinstance(package, dict):
+        next_context["_kai_authorized_pick_package"] = package
+    return next_context
 
 
 def _extract_summary_count(summary: dict[str, Any] | None) -> int:
@@ -1146,7 +1204,12 @@ async def analyze_stream_generator(
             },
         )
 
-        request_context: Dict[str, Any] = context if isinstance(context, dict) else {}
+        # The endpoint canonicalizes the selected source before invoking this
+        # generator. Keep the package snapshot out of the general request
+        # context (and therefore out of prompts/logs); it is only consumed by
+        # the narrow Renaissance merge below.
+        request_context: Dict[str, Any] = dict(context) if isinstance(context, dict) else {}
+        authorized_pick_package = request_context.pop("_kai_authorized_pick_package", None)
         eligibility = _resolve_symbol_eligibility(ticker=ticker, request_context=request_context)
         symbol_eligibility = bool(eligibility.get("symbol_eligibility"))
         eligibility_reason = str(
@@ -1222,9 +1285,11 @@ async def analyze_stream_generator(
         request_pick_source = str(request_context.get("pick_source") or "").strip() or None
         if request_pick_source:
             renaissance_context = await _merge_ria_pick_package_context(
-                user_id=user_id,
                 ticker=ticker,
                 pick_source=request_pick_source,
+                pick_package=(
+                    authorized_pick_package if isinstance(authorized_pick_package, dict) else None
+                ),
                 renaissance_context=renaissance_context,
             )
 
@@ -1240,6 +1305,16 @@ async def analyze_stream_generator(
             or request_context.get("user_name")
             or "Investor",
             "request_context": request_context,
+            # These values came from the server resolver, not the browser.
+            "pick_source": request_pick_source,
+            "pick_source_label": str(request_context.get("pick_source_label") or "").strip()
+            or None,
+            "pick_source_kind": str(request_context.get("pick_source_kind") or "").strip() or None,
+            "pick_source_snapshot": (
+                request_context.get("pick_source_snapshot")
+                if isinstance(request_context.get("pick_source_snapshot"), dict)
+                else None
+            ),
         }
 
         request_holdings = request_context.get("holdings")
@@ -2365,6 +2440,11 @@ async def analyze_stream_generator(
             "pick_source": pick_source,
             "pick_source_label": pick_source_label,
             "pick_source_kind": pick_source_kind,
+            "pick_source_snapshot": (
+                full_user_context.get("pick_source_snapshot")
+                if isinstance(full_user_context.get("pick_source_snapshot"), dict)
+                else None
+            ),
         }
 
         yield create_event(
@@ -2402,6 +2482,11 @@ async def analyze_stream_generator(
                 "pick_source": pick_source,
                 "pick_source_label": pick_source_label,
                 "pick_source_kind": pick_source_kind,
+                "pick_source_snapshot": (
+                    full_user_context.get("pick_source_snapshot")
+                    if isinstance(full_user_context.get("pick_source_snapshot"), dict)
+                    else None
+                ),
                 "context_integrity": context_integrity,
                 "renaissance_comparison": renaissance_comparison,
                 "raw_card": raw_card,
@@ -2613,7 +2698,13 @@ async def analyze_stream_post(
             raise HTTPException(status_code=403, detail="Token user mismatch")
 
         start_cursor = _parse_cursor(body.resume_cursor)
-        if start_cursor > run.latest_cursor:
+        if getattr(run, "is_durable_replay", False):
+            # Durable replay carries only the terminal frame; the client's
+            # resume cursor came from a live buffer on another (now-missed)
+            # instance. Replay the terminal frame from 0 rather than 410-ing on
+            # a stale cursor -- otherwise recovery would trade a 404 for a 410.
+            start_cursor = 0
+        elif start_cursor > run.latest_cursor:
             raise HTTPException(
                 status_code=410,
                 detail={
@@ -2650,7 +2741,10 @@ async def analyze_stream_post(
             user_id=body.user_id,
             consent_token=consent_token,
             risk_profile=body.risk_profile,
-            context=body.context,
+            context=await _canonicalize_pick_source_context(
+                user_id=body.user_id,
+                context=body.context,
+            ),
             request=request,
         )
     )
@@ -2672,13 +2766,11 @@ async def analyze_run_start(
     # which symbols exist.
     ticker = _require_known_ticker_or_422(ticker)
     consent_service = ConsentDBService()
-    next_context = dict(body.context or {})
-    if body.pick_source:
-        next_context["pick_source"] = str(body.pick_source).strip()
-    if body.pick_source_label:
-        next_context["pick_source_label"] = str(body.pick_source_label).strip()
-    if body.pick_source_kind:
-        next_context["pick_source_kind"] = str(body.pick_source_kind).strip()
+    next_context = await _canonicalize_pick_source_context(
+        user_id=body.user_id,
+        context=body.context,
+        requested_source=body.pick_source,
+    )
     await consent_service.log_operation(
         user_id=body.user_id,
         operation="kai.analyze.run.start",
@@ -2687,8 +2779,8 @@ async def analyze_run_start(
             "risk_profile": body.risk_profile,
             "debate_session_id": body.debate_session_id,
             "has_context": bool(next_context),
-            "pick_source": body.pick_source,
-            "pick_source_kind": body.pick_source_kind,
+            "pick_source": next_context.get("pick_source"),
+            "pick_source_kind": next_context.get("pick_source_kind"),
         },
     )
     state, run = await _RUN_MANAGER.start_or_get_active(
@@ -2749,7 +2841,13 @@ async def analyze_run_stream(
         )
 
     start_cursor = _parse_cursor(cursor)
-    if start_cursor > run.latest_cursor:
+    if getattr(run, "is_durable_replay", False):
+        # Durable replay carries only the terminal frame; the client's resume
+        # cursor came from a live buffer on another (now-missed) instance.
+        # Replay the terminal frame from 0 rather than 410-ing on a stale cursor
+        # -- otherwise recovery would trade a 404 for a 410.
+        start_cursor = 0
+    elif start_cursor > run.latest_cursor:
         raise HTTPException(
             status_code=410,
             detail={

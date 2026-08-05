@@ -108,7 +108,7 @@ function ContactRow({
           type="button"
           onClick={onAskRemove}
           disabled={busy}
-          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full border border-[#ff3b30]/35 px-3 text-[13px] font-semibold text-[#ff3b30] disabled:opacity-45"
+          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full border border-[#ff3b30]/35 bg-[#ffe9e9] px-3 text-[13px] font-semibold text-[#d70015] disabled:opacity-45 disabled:bg-[#f8f8f8]"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
         </button>
@@ -359,12 +359,14 @@ export function SmsContactsFlow({
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
             </span>
             <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-bold !leading-tight">
-              Remove{" "}
-              {pendingRemoval
-                ? `${recipientLabel(pendingRemoval).split(/\s+/)[0]}?`
-                : "contact?"}
+              <span className="text-[#17171c]">
+                Remove{" "}
+                {pendingRemoval
+                  ? `${recipientLabel(pendingRemoval).split(/\s+/)[0]}?`
+                  : "contact?"}
+              </span>
             </AlertDialogTitle>
-            <AlertDialogDescription className="mt-1 !max-w-[290px] !text-center !text-[13px] !leading-[1.45]">
+            <AlertDialogDescription className="mt-1 !max-w-[290px] !text-center !text-[13px] !leading-[1.45] !text-[#17171c]">
               They&apos;ll no longer be alerted with your live location when you
               trigger SMS.
             </AlertDialogDescription>

@@ -37,7 +37,7 @@ flowchart TB
 Hussh is a consent-and-scope platform built on a strict trust model:
 
 - **identity** decides who is acting
-- **vault** holds encrypted user data
+- **vault** holds encrypted user information
 - **scoped tokens** define what can be accessed
 - **agents and apps** operate only inside granted consent boundaries
 
@@ -56,7 +56,7 @@ The canonical brand rule lives in [reference/operations/brand-and-compatibility-
 Start here:
 
 - [../README.md](../README.md): product and repo orientation
-- [project_context_map.md](./project_context_map.md): where things live — the seven platform layers mapped to their real repo anchors, plus the four non-negotiables
+- [project_context_map.md](./project_context_map.md): where things live: the seven platform layers mapped to their real repo anchors, plus the four non-negotiables
 - [guides/getting-started.md](./guides/getting-started.md): first-run path
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
 - [reference/README.md](./reference/README.md): execution-owned current reference hub and docs classification model

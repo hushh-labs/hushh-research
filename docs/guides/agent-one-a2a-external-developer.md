@@ -87,7 +87,7 @@ Use the `Authorization` header for the developer token. A legacy `?token=<develo
 
 The Agent Card is discovery metadata. It tells the partner where Agent One is, what scope is required, and how to authenticate. The actual user task, such as a KYC account-opening request, belongs in `POST /api/one/a2a/message`.
 
-Other agents use the card's public name, description, required scope, endpoint, and capability hints to decide whether to delegate to Hussh Agent One. Delegate when the user request needs Hussh-managed consent, user-owned personal data, KYC/account-opening data, advisor onboarding context, or privacy and vault coordination. Do not delegate ordinary CRM updates that do not need Hussh user consent or Hussh-held data.
+Other agents use the card's public name, description, required scope, endpoint, and capability hints to decide whether to delegate to Hussh Agent One. Delegate when the user request needs Hussh-managed consent, user-owned personal information, KYC/account-opening information, advisor onboarding context, or privacy and vault coordination. Do not delegate ordinary CRM updates that do not need Hussh user consent or Hussh-held information.
 
 ```bash
 curl -sS "$HUSHH_ONE_BASE_URL/.well-known/agent-card.json"
