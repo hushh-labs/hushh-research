@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,6 +7,12 @@ import {
   SosPanel,
 } from "@/components/one-location/redesign/sos-panel";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
+}));
+const toastError = vi.mocked(toast.error);
 
 const recipient = (
   overrides: Partial<OneLocationRecipient>,
@@ -24,6 +30,8 @@ const baseProps = {
   active: false,
   busy: false,
   onTrigger: vi.fn(),
+  onStopSos: vi.fn(),
+  stopBusy: false,
   onClose: vi.fn(),
   onEditContacts: vi.fn(),
   recipientLabel: (value: OneLocationRecipient) => value.displayName,
@@ -55,7 +63,78 @@ describe("SosPanel", () => {
     ).toBe(true);
   });
 
+  it("supports fallback for Windows user agents that do not include the word windows", () => {
+    expect(
+      isWindowsDesktopEmCallUnsupported({
+        userAgent: "Mozilla/5.0 (X11; Win32; x64) Chrome/140.0.0.0",
+        platform: "Win32",
+      }),
+    ).toBe(true);
+  });
+
+  it("shows emergency copy fallback on Windows desktop and confirms copy status", async () => {
+    vi.useRealTimers();
+    const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+    const navigatorUserAgent = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue("Mozilla/5.0 (X11; Win32; x64) Chrome/140.0.0.0");
+    const navigatorPlatform = vi
+      .spyOn(window.navigator, "platform", "get")
+      .mockReturnValue("Win32");
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "clipboard",
+    );
+
+    try {
+      Object.defineProperty(window.navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: clipboardWriteText,
+        },
+      });
+
+      render(<SosPanel {...baseProps} />);
+
+      const copyButton = screen.getByRole("button", {
+        name: "Copy 112 emergency services (India)",
+      });
+      expect(copyButton).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: /call 112 emergency services/i }),
+      ).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(copyButton);
+        await Promise.resolve();
+      });
+
+      expect(clipboardWriteText).toHaveBeenCalledWith("112");
+      await waitFor(() =>
+        expect(screen.getByText("Number copied to clipboard.")).toBeInTheDocument(),
+      );
+    } finally {
+      navigatorUserAgent.mockRestore();
+      navigatorPlatform.mockRestore();
+      if (clipboardDescriptor) {
+        Object.defineProperty(window.navigator, "clipboard", clipboardDescriptor);
+      } else {
+        delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
+      }
+      vi.useFakeTimers();
+    }
+
+  });
+
   it("renders the Save My Soul UI, selected recipients, and local dialer", () => {
+    const navigatorUserAgent = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+    const navigatorPlatform = vi
+      .spyOn(window.navigator, "platform", "get")
+      .mockReturnValue("Linux x86_64");
+
+    try {
     render(<SosPanel {...baseProps} />);
 
     expect(screen.getByText("SMS · Save my Soul")).toBeInTheDocument();
@@ -76,6 +155,10 @@ describe("SosPanel", () => {
       "inset-0",
       "bg-black",
     );
+    } finally {
+      navigatorUserAgent.mockRestore();
+      navigatorPlatform.mockRestore();
+    }
   });
 
   it("does not expose a dial link before the local number resolves", () => {
@@ -236,15 +319,74 @@ describe("SosPanel", () => {
     );
   });
 
-  it("fails closed when no selected recipient is ready", () => {
+  it("fails closed and prompts to add a contact when none are ready", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} recipients={[]} onTrigger={onTrigger} />);
     const hold = screen.getByRole("button", {
       name: /press and hold for two seconds/i,
     });
-    expect(hold).toBeDisabled();
+    // The button stays pressable so the press can EXPLAIN what's missing, but a
+    // full hold must never actually send an SMS with zero recipients.
+    expect(hold).toBeEnabled();
     fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
     act(() => vi.advanceTimersByTime(3_000));
     expect(onTrigger).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "Please add at least one contact in your SMS emergency contact list.",
+    );
+  });
+
+  it("does not prompt to add a contact when at least one is ready", () => {
+    render(<SosPanel {...baseProps} />);
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows 'Cancel SMS Alert' only while a session is active and calls onStopSos", () => {
+    const onStopSos = vi.fn();
+    const { rerender } = render(
+      <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
+    );
+    // Idle state: no cancel affordance, core reads "SMS".
+    expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
+    expect(screen.getByText("SMS")).toBeInTheDocument();
+
+    // Active ("SENT · Live now") state: the cancel button appears.
+    rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
+    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByText("Live now")).toBeInTheDocument();
+    const cancel = screen.getByRole("button", {
+      name: "Cancel SMS alert and stop sharing your location",
+    });
+    expect(cancel).toHaveTextContent("Cancel SMS Alert");
+    fireEvent.click(cancel);
+    expect(onStopSos).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables 'Cancel SMS Alert' and shows a spinner while stopping", () => {
+    const onStopSos = vi.fn();
+    render(
+      <SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />,
+    );
+    const cancel = screen.getByTestId("sos-cancel-alert");
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveTextContent("Cancelling…");
+    fireEvent.click(cancel);
+    expect(onStopSos).not.toHaveBeenCalled();
+  });
+
+  it("resets the core to 'SMS' once the session is no longer active (external revoke sync)", () => {
+    const { rerender } = render(<SosPanel {...baseProps} active />);
+    expect(screen.getByText("SENT")).toBeInTheDocument();
+    // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
+    // which flips `active` back to false and must reset the SMS screen.
+    rerender(<SosPanel {...baseProps} active={false} />);
+    expect(screen.getByText("SMS")).toBeInTheDocument();
+    expect(screen.queryByText("Live now")).toBeNull();
+    expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 });
