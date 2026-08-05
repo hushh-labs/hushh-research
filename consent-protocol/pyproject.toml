@@ -9,7 +9,11 @@ license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
     "asyncpg>=0.29.0",
-    "cryptography>=44.0.0",
+    # Floor raised for the PKCS#7 EnvelopedData Bleichenbacher advisory: below 50.0.0
+    # the decryption path leaks an oracle through distinguishable errors and timing.
+    # The lock pins an exact version; this floor is what stops a fresh resolution
+    # from quietly landing back on a vulnerable one.
+    "cryptography>=50.0.0",
     "defusedxml>=0.7.1",
     "fastapi>=0.115.0",
     "firebase-admin==7.1.0",
