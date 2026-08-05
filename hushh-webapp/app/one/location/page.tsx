@@ -5652,7 +5652,9 @@ export function OneLocationAgentPageContent({
         point,
         clientOperationId,
         confirmedAt,
-        sourceCircleId,
+        // sourceCircleId is carried on the request for Circle-targeted
+        // check-ins; the selected Circle's ready members are already merged
+        // into the recipient set upstream, so no extra handling is needed here.
       } = request;
       const selected = sosActionRecipients
         .filter((recipient) => recipientIds.includes(recipient.userId))

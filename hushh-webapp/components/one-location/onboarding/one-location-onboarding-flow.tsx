@@ -12,12 +12,10 @@ import { preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
-  ChevronLeft,
   Copy,
   Loader2,
   MapPin,
   Share2,
-  ShieldCheck,
   UserPlus,
   Users,
 } from "lucide-react";
