@@ -92,3 +92,39 @@ def test_liveness_answers_in_pod_mode(monkeypatch: pytest.MonkeyPatch):
         # Readiness must exist and must not 404 -- a probe pointed at a missing
         # route would fail closed for the wrong reason.
         assert client.get(READINESS_PATH).status_code != 404
+
+
+def test_a_pod_actually_emits_a_request_line(monkeypatch: pytest.MonkeyPatch, caplog):
+    """A pod that serves and says nothing is indistinguishable from a pod nobody called.
+
+    Until the observability middleware was mounted here, ``pod_server`` emitted no
+    ``request.summary`` at all: a pod failing every single request produced exactly
+    the same telemetry as a healthy idle one -- none. Silence cannot be alerted on,
+    which is why "is the fleet up?" had no answer that did not involve asking Cloud
+    Run instead of the pod.
+
+    Asserted on the emitted line rather than on the middleware being in some list, so
+    it fails if the mount is present but non-functional.
+    """
+    import logging  # noqa: PLC0415
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "HA1OBS")
+    os.environ.setdefault("APP_SIGNING_KEY", "pod_observability_contract_key_32_chars")
+
+    try:
+        from fastapi.testclient import TestClient  # noqa: PLC0415
+
+        import pod_server  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"pod app not importable here: {type(exc).__name__}")
+
+    with caplog.at_level(logging.INFO):
+        with TestClient(pod_server.app, raise_server_exceptions=False) as client:
+            client.get(LIVENESS_PATH)
+
+    assert any("request.summary" in record.getMessage() for record in caplog.records), (
+        "the pod served a request and emitted no request.summary -- nothing downstream "
+        "can tell this pod apart from one that is never called"
+    )

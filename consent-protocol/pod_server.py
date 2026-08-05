@@ -36,6 +36,10 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
+from api.middlewares.observability import (  # noqa: E402
+    configure_opentelemetry,
+    observability_middleware,
+)
 from api.middlewares.rate_limit import limiter  # noqa: E402
 from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
@@ -63,6 +67,18 @@ app = FastAPI(
     description="Per-user agent + storage. The consent authority stays central at Hushh.",
     version="pod-1",
 )
+# Telemetry, mounted from the hub's middleware rather than reimplemented. Until
+# this line a pod emitted NO `request.summary` line and no trace, so a pod that was
+# failing every request looked, from outside, exactly like a pod nobody had called
+# -- and there is no way to tell those apart from silence.
+#
+# `_service_name()` reads `K_SERVICE` first, which Cloud Run sets to the pod's own
+# service name, so every line a pod emits is already attributed to `one-pod-<id>`
+# rather than to the hub. That is what makes a pod-scoped alert policy possible;
+# the existing policies all filter `service_name="consent-protocol"` and therefore
+# match no pod at all.
+app.middleware("http")(observability_middleware)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
@@ -92,6 +108,11 @@ async def _hub_unavailable(_request: Request, _exc: PodHubUnavailable) -> JSONRe
 
 for _router in _POD_ROUTERS:
     app.include_router(_router)
+
+# Tracing, off unless OTEL_ENABLED is set. Every failure path inside is caught and
+# logged, so a pod whose trace exporter cannot reach Cloud Trace still serves --
+# telemetry must never be the reason a person's agent stops answering.
+configure_opentelemetry(app)
 
 
 @app.get("/pod/info", tags=["pod"])
