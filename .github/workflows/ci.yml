@@ -83,7 +83,13 @@ jobs:
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
           else
-            LOG_OPTS="${{ github.sha }}"
+            # workflow_dispatch and anything else: bound the scan the same way every
+            # other lane does. A BARE SHA is not a range -- git reads it as "every
+            # commit reachable from here", so gitleaks swept 2,936 commits / 110 MB
+            # of full history and failed on 61 pre-existing historical findings that
+            # no PR run would ever see. That made the CI Status Gate unobtainable on
+            # a dispatch run for any branch.
+            LOG_OPTS="$(resolve_from_default_branch)"
           fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)

@@ -50,8 +50,15 @@ if [ -f "$REPO_ROOT/.gitleaks.toml" ]; then
 fi
 
 echo "Running gitleaks with log opts: ${LOG_OPTS}"
+# Three independent checks below each record their failure into EXIT_CODE and keep
+# going, so the run reports everything wrong rather than only the first thing. The
+# cost is that the LAST thing printed is whichever check ran last -- which made an
+# unrelated "non-blocking" advisory look like the cause of a gitleaks failure, and
+# cost a wrong diagnosis. Name the actual source before exiting.
 EXIT_CODE=0
-gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" || EXIT_CODE=$?
+FAILED_CHECKS=""
+gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" ||
+  { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} gitleaks-git(history scan)"; }
 
 scan_pull_request_body() {
   local tmpdir pr_number body_file
@@ -81,7 +88,8 @@ PY
   fi
 
   echo "Running gitleaks against pull request body metadata..."
-  gitleaks dir --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" "$tmpdir" || EXIT_CODE=$?
+  gitleaks dir --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" "$tmpdir" ||
+    { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} gitleaks-dir(pull request body)"; }
   rm -rf "$tmpdir"
 }
 
@@ -90,7 +98,13 @@ if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || [ -n "${SECRET_SCAN_PR_NUMBE
 fi
 
 if [ -x "$REPO_ROOT/scripts/ci/github-security-alerts.sh" ]; then
-  "$REPO_ROOT/scripts/ci/github-security-alerts.sh" || EXIT_CODE=$?
+  "$REPO_ROOT/scripts/ci/github-security-alerts.sh" ||
+    { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"; }
+fi
+
+if [ "$EXIT_CODE" -ne 0 ]; then
+  echo "secret-scan FAILED. Failing check(s):${FAILED_CHECKS}"
+  echo "Note: any advisory printed above this line is informational and did not cause this exit."
 fi
 
 exit "$EXIT_CODE"
