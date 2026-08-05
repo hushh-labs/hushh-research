@@ -313,6 +313,7 @@ regulated primary** + validated — see §2. Kept side-by-side to prevent drift.
 | Provisioning | logical stamp; dedicated = Cloud Run/GKE deploy | logical stamp; dedicated = AMC deploy | **at parity** via `ComputeBackend` |
 | Orchestration | ADK agents on Cloud Run/GKE | ADK/enterprise flow on Mule runtime | **at parity** (same ADK contract) |
 | Config (on-the-fly) | Cloud Run/GKE manifest (dedicated only) | Mule descriptor (dedicated only) | **at parity** via `render_deploy_config` |
+| Pod capabilities in the artifact | hub door, consent verifying keys, model slot, flag on, internal-only, signing key by reference | same slots in the AMC descriptor | **at parity**, held by `test_compute_backend_parity.py` (see §9.6) |
 | APIs | identical provision/deprovision/get contract | same | **one contract** |
 | Deploy (CI/CD) | GCP Cloud Build → backend | GCP Cloud Build → backend | **at parity** (dev lane only) |
 | Observability | Cloud Monitoring/Logging/Trace | Anypoint Monitoring | **normalize to one event schema** |
@@ -342,6 +343,16 @@ regulated primary** + validated — see §2. Kept side-by-side to prevent drift.
    elastic burst, and BYOC.
 5. **Gateway.** Anypoint's AI/Omni Gateway is batteries-included; GCP's equivalent is
    Apigee + Model Armor, composed. Same capability, more assembly on GCP.
+6. **Model access has no ambient identity on Anypoint.** On Cloud Run the pod reaches
+   Vertex *as itself* — its own service account carries `aiplatform.user`, so there is no
+   credential to render and none to leak. CloudHub has no equivalent identity to borrow,
+   so the pod there can only reach a model when a compute project is configured for it
+   explicitly. The **slot is present on both** (that is what `render_deploy_config` parity
+   means, and what the parity test enforces); the toggle turns on only when that project
+   exists, which keeps a dark-shipped Anypoint pod inert rather than claiming an identity
+   it does not have. Closing this needs an explicit credential path on CloudHub — it is a
+   real gap, recorded rather than rendered away, and Anypoint live provisioning is gated
+   regardless.
 
 ## 10. BYO + onboarding (frontend)
 

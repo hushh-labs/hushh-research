@@ -1,0 +1,166 @@
+"""S8: one image, three platforms -- the rendered artifact must carry the same capabilities.
+
+`test_compute_backend_contract.py` proves the backends are interchangeable at the
+*interface*: same methods, same return types. That is necessary and not sufficient.
+A backend can satisfy every signature and still render a deploy artifact that
+cannot boot a pod -- no hub to read, no key to verify consent with, no model to
+call. The interface would stay green while the platform silently diverged.
+
+This is the capability guard. Each backend renders a different shape (Cloud Run's
+knative Service vs Anypoint's AMC descriptor), so parity cannot be asserted by
+comparing dicts. Instead each backend gets an **extractor** that reduces its own
+shape to the same small set of facts, and the capabilities are asserted against
+that reduction. Adding a fourth platform means writing one extractor, not
+rewriting the assertions.
+
+What parity means here, precisely:
+
+* **Present** -- the artifact declares the slot, so the capability is configurable
+  on that platform. A slot may render empty when unconfigured; that is how GCP
+  already behaves, and it keeps a dark-shipped pod inert rather than mis-pointed.
+* **Populated** -- identity pins and the feature flag must carry real values,
+  because a pod cannot be anonymous and a pod whose flag is off has no surface.
+* **Never inline** -- signing material arrives by reference on every platform, and
+  no private key or vault key appears in any artifact.
+
+The honest divergence, recorded rather than papered over: on Anypoint the model
+slot exists but has no ambient-credential path the way Vertex does on GCP, and
+live provisioning there is still gated. The slot's presence is what makes the
+platform configurable; it is not a claim that the model call works today.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+import pytest
+
+from hushh_mcp.services.anypoint_backend import AnypointBackend
+from hushh_mcp.services.compute_backend import PodSpec
+from hushh_mcp.services.gcp_backend import GcpBackend
+from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+
+@dataclass
+class Capabilities:
+    """One backend's artifact, reduced to the facts parity is asserted on."""
+
+    properties: dict[str, str] = field(default_factory=dict)
+    by_reference: set[str] = field(default_factory=set)
+    internal_only: bool = False
+    blob: str = ""
+
+    def declares(self, name: str) -> bool:
+        """The slot exists (value may be empty when unconfigured)."""
+        return name in self.properties or name in self.by_reference
+
+
+def _extract_knative(config: dict[str, Any]) -> Capabilities:
+    """Cloud Run (GcpBackend, UserGcpBackend): env entries on the first container."""
+    container = config["spec"]["template"]["spec"]["containers"][0]
+    properties: dict[str, str] = {}
+    by_reference: set[str] = set()
+    for entry in container.get("env", []):
+        name = entry["name"]
+        if "valueFrom" in entry:
+            by_reference.add(name)
+        else:
+            properties[name] = str(entry.get("value", ""))
+    ingress = config["metadata"]["annotations"].get("run.googleapis.com/ingress")
+    return Capabilities(
+        properties=properties,
+        by_reference=by_reference,
+        internal_only=ingress == "internal",
+        blob=str(config),
+    )
+
+
+def _extract_amc(config: dict[str, Any]) -> Capabilities:
+    """Anypoint CloudHub 2.0: the Mule application properties service."""
+    service = config["application"]["configuration"]["mule.agent.application.properties.service"]
+    inbound = config["target"]["deploymentSettings"]["http"]["inbound"]
+    return Capabilities(
+        properties={k: str(v) for k, v in service.get("properties", {}).items()},
+        by_reference=set(service.get("secureProperties", {})),
+        internal_only=bool(inbound.get("internal")) and not inbound.get("publicUrl"),
+        blob=str(config),
+    )
+
+
+_BACKENDS: list[tuple[str, Callable[[], Any], Callable[[dict], Capabilities]]] = [
+    ("gcp", lambda: GcpBackend(project="p", image="i", live=False), _extract_knative),
+    ("anypoint", lambda: AnypointBackend(env_id="e", live=False), _extract_amc),
+    ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i"), _extract_knative),
+]
+_IDS = [b[0] for b in _BACKENDS]
+
+
+def _spec() -> PodSpec:
+    return PodSpec(
+        hushh_id="HA1PARITY",
+        phone_e164_hash="h",
+        pod_pubkey="pub",
+        region="us-central1",
+        space_id="space-1",
+    )
+
+
+@pytest.fixture(params=_BACKENDS, ids=_IDS)
+def caps(request: pytest.FixtureRequest) -> Capabilities:
+    _name, build, extract = request.param
+    return extract(build().render_deploy_config(_spec()))
+
+
+# --- capabilities every platform must declare ------------------------------------------
+
+# The pod's only data-plane door (it holds no database credential), the consent
+# verifying keys it checks tokens against at its own door, and the model access the
+# fleet inside it needs. A platform missing any of these renders a pod that cannot
+# do its job, however well-formed the artifact is.
+REQUIRED_SLOTS = (
+    "HUSSH_HUB_BASE_URL",
+    "CONSENT_ED25519_PUBLIC_KEYS",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+)
+
+
+@pytest.mark.parametrize("slot", REQUIRED_SLOTS)
+def test_every_platform_declares_the_capability(caps: Capabilities, slot: str):
+    assert caps.declares(slot), f"platform does not declare {slot}"
+
+
+def test_every_platform_pins_the_pod_identity(caps: Capabilities):
+    assert caps.properties.get("HUSSH_ID") == "HA1PARITY"
+    assert caps.properties.get("HUSSH_SPACE_ID") == "space-1"
+
+
+def test_every_platform_turns_the_personal_agent_surface_on(caps: Capabilities):
+    """A pod exists only because the feature was enabled to provision it; without
+    this its only real surface 404s."""
+    assert caps.properties.get("PERSONAL_AGENT_ENABLED") == "1"
+
+
+def test_no_platform_exposes_the_pod_publicly(caps: Capabilities):
+    assert caps.internal_only, "the pod must not be reachable from the public internet"
+
+
+# --- what no platform may ever render ---------------------------------------------------
+
+
+def test_no_platform_renders_secret_material(caps: Capabilities):
+    """BYOK keys and consent tokens arrive per-turn at runtime, never in an artifact."""
+    lowered = caps.blob.lower()
+    for forbidden in ("private_key", "vault_data_key", "service_account.json", "-----begin"):
+        assert forbidden not in lowered, f"{forbidden} was rendered into the deploy artifact"
+
+
+def test_the_signing_key_is_never_rendered_inline(caps: Capabilities):
+    """With HMAC, the power to verify is the power to forge. If a platform carries
+    APP_SIGNING_KEY at all it must be a reference the host resolves, never a value."""
+    assert "APP_SIGNING_KEY" not in caps.properties, "APP_SIGNING_KEY was rendered as a value"
+
+
+def test_the_vault_key_is_on_no_platform(caps: Capabilities):
+    """A pod performs no vault crypto -- every consumer of that key is hub-only."""
+    assert not caps.declares("VAULT_DATA_KEY")

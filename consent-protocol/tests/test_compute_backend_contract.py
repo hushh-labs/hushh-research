@@ -19,11 +19,15 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
 )
 from hushh_mcp.services.gcp_backend import A2A_ADDRESS_BASE, GcpBackend
+from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 _BACKENDS = [
     ("null", lambda: NullBackend()),
     ("gcp", lambda: GcpBackend(project="p", image="i", live=False)),
     ("anypoint", lambda: AnypointBackend(env_id="e", live=False)),
+    # The BYOC sovereign tier is a real backend behind the same seam, so it belongs
+    # under the same contract -- it was the one selectable backend not covered here.
+    ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i")),
 ]
 _IDS = [b[0] for b in _BACKENDS]
 
