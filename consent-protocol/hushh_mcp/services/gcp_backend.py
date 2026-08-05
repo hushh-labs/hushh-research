@@ -242,6 +242,21 @@ class GcpBackend:
                     "name": "CONSENT_ED25519_PUBLIC_KEYS",
                     "value": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
                 },
+                # Vertex/Gemini access, so the fleet inside the pod can call a
+                # model. On BYOC these name the USER'S OWN project and the pod SA
+                # carries aiplatform.user there -- the pod reaches Vertex as
+                # itself, in the user's cloud, holding no hub credential. Empty
+                # until the compute project is configured, which keeps a
+                # dark-shipped pod inert rather than mis-pointed at the hub's.
+                {"name": "GOOGLE_GENAI_USE_VERTEXAI", "value": "true"},
+                {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": _env("HUSSH_POD_VERTEX_PROJECT") or self._project or "",
+                },
+                {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": _env("HUSSH_POD_VERTEX_LOCATION") or spec.region or self._region,
+                },
             ],
         }
         # The app refuses to import without APP_SIGNING_KEY (>=32 chars), so a pod
