@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/use-auth";
+import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -1196,6 +1197,8 @@ export function DeveloperDocsHub({
           ? await AuthService.signInWithGoogle()
           : await AuthService.signInWithApple();
       setNativeUser(authResult.user);
+      // Same sign-in, same mail as the main auth surface.
+      void ApiService.notifyAuthMail("signed_in");
       await checkAuth();
       await refreshAccess(authResult.user);
     } catch (error) {
